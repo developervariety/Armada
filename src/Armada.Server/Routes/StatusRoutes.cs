@@ -390,7 +390,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
                 }
-                Mission mission = new Mission { Persona = body.Persona, Priority = body.Priority, PreferredModel = body.PreferredModel };
+                Mission mission = new Mission { Persona = body.Persona, Priority = body.Priority, PreferredModel = body.PreferredModel, CapabilityHint = body.CapabilityHint };
                 if (!String.IsNullOrWhiteSpace(body.MissionTitle)) mission.Title = body.MissionTitle;
                 if (!String.IsNullOrWhiteSpace(body.MissionText)) mission.Description = body.MissionText;
                 List<Captain> idle = captains.Where(c => c.State == CaptainStateEnum.Idle && (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)).ToList();
@@ -420,7 +420,7 @@ namespace Armada.Server.Routes
                     SmartRoutingEnabled = policy.Enabled,
                     decision.HasPersonaRoutes,
                     decision.HasPersonaModels,
-                    LegacyOrder = decision.LegacyOrder.Select(c => new { c.Id, c.Name, c.Model, c.Runtime }).ToList(),
+                    LegacyOrder = decision.LegacyOrder.Select(c => new { c.Id, c.Name, c.Model, c.Runtime, Ranking = LegacyCaptainSelector.RankingFactors(_settings.ModelTier, mission, c) }).ToList(),
                     UsageFilter = decision.Verdicts,
                     ModelGroups = decision.Groups,
                     Capacity = new { Choice = decision.Capacity, Source = decision.CapacitySource, Asked = askCapacity },

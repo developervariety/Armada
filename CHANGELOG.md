@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Routing preview and planning storage
+
+- PostgreSQL upgrades add the optional objective link to existing planning tables and preserve stored sessions across restart.
+
+- Routing preview accepts capability hints and shows the ranking inputs used by the Legacy selector.
+
 ### Landing proposals
 
 - A health-loop sweep checks a bounded rotating page of `LandingFailed` missions per cycle, fetching each vessel once. When a mission's commit is an ancestor of `origin/<default branch>`, or a commit on that branch carries its exact `Armada-Mission-Id` trailer, the sweep records one `mission.landing_reconcile_proposed` event and the Needs You inbox shows one `landing_reconcile` item with the evidence. Landing refusals and a recorded commit equal to the stage start commit are never proposed. The sweep never completes a mission.

@@ -23,6 +23,7 @@ export default function SmartRoutingPreview({ value, personas, captains }: Props
   const [persona, setPersona] = useState(personas.includes('Worker') || personas.length === 0 ? 'Worker' : personas[0]);
   const [priority, setPriority] = useState(100);
   const [model, setModel] = useState('');
+  const [hint, setHint] = useState('');
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [result, setResult] = useState<SmartRoutingPreviewResult | null>(null);
@@ -39,6 +40,7 @@ export default function SmartRoutingPreview({ value, personas, captains }: Props
     try {
       const usageRouting: unknown = JSON.parse(value);
       const body: Record<string, unknown> = { persona, priority, preferredModel: model.trim() || null, usageRouting };
+      if (hint.trim()) body.capabilityHint = hint.trim();
       if (title.trim()) body.missionTitle = title.trim();
       if (text.trim()) body.missionText = text.trim();
       setResult(await previewUsageRouting(body));
@@ -62,6 +64,8 @@ export default function SmartRoutingPreview({ value, personas, captains }: Props
         <input id="usage-priority" type="number" value={priority} onChange={(e) => { setPriority(Number(e.target.value)); clear(); }} /></div>
       <div className="form-group"><label htmlFor="usage-model">{t('Preferred model (optional)')}</label>
         <input id="usage-model" value={model} onChange={(e) => { setModel(e.target.value); clear(); }} /></div>
+      <div className="form-group"><label htmlFor="usage-hint">{t('Capability hint (optional)')}</label>
+        <input id="usage-hint" value={hint} onChange={(e) => { setHint(e.target.value); clear(); }} /></div>
       <div className="form-group"><label htmlFor="usage-title">{t('Mission title (optional)')}</label>
         <input id="usage-title" value={title} onChange={(e) => { setTitle(e.target.value); clear(); }} /></div>
     </div>
@@ -76,7 +80,15 @@ export default function SmartRoutingPreview({ value, personas, captains }: Props
 
       <h5>{t('Legacy Routing order')}</h5>
       {(result.legacyOrder ?? []).length === 0 ? <p className="text-muted">{t('No idle captain passes the Legacy Routing constraints.')}</p> :
-        <ol className="smart-routing-order">{result.legacyOrder.map((c) => <li key={c.id}>{captainLabel(c)}</li>)}</ol>}
+        <ol className="smart-routing-order">{result.legacyOrder.map((c) => <li key={c.id}>{captainLabel(c)}{c.ranking && <span className="text-muted">
+          {' · '}{t('Tier')}: {c.ranking.tier}
+          {' · '}{t('Capability')}: {c.ranking.capabilityDimension
+            ? `${c.ranking.capabilityDimension} = ${c.ranking.capabilityScore === -1 ? t('No profile or dimension (-1)') : c.ranking.capabilityScore}`
+            : t('Not active')}
+          {' · '}{t('Rank')}: {c.ranking.preferenceRank}
+          {' · '}{t('External preference')}: {c.ranking.externalProviderPreferred ? t('Yes') : t('No')}
+          {' · '}{t('Persona preference')}: {c.ranking.personaPreferred ? t('Yes') : t('No')}
+        </span>}</li>)}</ol>}
 
       <h5>{t('Captain verdicts')}</h5>
       {(result.usageFilter ?? []).length === 0 ? <p className="text-muted">{t('No verdicts.')}</p> :

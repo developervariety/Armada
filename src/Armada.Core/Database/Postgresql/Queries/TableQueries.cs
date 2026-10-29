@@ -1244,7 +1244,9 @@ $convert$;"),
                 new SchemaMigration(141, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.PostgresqlStatements),
                 new SchemaMigration(142, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.PostgresqlStatements),
                 new SchemaMigration(143, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.PostgresqlStatements),
-                new SchemaMigration(144, "Persist fixture battery runs", BatteryRunSchema.PostgresqlStatements)
+                new SchemaMigration(144, "Persist fixture battery runs", BatteryRunSchema.PostgresqlStatements),
+                new SchemaMigration(145, "Persist objective links on existing planning sessions",
+                    @"ALTER TABLE planning_sessions ADD COLUMN IF NOT EXISTS objective_id TEXT NULL;")
             };
         }
 

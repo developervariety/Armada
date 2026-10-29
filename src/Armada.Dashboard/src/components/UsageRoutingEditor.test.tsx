@@ -105,14 +105,26 @@ describe('Usage routing editor', () => {
     expect(result).toHaveTextContent('Not asked (no mission title or text).');
   });
 
-  it('sends mission title and text and shows the capacity choice', async () => {
-    vi.mocked(previewUsageRouting).mockResolvedValue(previewResult({ capacity: { choice: 'Stronger', source: 'decision', asked: true } }));
+  it('sends capability and work text and shows the active ranking inputs', async () => {
+    vi.mocked(previewUsageRouting).mockResolvedValue(previewResult({
+      capacity: { choice: 'Stronger', source: 'decision', asked: true },
+      legacyOrder: [{ id: 'cpt_c', name: 'gamma', model: 'model-y', runtime: 'Codex', ranking: {
+        tier: 'Standard', capabilityDimension: 'AuditReasoningFit', capabilityScore: 83,
+        preferenceRank: 7, externalProviderPreferred: false, personaPreferred: true,
+      } }],
+    }));
     render(<UsageRoutingEditor value={JSON.stringify(accountPolicy)} onChange={vi.fn()} statuses={[]} personas={['Worker']} captains={captains} />);
+    fireEvent.change(screen.getByLabelText('Capability hint (optional)'), { target: { value: ' audit ' } });
     fireEvent.change(screen.getByLabelText('Mission title (optional)'), { target: { value: 'Hard diagnosis' } });
     fireEvent.change(screen.getByLabelText('Mission text (optional; asks the capacity decision)'), { target: { value: 'Find the cause.' } });
     fireEvent.click(screen.getByText('Run preview'));
-    await waitFor(() => expect(previewUsageRouting).toHaveBeenLastCalledWith(expect.objectContaining({ missionTitle: 'Hard diagnosis', missionText: 'Find the cause.' })));
-    expect(await screen.findByRole('status')).toHaveTextContent('Stronger list first (source: decision)');
+    await waitFor(() => expect(previewUsageRouting).toHaveBeenLastCalledWith(expect.objectContaining({ capabilityHint: 'audit', missionTitle: 'Hard diagnosis', missionText: 'Find the cause.' })));
+    const result = await screen.findByRole('status');
+    expect(result).toHaveTextContent('Stronger list first (source: decision)');
+    expect(result).toHaveTextContent('Tier: Standard');
+    expect(result).toHaveTextContent('AuditReasoningFit = 83');
+    expect(result).toHaveTextContent('Rank: 7');
+    expect(result).toHaveTextContent('Persona preference: Yes');
   });
 
   it('blocks preview of invalid JSON and shows unknown data explicitly', () => {

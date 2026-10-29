@@ -167,3 +167,7 @@ a populated pre-admission schema, stops after the first new statement, restarts,
 and checks retained data and prior migration history. Ordinary cases also cover
 reopen, concurrent writes, a state cycle, heartbeat invalidation, summary reads,
 redaction and invalid stored evidence.
+
+The PostgreSQL historical planning fixture upgrades text timestamps and a missing
+objective-link column on an existing planning table. It preserves the old session,
+writes an objective link through the database methods, and reads it after restart.

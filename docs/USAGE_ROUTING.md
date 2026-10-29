@@ -735,7 +735,7 @@ Routing part has:
   so each view shows the others' changes;
 - reported account usage;
 - **Preview Smart Routing**: a persona picker, priority, preferred model, and
-  optional mission title and text. It shows the chosen captain, the Legacy
+  optional capability hint, mission title and text. It shows the chosen captain, the Legacy
   Routing order, a verdict per captain with the layer that decided it
   (eligibility, routes, or usage), its outcome, and its reason,
   the capacity reading (the list chosen first and its source, or "not asked"
@@ -755,13 +755,13 @@ purchase plans, enforce a billing cap, or measure prepaid spending.
 replacement. Invalid policies return 400 before application.
 
 `POST /api/v1/settings/usage-preview` accepts `persona`, `priority`, optional
-`preferredModel`, optional `missionTitle` and `missionText`, and an optional
+`preferredModel`, optional `capabilityHint`, optional `missionTitle` and `missionText`, and an optional
 draft `usageRouting`. It requires settings write permission. It returns the
 steps of the selection:
 
 | Field | Content |
 | --- | --- |
-| `legacyOrder` | The Legacy Routing order of the idle, route-restricted captains |
+| `legacyOrder` | The Legacy Routing order of the idle, route-restricted captains; each carries `ranking` with effective `tier`, `capabilityDimension`, `capabilityScore`, `preferenceRank`, `externalProviderPreferred`, and `personaPreferred` |
 | `usageFilter` | One verdict per captain: `captainId`, `model`, `accountId`, `state`, `layer` (`eligibility`, `routes`, `usage`), `outcome` (`kept`, `demoted`, `removed`, `outside_routes`, `excluded`), `reason` (for `eligibility`: `persona_not_allowed`, `below_tier_floor`, or `model_pin_mismatch`) |
 | `modelGroups` | The persona model groups in the order tried, each with its captain IDs |
 | `capacity` | `choice`, `source`, and `asked` |
@@ -770,6 +770,11 @@ steps of the selection:
 | `reason` | The selection or wait reason. `persona_models_applied_<group>:<captainId>` when a list supplied the captain; `persona_models_matched_nothing` when the capacity-chosen list admitted nobody |
 | `personaModelHealth` | Per-persona floor, eligible captains, and live/dead marks for each list entry |
 | `matchedNothing` / `deadListEntries` | Set when the capacity-chosen list matched no eligible captain |
+
+Ranking factors come from the selector itself. A null capability score means the hint
+has no active dimension; -1 means the mapped dimension or model profile is absent.
+Capability scores precede preference rank within a tier. Equal peers can change
+order between previews because selection breaks ties at random.
 
 Without `missionTitle` and `missionText`, the preview does not call the
 typed-decision client and reports the `default` list (source

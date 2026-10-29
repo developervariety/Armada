@@ -60,6 +60,32 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Ranking factors explain capability precedence over rank", () =>
+            {
+                ModelTierSettings tiers = new ModelTierSettings { PreferNonNativeFirst = true };
+                tiers.ModelCapabilityProfiles["audit-model"] = new ModelCapabilityProfile { AuditReasoningFit = 90 };
+                tiers.ModelCapabilityProfiles["rank-model"] = new ModelCapabilityProfile { AuditReasoningFit = 40 };
+                Captain audit = new Captain("audit") { Model = "audit-model", Tier = CaptainTierEnum.Standard, PreferenceRank = 0 };
+                Captain ranked = new Captain("ranked") { Model = "rank-model", Tier = CaptainTierEnum.Standard, PreferenceRank = 100, ApiBaseUrl = "https://example.invalid", PreferredPersona = "Worker" };
+                List<Captain> pool = new List<Captain> { ranked, audit };
+                Mission mission = new Mission { Persona = "Worker", PreferredModel = "mid", CapabilityHint = "audit" };
+                CaptainRankingFactors factors = LegacyCaptainSelector.RankingFactors(tiers, mission, audit);
+                AssertEqual("AuditReasoningFit", factors.CapabilityDimension, "the hint selects the active profile dimension");
+                AssertEqual<long?>(90, factors.CapabilityScore, "the reported score belongs to the selected dimension");
+                AssertEqual(audit.Id, LegacyCaptainSelector.Select(tiers, mission, pool, false, _ => 0)!.Id, "capability outranks captain rank");
+                CaptainRankingFactors preference = LegacyCaptainSelector.RankingFactors(tiers, mission, ranked);
+                AssertEqual(CaptainTierEnum.Standard, preference.Tier, "the report uses the effective tier");
+                AssertEqual(100, preference.PreferenceRank, "the report carries the configured rank");
+                AssertTrue(preference.ExternalProviderPreferred && preference.PersonaPreferred, "the report carries the active tie breakers");
+                foreach (string? hint in new string?[] { null, "unknown" })
+                {
+                    mission.CapabilityHint = hint;
+                    AssertNull(LegacyCaptainSelector.RankingFactors(tiers, mission, audit).CapabilityScore, "an unmapped hint has no active score");
+                    AssertEqual(ranked.Id, LegacyCaptainSelector.Select(tiers, mission, pool, false, _ => 0)!.Id, "rank decides without a mapped hint");
+                }
+                return Task.CompletedTask;
+            });
+
             await RunTest("Worker mid follows the mid preference order, then non-native first, then the high order", async () =>
             {
                 RoutingFixture fixture = await PrepareAsync(Roster()).ConfigureAwait(false);

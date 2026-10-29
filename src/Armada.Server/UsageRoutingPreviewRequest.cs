@@ -11,6 +11,8 @@ namespace Armada.Server
         public int Priority { get; set; } = 100;
         /// <summary>Optional tier or concrete model requirement.</summary>
         public string? PreferredModel { get; set; }
+        /// <summary>Optional mission capability hint used by Legacy Routing.</summary>
+        public string? CapabilityHint { get; set; }
         /// <summary>Optional mission title for the capacity decision.</summary>
         public string? MissionTitle { get; set; }
         /// <summary>Optional mission text for the capacity decision; when title and text are both absent the client is not called and the Default list is reported.</summary>

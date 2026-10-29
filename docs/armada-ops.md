@@ -1,5 +1,14 @@
 # Armada Operator Guide
 
+Routing preview accepts a mission capability hint and shows the Legacy selector's
+ranking factors beside each candidate. Use Settings > Routing > Preview Smart
+Routing to inspect tier, active capability score, rank and tie preferences.
+See [Smart Routing](USAGE_ROUTING.md) for the selection rules.
+
+
+PostgreSQL startup upgrades existing planning tables with the optional objective
+link column. Stored sessions remain readable and can link to backlog objectives.
+
 This guide is the canonical operating procedure for Armada. It describes how an
 orchestrator creates, monitors, verifies, lands, and closes work, and it lists
 every MCP tool the server registers.
