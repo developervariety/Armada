@@ -472,6 +472,33 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Reclaim records dock.reclaimed with the caller, the mission and its status, once per reclaim", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    IDockService dockService = new DockService(logging, testDb.Driver, CreateSettings(), git);
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
+                    Dock dock = entities.Dock;
+                    Mission mission = entities.Mission;
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    await testDb.Driver.Missions.UpdateAsync(mission);
+
+                    await dockService.ReclaimAsync(dock.Id);
+                    await dockService.ReclaimAsync(dock.Id);
+
+                    List<ArmadaEvent> events = (await testDb.Driver.Events.EnumerateByTypeAsync("dock.reclaimed", 50))
+                        .Where(e => e.EntityId == dock.Id).ToList();
+                    AssertEqual(1, events.Count, "The first reclaim records one event and the repeated no-op reclaim records none");
+                    ArmadaEvent recorded = events[0];
+                    AssertEqual(mission.Id, recorded.MissionId, "The event names the mission");
+                    AssertContains("LandingPipelineTests", recorded.Payload ?? "", "The payload names the calling type");
+                    AssertContains("\"MissionStatus\":\"LandingFailed\"", recorded.Payload ?? "", "The payload names the mission status at reclaim");
+                    AssertContains(mission.Id, recorded.Payload ?? "", "The payload names the mission");
+                }
+            });
+
             await RunTest("Reclaim anchors a branchless dock commit by identity", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

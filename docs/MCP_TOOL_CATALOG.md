@@ -1216,7 +1216,9 @@ dock active, delete returns false, purge and provision fail with the reason,
 the disk lifecycle reports the directory as skipped, and
 `mission.work_snapshot_failed` names the reason. A directory with no git checkout
 in it holds nothing a snapshot can save and is removed as before. Both events
-appear in the mission recovery report.
+appear in the mission recovery report. Every completed reclaim also records
+`dock.reclaimed`, naming the calling code path, the dock's mission and the
+mission's status at that moment.
 
 Both families use one retention rule. The sweep keeps an anchor in these cases:
 

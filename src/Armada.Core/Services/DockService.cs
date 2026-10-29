@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System.Diagnostics;
+    using System.Runtime.CompilerServices;
     using System.Text.Json;
     using System.Text.RegularExpressions;
     using SyslogLogging;
@@ -460,7 +461,8 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+        public async Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default,
+            [CallerMemberName] string? caller = null, [CallerFilePath] string? callerFile = null)
         {
             if (String.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
 
@@ -522,11 +524,16 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // The caller, mission and mission status are read before the reclaim clears the dock's captain.
+            ReclaimAuditRecord audit = await ReadReclaimAuditAsync(dock, caller, callerFile, token).ConfigureAwait(false);
+
             if (dock.HostCheckout != null)
             {
                 try
                 {
-                    if (!await ReclaimHarborDockAsync(dock, token).ConfigureAwait(false))
+                    if (await ReclaimHarborDockAsync(dock, token).ConfigureAwait(false))
+                        await RecordReclaimedAsync(dock, audit, token).ConfigureAwait(false);
+                    else
                         _Logging.Warn(_Header + "Harbor checkout for dock " + dockId + " remains held because its work was not saved");
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -612,6 +619,7 @@ namespace Armada.Core.Services
             dock.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Docks.UpdateAsync(dock, token).ConfigureAwait(false);
             ArmadaMetrics.RecordDockReclaimed();
+            await RecordReclaimedAsync(dock, audit, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -1150,6 +1158,76 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not anchor dock " + dock.Id + " HEAD: " + ex.Message);
+            }
+        }
+
+        private sealed class ReclaimAuditRecord
+        {
+            public string Caller { get; init; } = "unknown";
+            public string? MissionId { get; init; }
+            public string? MissionStatus { get; init; }
+        }
+
+        // Names the caller as "<file>.<member>"; the file contributes its name only, never its path.
+        private async Task<ReclaimAuditRecord> ReadReclaimAuditAsync(Dock dock, string? caller, string? callerFile, CancellationToken token)
+        {
+            string callerName = String.IsNullOrWhiteSpace(callerFile)
+                ? (String.IsNullOrWhiteSpace(caller) ? "unknown" : caller!)
+                : Path.GetFileNameWithoutExtension(callerFile) + (String.IsNullOrWhiteSpace(caller) ? "" : "." + caller);
+
+            string? missionId = null;
+            string? missionStatus = null;
+            try
+            {
+                missionId = await ResolveDockMissionIdAsync(dock, token).ConfigureAwait(false);
+                if (!String.IsNullOrWhiteSpace(missionId))
+                {
+                    Mission? mission = await _Database.Missions.ReadSummaryAsync(missionId!, token).ConfigureAwait(false);
+                    missionStatus = mission?.Status.ToString();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read the mission of dock " + dock.Id + " for its reclaim record: " + ex.Message);
+            }
+
+            return new ReclaimAuditRecord { Caller = callerName, MissionId = missionId, MissionStatus = missionStatus };
+        }
+
+        private async Task RecordReclaimedAsync(Dock dock, ReclaimAuditRecord audit, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("dock.reclaimed",
+                    "Dock " + dock.Id + " reclaimed by " + audit.Caller
+                    + (audit.MissionId == null ? "" : " (mission " + audit.MissionId + ", status " + (audit.MissionStatus ?? "unknown") + ")"));
+                evt.TenantId = dock.TenantId;
+                evt.UserId = dock.UserId;
+                evt.EntityType = "dock";
+                evt.EntityId = dock.Id;
+                evt.VesselId = dock.VesselId;
+                evt.CaptainId = audit.MissionId == null ? null : dock.CaptainId;
+                evt.MissionId = audit.MissionId;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    DockId = dock.Id,
+                    Caller = audit.Caller,
+                    MissionId = audit.MissionId,
+                    MissionStatus = audit.MissionStatus
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record the reclaim of dock " + dock.Id + ": " + ex.Message);
             }
         }
 

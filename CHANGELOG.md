@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Dock reclaim audit
+
+- Every dock reclaim that completes records a `dock.reclaimed` event naming the calling code path, the dock's mission and the mission's status. A reclaim never removes unlanded work: committed work stays on the branch and under the dock, mission and preserved-branch anchor refs, and uncommitted work is saved to a `recover/` ref, whatever the mission status. Reclaim therefore does not refuse by mission status.
+
 ### Mission branch check at completion
 
 - When completion captures a mission's commit, it records `mission.branch_verified` when the mission branch holds that commit and `mission.branch_unverified` when it does not or git cannot answer. The event payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch.

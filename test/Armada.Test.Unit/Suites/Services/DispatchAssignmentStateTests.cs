@@ -2467,8 +2467,8 @@ namespace Armada.Test.Unit.Suites.Services
                 return await _Inner.ProvisionAsync(vessel, captain, branchName, missionId, detachedWorktree, token).ConfigureAwait(false);
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
-                => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? caller = null, string? callerFile = null)
+                => _Inner.ReclaimAsync(dockId, tenantId, token, caller, callerFile);
 
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.RepairAsync(dockId, tenantId, token);
@@ -2516,8 +2516,8 @@ namespace Armada.Test.Unit.Suites.Services
                 return await _Inner.ProvisionAsync(vessel, captain, branchName, missionId, detachedWorktree, token).ConfigureAwait(false);
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
-                => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? caller = null, string? callerFile = null)
+                => _Inner.ReclaimAsync(dockId, tenantId, token, caller, callerFile);
 
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.RepairAsync(dockId, tenantId, token);
@@ -2595,7 +2595,7 @@ namespace Armada.Test.Unit.Suites.Services
                 throw new InvalidOperationException("Simulated dock provisioning failure after the mission was cancelled");
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? caller = null, string? callerFile = null) => _Inner.ReclaimAsync(dockId, tenantId, token, caller, callerFile);
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.RepairAsync(dockId, tenantId, token);
             public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.UnstickAsync(dockId, tenantId, token);
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.DeleteAsync(dockId, tenantId, token);
@@ -2629,7 +2629,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return dock;
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? caller = null, string? callerFile = null) => _Inner.ReclaimAsync(dockId, tenantId, token, caller, callerFile);
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.RepairAsync(dockId, tenantId, token);
             public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.UnstickAsync(dockId, tenantId, token);
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.DeleteAsync(dockId, tenantId, token);
@@ -2665,7 +2665,7 @@ namespace Armada.Test.Unit.Suites.Services
                 throw new InvalidOperationException("Simulated dock provisioning failure after another mission claimed the captain");
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? caller = null, string? callerFile = null) => _Inner.ReclaimAsync(dockId, tenantId, token, caller, callerFile);
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.RepairAsync(dockId, tenantId, token);
             public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.UnstickAsync(dockId, tenantId, token);
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.DeleteAsync(dockId, tenantId, token);
@@ -2715,8 +2715,8 @@ namespace Armada.Test.Unit.Suites.Services
                 throw new InvalidOperationException("dock_worktree_held: branch held by worktree " + _HolderPath + " (pids 2147483647)");
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
-                => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? caller = null, string? callerFile = null)
+                => _Inner.ReclaimAsync(dockId, tenantId, token, caller, callerFile);
 
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.RepairAsync(dockId, tenantId, token);
@@ -2752,8 +2752,8 @@ namespace Armada.Test.Unit.Suites.Services
                 return await _Inner.ProvisionAsync(vessel, captain, branchName, missionId, detachedWorktree, token).ConfigureAwait(false);
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
-                => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? caller = null, string? callerFile = null)
+                => _Inner.ReclaimAsync(dockId, tenantId, token, caller, callerFile);
 
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)
                 => _Inner.RepairAsync(dockId, tenantId, token);
