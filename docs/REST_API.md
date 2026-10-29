@@ -1679,6 +1679,21 @@ The Admiral fetches the remote and counts commits once, then reuses the status f
 
 ---
 
+#### GET /api/v1/vessels/{id}/toolchain-suggestion
+
+Reads marker files in the vessel working directory and returns suggested build, test and lint commands for each ecosystem it finds (`.NET`, Node, Python, Go, Rust). The commands are catalog defaults. The read does not create or change a workflow profile or a vessel command. A missing working directory returns `checkoutReadable: false` and an empty `ecosystems` list. The response does not include the directory path.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Vessel ID (`vsl_` prefix) |
+
+**Response:** `200 OK` - `{ "vesselId": "vsl_...", "checkoutReadable": true, "ecosystems": [{ "ecosystem": "Go", "markers": ["go.mod"], "buildCommand": "go build ./...", "testCommand": "go test ./...", "lintCommand": "go vet ./..." }] }`
+**Error:** `404` - Vessel not found
+
+---
+
 #### GET /api/v1/vessels/{id}/readiness
 
 Returns readiness warnings and blocking issues for a vessel. Optional query:
@@ -1791,6 +1806,7 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 | `Pipeline` | string | no | Pipeline name to use for this voyage (alternative to `PipelineId`) |
 | `SkipStages` | array | no | Pipeline stages the operator confirms this voyage does not need (for example `["TestEngineer"]`). Each entry names one stage: a persona name when only one stage carries it, a stage order (`"5"` or `"#5"`), or a persona and its occurrence in stage order (`"Worker#2"` is the second Worker). The stages are dropped when the voyage is materialised, the remaining stages chain across the gap, and one `voyage.stage_skipped` event is recorded per stage. Naming the Judge, by persona or by order, returns `400` with `stage_skip_judge_refused`; an entry that names no stage of the effective pipeline returns `400` with `stage_skip_unknown_persona`; a bare persona name that more than one stage carries, or an order that parallel stages share, returns `400` with `stage_skip_ambiguous_persona`, and its message lists the order and occurrence name of each such stage. With an `ObjectiveId`, an absent `SkipStages` applies the objective's confirmed stored skip as a default (an entry that names no stage of the pipeline is dropped and recorded as a `voyage.stage_skip_default_dropped` event); `[]` skips nothing. |
 | `SkipStagesReason` | string | no | Reason recorded on each `voyage.stage_skipped` event. |
+| `IsEvaluation` | boolean | no | When true, the voyage and every mission created for it are evaluation work and stay out of the production summary. The default is false. A bare voyage (no vessel, or no missions) stores the same flag and creates no missions. |
 
 **Response:** `201 Created` - [Voyage](#voyage)
 
@@ -1992,6 +2008,7 @@ Create and dispatch a new mission. If a `VesselId` is provided, the Admiral will
 | `VoyageId` | string | no | Parent voyage ID |
 | `Priority` | int | no | Priority (lower = higher priority, default: 100) |
 | `SelectedPlaybooks` | array | no | Ordered [SelectedPlaybook](#selectedplaybook) rows for this standalone mission. Merges with vessel defaults (per-mission wins on collision). |
+| `IsEvaluation` | boolean | no | When true, the mission is evaluation work and stays out of the production summary. The default is false. A mission created for an evaluation voyage inherits that voyage's flag. A mission derived from an evaluation mission copies it. |
 
 **Response:** `201 Created` - [Mission](#mission)
 
@@ -2340,6 +2357,54 @@ only its own mission, whatever `{id}` names.
 
 ---
 
+#### GET /api/v1/missions/{id}/attempts
+
+Lists each process attempt recorded for a mission, oldest first: the captain, runtime, model and runtime version that ran
+it, when it started and ended, and how it ended. One row is written when a captain process launches and closed when its
+exit is observed; the rows are deleted with the mission. REST and MCP `armada_mission_attempts` read them through one
+reader, which resolves the mission through the caller's scope first. A mission outside that scope answers `404`, and a
+mission session token reads only its own mission.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `limit` | integer | 100 | Most attempts to return, newest kept (maximum 1000) |
+
+**Response:** `200 OK` - a [MissionAttemptProvenanceReport](#missionattemptprovenancereport).
+
+```json
+{
+  "MissionId": "msn_abc123",
+  "Attempts": [
+    {
+      "Id": "mat_mabc1234_xyz",
+      "MissionId": "msn_abc123",
+      "CaptainId": "cpt_abc123",
+      "Persona": "Worker",
+      "Runtime": "ClaudeCode",
+      "Model": "claude-sonnet-5-5",
+      "RuntimeVersion": "2.1.0 (Claude Code)",
+      "ProcessId": 4242,
+      "StartedUtc": "2026-10-28T12:00:00Z",
+      "EndedUtc": "2026-10-28T12:14:30Z",
+      "Outcome": "Completed",
+      "ExitCode": 0,
+      "ReasonCode": null
+    }
+  ],
+  "Truncated": false
+}
+```
+
+**Errors:** `400` - `limit` is not a positive integer; `404` - Mission not found
+
+---
+
 #### GET /api/v1/missions/{id}/log
 
 Returns the session log (captured stdout/stderr) for a mission. Log files are written to disk when a captain executes a mission. Supports pagination via query parameters. When the canonical log is empty or absent, the newest non-empty sidecar log (`<id>.*.log`) is read. REST, WebSocket `get_mission_log` and MCP `armada_get_mission_log` read the page through one reader: runtime noise is filtered, a negative offset reads as 0, the line count is at least 1, and secret-shaped values are redacted.
@@ -2615,6 +2680,31 @@ curl -X PUT http://localhost:7890/api/v1/captains/cpt_abc123 \
   -H "Content-Type: application/json" \
   -H "x-api-key: YOUR_KEY" \
   -d '{"name": "captain-bravo", "runtime": "Codex"}'
+```
+
+---
+
+#### POST /api/v1/captains/{id}/probe
+
+Sends one tiny prompt through the captain's existing model validation and reports success, latency and a short error. The probe creates no mission. An `ApiEndpoint` captain is admitted by that validation and then probed through the existing model-endpoint validation, which also records the endpoint's health. Only a global administrator may call it. The same captain cannot be probed again for 30 seconds: a repeat returns `429` with `Retry-After`, `Error` `captain_model_probe_rate_limited` and `RetryAfterUtc`. An unknown captain returns `404`.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Captain ID (`cpt_` prefix) |
+
+**Response:** `200 OK`
+
+| Field | Type | Description |
+|---|---|---|
+| `CaptainId` | string | Captain that was probed |
+| `Success` | boolean | True when the prompt completed |
+| `LatencyMs` | number | Milliseconds spent on the probe |
+| `Error` | string | Short failure reason. Absent when the probe succeeds |
+
+```bash
+curl -X POST http://localhost:7890/api/v1/captains/cpt_abc123/probe \
+  -H "x-api-key: YOUR_KEY"
 ```
 
 ---
@@ -5803,6 +5893,40 @@ Response from `GET /api/v1/missions/{id}/change-summary` and MCP `armada_mission
 
 ---
 
+#### MissionAttemptProvenanceReport
+
+Response from `GET /api/v1/missions/{id}/attempts` and MCP `armada_mission_attempts`.
+
+| Field | Type | Description |
+|---|---|---|
+| `MissionId` | string | Mission the attempts belong to |
+| `Attempts` | array | Attempts, oldest first. Each entry is the table below |
+| `Truncated` | bool | True when older attempts exist beyond `limit` |
+
+Each attempt:
+
+| Field | Type | Description |
+|---|---|---|
+| `Id` | string | Attempt ID (`mat_` prefix) |
+| `TenantId`, `UserId` | string? | Owner of the mission |
+| `MissionId`, `VoyageId`, `VesselId` | string | Mission and the voyage and vessel it belongs to |
+| `CaptainId` | string? | Captain that ran the process |
+| `Persona` | string? | Persona the mission ran as |
+| `Runtime` | string? | Runtime name, such as `ClaudeCode` or `Codex` |
+| `Model` | string? | Model the captain was configured with at launch |
+| `RuntimeVersion` | string? | First line of the runtime executable's `--version` output. Null when the probe timed out, failed, or the attempt ran on a Harbor runner |
+| `ProcessId` | int? | Process id of the launch |
+| `StartedUtc` | datetime | When the process launched |
+| `EndedUtc` | datetime? | When its exit was observed; null while `Running` |
+| `Outcome` | string | `Running`, `Completed` (exit code 0), `Failed` (non-zero exit code) or `Interrupted` (no exit code, or replaced by a later launch) |
+| `ExitCode` | int? | Exit code when one was observed |
+| `ReasonCode` | string? | `exit_nonzero`, `exit_unknown` or `superseded_by_relaunch`; null for a clean exit |
+
+The runtime version is probed once per executable and cached for 30 minutes (5 minutes when the probe returned nothing).
+A launch waits at most 3 seconds for it and proceeds without a version when the probe is slower.
+
+---
+
 #### MissionLog
 
 Response from `GET /api/v1/missions/{id}/log`.
@@ -5921,6 +6045,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 55 | GET | `/api/v1/captains/{id}` | Get captain | Yes |
 | 56 | PUT | `/api/v1/captains/{id}` | Update captain | Yes |
 | 57 | POST | `/api/v1/captains/{id}/stop` | Stop captain | Yes |
+| 57a | POST | `/api/v1/captains/{id}/probe` | Probe a captain model | Yes |
 | 58 | POST | `/api/v1/captains/stop-all` | Stop all captains | Yes |
 | 59 | GET | `/api/v1/captains/{id}/log` | Get captain current log | Yes |
 | 60 | DELETE | `/api/v1/captains/{id}` | Delete captain | Yes |
@@ -5973,8 +6098,9 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 107 | POST | `/api/v1/inbox/enumerate` | One page of the needs-you inbox | Yes |
 | 108 | POST | `/api/v1/model-endpoints/enumerate` | One page of the model endpoints the caller may see | Yes |
 | 109 | POST | `/api/v1/planning-sessions/enumerate` | One page of the planning sessions the caller may see | Yes |
+| 110 | GET | `/api/v1/missions/{id}/attempts` | Attempts recorded for one mission: captain, runtime, model, runtime version, times and outcome | Yes |
 
-This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
+This table is a quick route index, not the complete contract. A caller reads `/openapi.json` or `/swagger` with the same authentication as other routes.
 
 \* Gated by `AllowSelfRegistration` setting.
 \*\* Non-admin users are scoped to their own records only.

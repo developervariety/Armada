@@ -61,6 +61,7 @@ namespace Armada.Server.Mcp
         /// <param name="captainAdministration">Shared captain stop-all and deletion service. When null, one is built from <paramref name="admiral"/> and the supplied session coordinators.</param>
         /// <param name="missionOperations">Shared mission and voyage operations (cancel, purge, restart). When null, one is built from <paramref name="admiral"/>, <paramref name="settings"/> and <paramref name="dockService"/> that writes no events.</param>
         /// <param name="askActions">Optional saved-chat proposal gate. Standalone tools keep their ordinary behavior.</param>
+        /// <param name="askThreads">Optional saved Ask conversation service enabling the read-only conversation tools.</param>
         /// <param name="vesselCheckoutImportService">Optional local checkout service; its discovery and import tools remain registered with named unavailable results when absent.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
@@ -114,7 +115,9 @@ namespace Armada.Server.Mcp
             CaptainAdministrationService? captainAdministration = null,
             MissionOperations? missionOperations = null,
             AskActionService? askActions = null,
-            VesselCheckoutImportService? vesselCheckoutImportService = null)
+            VesselCheckoutImportService? vesselCheckoutImportService = null,
+            CaptainModelProbeService? captainModelProbe = null,
+            AskThreadService? askThreads = null)
         {
             // Every tool's abbreviated id arguments resolve at this one seam before the tool runs.
             register = McpAbbreviatedIdArguments.Wrap(register, database);
@@ -141,6 +144,7 @@ namespace Armada.Server.Mcp
             // The mission change summary resolves its mission, vessel and both commits from the caller and recorded
             // mission evidence, so it sits in the caller-scoped catalogue beside unified recall.
             McpMissionChangeSummaryTools.Register(register, database, effectiveSettings, git, logging);
+            McpMissionAttemptTools.Register(register, database);
             if (captainAdministration == null)
             {
                 captainAdministration = new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
@@ -151,7 +155,7 @@ namespace Armada.Server.Mcp
                 }
                 captainAdministration.AttachSessionCoordinators(planningSessionCoordinator, objectiveRefinementCoordinator);
             }
-            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration, missionOperations.Notifier);
+            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration, missionOperations.Notifier, captainModelProbe);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
             McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter, longRunningJobs);
@@ -161,6 +165,7 @@ namespace Armada.Server.Mcp
             McpProductionTools.Register(register, database);
             McpPapercutTools.Register(register, database, papercutMergeAdapter);
             McpMemoryProposalTools.Register(register, database);
+            McpAskThreadTools.Register(register, askThreads);
             if (logging != null) McpInboxTools.Register(register, database, logging, inboxTriageAdapter);
             McpDockTools.Register(register, database, dockService, missionOperations.Notifier);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);

@@ -1189,6 +1189,45 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/missions/{id}/attempts", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+
+                int limit = MissionAttemptProvenanceReader.DefaultLimit;
+                string? limitValue = QueryValueReader.Read(req, "limit");
+                if (limitValue != null && (!Int32.TryParse(limitValue, out limit) || limit < 1))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "limit must be a positive integer" };
+                }
+
+                // REST and MCP read attempts through one reader, which resolves the mission through the caller's scope.
+                MissionAttemptProvenanceReport? report = await MissionAttemptProvenanceReader.ReadAsync(
+                    _database, ctx, recordId.Id, limit, req.Http.Token).ConfigureAwait(false);
+                if (report == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
+                }
+                return (object)report;
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("List the recorded attempts of a mission")
+                .WithDescription("Lists each process attempt recorded for the mission, oldest first: the captain, runtime, model and runtime version that ran it, when it started and ended, and its outcome (Running, Completed, Failed or Interrupted) with a reason code. Reads only missions in the caller's scope. Truncated is true when older attempts exist beyond limit.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("limit", "Most attempts to return, newest kept (default 100, maximum 1000)", false, OpenApiSchemaMetadata.Integer()))
+                .WithResponse(200, OpenApiJson.For<MissionAttemptProvenanceReport>("Mission attempts"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/missions/{id}/log", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

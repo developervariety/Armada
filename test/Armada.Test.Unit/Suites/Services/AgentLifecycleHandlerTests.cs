@@ -510,6 +510,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Process exit closes the running attempt row with the exit outcome", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Exit provenance mission")).ConfigureAwait(false);
+                    Captain captain = new Captain("exit-provenance-captain", AgentRuntimeEnum.Cursor);
+                    await MissionAttemptProvenanceRecorder.StartAsync(testDb.Driver, mission, captain, 4343, null).ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, new StubAdmiralService());
+
+                    await handler.HandleAgentProcessExitedAsync(4343, 74, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    ProductionFactPage<MissionAttemptProvenance> attempts = await testDb.Driver.MissionAttempts
+                        .EnumerateByMissionAsync(mission.TenantId, mission.Id, 10).ConfigureAwait(false);
+                    AssertEqual(1, attempts.Items.Count);
+                    AssertEqual(MissionAttemptOutcomeEnum.Failed, attempts.Items[0].Outcome, "a non-zero exit closes the attempt as failed");
+                    AssertEqual(74, attempts.Items[0].ExitCode);
+                    AssertNotNull(attempts.Items[0].EndedUtc, "the attempt records when it ended");
+                }
+            });
+
             await RunTest("Runtime exit evidence matches stored microseconds and cannot cross a native launch identity", () =>
             {
                 const int processId = 4347;
@@ -787,6 +807,14 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertNotNull(persistedMission, "Mission row should still exist");
                         AssertEqual(processId, persistedCaptain!.ProcessId, "Captain row should have the returned process id before launch returns");
                         AssertEqual(processId, persistedMission!.ProcessId, "Mission row should have the returned process id before launch returns");
+
+                        ProductionFactPage<MissionAttemptProvenance> attempts = await testDb.Driver.MissionAttempts
+                            .EnumerateByMissionAsync(mission.TenantId, mission.Id, 10).ConfigureAwait(false);
+                        AssertEqual(1, attempts.Items.Count, "Launch should record one attempt row");
+                        AssertEqual(captain.Id, attempts.Items[0].CaptainId, "Attempt row should name the captain");
+                        AssertEqual("Cursor", attempts.Items[0].Runtime, "Attempt row should name the runtime");
+                        AssertEqual("slow-launch-model", attempts.Items[0].Model, "Attempt row should name the model");
+                        AssertEqual(processId, attempts.Items[0].ProcessId, "Attempt row should carry the launched process id");
                     }
                     finally
                     {

@@ -55,6 +55,8 @@ namespace Armada.Server
             if (turn.State != AskTurnStateEnum.Pending && turn.State != AskTurnStateEnum.Running) return;
             if (!_Active.ContainsKey(RuntimeKey(turn)))
                 turn.State = AskTurnStateEnum.Uncertain;
+            else
+                turn.LiveToolCalls = _Chat.SnapshotLiveToolCalls(turn.ThreadId, turn.RequestId);
         }
 
         private AskTurnStart Replay(AskTurnReservation reservation)

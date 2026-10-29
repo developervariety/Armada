@@ -47,7 +47,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="captainQuarantine">Optional quarantine service; when supplied the bench and unbench tools are registered.</param>
         /// <param name="captainAdministration">Shared stop, stop-all and deletion service. When null, one is built that recalls through <paramref name="admiral"/>, stops processes through <paramref name="onStopCaptain"/>, and has no session coordinators, so it refuses to stop a Planning or Refining captain and reports active planning and refinement sessions as failed stops.</param>
         /// <param name="notifier">Event sink for the captain batch event REST also writes; null writes none.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null, ICaptainQuarantineService? captainQuarantine = null, CaptainAdministrationService? captainAdministration = null, OperationNotifier? notifier = null)
+        /// <param name="captainModelProbe">Probe of a captain's configured model. Null leaves the tool unregistered.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, Func<string, Task>? onStopCaptain = null, AgentLifecycleHandler? agentLifecycle = null, LoggingModule? logging = null, ICaptainQuarantineService? captainQuarantine = null, CaptainAdministrationService? captainAdministration = null, OperationNotifier? notifier = null, CaptainModelProbeService? captainModelProbe = null)
         {
             CaptainAdministrationService administration = captainAdministration
                 ?? new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
@@ -427,6 +428,51 @@ namespace Armada.Server.Mcp.Tools
                         CaptainLogResponse page = await SessionLogReader.ReadCaptainLogAsync(
                             settings.LogDirectory, captain, request.Offset, request.Lines, 100).ConfigureAwait(false);
                         return (object)new { CaptainId = page.CaptainId, Log = page.Log, Lines = page.Lines, TotalLines = page.TotalLines };
+                    });
+            }
+
+            {
+                register(
+                    "armada_probe_captain_model",
+                    "Send one tiny prompt to a captain's configured model and report success, latency and a short error. Creates no mission. A global administrator is required, and the same captain cannot be probed again for 30 seconds.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" }
+                        },
+                        required = new[] { "captainId" }
+                    },
+                    async (args) =>
+                    {
+                        if (captainModelProbe == null) return McpToolUnavailable.Create("captain model probe");
+                        CaptainIdArgs request = JsonSerializer.Deserialize<CaptainIdArgs>(args!.Value, _JsonOptions)!;
+                        try
+                        {
+                            return (object)await captainModelProbe.ProbeAsync(
+                                McpCallerContext.Require(), request.CaptainId, McpCallerContext.CallToken).ConfigureAwait(false);
+                        }
+                        catch (KeyNotFoundException ex)
+                        {
+                            return (object)new { Error = ex.Message };
+                        }
+                        catch (UnauthorizedAccessException ex)
+                        {
+                            return (object)new { Error = ex.Message };
+                        }
+                        catch (CaptainModelProbeRateLimitException limited)
+                        {
+                            return (object)new
+                            {
+                                Error = "captain_model_probe_rate_limited",
+                                RetryAfterUtc = limited.RetryAfterUtc
+                            };
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            return (object)new { Error = ex.Message };
+                        }
                     });
             }
         }

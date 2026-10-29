@@ -243,7 +243,26 @@ namespace Armada.Core.Services
         /// <returns>One finding per line, each starting with "- ".</returns>
         public static string BlockingFindings(string? review, int maxChars)
         {
-            if (String.IsNullOrWhiteSpace(review)) return String.Empty;
+            BlockingFindingSelection selection = SelectBlockingFindings(review, maxChars);
+            if (selection.Items.Count == 0 && !selection.ExtractionMissed) return String.Empty;
+            List<string> lines = selection.Items.Select(item => "- " + item).ToList();
+            if (selection.Omitted > 0 || selection.ExtractionMissed) lines.Add(IncompleteFindingsLine(maxChars, selection.Omitted));
+            return String.Join("\n", lines);
+        }
+
+        /// <summary>
+        /// The blocking findings of a review that fit a character bound, each kept whole. A bound that cannot
+        /// hold every finding drops whole findings, lowest priority first (plain list items that name no defect,
+        /// then unmet acceptance criteria, then named defects, last in document order), and the selection counts
+        /// what it dropped. A finding is never cut. Items come in document order, with unmet criteria after them.
+        /// </summary>
+        /// <param name="review">Review or report text.</param>
+        /// <param name="maxChars">Bound for the rendered items, one character per line break included, before any omission line.</param>
+        /// <returns>The kept findings, the count dropped, and whether a rejection yielded no finding at all.</returns>
+        public static BlockingFindingSelection SelectBlockingFindings(string? review, int maxChars)
+        {
+            BlockingFindingSelection selection = new BlockingFindingSelection();
+            if (String.IsNullOrWhiteSpace(review)) return selection;
             string text = review.Replace("\r\n", "\n");
             int firstSection = IndexOfFirstSectionHeader(text);
             if (firstSection > 0) text = text.Substring(firstSection);
@@ -446,65 +465,39 @@ namespace Armada.Core.Services
             if (findings.Count == 0 && criteria.Count == 0)
             {
                 // A rejection that yields no finding means the extraction missed them, not that there are none.
-                return IsRejection(text) ? IncompleteFindingsLine(maxChars) : String.Empty;
+                selection.ExtractionMissed = IsRejection(text);
+                return selection;
             }
-            List<string> formattedFindings = findings.Select(item => "- " + item).ToList();
-            List<string> formattedCriteria = criteria.Select(item => "- " + item).ToList();
-            List<string> formatted = new List<string>(formattedFindings);
-            formatted.AddRange(formattedCriteria);
-            int total = formatted.Sum(line => line.Length) + Math.Max(0, formatted.Count - 1);
-            if (total <= maxChars) return String.Join("\n", formatted);
 
-            string incomplete = IncompleteFindingsLine(maxChars);
-
-            // Plain list items that name no defect go first, so no named defect is shortened to make room for them.
-            List<string> formattedPlain = findings.Where(item => plainFindings.Contains(item)).Select(item => "- " + item).ToList();
-            if (formattedPlain.Count > 0)
-                formattedFindings = findings.Where(item => !plainFindings.Contains(item)).Select(item => "- " + item).ToList();
-            int defectTotal = formattedFindings.Sum(line => line.Length) + Math.Max(0, formattedFindings.Count - 1);
-            if (defectTotal + incomplete.Length + 1 <= maxChars)
+            int total = findings.Concat(criteria).Sum(item => item.Length + 2) + Math.Max(0, findings.Count + criteria.Count - 1);
+            if (total <= maxChars)
             {
-                List<string> bounded = new List<string>(formattedFindings);
-                int used = defectTotal;
-                foreach (string criterion in formattedCriteria)
-                {
-                    int addedLength = criterion.Length + (bounded.Count > 0 ? 1 : 0);
-                    if (used + addedLength + incomplete.Length + 1 > maxChars) break;
-                    bounded.Add(criterion);
-                    used += addedLength;
-                }
-                foreach (string plainItem in formattedPlain)
-                {
-                    int addedLength = plainItem.Length + (bounded.Count > 0 ? 1 : 0);
-                    if (used + addedLength + incomplete.Length + 1 > maxChars) break;
-                    bounded.Add(plainItem);
-                    used += addedLength;
-                }
-                bounded.Add(incomplete);
-                return String.Join("\n", bounded);
+                selection.Items.AddRange(findings);
+                selection.Items.AddRange(criteria);
+                return selection;
             }
 
-            const string cutMarker = " ... [detail omitted]";
-            int minimumItemLength = 2 + cutMarker.Length;
-            int itemsToKeep = Math.Min(formattedFindings.Count, Math.Max(0, (maxChars - incomplete.Length - 1) / minimumItemLength));
-            if (itemsToKeep == 0) return incomplete;
-            int itemBudget = (maxChars - incomplete.Length - itemsToKeep) / itemsToKeep;
-            List<string> shortened = new List<string>();
-            for (int i = 0; i < itemsToKeep; i++)
+            // Priority order for keeping: named defects, then unmet criteria, then plain list items. The kept set
+            // is the longest prefix of that order that fits beside the omission line; a finding is kept whole or
+            // dropped whole.
+            List<string> byPriority = new List<string>();
+            byPriority.AddRange(findings.Where(item => !plainFindings.Contains(item)));
+            byPriority.AddRange(criteria);
+            byPriority.AddRange(findings.Where(item => plainFindings.Contains(item)));
+            int room = maxChars - IncompleteFindingsLine(maxChars, byPriority.Count).Length - 1;
+            HashSet<string> kept = new HashSet<string>(StringComparer.Ordinal);
+            int used = 0;
+            foreach (string item in byPriority)
             {
-                string line = formattedFindings[i];
-                if (line.Length <= itemBudget)
-                {
-                    shortened.Add(line);
-                    continue;
-                }
-                int keep = itemBudget - 2 - cutMarker.Length;
-                if (keep <= 0) return incomplete;
-                shortened.Add(line.Substring(0, Math.Min(2 + keep, line.Length - cutMarker.Length)).TrimEnd() + cutMarker);
+                int added = item.Length + 2 + (kept.Count > 0 ? 1 : 0);
+                if (used + added > room) break;
+                used += added;
+                kept.Add(item);
             }
-            shortened.Add(incomplete);
-            string boundedResult = String.Join("\n", shortened);
-            return boundedResult.Length <= maxChars ? boundedResult : incomplete;
+            selection.Items.AddRange(findings.Where(kept.Contains));
+            selection.Items.AddRange(criteria.Where(kept.Contains));
+            selection.Omitted = byPriority.Count - selection.Items.Count;
+            return selection;
         }
 
         /// <summary>
@@ -898,9 +891,12 @@ namespace Armada.Core.Services
             return false;
         }
 
-        private static string IncompleteFindingsLine(int maxChars)
+        private static string IncompleteFindingsLine(int maxChars, int omitted = 0)
         {
-            string marker = "- " + IncompleteFindingsMarker + " Required items or details are omitted; read complete mission output with armada_mission_output before editing.";
+            string count = omitted > 0
+                ? omitted + (omitted == 1 ? " lower-priority finding is" : " lower-priority findings are") + " omitted whole"
+                : "Required items or details are omitted";
+            string marker = "- " + IncompleteFindingsMarker + " " + count + "; read complete mission output with armada_mission_output before editing.";
             if (marker.Length <= maxChars) return marker;
             return "- " + IncompleteFindingsMarker;
         }

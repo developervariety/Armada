@@ -800,7 +800,7 @@ What a caller may use:
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
 | Mission captain (a mission session token), whatever its owner's role | The caller-scoped tools below, plus the read-only voyage tools `armada_enumerate`, `armada_mission_status`, `armada_get_mission_log`, `armada_voyage_status`, `armada_mission_output` and `get_objective`. An administrator owner's mission still reaches no operator tool, and its model is sent only these definitions with each request |
-| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, `armada_mission_attempts`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -1104,9 +1104,9 @@ tools), releases, deployments, runbooks, captain bench and unbench, unlanded
 branches, terminal-voyage reconciliation, disk lifecycle, and a process stop for
 `armada_stop_captain`. Services that exist only inside the running admiral (the
 dispatch hold, the objective scheduler, planning and refinement session
-coordinators, the coordination board, harbor jobs and the context index) are
-not built, so their tools are not registered on stdio or report the service as
-unavailable.
+coordinators, the coordination board, harbor jobs, the context index, saved Ask
+conversations and the captain model probe) are not built, so their tools are not
+registered on stdio or report the service as unavailable.
 
 **SSH stdio bridge.** `scripts/mcp-ssh-http-bridge.mjs` requires
 `ARMADA_MCP_AUTH_HEADER_FILE`, an absolute path on the server to a file that
@@ -1375,6 +1375,23 @@ is named there and in the decision state, and when no repository search ran the
 answer says so in `note`, so "nothing found" is never read as a verified
 absence. The tool edits nothing and never blocks. It is caller-scoped like the other captain tools, and it is
 dormant (returns unavailable) until the `prior_art` decision is enabled.
+
+### armada_mission_attempts
+
+List the recorded process attempts of one mission, oldest first. Args: `missionId` (required) and optional `limit`
+(default 100, maximum 1000, newest kept). The REST route `GET /api/v1/missions/{id}/attempts` calls the same reader, so
+both surfaces share one authorization rule and one answer.
+
+Each attempt names the captain, runtime, model and runtime version that ran it, when it started and ended, and its
+outcome (`Running`, `Completed`, `Failed` or `Interrupted`) with an exit code and a reason code
+(`exit_nonzero`, `exit_unknown`, `superseded_by_relaunch`). The runtime version is the executable's own `--version`
+line; it is empty when the probe was slower than the 3-second launch wait, failed, or the attempt ran on a Harbor
+runner. The answer carries `MissionId`, `Attempts` and `Truncated`; `Truncated` true means older attempts exist beyond
+`limit`.
+
+The tool reads a mission through the caller's scope: an administrator reads any mission, a tenant administrator its
+tenant's, and any other user its own. A mission outside that scope answers `{"Error": "Mission not found"}`. It is
+not offered to mission callers. It is read-only and writes no record. Ask threads may call it.
 
 ### armada_mission_change_summary
 
@@ -1646,6 +1663,33 @@ non-hexadecimal SHA returns `Reason: commit_sha_not_full`; a dismissed or alread
 promoted proposal returns `Reason: proposal_not_open` and changes nothing. A
 promoted subject is not proposed again.
 
+## Saved Ask Conversations
+
+Two read-only tools list and read the saved Ask conversations of the authenticated
+caller. They are operator tools: they are not caller-scoped, so a mission caller and
+an Ask turn can neither list nor call them, and each handler also refuses a credential
+that is not a human owner. A caller sees only conversations it owns, as on the REST
+routes. No MCP tool sends a message, approves or rejects a proposal, changes a
+conversation or deletes one; those stay human actions. The stdio server does not
+register them.
+
+### armada_list_ask_threads
+
+List the caller's saved conversations, pinned first and then by newest activity.
+Args: optional `pageNumber` (default 1), `pageSize` (default 25, maximum 100) and
+`includeArchived` (default false). Returns the REST enumeration result. Each thread
+carries `id`, `title`, `captainId`, `pinned`, `archived`, `lastActivityUtc`,
+`activeTurnId` and `unreadCount`.
+
+### armada_get_ask_thread
+
+Read one conversation. Args: `threadId` (required), optional `beforeSequence`,
+`pageSize` (default 10, maximum 50) and `includeToolCalls` (default false). Returns
+`{ Thread, Turns }`, with turns oldest first inside the page. Page back by passing the
+first `sequence` of the previous page as `beforeSequence`. Tool-call cards are left out
+unless `includeToolCalls` is true. An unknown thread, or one the caller does not own,
+returns an `Error`.
+
 ## Captain Writes
 
 `armada_create_captain` accepts `name` (required), `runtime`, `model`, `apiKey`,
@@ -1704,6 +1748,22 @@ keeps the captain.
 `Premium`. The mission then admits only captains at or above that tier. Omit `tier`
 and the mission keeps the default routing. Any other value returns
 `Unknown captain tier` and creates nothing. The match ignores case.
+
+`armada_create_mission` and `armada_dispatch` accept optional `isEvaluation`
+(default false). When it is true, the mission, or the voyage and every mission
+created for it, is evaluation work and stays out of the production summary. A
+mission created for an evaluation voyage inherits that voyage's flag. WebSocket
+`create_voyage` accepts the same field.
+
+`armada_probe_captain_model` takes `captainId` and sends one tiny prompt through
+the captain's existing model validation. It creates no mission. The result is
+`captainId`, `success`, `latencyMs` and, on failure, a short `error`. A caller
+who is not a global administrator receives an error and the model is not called.
+The same captain cannot be probed again for 30 seconds; the tool then returns
+`error` `captain_model_probe_rate_limited` and `retryAfterUtc`. An unknown
+captain returns `error` `Captain not found`. An API-endpoint captain is admitted
+by the captain validation and then probed through the existing model-endpoint
+validation.
 
 ## Vessel Writes
 
@@ -1799,6 +1859,13 @@ create does, so its answer matches the create. Validation refuses a
 `failedTestLinePattern` that is not a valid .NET regular expression or has no
 named group `name`, a `gateInputPaths` entry that is rooted or holds a `..`
 segment, and a `gateCommandTimeoutSeconds` outside 30 to 3600.
+`abbreviatedUnitTestCommand` is stored and returned with the profile. Checks
+and the definition-of-done gate keep running `unitTestCommand`.
+
+`armada_suggest_vessel_toolchain` reads marker files in a vessel working
+directory and returns suggested build, test and lint commands. It does not
+create or change a workflow profile or a vessel command. The same read is
+`GET /api/v1/vessels/{id}/toolchain-suggestion`.
 
 ### Playbooks
 

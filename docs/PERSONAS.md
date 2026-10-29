@@ -253,6 +253,22 @@ mission's persona template is followed by a `## Required Output Contract`
 block. The captain's own instructions carry no contract, and the launch prompt
 names the role and points at the contract without restating it.
 
+### Lean and Compact prompt variants
+
+A project profile's persona override carries a `promptVariant`: `Current` (the default), `Lean` or `Compact`.
+Lean states one demand per line, with the output contract first and last. Compact keeps the same demands, tool
+rules and output formats in the fewest words. The Worker, Test Engineer, Judge and Architect personas have both
+bodies. Each body keeps the persona's mechanically read formats (the result and verdict lines, the Judge's
+acceptance-criteria line format and criterion-conflict line, the Test Engineer's three sections, the Architect's
+`[ARMADA:MISSION]` blocks), the blocked path, and the Armada tool rules (`armada_check_premise`,
+`armada_check_prior_art`, `armada_score_items`, `armada_typed_decision`, `armada_change_quality`,
+`armada_run_custom_decision`). The full persona template stays the source text.
+
+The variant selects the body only for a producing mission's persona prompt. A prompt template the override names
+(`promptTemplateName`) wins over a variant, a disabled override selects nothing, and a persona with no Lean or
+Compact body renders its full prompt. The override's `additionalInstructions` append to whichever body renders.
+The profile editor in the dashboard sets the variant, and the persona prompt preview shows the effective body.
+
 A brief carries only what the mission's mode and persona can use:
 
 - An Audit or Research mission receives no project-profile skill whose

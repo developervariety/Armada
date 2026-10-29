@@ -20,7 +20,8 @@ namespace Test.Shared.Suites.Database
                 CaseAsync("concurrent_same_request_id_reserves_once", "Concurrent retries share one durable turn", TestTags.Positive, ConcurrentDuplicateReservationAsync),
                 CaseAsync("one_thread_allows_only_one_concurrent_active_turn", "Concurrent reservations hold one active turn", TestTags.Positive, ConcurrentReservationAsync),
                 CaseAsync("completed_turns_round_trip_and_page_as_history", "Completed turns preserve responses and page as history", TestTags.Positive, HistoryPagingAsync),
-                CaseAsync("stale_completion_cannot_release_a_later_turn", "A stale completion cannot release another active turn", TestTags.Negative, StaleCompletionAsync)
+                CaseAsync("stale_completion_cannot_release_a_later_turn", "A stale completion cannot release another active turn", TestTags.Negative, StaleCompletionAsync),
+                CaseAsync("finished_replies_raise_the_unread_count_until_the_owner_reads", "Finished replies raise the unread count until the owner reads", TestTags.Positive, UnreadLifecycleAsync)
             };
             return new TestSuiteDescriptor(suiteId: "Database.AskThread", displayName: "Ask Thread Database", cases: cases);
         }

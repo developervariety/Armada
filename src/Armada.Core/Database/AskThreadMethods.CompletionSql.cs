@@ -49,7 +49,7 @@ namespace Armada.Core.Database
             using (DbCommand command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
-                command.CommandText = "UPDATE ask_threads SET active_turn_id = NULL, last_activity_utc = @completed_utc WHERE id = @thread_id AND tenant_id = @tenant_id AND user_id = @user_id AND active_turn_id = @request_id;";
+                command.CommandText = "UPDATE ask_threads SET active_turn_id = NULL, last_activity_utc = @completed_utc, unread_count = unread_count + 1 WHERE id = @thread_id AND tenant_id = @tenant_id AND user_id = @user_id AND active_turn_id = @request_id;";
                 AddUtc(command, "@completed_utc", "ask_threads", "last_activity_utc", completedUtc);
                 BindTurnOwner(command, tenantId, userId, threadId, requestId);
                 return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;

@@ -293,6 +293,13 @@ namespace Armada.Core.Models
         public string? HeldForOperatorReviewReason { get; set; } = null;
 
         /// <summary>
+        /// True when this mission is evaluation work. Evaluation missions stay out of production summaries.
+        /// Set at create. A mission added to an evaluation voyage inherits the voyage flag, and a mission
+        /// derived from an evaluation mission copies it. The default is false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
+
+        /// <summary>
         /// Whether this mission requires an explicit review approval before the pipeline may continue.
         /// Copied from the owning pipeline stage when the mission is created.
         /// </summary>

@@ -81,6 +81,16 @@ namespace Test.Shared.Suites.Services
             return _Inner.MarkRunningAsync(tenantId, userId, threadId, requestId, token);
         }
 
+        public Task<bool> MarkReadAsync(string tenantId, string userId, string threadId, CancellationToken token = default)
+        {
+            return _Inner.MarkReadAsync(tenantId, userId, threadId, token);
+        }
+
+        public Task<bool> MarkUnreadAsync(string tenantId, string userId, string threadId, CancellationToken token = default)
+        {
+            return _Inner.MarkUnreadAsync(tenantId, userId, threadId, token);
+        }
+
         public async Task<bool> CompleteTurnAsync(string tenantId, string userId, string threadId, string requestId, CaptainChatResponse response, CancellationToken token = default)
         {
             bool completed = await _Inner.CompleteTurnAsync(tenantId, userId, threadId, requestId, response, token).ConfigureAwait(false);

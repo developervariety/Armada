@@ -66,6 +66,30 @@ namespace Armada.Core.Services
                     && item.CompletedUtc.Value < toUtc
                     && !parentIds.Contains(item.Id))
                 .ToList();
+
+            List<MissionSummary> missions = await ReadMissionSummariesAsync(auth, result, token).ConfigureAwait(false);
+            List<Voyage> voyages = await ReadVoyagesAsync(auth, result, token).ConfigureAwait(false);
+            HashSet<string> loadedVoyageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> evaluationVoyageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Voyage voyage in voyages)
+            {
+                loadedVoyageIds.Add(voyage.Id);
+                if (voyage.IsEvaluation) evaluationVoyageIds.Add(voyage.Id);
+            }
+            HashSet<string> loadedMissionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> evaluationMissionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (MissionSummary mission in missions)
+            {
+                loadedMissionIds.Add(mission.Id);
+                if (mission.IsEvaluation
+                    || (!String.IsNullOrWhiteSpace(mission.VoyageId) && evaluationVoyageIds.Contains(mission.VoyageId)))
+                    evaluationMissionIds.Add(mission.Id);
+            }
+            cohort = cohort
+                .Where(item => !IsEntirelyEvaluationWork(item, loadedVoyageIds, loadedMissionIds, evaluationVoyageIds, evaluationMissionIds))
+                .ToList();
+            missions = missions.Where(item => !evaluationMissionIds.Contains(item.Id)).ToList();
+            voyages = voyages.Where(item => !evaluationVoyageIds.Contains(item.Id)).ToList();
             result.RawCompletedSlices = cohort.Count(item => MatchesFilter(item, query));
             for (DateTime day = fromUtc.Date; day < toUtc; day = day.AddDays(1))
             {
@@ -82,9 +106,6 @@ namespace Armada.Core.Services
             result.RawCompletedSlicesPerDay = result.CompleteDayCount > 0
                 ? (double)result.RawCompletedSlices / result.CompleteDayCount
                 : null;
-
-            List<MissionSummary> missions = await ReadMissionSummariesAsync(auth, result, token).ConfigureAwait(false);
-            List<Voyage> voyages = await ReadVoyagesAsync(auth, result, token).ConfigureAwait(false);
             List<MergeEntry> merges = await ReadMergeEntriesAsync(auth, result, token).ConfigureAwait(false);
             List<CheckRun> checks = await ReadChecksAsync(auth, fromUtc.Subtract(_MaximumWindow), result, token).ConfigureAwait(false);
             List<ArmadaEvent> events = await ReadObjectiveSnapshotsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
@@ -94,7 +115,9 @@ namespace Armada.Core.Services
                 .GroupBy(item => item.ObjectiveId, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
             Dictionary<string, RegressionSliceTarget> regressionTargets = new Dictionary<string, RegressionSliceTarget>(StringComparer.OrdinalIgnoreCase);
-            AttemptFactIndex attemptFacts = new AttemptFactIndex(await ReadAttemptFactsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false));
+            List<MissionAttemptFact> attemptFactRows = await ReadAttemptFactsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
+            attemptFactRows = attemptFactRows.Where(item => !evaluationMissionIds.Contains(item.MissionId)).ToList();
+            AttemptFactIndex attemptFacts = new AttemptFactIndex(attemptFactRows);
             bool verificationSourcesComplete = !result.Scan.Truncated;
 
             Dictionary<string, MissionSummary> missionById = missions.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
@@ -754,6 +777,41 @@ namespace Armada.Core.Services
         private static void AddAvailabilityWarnings(ProductionSummaryResult result)
         {
             result.Warnings.Add("ready_to_dispatch_delay_partial: historical snapshots do not prove full dispatch-preflight readiness");
+        }
+
+        /// <summary>
+        /// A completed slice is evaluation work only when it links at least one voyage or mission,
+        /// every linked row was loaded, and every one of those rows is evaluation work.
+        /// A link that was not loaded keeps the slice, because the scan cannot prove it is evaluation.
+        /// A mix of production and evaluation work keeps the slice.
+        /// </summary>
+        private static bool IsEntirelyEvaluationWork(
+            Objective objective,
+            HashSet<string> loadedVoyageIds,
+            HashSet<string> loadedMissionIds,
+            HashSet<string> evaluationVoyageIds,
+            HashSet<string> evaluationMissionIds)
+        {
+            bool sawLink = false;
+            if (!EveryLinkIsLoadedEvaluation(objective.VoyageIds, loadedVoyageIds, evaluationVoyageIds, ref sawLink)) return false;
+            if (!EveryLinkIsLoadedEvaluation(objective.MissionIds, loadedMissionIds, evaluationMissionIds, ref sawLink)) return false;
+            return sawLink;
+        }
+
+        private static bool EveryLinkIsLoadedEvaluation(
+            List<string>? ids,
+            HashSet<string> loadedIds,
+            HashSet<string> evaluationIds,
+            ref bool sawLink)
+        {
+            if (ids == null) return true;
+            foreach (string id in ids)
+            {
+                if (String.IsNullOrWhiteSpace(id)) continue;
+                sawLink = true;
+                if (!loadedIds.Contains(id) || !evaluationIds.Contains(id)) return false;
+            }
+            return true;
         }
 
         private async Task<List<Objective>> ReadObjectivesAsync(AuthContext auth, ProductionSummaryResult report, CancellationToken token)

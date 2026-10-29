@@ -29,6 +29,7 @@ namespace Armada.Server
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private AgentRuntimeFactory _RuntimeFactory;
+        private readonly RuntimeVersionProbe _RuntimeVersions = new RuntimeVersionProbe();
         private MuxCliService _MuxCli;
         private IAdmiralService _Admiral;
         private IMessageTemplateService _TemplateService;
@@ -954,6 +955,12 @@ namespace Armada.Server
             RegisterMissionProcess(processId, captain.Id, mission.Id, stateOwner);
             _PendingLaunches.TryRemove(launchKey, out _);
             _PendingLaunchOwners.TryRemove(launchKey, out _);
+
+            // A Harbor launch runs the runtime on another host, so the local executable's version would be wrong.
+            string? runtimeVersion = null;
+            if (harborRoute == null && runtime is BaseAgentRuntime localRuntime)
+                runtimeVersion = await _RuntimeVersions.GetVersionAsync(localRuntime.TryGetExecutable()).ConfigureAwait(false);
+            await MissionAttemptProvenanceRecorder.StartAsync(_Database, mission, captain, processId, runtimeVersion, _Logging).ConfigureAwait(false);
 
             _Logging.Info(_Header + "agent process " + processId + " started for captain " + captain.Id + " (log: " + logFilePath + ")");
             StartProcessLivenessHeartbeat(processId, captain.Id, mission.Id);
@@ -2325,6 +2332,7 @@ namespace Armada.Server
             {
                 if (expectedStateOwner.HasValue)
                     await PersistStartedProcessIdAsync(processId, captainId + ":" + missionId, expectedStateOwner.Value).ConfigureAwait(false);
+                await MissionAttemptProvenanceRecorder.CloseAsync(_Database, missionId, processId, exitCode, _Logging).ConfigureAwait(false);
                 await _Admiral.HandleProcessExitAsync(
                     processId,
                     exitCode,

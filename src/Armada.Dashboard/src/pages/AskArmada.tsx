@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { chatWithCaptain, createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAllCaptains, listAskThreads, listAskTurns, sendAskTurn, updateAskThread } from '../api/client';
+import { chatWithCaptain, createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAllCaptains, listAskThreads, listAskTurns, markAskThreadRead, markAskThreadUnread, sendAskTurn, updateAskThread } from '../api/client';
 import type { AskThread, Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useWebSocket } from '../context/WebSocketContext';
+import { useAuthUserId } from '../context/AuthContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import CaptainChatPanel, { type ChatTurn } from '../components/shared/CaptainChatPanel';
 import { applyToolEvent } from '../components/shared/ChatToolChips';
@@ -13,6 +14,10 @@ import AskThreadShelf from '../components/ask/AskThreadShelf';
 import AskActionCards from '../components/ask/AskActionCards';
 import { useEarlierAskTurns } from '../components/ask/useEarlierAskTurns';
 import { replaceAskTurn, toChatTurns } from '../components/ask/askThreadUtils';
+import { usePromptHistory } from '../components/ask/usePromptHistory';
+import { loadAskDraft, loadLastAskThread, recordPrompt, saveAskDraft, saveLastAskThread } from '../lib/askStorage';
+import { ASK_LIST_MAX_WIDTH, ASK_LIST_MIN_WIDTH, useAskListResize } from '../lib/askListResize';
+import { notifyAskUnreadChanged } from '../lib/useAskUnreadCount';
 
 // Ask Armada is available with any captain.
 function isChattable(_captain: Captain): boolean {
@@ -40,6 +45,7 @@ export default function AskArmada() {
   const [searchParams] = useSearchParams();
   const linkedThreadId = searchParams.get('thread') ?? '';
   const { subscribe } = useWebSocket();
+  const userId = useAuthUserId();
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [mode, setMode] = useState<'temporary' | 'saved'>(linkedThreadId ? 'saved' : 'temporary');
   const [captainId, setCaptainId] = useState('');
@@ -54,6 +60,11 @@ export default function AskArmada() {
   const [temporaryTurns, setTemporaryTurns] = useState<ChatTurn[]>([]);
   const [temporaryCaptainId, setTemporaryCaptainId] = useState('');
   const [input, setInput] = useState('');
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const shelfRef = useRef<HTMLElement>(null);
+  const listResize = useAskListResize(workspaceRef, shelfRef);
+  // A conversation the operator marked unread while it is open stays unread until another is opened.
+  const keepUnreadRef = useRef('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [tools, setTools] = useState<CaptainToolAccessResult | null>(null);
@@ -86,6 +97,42 @@ export default function AskArmada() {
     selectedThreadGeneration.current += 1;
   }, [selectedThreadId]);
 
+  // Each saved conversation keeps its own unsent draft, and the last open conversation is reopened on the next visit.
+  useEffect(() => {
+    if (mode !== 'saved') return;
+    setInput(selectedThreadId ? loadAskDraft(userId, selectedThreadId) : '');
+    if (selectedThreadId) saveLastAskThread(userId, selectedThreadId);
+    if (keepUnreadRef.current && keepUnreadRef.current !== selectedThreadId) keepUnreadRef.current = '';
+  }, [mode, selectedThreadId, userId]);
+
+  function changeInput(value: string) {
+    setInput(value);
+    if (mode === 'saved' && selectedThreadId) saveAskDraft(userId, selectedThreadId, value);
+  }
+  const promptHistory = usePromptHistory(input, changeInput);
+
+  // Opening a conversation reads it. The server keeps the unread count so every browser agrees.
+  async function readOpenThread(thread: AskThread) {
+    if (thread.unreadCount <= 0 || keepUnreadRef.current === thread.id) return;
+    try {
+      const updated = await markAskThreadRead(thread.id);
+      setThreads((current) => current.map((item) => item.id === updated.id ? { ...item, unreadCount: updated.unreadCount } : item));
+      notifyAskUnreadChanged();
+    } catch { /* the count stays until the next open */ }
+  }
+
+  async function toggleUnread(thread: AskThread) {
+    try {
+      const markRead = thread.unreadCount > 0;
+      const updated = markRead ? await markAskThreadRead(thread.id) : await markAskThreadUnread(thread.id);
+      keepUnreadRef.current = !markRead && thread.id === selectedThreadIdRef.current ? thread.id : '';
+      setThreads((current) => current.map((item) => item.id === updated.id ? { ...item, unreadCount: updated.unreadCount } : item));
+      notifyAskUnreadChanged();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to update the conversation.'));
+    }
+  }
+
   // Rotate the "waiting" message every 4 seconds while a turn is in flight.
   useEffect(() => {
     if (!busy) return;
@@ -112,14 +159,15 @@ export default function AskArmada() {
       .then((result) => {
         if (!active) return;
         setThreads(result);
+        const remembered = loadLastAskThread(userId);
         setSelectedThreadId((current) => result.some((thread) => thread.id === current)
           ? current
-          : result[0]?.id ?? '');
+          : result.find((thread) => thread.id === remembered)?.id ?? result[0]?.id ?? '');
       })
       .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : t('Failed to load conversations.')); })
       .finally(() => { if (active) setThreadsLoading(false); });
     return () => { active = false; };
-  }, [mode, includeArchived, t]);
+  }, [mode, includeArchived, t, userId]);
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) || null;
 
@@ -139,6 +187,7 @@ export default function AskArmada() {
       .then(([thread, stored]) => {
         if (!active) return;
         setThreads((current) => current.map((item) => item.id === thread.id ? thread : item));
+        void readOpenThread(thread);
         setCaptainId(thread.captainId ?? '');
         earliestLoadedSequence.current = stored[0]?.sequence ?? null;
         setTurns(toChatTurns(stored));
@@ -169,6 +218,7 @@ export default function AskArmada() {
           const thread = await getAskThread(selectedThread.id);
           if (active) {
             setThreads((current) => current.map((item) => item.id === thread.id ? thread : item));
+            void readOpenThread(thread);
             setBusy(false);
             if (turn.state === 'Uncertain') setTurnStatusNotice(t('This turn may not have completed. Armada will not replay it. Start a new conversation to continue.'));
           }
@@ -239,7 +289,7 @@ export default function AskArmada() {
     if (next === mode || busy) return;
     selectedThreadGeneration.current += 1;
     if (mode === 'temporary') { setTemporaryTurns(turns); setTemporaryCaptainId(captainId); }
-    if (next === 'temporary') { setTurns(temporaryTurns); setCaptainId(temporaryCaptainId); setTurnStatusNotice(''); }
+    if (next === 'temporary') { setTurns(temporaryTurns); setCaptainId(temporaryCaptainId); setTurnStatusNotice(''); setInput(''); }
     else setThreadsLoading(true);
     setMode(next);
   }
@@ -257,6 +307,7 @@ export default function AskArmada() {
   async function sendTemporary(message: string) {
     const text = message.trim();
     if (!text || busy || !captainId) return;
+    recordPrompt(text);
     setInput('');
     const streaming = streamingEnabled;
     const turnId = streaming ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)) : undefined;
@@ -323,6 +374,8 @@ export default function AskArmada() {
     const text = message.trim();
     const threadId = retry?.threadId ?? selectedThreadId;
     if (!text || text.length > 32000 || busy || !captainId || !threadId) return;
+    recordPrompt(text);
+    saveAskDraft(userId, threadId, '');
     setInput('');
     setRetryRequest(null);
     setTurnStatusNotice('');
@@ -394,6 +447,7 @@ export default function AskArmada() {
       try {
         const thread = await getAskThread(threadId);
         setThreads((current) => current.map((item) => item.id === threadId ? thread : item));
+        if (threadId === selectedThreadIdRef.current) void readOpenThread(thread);
       } catch { /* the durable turn view remains available on the next reload */ }
     }
   }
@@ -440,8 +494,13 @@ export default function AskArmada() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
-      <div className="ask-workspace">
+      <div
+        ref={workspaceRef}
+        className={listResize.dragging ? 'ask-workspace is-resizing' : 'ask-workspace'}
+        style={listResize.width !== null ? { ['--ask-list-width' as string]: `${listResize.width}px` } : undefined}
+      >
         {mode === 'saved' && <AskThreadShelf
+          shelfRef={shelfRef}
           threads={threads}
           selectedId={selectedThreadId}
           includeArchived={includeArchived}
@@ -452,8 +511,22 @@ export default function AskArmada() {
           onRename={(thread) => { void renameThread(thread); }}
           onPin={(thread) => { void changeThread(thread, { setPinned: true, pinned: !thread.pinned }); }}
           onArchive={(thread) => { void changeThread(thread, { setArchived: true, archived: !thread.archived }); }}
+          onToggleUnread={(thread) => { void toggleUnread(thread); }}
           onToggleArchived={() => setIncludeArchived((value) => !value)}
         />}
+        {mode === 'saved' && (
+          <div
+            className="ask-list-splitter"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('Resize conversation list')}
+            aria-valuemin={ASK_LIST_MIN_WIDTH}
+            aria-valuemax={ASK_LIST_MAX_WIDTH}
+            aria-valuenow={listResize.width ?? undefined}
+            tabIndex={0}
+            {...listResize.splitterProps}
+          />
+        )}
         <div className="ask-body">
           {mode === 'saved' && selectedThread?.archived && <div className="text-dim" role="status">{t('This conversation is archived. Restore it to send another turn.')}</div>}
           {mode === 'saved' && turnStatusNotice && <div className="ask-turn-status" role="status">{turnStatusNotice}</div>}
@@ -526,7 +599,8 @@ export default function AskArmada() {
               </div>
             )}
             input={input}
-            onInputChange={setInput}
+            onInputChange={changeInput}
+            onInputKeyDown={promptHistory.onKeyDown}
             onSend={() => send(input)}
             onStop={stop}
             busy={busy}

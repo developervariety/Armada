@@ -108,6 +108,13 @@ namespace Armada.Core.Models
         public string? UnitTestCommand { get; set; } = null;
 
         /// <summary>
+        /// Optional fast subset of <see cref="UnitTestCommand"/>. Stored and returned with the profile.
+        /// Checks and the definition-of-done gate keep running <see cref="UnitTestCommand"/>.
+        /// An empty value means the profile has no abbreviated command.
+        /// </summary>
+        public string? AbbreviatedUnitTestCommand { get; set; } = null;
+
+        /// <summary>
         /// Unit-test command used when no container runtime is available in the dock. Lets a vessel
         /// scope container-dependent test assemblies out (for example a category filter or an
         /// explicit project list) so the gate still verifies everything that does not need

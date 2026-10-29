@@ -78,6 +78,8 @@ namespace Armada.Core.Database.SqlServer
                 { "memory_proposals.promoted_utc", StoredTimestampEnum.Timestamp },
                 { "memory_proposals.last_update_utc", StoredTimestampEnum.Timestamp },
                 { "mission_attempt_facts.created_utc", StoredTimestampEnum.Timestamp },
+                { "mission_attempt_provenance.started_utc", StoredTimestampEnum.Timestamp },
+                { "mission_attempt_provenance.ended_utc", StoredTimestampEnum.Timestamp },
                 { "missions.last_recovery_action_utc", StoredTimestampEnum.Timestamp },
                 { "model_endpoints.created_utc", StoredTimestampEnum.Timestamp },
                 { "model_endpoints.last_health_check_utc", StoredTimestampEnum.Timestamp },
@@ -155,6 +157,7 @@ namespace Armada.Core.Database.SqlServer
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            MissionAttempts = new MissionAttemptProvenanceMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);

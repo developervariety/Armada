@@ -23,7 +23,7 @@ namespace Armada.Core.Database
             new[]
             {
                 "id", "tenant_id", "user_id", "name", "description", "scope", "fleet_id", "vessel_id", "is_default", "active", "language_hints_json",
-                "lint_command", "build_command", "unit_test_command", "containerless_unit_test_command", "failed_test_line_pattern", "isolated_test_rerun_command", "gate_command_timeout_seconds", "integration_test_command",
+                "lint_command", "build_command", "unit_test_command", "abbreviated_unit_test_command", "containerless_unit_test_command", "failed_test_line_pattern", "isolated_test_rerun_command", "gate_command_timeout_seconds", "integration_test_command",
                 "e2e_test_command", "package_command", "publish_artifact_command", "release_versioning_command", "changelog_generation_command",
                 "migration_command", "security_scan_command", "performance_command", "deployment_verification_command",
                 "rollback_verification_command", "required_secrets_json", "expected_artifacts_json", "gate_input_paths_json", "environments_json",

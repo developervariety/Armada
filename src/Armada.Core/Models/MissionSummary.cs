@@ -90,6 +90,11 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
+        /// True when this mission is evaluation work. See <see cref="Mission.IsEvaluation"/>.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
+
+        /// <summary>
         /// Mission dependency identifier.
         /// </summary>
         public string? DependsOnMissionId { get; set; } = null;

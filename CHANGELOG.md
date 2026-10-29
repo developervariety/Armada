@@ -10,6 +10,67 @@ upstream integrations and excludes changes already present at that baseline.
 ### Report completion
 
 - A complete report can retain a counted obligation for actual pending downstream review roles without cancelling them. The gate verifies the owned dependency chain and still blocks unfinished work, unavailable reviewers and mismatched counts.
+### Attempt provenance
+
+- Each captain process launch now records a row in the new `mission_attempt_provenance` table: the captain, persona, runtime, model, runtime version, process id, start and end times, and the outcome (`Running`, `Completed`, `Failed` or `Interrupted`) with an exit code and a reason code. A relaunch closes any row of the mission still running as `Interrupted` with reason `superseded_by_relaunch`. The attempt facts stay the record of what Armada did next; they hold none of these fields.
+- The runtime version is the first line of the executable's `--version` output. It is probed once per executable, cached for 30 minutes (5 minutes when empty), and a launch waits at most 3 seconds for it. No model digest is recorded, and a Harbor-routed attempt records no version.
+- `GET /api/v1/missions/{id}/attempts` and the MCP tool `armada_mission_attempts` list the attempts of a mission through one reader that resolves the mission through the caller's scope first. A mission credential reads only its own mission over REST, and the tool is not offered to mission callers.
+- Attempt rows are deleted with their mission by every mission delete and by the data-retention sweep.
+- Migrations: SQLite 133, PostgreSQL 137, MySQL 126, SQL Server 129.
+
+### Lean and Compact persona prompts
+
+- A project profile's persona override accepts `promptVariant` (`Current`, `Lean` or `Compact`). The Worker, Test Engineer, Judge and Architect personas have a Lean body (one demand per line, output contract first and last) and a Compact body, both written for this fork and both keeping the personas' output formats and Armada tool rules. A named prompt template wins over a variant; `Current` is the default. The dashboard profile editor sets the variant. See [Personas](docs/PERSONAS.md#lean-and-compact-prompt-variants).
+
+### Rework prompt layout
+
+- A mission sent back for rework, by a review denial or by an autonomous rescue, receives its reviewer findings as a numbered list with one demand per finding. The demands, the fixed rework rules and the output contract (`[ARMADA:RESULT] COMPLETE` with a per-finding summary) come last. A review denial whose comment holds no structured findings carries the comment whole as finding 1. See [Pipelines](docs/PIPELINES.md).
+- A findings list that does not fit its bound drops whole lower-priority findings and states how many it dropped. It no longer cuts a finding short. A Judge review comment longer than the stored limit keeps whole blocking findings instead of a head cut.
+
+### Evaluation voyages and missions
+
+- A voyage and a mission have `isEvaluation`, default false. REST, MCP, WebSocket and the .NET models set it on create. A mission created for an evaluation voyage inherits the flag, and a mission derived from an evaluation mission copies it. The production summary leaves that work out. See [POST /api/v1/voyages](docs/REST_API.md#post-apiv1voyages) and [Captain Writes](docs/MCP_API.md#captain-writes).
+
+### Captain model probe
+
+- `POST /api/v1/captains/{id}/probe` and `armada_probe_captain_model` send one tiny prompt through the captain's existing model validation and report success, latency and a short error. The probe creates no mission. Only a global administrator may run it, and the same captain waits 30 seconds between probes. See [POST /api/v1/captains/{id}/probe](docs/REST_API.md#post-apiv1captainsidprobe).
+
+### Ask tool-call cards after a reload
+
+- A saved Ask turn keeps the tool calls the captain made, including the calls made before a failed turn. Reopening or reloading a conversation shows the cards again, and a conversation reopened mid-turn shows the calls made so far. See [saved conversations](docs/ASK_CONVERSATIONS.md#tool-call-cards-unread-replies-and-browser-state).
+
+### Ask unread replies, drafts and list width
+
+- Each saved Ask thread counts the replies that finished since its owner last opened it. `POST /api/v1/ask/threads/{id}/read` and `/unread` clear and set the count, and the Ask sidebar entry shows how many conversations hold unread replies. The Dashboard also keeps one unsent draft per conversation, reopens the conversation last open, and lets the operator drag the conversation list to a new width. Schema migrations 135 (SQLite), 139 (PostgreSQL), 128 (MySQL) and 131 (SQL Server) add the `unread_count` column.
+
+### Ask composer prompt history
+
+- In the Ask message box, ArrowUp with the caret at the start of the text recalls earlier sent prompts, and ArrowDown with the caret at the end walks forward to the draft. History is per browser and holds 100 prompts.
+
+### Ask work-card links
+
+- Work cards in an Ask conversation link to the mission or voyage page, and the parent and rescue mission ids link to their missions.
+
+### Ask recap
+
+- The default `ask.system` prompt asks for a one or two sentence recap of finished and remaining work at the end of a multi-step answer. A built-in row that still holds the earlier default is upgraded; an edited row is kept.
+
+### Saved Ask conversations over MCP
+
+- `armada_list_ask_threads` and `armada_get_ask_thread` read the authenticated human caller's saved conversations. They are read-only: no MCP tool sends, approves, rejects, changes or deletes. See [Saved Ask Conversations](docs/MCP_API.md#saved-ask-conversations).
+
+### Route authorization census
+
+- Every registered REST route outside the anonymous allow list rejects a caller with no credentials (HTTP 401). The allow list is the health check, login, tenant lookup, self-registration, and the dashboard shell. The OpenAPI document and Swagger UI use the same authorization decision as other routes, so a caller sends a credential to read them.
+- The API Explorer's **OpenAPI JSON** button saves the document the page loaded with the session credential. The Explorer has no Swagger UI link, because Swagger UI cannot send the credential.
+
+### Toolchain suggestion
+
+- `GET /api/v1/vessels/{id}/toolchain-suggestion` and `armada_suggest_vessel_toolchain` read marker files in a vessel working directory and return suggested build, test and lint commands for .NET, Node, Python, Go and Rust. The read does not create or change a workflow profile or a vessel command. See [GET /api/v1/vessels/{id}/toolchain-suggestion](docs/REST_API.md#get-apiv1vesselsidtoolchain-suggestion).
+
+### Abbreviated unit-test command
+
+- A workflow profile stores an optional `abbreviatedUnitTestCommand` beside `unitTestCommand`. Checks and the definition-of-done gate keep running `unitTestCommand`. See [Workflow Profiles](docs/OPERATIONAL_ASSETS.md#5-workflow-profiles).
 
 ### Mission captain tier
 

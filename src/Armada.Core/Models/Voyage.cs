@@ -111,6 +111,12 @@ namespace Armada.Core.Models
         public string? CaptainOverridesJson { get; set; } = null;
 
         /// <summary>
+        /// True when this voyage is evaluation work. Missions created for the voyage inherit the flag.
+        /// Evaluation voyages stay out of production summaries. The default is false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
+
+        /// <summary>
         /// Ordered list of playbooks selected for this voyage.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

@@ -22,6 +22,15 @@ namespace Armada.Core.Database
             command.Parameters.Add(parameter);
         }
 
+        internal static void AddInt32(DbCommand command, string name, int? value)
+        {
+            DbParameter parameter = command.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.DbType = DbType.Int32;
+            parameter.Value = value.HasValue ? value.Value : DBNull.Value;
+            command.Parameters.Add(parameter);
+        }
+
         internal static void AddUtc(DbCommand command, string name, DateTime? value, DatabaseTypeEnum provider)
         {
             DbParameter parameter = command.CreateParameter();
@@ -60,6 +69,8 @@ namespace Armada.Core.Database
         internal static string? ReadText(object value) => value == DBNull.Value ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
 
         internal static bool ReadBool(object value) => Convert.ToBoolean(value, CultureInfo.InvariantCulture);
+
+        internal static int? ReadNullableInt(object value) => value == DBNull.Value ? null : Convert.ToInt32(value, CultureInfo.InvariantCulture);
 
         internal static long? ReadNullableLong(object value) => value == DBNull.Value ? null : Convert.ToInt64(value, CultureInfo.InvariantCulture);
 

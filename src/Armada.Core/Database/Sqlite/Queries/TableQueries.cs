@@ -1686,7 +1686,12 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(130, "Persist the shared mission context recall budget",
                     @"ALTER TABLE missions ADD COLUMN context_recall_calls INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(131, "Persist local context search vectors", ContextEmbeddingSchema.SqliteStatements),
-                new SchemaMigration(132, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.SqliteStatements)
+                new SchemaMigration(132, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.SqliteStatements),
+                new SchemaMigration(133, "Persist per-attempt provenance records", MissionAttemptProvenanceSchema.SqliteStatements),
+                new SchemaMigration(134, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.SqliteStatements),
+                new SchemaMigration(135, "Persist the unread reply count of saved Ask threads",
+                    @"ALTER TABLE ask_threads ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0;"),
+                new SchemaMigration(136, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.SqliteStatements)
             };
         }
 

@@ -52,8 +52,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, captain_overrides_json, source_planning_session_id, source_planning_message_id)
-                        VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @captain_overrides_json, @source_planning_session_id, @source_planning_message_id);";
+                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, captain_overrides_json, source_planning_session_id, source_planning_message_id, is_evaluation)
+                        VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @captain_overrides_json, @source_planning_session_id, @source_planning_message_id, @is_evaluation);";
                     VoyageColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "voyages"), voyage);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -118,7 +118,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                         auto_create_pull_requests = @auto_create_pull_requests,
                         auto_merge_pull_requests = @auto_merge_pull_requests,
                         landing_mode = @landing_mode,
-                        captain_overrides_json = @captain_overrides_json
+                        captain_overrides_json = @captain_overrides_json,
+                        is_evaluation = @is_evaluation
                         WHERE id = @id;";
                     VoyageColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "voyages"), voyage);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);

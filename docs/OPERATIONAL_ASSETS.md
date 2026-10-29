@@ -193,6 +193,18 @@ UnitTest command. Use a containerless unit-test command only when the normal
 suite has fixtures that require an unavailable container runtime. Do not use a
 filter to hide ordinary failures.
 
+`abbreviatedUnitTestCommand` is an optional fast subset stored beside
+`unitTestCommand`. Checks and the definition-of-done gate keep running
+`unitTestCommand`. An empty abbreviated command stays empty. It does not by
+itself satisfy the rule that a profile has at least one command, because no
+check selects it.
+
+`GET /api/v1/vessels/{id}/toolchain-suggestion` and
+`armada_suggest_vessel_toolchain` read marker files in the vessel working
+directory and return suggested build, test and lint commands. The suggestion
+does not create or change a workflow profile or a vessel command. The operator
+copies a suggestion into a profile when the operator wants it.
+
 When the definition-of-done gate or a UnitTest or IntegrationTest Check sees a
 red test run, it re-runs the failing tests once alone; a test that lost a race
 under load passes alone and a real defect fails again. Both apply one rule: only

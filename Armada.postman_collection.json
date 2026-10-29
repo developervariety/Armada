@@ -2728,6 +2728,27 @@
 					}
 				},
 				{
+					"name": "Suggest Vessel Toolchain",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/toolchain-suggestion",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"vessels",
+								"{{vesselId}}",
+								"toolchain-suggestion"
+							]
+						},
+						"description": "Reads marker files in the vessel working directory and returns suggested build, test and lint commands. The read does not create or change a workflow profile or a vessel command."
+					}
+				},
+				{
 					"name": "Preview Landing Readiness",
 					"request": {
 						"method": "GET",
@@ -4758,6 +4779,42 @@
 					]
 				},
 				{
+					"name": "List Mission Attempts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/attempts?limit=100",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"missions",
+								"{{missionId}}",
+								"attempts"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "100",
+									"description": "Most attempts to return, newest kept (default 100, maximum 1000)"
+								}
+							]
+						},
+						"description": "Lists each process attempt recorded for the mission, oldest first: the captain, runtime, model and runtime version that ran it, when it started and ended, and its outcome. Reads only missions in the caller's scope."
+					},
+					"response": [
+						{
+							"name": "Attempts",
+							"status": "OK",
+							"code": 200,
+							"body": "{\n  \"MissionId\": \"msn_abc123\",\n  \"Attempts\": [\n    {\n      \"Id\": \"mat_mabc1234_xyz\",\n      \"MissionId\": \"msn_abc123\",\n      \"CaptainId\": \"cpt_abc123\",\n      \"Persona\": \"Worker\",\n      \"Runtime\": \"ClaudeCode\",\n      \"Model\": \"claude-sonnet-5-5\",\n      \"RuntimeVersion\": \"2.1.0 (Claude Code)\",\n      \"ProcessId\": 4242,\n      \"StartedUtc\": \"2026-10-28T12:00:00Z\",\n      \"EndedUtc\": \"2026-10-28T12:14:30Z\",\n      \"Outcome\": \"Completed\",\n      \"ExitCode\": 0,\n      \"ReasonCode\": null\n    }\n  ],\n  \"Truncated\": false\n}"
+						}
+					]
+				},
+				{
 					"name": "Get Mission Log",
 					"request": {
 						"method": "GET",
@@ -5491,6 +5548,35 @@
 							"status": "OK",
 							"code": 200,
 							"body": "{\n  \"Id\": \"cpt_abc123\",\n  \"Name\": \"Updated Captain Name\",\n  \"Runtime\": \"ClaudeCode\",\n  \"Model\": \"claude-sonnet-4-20250514\",\n  \"State\": \"Idle\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Probe Captain Model",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/probe",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"captains",
+								"{{captainId}}",
+								"probe"
+							]
+						},
+						"description": "Sends one tiny prompt through the captain's existing model validation and reports success, latency and a short error. Creates no mission. A global administrator is required, and the same captain cannot be probed again for 30 seconds."
+					},
+					"response": [
+						{
+							"name": "Probed",
+							"status": "OK",
+							"code": 200,
+							"body": "{\n  \"CaptainId\": \"cpt_abc123\",\n  \"Success\": true,\n  \"LatencyMs\": 120\n}"
 						}
 					]
 				},
@@ -11244,6 +11330,24 @@
 						"header": [],
 						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}"]},
 						"description": "Read one owned Ask thread."
+					}
+				},
+				{
+					"name": "Mark Saved Ask Thread Read",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/read", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "read"]},
+						"description": "Clear the unread reply count of an owned Ask thread."
+					}
+				},
+				{
+					"name": "Mark Saved Ask Thread Unread",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/unread", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "unread"]},
+						"description": "Set the unread reply count of an owned Ask thread to one."
 					}
 				},
 				{

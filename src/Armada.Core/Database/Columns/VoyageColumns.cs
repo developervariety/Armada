@@ -36,6 +36,7 @@ namespace Armada.Core.Database
             voyage.SourcePlanningSessionId = row.NullableText("source_planning_session_id");
             voyage.SourcePlanningMessageId = row.NullableText("source_planning_message_id");
             voyage.CaptainOverridesJson = row.NullableText("captain_overrides_json");
+            voyage.IsEvaluation = row.Bool(EvaluationFlagSchema.Column);
             return voyage;
         }
 
@@ -62,7 +63,8 @@ namespace Armada.Core.Database
                 .Text("landing_mode", voyage.LandingMode?.ToString())
                 .Text("source_planning_session_id", voyage.SourcePlanningSessionId)
                 .Text("source_planning_message_id", voyage.SourcePlanningMessageId)
-                .Text("captain_overrides_json", voyage.CaptainOverridesJson);
+                .Text("captain_overrides_json", voyage.CaptainOverridesJson)
+                .Bool(EvaluationFlagSchema.Column, voyage.IsEvaluation);
         }
     }
 }

@@ -159,6 +159,11 @@ namespace Armada.Core.Database
         /// </summary>
         public IMissionAttemptFactMethods MissionAttemptFacts { get; protected set; } = null!;
 
+        /// <summary>
+        /// Per-attempt provenance records: who ran each captain process attempt at a mission, when, and how it ended.
+        /// </summary>
+        public IMissionAttemptProvenanceMethods MissionAttempts { get; protected set; } = null!;
+
         /// <summary>Atomic full Research replay and immutable prior-attempt history.</summary>
         public IResearchReplayMethods ResearchReplays { get; protected set; } = null!;
 

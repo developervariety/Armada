@@ -1,5 +1,7 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
+
     /// <summary>
     /// Result of a captain chat turn: the assistant reply plus the model that produced it and the
     /// per-turn timing/token metrics.
@@ -38,6 +40,11 @@ namespace Armada.Core.Models
         /// <see cref="CaptainChatRequest.ShowThinking"/> and the runtime surfaced it. Null otherwise.
         /// </summary>
         public string? Thinking { get; set; } = null;
+
+        /// <summary>
+        /// The tool calls the captain made during the turn, in call order. Empty when it made none.
+        /// </summary>
+        public List<ChatToolCall> ToolCalls { get; set; } = new List<ChatToolCall>();
 
         #endregion
 

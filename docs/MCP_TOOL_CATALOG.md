@@ -52,7 +52,7 @@ shows only critical items).
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_get_fleet`, `armada_get_vessel`, `armada_discover_vessel_checkouts` |
+| Read | `armada_get_fleet`, `armada_get_vessel`, `armada_suggest_vessel_toolchain`, `armada_discover_vessel_checkouts` |
 | Write | `armada_create_fleet`, `armada_update_fleet`, `armada_add_vessel`, `armada_update_vessel`, `armada_update_vessel_context`, `armada_import_vessel_checkout` |
 | Destructive | `armada_delete_fleet`, `armada_delete_fleets`, `armada_delete_vessel`, `armada_delete_vessels` |
 
@@ -65,7 +65,7 @@ checkout and Git references unchanged. See [Local checkout import](VESSEL_CHECKO
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_get_captain`, `armada_get_captain_log` |
-| Write | `armada_create_captain`, `armada_update_captain`, `armada_bench_captain`, `armada_unbench_captain` |
+| Write | `armada_create_captain`, `armada_update_captain`, `armada_bench_captain`, `armada_unbench_captain`, `armada_probe_captain_model` (global administrator; sends one small prompt to the captain's model and records endpoint health, without a mission) |
 | Interrupt | `armada_stop_captain`, `armada_stop_all` |
 | Destructive | `armada_delete_captain`, `armada_delete_captains` |
 
@@ -104,7 +104,7 @@ expiry and offer **Quarantine** and **Lift Quarantine**.
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_mission_change_summary` (caller-scoped; the stage's recorded commit pair, no dock), `armada_get_mission_log` |
+| Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_mission_change_summary` (caller-scoped; the stage's recorded commit pair, no dock), `armada_mission_attempts` (caller-scoped; captain, runtime, model, runtime version and outcome of each attempt), `armada_get_mission_log` |
 | Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26), `armada_review_hold` (`action=fail`), `armada_handoff_hold` (`action=rescue`) |
 | Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_review_hold` (`action=clear` lands or hands off the held PASS), `armada_handoff_hold` (`action=release` or `mail_release` hands off the held stage) |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
@@ -1439,3 +1439,13 @@ Both tools require a global administrator.
 ### Compact voyage status fields
 
 `armada_voyage_status` with `summary:false` and `includeMissions:true` returns bounded mission details. Set `includeDescription:true` to include mission description previews. A nonempty `includeFields` list includes report previews only when it contains `output`; omitted or empty fields retain the default bounded report preview. Each preview remains limited to 4096 characters with `Truncated` and `FullLength` metadata. Use `armada_mission_output` for paged full reports.
+
+### 8.29 Saved Ask Conversations
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_list_ask_threads`, `armada_get_ask_thread` |
+
+Both tools read the conversations the authenticated human caller owns. No tool in
+this group sends a message, approves or rejects a proposal, changes a conversation
+or deletes one. See [Saved Ask Conversations](MCP_API.md#saved-ask-conversations).

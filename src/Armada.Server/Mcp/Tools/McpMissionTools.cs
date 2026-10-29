@@ -196,6 +196,7 @@ namespace Armada.Server.Mcp.Tools
                         mode = new { type = "string", description = "Optional mission mode: Implementation (default), Audit, or Research. Implementation changes code and must commit. Audit and Research deliver a report: they receive a reduced instruction set and producing no commit is their success condition, not a failure. An unrecognized value is rejected." },
                         tier = new { type = "string", description = "Optional minimum captain tier for this mission (Economy, Standard, or Premium). Only captains at or above it are assigned. Omit it to keep the default routing. An unrecognized value is rejected." },
                         dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
+                        isEvaluation = new { type = "boolean", description = "When true, the mission is evaluation work and stays out of production summaries. The default is false. A mission added to an evaluation voyage inherits that voyage's flag." },
                         selectedPlaybooks = new
                         {
                             type = "array",
@@ -238,6 +239,7 @@ namespace Armada.Server.Mcp.Tools
                             Error = "Unknown mission mode: " + request.Mode + ". Use Implementation, Audit, or Research, or omit mode to default to Implementation."
                         };
                     mission.Mode = Armada.Core.Enums.MissionModes.Parse(request.Mode);
+                    mission.IsEvaluation = request.IsEvaluation;
 
                     if (!String.IsNullOrWhiteSpace(request.Tier))
                     {

@@ -8,8 +8,9 @@ namespace Armada.Server
     using System.Text.Json;
     using SyslogLogging;
     using WatsonWebserver;
-    using WatsonWebserver.Core;
-    using WatsonWebserver.Core.OpenApi;
+using WatsonWebserver.Core;
+using WatsonWebserver.Core.OpenApi;
+using WatsonWebserver.Core.Routing;
     using Armada.Core;
     using Armada.Core.Context;
     using ArmadaConstants = Armada.Core.Constants;
@@ -197,6 +198,7 @@ namespace Armada.Server
         private TypedDispatchStalenessAdapter? _DispatchStalenessAdapter;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private AskActionService _AskActions = null!;
+        private AskThreadService? _AskThreads = null;
         private VesselCheckoutImportService _VesselCheckoutImports = null!;
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -207,6 +209,7 @@ namespace Armada.Server
         private LandingPreviewService _LandingPreviewService = null!;
         private HistoricalTimelineService _HistoricalTimelineService = null!;
         private ModelEndpointService _ModelEndpointService = null!;
+        private CaptainModelProbeService _CaptainModelProbe = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -754,6 +757,10 @@ namespace Armada.Server
                     Description = "API key for authenticating requests. Configure via ArmadaSettings.ApiKey."
                 };
             });
+
+            // The library registers these paths with no authorization check.
+            // They use the same authorization decision as every other route.
+            RequireAuthenticationOnDocumentationRoutes();
 
             // Set timestamp on request start
             _App.Routes.PreRouting = async (HttpContextBase ctx) =>
@@ -1438,6 +1445,49 @@ namespace Armada.Server
             }
         }
 
+        /// <summary>
+        /// OpenAPI and Swagger routes the library registers do not check permission.
+        /// They use the same authorization decision as every other route.
+        /// </summary>
+        private void RequireAuthenticationOnDocumentationRoutes()
+        {
+            foreach (RoutingGroup group in new[] { _App.Routes.PreAuthentication, _App.Routes.PostAuthentication })
+            {
+                foreach (StaticRoute route in group.Static.GetAll())
+                {
+                    if (!IsDocumentationRoute(route.Path)) continue;
+                    Func<HttpContextBase, Task> serve = route.Handler;
+                    route.Handler = async ctx =>
+                    {
+                        AuthContext auth = await AuthenticateRequestAsync(ctx).ConfigureAwait(false);
+                        if (!_AuthorizationService.IsAuthorized(auth, ctx.Request.Method.ToString(), ctx.Request.Url.RawWithoutQuery))
+                        {
+                            bool authenticated = auth != null && auth.IsAuthenticated;
+                            ctx.Response.StatusCode = authenticated ? 403 : 401;
+                            ctx.Response.ContentType = "application/json";
+                            await ctx.Response.Send(JsonSerializer.Serialize(RouteAuthRefusal.Build(authenticated), _JsonOptions)).ConfigureAwait(false);
+                            return;
+                        }
+
+                        await serve(ctx).ConfigureAwait(false);
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// True for the OpenAPI document and the Swagger UI paths.
+        /// </summary>
+        /// <param name="path">Registered route path.</param>
+        /// <returns>Whether the path publishes API documentation.</returns>
+        private static bool IsDocumentationRoute(string path)
+        {
+            string normalized = (path ?? String.Empty).Trim().Trim('/').ToLowerInvariant();
+            return normalized == "openapi.json"
+                || normalized == "swagger"
+                || normalized.StartsWith("swagger/", StringComparison.Ordinal);
+        }
+
         private async Task<AuthContext> AuthenticateRequestAsync(WatsonWebserver.Core.HttpContextBase ctx)
         {
             string? authHeader = ctx.Request.Headers.Get("Authorization");
@@ -1706,7 +1756,11 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
-            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions, _Logging, _CaptainQuarantine, _CaptainAdministration)
+            _CaptainModelProbe = new CaptainModelProbeService(
+                _Database,
+                _AgentLifecycle.ValidateCaptainModelDetailedAsync,
+                (auth, endpointId, probeToken) => _ModelEndpointService.ValidateAsync(auth, endpointId, probeToken));
+            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions, _Logging, _CaptainQuarantine, _CaptainAdministration, _CaptainModelProbe)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runtime helpers
@@ -1798,7 +1852,8 @@ namespace Armada.Server
                 _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
-            new AskThreadRoutes(new AskThreadService(_Database, captainChat))
+            _AskThreads = new AskThreadService(_Database, captainChat);
+            new AskThreadRoutes(_AskThreads)
                 .Register(_App, authenticate, _AuthorizationService);
             new AskActionRoutes(_AskActions).Register(_App, authenticate, _AuthorizationService);
 
@@ -2214,7 +2269,9 @@ namespace Armada.Server
                 missionService: _MissionService,
                 missionOperations: _MissionOperations,
                 askActions: _AskActions,
-                vesselCheckoutImportService: _VesselCheckoutImports);
+                vesselCheckoutImportService: _VesselCheckoutImports,
+                captainModelProbe: _CaptainModelProbe,
+                askThreads: _AskThreads);
 
         }
 

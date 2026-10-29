@@ -288,6 +288,11 @@ namespace Armada.Core
         public static readonly string MissionAttemptFactIdPrefix = "maf_";
 
         /// <summary>
+        /// ID prefix for per-attempt provenance records.
+        /// </summary>
+        public static readonly string MissionAttemptProvenanceIdPrefix = "mat_";
+
+        /// <summary>
         /// Preparation claim observation ID prefix.
         /// </summary>
         public static readonly string PreparationClaimObservationIdPrefix = "pco_";

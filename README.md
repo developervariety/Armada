@@ -79,7 +79,7 @@ explain the fork behavior and link to its subsystem guides.
 | Database protection | Pre-migration backup with isolated restore verification, historical upgrade checks and per-file SQLite write queues. |
 | Runtime and MCP evidence | Typed provider failures, final reply artifacts, deferred caller-filtered catalogs, bounded file reads and matching HTTP/stdio tool names. Missing standalone services return `Unavailable`. |
 | Harbor execution | Capacity waits, opt-in host-owned checkouts and fenced restart adoption with verified output replay. |
-| Operator workflows | Saved Ask threads, exact human approval proposals, fork-aware work reports, checkout import, Mission actions, a read-only Harbor jobs view and a Harbor host chart. |
+| Operator workflows | Saved Ask threads with read-only MCP listing, exact human approval proposals, fork-aware work reports, checkout import, Mission actions, a read-only Harbor jobs view and a Harbor host chart. |
 | Ask native tool permissions | Adapted: each Ask launch resolves a read-only native shell and file policy on its own launch copy, with an operator setting that widens it. Mission launch defaults are unchanged. |
 | UI and local releases | Shared table controls on Voyages only; staged Dashboard installation with rollback and fresh-install failure checks. |
 | Administrator storage inventory | Adapted: a cached, read-only, bounded scan of the data directory by category plus database size and table metadata on all four providers, a manual refresh, a bounded growth history kept in one JSON file, `GET /api/v1/storage`, `POST /api/v1/storage/refresh` and a Dashboard Storage page, all global-administrator only. Harbor runners do not report storage. See [Storage Inventory](docs/STORAGE_INVENTORY.md). Disk lifecycle cleanup is a separate feature. |
@@ -90,7 +90,13 @@ explain the fork behavior and link to its subsystem guides.
 | Judge restart context | Adapted: a restarted Judge whose last run ended `FAIL` or `NEEDS_REVISION` receives a capped, historical excerpt of that review to re-check against the current commit; the complete output stays in the mission's preserved runs. |
 | Operational visibility | Harbor host metrics in a bounded in-memory ring, an advisory per-vessel repository health report that never blocks dispatch, and pending Ask proposals in the Needs You inbox. |
 | Paged lists and typed errors | Additive: paged `POST .../enumerate` routes for jobs, the inbox, model endpoints and planning sessions beside the unchanged whole-list routes, with caller scope applied before paging. HTTP 501, 503 and 504 bodies and WebSocket `command.error` frames add a machine-readable code; existing `Error` values and statuses are unchanged. |
-| Non-root containers | Opt-in only: a `runtime-nonroot` image stage and a compose override for the server and proxy. The default images stay root, and base images keep their floating tags. See [Docker](docs/DOCKER.md). |
+| Non-root containers and base images | Opt-in only: a `runtime-nonroot` image stage and a compose override for the server and proxy. The default images stay root. The Dashboard and proxy images pin Node 22 LTS and their .NET and nginx bases by exact tag; the server image keeps the floating SDK tag. See [Docker](docs/DOCKER.md). |
+| Landing and status safety | Adapted: a lost merge-queue handoff becomes `LandingFailed` with its reason, and the landing drain also covers missions without a voyage. A missing diff or branch that contradicts recorded commits fails the landing. Operators cannot move a mission into `WorkProduced` or out of `Review` by hand. Orphan recovery leaves `Review` missions alone. Untracked scratch files do not count as leftover work, and a conflict in `CHANGELOG.md` alone is resolved by keeping both sides. |
+| History, memory and vessel reads | Adapted: History hides read-only request polling and sorts in the database on all four providers, with a capped export. Memories page and filter in the database through `POST /api/v1/memories/enumerate`. Vessel git status is cached briefly and read only for visible rows. |
+| Mission and captain reporting | MCP `create_mission` takes an optional minimum captain tier. A refused captain model returns a typed reason. The setup wizard shows mission failure details. Lists link voyage titles and memory vessel names. |
+| Attempt provenance and rework prompts | Adapted: one provenance row per captain launch (captain, persona, runtime, model, runtime version, times, outcome) read through the caller-scoped `GET /api/v1/missions/{id}/attempts` and MCP. Rework prompts number the Judge findings with one demand each and drop whole findings over budget. Personas offer fork-written Lean and Compact prompt variants. Upstream's stage-outcome store and failure classifier are not adopted. |
+| Evaluation work and model probes | Missions and voyages carry `IsEvaluation`, which keeps them out of the production summary. A global administrator can probe a captain's model with one small prompt and no mission. |
+| Route authorization and toolchain suggestions | A test walks every registered REST route and fails on an anonymous route outside a short allow list; the OpenAPI document and Swagger UI need a credential. A vessel toolchain read suggests build, test and lint commands without writing a profile. Workflow profiles store an optional abbreviated unit-test command. |
 
 ### Upstream features not imported
 
@@ -104,9 +110,10 @@ explain the fork behavior and link to its subsystem guides.
 | Upstream routing, blocked-stage and recovery replacements | Keep fork Smart Routing, exact-commit verification, incidents and bounded rescue rules. |
 | Upstream retention and bulk permanent deletion | Keep the fork archive and retention rules. |
 | Cloud model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) | Not ported. |
-| Ask pane interface refinements | Deferred. |
-| MCP tier field, typed mission and model-validation reporting, request-history filter | Deferred. |
-| Upstream's other developer conveniences (workflow-profile suggestions, bulk checkout history, token heatmap, proxy-build and endpoint options, SDK and Harbor desktop) | Deferred. |
+| Ask pane interface refinements | Adapted in part: tool-call cards that survive a reload, server-side unread state, per-conversation drafts, a resizable conversation list, prompt history and work-card links. The per-reply copy button, the thread-list refresh control and the dispatch-first prompt are not adopted. |
+| Upstream's other developer conveniences (automatic workflow profiles, bulk checkout history, token heatmap, proxy-build and endpoint options, SDK and Harbor desktop) | Deferred. |
+| Stage-outcome store, failure-cause classifier, escalation records and handoff artifact store | Not adopted; the fork's attempt facts, Judge, incidents and rescue rules stay the record. |
+| pi coding-agent runtime, fixture battery, Ask dispatch-first prompt, Ask hard and bulk delete | Held for an owner decision. |
 | Removal of whole-list routes and a deprecation registry | Not adopted; the whole-list routes stay beside the paged routes. |
 
 This table records selected integration decisions. It is not an inventory of
