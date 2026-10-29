@@ -4,9 +4,6 @@ import { dashboardItem, askArmadaItem, navSections, flattenNavCommands } from '.
 /**
  * Locks the consolidated navigation model so regressions cannot silently
  * re-add or re-nest the pages the consolidation folded away.
- *
- * This fork carries one destination upstream's nav does not: Chatroom, the
- * shared coordination board where operator sessions see who is doing what.
  */
 describe('navConfig', () => {
   const commands = flattenNavCommands();
@@ -26,15 +23,13 @@ describe('navConfig', () => {
       '/', '/ask', '/inbox', '/planning', '/dispatch', '/missions',
       '/delivery', '/vessels', '/captains', '/configuration', '/activity',
       '/jobs', '/api-explorer', '/storage', '/battery', '/server', '/notifications', '/code-index', '/mission-actions',
-      // Fork-only addition; see the file comment.
-      '/chatroom',
     ];
     for (const target of present) {
       expect(allTargets).toContain(target);
     }
-    // The consolidated destinations plus Chatroom, Notifications history,
+    // The consolidated destinations plus Notifications history,
     // Code Index, and the global-administrator Storage and Battery pages; admin lives as tabs under Settings.
-    expect(commands).toHaveLength(20);
+    expect(commands).toHaveLength(19);
   });
 
   it('no longer surfaces the folded-away pages as nav items', () => {

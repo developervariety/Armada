@@ -7942,7 +7942,7 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 
 /* ==========================================================================
    Fork feature styles: rules for classes that only this fork's dashboard uses
-   (coordination board, workspace code view, status badges, form grid, page
+   (workspace code view, status badges, form grid, page
    message, code block). Everything above this block is the upstream stylesheet.
    ========================================================================== */
 
@@ -8041,124 +8041,6 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     .detail-meta-grid {
         grid-template-columns: 1fr;
     }
-
-.coordination-layout {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-}
-
-.coordination-rooms {
-  width: 220px;
-  min-width: 180px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.coordination-room-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: var(--radius);
-  border: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-  font-size: 0.9rem;
-}
-
-.coordination-room-item:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
-}
-
-.coordination-room-item.is-active {
-  border-color: var(--accent);
-  font-weight: 600;
-}
-
-.coordination-chat {
-  flex: 1;
-  min-width: 0;
-}
-
-.coordination-presence {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 0.6rem;
-}
-
-.coordination-presence-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.8rem;
-}
-
-/* The rooms a session sits in; dimmed when none of them is the room on screen. */
-.coordination-presence-room {
-  font-size: 0.72rem;
-  font-style: italic;
-}
-
-.coordination-presence-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  display: inline-block;
-}
-
-.coordination-chat-window {
-  max-height: 60vh;
-}
-
-.coordination-chat-message-system {
-  align-self: center;
-  opacity: 0.85;
-  max-width: 90%;
-}
-
-.coordination-message-refs {
-  font-size: 0.75rem;
-  margin-top: 0.15rem;
-}
-
-@media (max-width: 900px) {
-  .coordination-layout {
-    flex-direction: column;
-  }
-  .coordination-rooms {
-    width: 100%;
-  }
-}
-
-.coordination-claims {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.6rem;
-}
-
-.coordination-claim-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f59e0b;
-  display: inline-block;
-}
-
-.coordination-claim-chip strong {
-  font-weight: 600;
-}
 
 /* ============================================================
    Mobile navigation: off-canvas sidebar drawer (phone width).
