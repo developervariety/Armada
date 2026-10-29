@@ -65,6 +65,26 @@ NUPKG="$(find "$NUPKG_DIR" -maxdepth 1 -name 'Armada.Helm.*.nupkg' | head -1)"
 VERSION="$(basename "$NUPKG" .nupkg)"; VERSION="${VERSION#Armada.Helm.}"
 iv_log "package: $(basename "$NUPKG") ($(du -h "$NUPKG" | cut -f1))"
 
+# NuGet excludes dotfiles by default unless the tool project opts in. These files are part of the fixture
+# contract, so check the actual archive (for every packaged framework), rather than suppressing NU5119.
+python3 - "$NUPKG" "$IV_REPO_ROOT/battery" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as package:
+    names = set(package.namelist())
+required = [p.relative_to(sys.argv[2]).as_posix() for p in pathlib.Path(sys.argv[2]).rglob('*')
+            if p.is_file() and p.name in ('.gitattributes', '.gitignore') and 'fixture' in p.parts]
+prefixes = {name.split('/battery/')[0] for name in names if '/battery/' in name}
+missing = [prefix + '/battery/' + path for prefix in prefixes for path in required
+           if prefix + '/battery/' + path not in names]
+if not prefixes or missing:
+    raise SystemExit('Tool package is missing battery fixture dotfiles: ' + ', '.join(missing or required))
+print('[install-verify] battery fixture dotfiles preserved in every packaged framework')
+PY
+if [ "$?" -ne 0 ]; then iv_die "battery fixture package verification failed"; fi
+
 # Install exactly as a user would, but into a private tool path. --ignore-failed-sources keeps
 # the install offline-tolerant; the package has no NuGet dependencies of its own.
 iv_log "dotnet tool install Armada.Helm $VERSION --tool-path $IV_WORK/tools"

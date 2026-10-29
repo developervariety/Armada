@@ -174,6 +174,12 @@ namespace Armada.Core.Services
                     WHERE mission_id NOT IN (SELECT id FROM missions);",
                     "", cutoff, token).ConfigureAwait(false);
 
+                // Handoff artifacts expire with their mission, like stage outcomes.
+                totalDeleted += await ExecuteDeleteAsync(conn,
+                    @"DELETE FROM handoff_artifacts
+                    WHERE mission_id NOT IN (SELECT id FROM missions);",
+                    cutoffStr, token).ConfigureAwait(false);
+
                 // Delete old read signals
                 totalDeleted += await ExecuteStatementAsync(conn,
                     @"DELETE FROM signals

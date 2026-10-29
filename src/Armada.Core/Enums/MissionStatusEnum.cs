@@ -83,6 +83,10 @@ namespace Armada.Core.Enums
         /// the voyage open, until the failed stage is restarted (it then returns to Pending) or the voyage is cancelled.
         /// </summary>
         [EnumMember(Value = "Blocked")]
-        Blocked
+        Blocked,
+
+        /// <summary>Agent exited; queued or running stage verification owns the handoff.</summary>
+        [EnumMember(Value = "Verifying")]
+        Verifying
     }
 }

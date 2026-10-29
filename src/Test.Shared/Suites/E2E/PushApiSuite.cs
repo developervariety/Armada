@@ -66,12 +66,12 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("Work phone", after.DeviceName);
                 AssertEqual("CliPermission", String.Join(",", after.Categories));
 
-                List<PushDevice> list = await JsonHelper.DeserializeAsync<List<PushDevice>>(await u.GetAsync("/api/v1/push/devices").ConfigureAwait(false)).ConfigureAwait(false);
+                List<PushDevice> list = (await JsonHelper.DeserializeAsync<EnumerationResult<PushDevice>>(await u.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects;
                 AssertEqual(device.Id, list.Single().Id, "listed");
                 AssertFalse(list.Single().ExpoPushToken.Contains(token.Substring(18, 10)), "list masks the token");
 
                 AssertStatusCode(HttpStatusCode.BadRequest, await u.PostAsync("/api/v1/push/devices", JsonHelper.ToJsonContent(new { Platform = "Ios", ExpoPushToken = "garbage" })).ConfigureAwait(false), "invalid token");
-                AssertStatusCode(HttpStatusCode.Unauthorized, await fx.UnauthClient.GetAsync("/api/v1/push/devices").ConfigureAwait(false), "unauthenticated");
+                AssertStatusCode(HttpStatusCode.Unauthorized, await fx.UnauthClient.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false), "unauthenticated");
 
                 AssertStatusCode(HttpStatusCode.NoContent, await u.DeleteAsync("/api/v1/push/devices/" + device.Id).ConfigureAwait(false));
                 AssertStatusCode(HttpStatusCode.NotFound, await u.DeleteAsync("/api/v1/push/devices/" + device.Id).ConfigureAwait(false), "already deleted");
@@ -95,11 +95,11 @@ namespace Test.Shared.Suites.E2E
                 AssertStatusCode(HttpStatusCode.NotFound, await f.DeleteAsync("/api/v1/push/devices/" + device.Id).ConfigureAwait(false), "foreign admin cannot delete");
                 AssertStatusCode(HttpStatusCode.NotFound, await f.PostAsync("/api/v1/push/devices/" + device.Id + "/test", null).ConfigureAwait(false), "foreign admin cannot test");
                 AssertStatusCode(HttpStatusCode.NotFound, await b.PutAsync("/api/v1/push/devices/" + device.Id, JsonHelper.ToJsonContent(new { DeviceName = "x" })).ConfigureAwait(false), "another user cannot update");
-                AssertStatusCode(HttpStatusCode.Forbidden, await b.GetAsync("/api/v1/push/devices?userId=" + alice.UserId).ConfigureAwait(false), "a user cannot list another user");
-                AssertEqual(0, (await JsonHelper.DeserializeAsync<List<PushDevice>>(await b.GetAsync("/api/v1/push/devices").ConfigureAwait(false)).ConfigureAwait(false)).Count, "bob's own list is empty");
-                AssertEqual(0, (await JsonHelper.DeserializeAsync<List<PushDevice>>(await f.GetAsync("/api/v1/push/devices?userId=" + alice.UserId).ConfigureAwait(false)).ConfigureAwait(false)).Count, "foreign tenant admin sees nothing");
-                AssertStatusCode(HttpStatusCode.Forbidden, await f.GetAsync("/api/v1/push/devices?tenantId=" + admin.TenantId).ConfigureAwait(false), "tenant admin cannot name another tenant");
-                List<PushDevice> adminView = await JsonHelper.DeserializeAsync<List<PushDevice>>(await t.GetAsync("/api/v1/push/devices?userId=" + alice.UserId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Forbidden, await b.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { UserId = alice.UserId, PageSize = 1000 })).ConfigureAwait(false), "a user cannot list another user");
+                AssertEqual(0, (await JsonHelper.DeserializeAsync<EnumerationResult<PushDevice>>(await b.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects.Count, "bob's own list is empty");
+                AssertEqual(0, (await JsonHelper.DeserializeAsync<EnumerationResult<PushDevice>>(await f.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { UserId = alice.UserId, PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects.Count, "foreign tenant admin sees nothing");
+                AssertStatusCode(HttpStatusCode.Forbidden, await f.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { TenantId = admin.TenantId, PageSize = 1000 })).ConfigureAwait(false), "tenant admin cannot name another tenant");
+                List<PushDevice> adminView = (await JsonHelper.DeserializeAsync<EnumerationResult<PushDevice>>(await t.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { UserId = alice.UserId, PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects;
                 AssertEqual(device.Id, adminView.Single().Id, "tenant admin lists alice");
                 AssertStatusCode(HttpStatusCode.OK, await t.PutAsync("/api/v1/push/devices/" + device.Id, JsonHelper.ToJsonContent(new { Categories = new string[0] })).ConfigureAwait(false), "tenant admin updates");
             }));
@@ -121,7 +121,7 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(second.TenantId, device.TenantId);
                 AssertEqual(second.UserId, device.UserId);
                 AssertNull(device.DeviceName, "previous owner's name dropped");
-                AssertEqual(0, (await JsonHelper.DeserializeAsync<List<PushDevice>>(await one.GetAsync("/api/v1/push/devices").ConfigureAwait(false)).ConfigureAwait(false)).Count, "first user lost it");
+                AssertEqual(0, (await JsonHelper.DeserializeAsync<EnumerationResult<PushDevice>>(await one.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects.Count, "first user lost it");
                 AssertStatusCode(HttpStatusCode.NotFound, await one.DeleteAsync("/api/v1/push/devices/" + device.Id).ConfigureAwait(false), "first user can no longer delete it");
                 AssertStatusCode(HttpStatusCode.NotFound, await one.DeleteAsync("/api/v1/push/devices/" + original.Id).ConfigureAwait(false), "the first user's device is gone");
                 AssertStatusCode(HttpStatusCode.NotFound, await two.DeleteAsync("/api/v1/push/devices/" + original.Id).ConfigureAwait(false), "the old id does not name the new owner's device");
@@ -149,7 +149,7 @@ namespace Test.Shared.Suites.E2E
                         ids.Add((await JsonHelper.DeserializeAsync<PushDevice>(created).ConfigureAwait(false)).Id);
                     }
 
-                    List<PushDevice> devices = await JsonHelper.DeserializeAsync<List<PushDevice>>(await u.GetAsync("/api/v1/push/devices").ConfigureAwait(false)).ConfigureAwait(false);
+                    List<PushDevice> devices = (await JsonHelper.DeserializeAsync<EnumerationResult<PushDevice>>(await u.PostAsync("/api/v1/push/devices/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects;
                     AssertEqual(5, devices.Count, "rows are kept");
                     AssertEqual(String.Join(",", ids.Skip(2)), String.Join(",", devices.Where(d => d.Active).Select(d => d.Id)), "the three most recent stay active");
 

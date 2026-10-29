@@ -19,16 +19,16 @@ namespace Armada.Client
         #region Public-Methods
 
         /// <summary>
-        /// GET /api/v1/cli-permissions/requests: CLI permission requests the caller may see, newest first, filtered by
-        /// status, mission, thread, captain, or vessel.
+        /// POST /api/v1/cli-permissions/requests/enumerate: one page of the CLI permission requests the caller may see,
+        /// newest first, with the total, filtered by status, mission, thread, captain, or vessel.
         /// </summary>
-        /// <param name="query">Filters, or null for every visible request.</param>
+        /// <param name="query">Paging and filters, or null for the first page of 10.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The requests.</returns>
+        /// <returns>One page.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<List<CliPermissionRequest>?> ListCliPermissionRequestsAsync(CliPermissionRequestQuery? query = null, CancellationToken token = default)
+        public Task<EnumerationResult<CliPermissionRequest>?> ListCliPermissionRequestsAsync(CliPermissionRequestEnumerateRequest? query = null, CancellationToken token = default)
         {
-            return GetAsync<List<CliPermissionRequest>>($"/api/v1/cli-permissions/requests{ArmadaQueryString.FromObject(query)}", null, token);
+            return PostAsync<EnumerationResult<CliPermissionRequest>>("/api/v1/cli-permissions/requests/enumerate", query ?? new CliPermissionRequestEnumerateRequest(), null, token);
         }
 
         /// <summary>

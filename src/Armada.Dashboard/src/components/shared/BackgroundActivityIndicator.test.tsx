@@ -77,7 +77,7 @@ describe('BackgroundActivityIndicator', () => {
     fireEvent.click(button);
     const popover = screen.getByRole('dialog', { name: 'Background tasks' });
     expect(within(popover).getByRole('link', { name: /Recommending fleets/ })).toHaveAttribute('href', '/vessels/import?batch=vib_abc');
-    expect(within(popover).getByRole('link', { name: /Evaluating vessel health/ })).toHaveAttribute('href', '/jobs');
+    expect(within(popover).getByRole('link', { name: /Evaluating vessel health/ })).toHaveAttribute('href', '/activity?source=jobs');
     expect(within(popover).getByText(/Queued/)).toBeInTheDocument();
   });
 
