@@ -749,7 +749,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `entityType` value | Supported filters |
 |---|---|
 | `inbox` | Paging only; most urgent first (see [Inbox items](#inbox-items-entitytype-inbox)) |
-| `cli_permission_rules` | `vesselId`, `captainId` |
+| `cli_permission_rules` | `vesselId`, `captainId`. Counted and paged in the database (caller's tenant plus every-tenant rules), newest first. |
 | `cli_permission_requests` (alias `cli-permission-requests`) | `status` (Pending/Allowed/Denied/Expired/Cancelled), `missionId`, `threadId`, `captainId`, `vesselId`; newest first (see [CLI permission requests](#cli-permission-requests-entitytype-cli_permission_requests)) |
 | `objectives` (aliases `backlog`, `backlog_item`, `backlog_items`) | `status`, `vesselId`, `voyageId`, `missionId`, `search` |
 | `fleets` | `createdAfter`, `createdBefore` |
@@ -761,8 +761,8 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `signals` | `signalType`, `captainId`, `toCaptainId`, `unreadOnly`, `createdAfter`, `createdBefore` |
 | `events` | `eventType`, `captainId`, `missionId`, `vesselId`, `voyageId`, `createdAfter`, `createdBefore` |
 | `merge_queue` | `status` (Queued/Testing/Passed/Failed/Landed/Cancelled), `createdAfter`, `createdBefore` |
-| `harbors` | paginated browse only (no filters) |
-| `personas` | `createdAfter`, `createdBefore` |
+| `harbors` | `createdAfter`, `createdBefore`, `order`. Counted and paged in the database within the caller's tenant, newest first, ties by id. |
+| `personas` | `createdAfter`, `createdBefore`, `order`. Visibility (tenant-wide plus own) applies in the database before counting, so `TotalRecords` is exact. |
 | `playbooks` | `createdAfter`, `createdBefore` |
 | `prompt_templates` | `createdAfter`, `createdBefore` |
 | `pipelines` | `createdAfter`, `createdBefore` |
@@ -774,10 +774,10 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `runbooks` | `search` (current MCP enumeration is primarily paginated browse) |
 | `runbook_executions` (aliases `runbook-executions`, `runbookexecution`) | `search` (current MCP enumeration is primarily paginated browse) |
 | `project_profiles` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
-| `skills` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
+| `skills` | paginated browse ordered by name; visibility (tenant-wide plus own) applies in the database before counting. |
 | `memories` | `search` (content, topic, tags), `vesselId` (vessel or source vessel), `voyageId`, `missionId`, `createdAfter`, `createdBefore`, `order`. Filtered, sorted and paged in the database within the caller's visibility. Without `order`, salience descending then newest first; with `order`, by created time. |
 | `jobs` | (paginated browse only) |
-| `model_endpoints` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
+| `model_endpoints` | `createdAfter`, `createdBefore`, `order`. Counted and paged in the database within the caller's visibility (tenant-wide endpoints plus the caller's own), newest first, ties by id. |
 | `vessel_import_batch` (aliases `vessel_import_batches`, `vessel-import-batch`, `import_batches`) | `status` (Discovered/Importing/Completed/CompletedWithFailures/Failed/Discovering), `createdAfter`, `createdBefore`, `order`. Scoped to the caller's tenant. Items are not included; read a batch with items through `GET /api/v1/vessels/import/batches/{id}`. |
 | `fleet_action` | `includeInactive`, `createdAfter`, `createdBefore` |
 | `fleet_action_run` | `status` (Pending/Running/Completed/CompletedWithFailures/Cancelled/Failed), `createdAfter`, `createdBefore` |
@@ -3336,7 +3336,10 @@ Get details of a specific captain (AI agent).
 
 ### get_captain_tools
 
-Describe the Armada MCP tools available to a specific captain.
+Describe the tool sources (`Servers`, at most 256) and tool counts of a specific captain, with one page of its named
+tools (`Tools`: an `EnumerationResult` ordered by source kind, source, and name). The runtime is probed once and the
+snapshot is reused for 60 seconds so further pages do not probe again; `refresh: true` probes again. Same contract as
+`GET /api/v1/captains/{id}/tools`.
 
 **Input Schema:**
 
@@ -3344,13 +3347,17 @@ Describe the Armada MCP tools available to a specific captain.
 {
   "type": "object",
   "properties": {
-    "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" }
+    "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" },
+    "pageNumber": { "type": "integer", "description": "One-based page of tools (default 1)" },
+    "pageSize": { "type": "integer", "description": "Tools per page, 1 to 1000 (default 10)" },
+    "sourceKind": { "type": "string", "description": "Only tools of this source kind: McpServer, RuntimeBuiltIn, or Internal" },
+    "refresh": { "type": "boolean", "description": "true to probe the runtime again instead of reusing the recent snapshot" }
   },
   "required": ["captainId"]
 }
 ```
 
-**Response:** [CaptainToolAccessResult](#captaintoolaccessresult) object, or `{ "Error": "Captain not found", "ErrorCode": "NotFound" }`.
+**Response:** [CaptainToolAccessResult](#captaintoolaccessresult) object, `{ "Error": "Captain not found", "ErrorCode": "NotFound" }`, `InvalidArgument` for an unknown `sourceKind`, or `InvalidArgument` with `Code` `CollectionLimitExceeded` when the runtime reports more than 256 tool sources.
 
 ---
 
@@ -3439,7 +3446,7 @@ Delete a captain. If working, the captain is recalled first.
 
 ### delete_captains
 
-Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. `ids` may hold at most 1000 entries; more is `InvalidArgument` with `Code` `CollectionLimitExceeded` and nothing is deleted. **This cannot be undone.**
 
 **Input Schema:**
 
@@ -4309,7 +4316,10 @@ finished and failed per bucket (missions and other launches apart), slot usage (
 against capacity), launch speed per runtime (median and p95 time to first output and total runtime), link health
 (connected, reconnecting, and down stretches, and heartbeat round trips), and token usage by runtime and model. See
 [REST_API.md](REST_API.md#get-apiv1harborsidmetrics) for the response shape and [HARBOR.md](HARBOR.md#harbor-metrics)
-for how the numbers are recorded. Visibility and token scoping are the same as over REST.
+for how the numbers are recorded. Visibility and token scoping are the same as over REST. Every list is bounded: per-bucket
+series at most 60 entries, `LaunchSpeed` at most 16 (the 15 busiest runtimes plus one `IsOther` aggregate), token
+`Series` at most 20 (the top 19 runtime and model pairs plus one `IsOther` aggregate), and `Link.Segments` at most 1000
+(coalesced to bucket resolution with `SegmentsCoalesced` above that).
 
 **Input Schema:**
 

@@ -46,7 +46,7 @@ namespace Test.Shared.Suites.E2E
             ["GET /api/v1/whoami"] = "The caller",
             ["GET /api/v1/storage"] = "Storage snapshot",
             ["GET /api/v1/backup"] = "Backup archive download",
-            ["GET /api/v1/captains/{id}/tools"] = "One captain's tool inventory",
+            ["GET /api/v1/captains/{id}/tools"] = "One captain's tool sources (at most 256) and counts; its tools are one EnumerationResult page (POST .../tools/enumerate twin)",
             ["GET /api/v1/captains/{id}/log"] = "Log read bounded by lines (1-5000) with offset paging",
             ["GET /api/v1/harbors/{id}/metrics"] = "One Harbor's metrics",
             ["GET /api/v1/missions/history"] = "Aggregated summary buckets",
@@ -57,7 +57,6 @@ namespace Test.Shared.Suites.E2E
             ["GET /api/v1/missions/{id}/log"] = "Log read bounded by lines (1-5000) with offset paging",
             ["GET /api/v1/missions/{id}/instructions"] = "One instructions file",
             ["GET /api/v1/request-history/summary"] = "Aggregated summary buckets",
-            ["GET /api/v1/runtimes/mux/endpoints"] = "Endpoints of one Mux configuration file, read from the mux CLI",
             ["GET /api/v1/status"] = "Admiral status snapshot",
             ["GET /api/v1/status/health"] = "Health probe",
             ["GET /api/v1/doctor"] = "Diagnostics report",
@@ -125,7 +124,7 @@ namespace Test.Shared.Suites.E2E
                     if (last.StartsWith("{", StringComparison.Ordinal)) continue;
                     string key = "GET " + route.Route;
                     string response = route.Responses.TryGetValue("200", out string? ok) ? ok ?? "" : "";
-                    if (response.StartsWith("EnumerationResult<", StringComparison.Ordinal)) continue;
+                    if (IsPageResponse(response)) continue;
                     if (route.Route == "/api/v1/jobs") continue;
                     if (!_SingleObjectReads.ContainsKey(key)) problems.Append(key).Append(" -> ").Append(response.Length == 0 ? "(undeclared)" : response).Append('\n');
                 }
@@ -141,7 +140,7 @@ namespace Test.Shared.Suites.E2E
                 foreach (ApiRestRoute route in routes.Where(r => String.Equals(r.Method, "GET", StringComparison.OrdinalIgnoreCase)))
                 {
                     string response = route.Responses.TryGetValue("200", out string? ok) ? ok ?? "" : "";
-                    bool paged = response.StartsWith("EnumerationResult<", StringComparison.Ordinal) || route.Route == "/api/v1/jobs";
+                    bool paged = IsPageResponse(response) || route.Route == "/api/v1/jobs";
                     if (!paged) continue;
                     if (!keys.Contains("POST " + route.Route + "/enumerate")) problems.Append("GET ").Append(route.Route).Append(" has no POST ").Append(route.Route).Append("/enumerate\n");
                 }
@@ -340,6 +339,21 @@ namespace Test.Shared.Suites.E2E
         {
             E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
             return ApiSurfaceBuilder.Build(fx.Server).Rest;
+        }
+
+        // A declared 200 type is a page when it is EnumerationResult<T> or an Armada model derived from it (for example
+        // MuxEndpointPage, a page that also says which Harbor's mux answered).
+        private static bool IsPageResponse(string response)
+        {
+            if (response.StartsWith("EnumerationResult<", StringComparison.Ordinal)) return true;
+            if (String.IsNullOrEmpty(response) || response.Contains('<')) return false;
+            Type? type = typeof(EnumerationQuery).Assembly.GetType("Armada.Core.Models." + response, false);
+            for (Type? t = type?.BaseType; t != null; t = t.BaseType)
+            {
+                if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(EnumerationResult<>)) return true;
+            }
+
+            return false;
         }
 
         private static async Task<EnumerationResult<T>> PostPageAsync<T>(HttpClient client, string route, object? body)

@@ -300,6 +300,8 @@ namespace Test.Shared.Suites.Client
                 {
                     MuxEndpointPage? mux = await c.ListMuxEndpointsAsync(muxDir);
                     AssertNotNull(mux, "mux list reply");
+                    MuxEndpointPage? muxPage = await c.EnumerateMuxEndpointsAsync(muxDir, 1, 5);
+                    AssertNotNull(muxPage, "mux page reply");
                 }
                 catch (ArmadaApiException ex)
                 {

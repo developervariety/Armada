@@ -43,7 +43,7 @@ namespace Armada.Client
 
         /// <summary>
         /// Dashboard <c>getCaptainTools</c>: GET `/api/v1/captains/${id}/tools`, the captain's tool sources and counts with
-        /// the first page (10) of its tools. Read further pages with the paged overload.
+        /// the first page (10) of its tools. Read further pages with <see cref="EnumerateCaptainToolsAsync"/>.
         /// </summary>
         /// <param name="id">id.</param>
         /// <param name="token">Cancellation token.</param>
@@ -51,7 +51,7 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<CaptainToolAccessResult?> GetCaptainToolsAsync(string id, CancellationToken token = default)
         {
-            return GetCaptainToolsAsync(id, 1, 10, null, false, token);
+            return EnumerateCaptainToolsAsync(id, 1, 10, null, false, token);
         }
 
         /// <summary>
@@ -65,7 +65,7 @@ namespace Armada.Client
         /// <param name="token">Cancellation token.</param>
         /// <returns>The response.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<CaptainToolAccessResult?> GetCaptainToolsAsync(string id, int pageNumber, int pageSize, CaptainToolSourceKindEnum? sourceKind = null, bool refresh = false, CancellationToken token = default)
+        public Task<CaptainToolAccessResult?> EnumerateCaptainToolsAsync(string id, int pageNumber, int pageSize, CaptainToolSourceKindEnum? sourceKind = null, bool refresh = false, CancellationToken token = default)
         {
             string query = "?pageNumber=" + pageNumber + "&pageSize=" + pageSize
                 + (sourceKind.HasValue ? "&sourceKind=" + sourceKind.Value : "")

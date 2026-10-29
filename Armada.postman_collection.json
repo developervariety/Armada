@@ -4135,7 +4135,7 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/tools",
+                            "raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/tools?pageNumber=1&pageSize=50",
                             "host": [
                                 "{{baseUrl}}"
                             ],
@@ -4145,18 +4145,74 @@
                                 "captains",
                                 "{{captainId}}",
                                 "tools"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "50"
+                                },
+                                {
+                                    "key": "sourceKind",
+                                    "value": "McpServer",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "refresh",
+                                    "value": "true",
+                                    "disabled": true
+                                }
                             ]
                         },
-                        "description": "Describe the Armada MCP tools available through the selected captain, including runtime-specific availability notes."
+                        "description": "The tool sources (Servers, at most 256) and tool counts of the selected captain, with one page of its named tools (Tools is an EnumerationResult ordered by source kind, source, and name). pageSize is 1 to 1000 (default 10); sourceKind filters McpServer, RuntimeBuiltIn, or Internal tools; a probe snapshot from the last 60 seconds is reused unless refresh=true."
                     },
                     "response": [
                         {
                             "name": "Captain Tools",
                             "status": "OK",
                             "code": 200,
-                            "body": "{\n  \"captainId\": \"cpt_abc123\",\n  \"captainName\": \"captain-1\",\n  \"runtime\": \"Mux\",\n  \"toolsAccessible\": true,\n  \"availabilityVerified\": true,\n  \"availabilitySource\": \"mux-probe\",\n  \"summary\": \"Mux probe succeeded and the endpoint reported tool calling enabled.\",\n  \"endpointName\": \"local-codex\",\n  \"toolsEnabled\": true,\n  \"effectiveToolCount\": 42,\n  \"armadaToolCount\": 37,\n  \"tools\": [\n    {\n      \"name\": \"get_status\",\n      \"description\": \"Get current Admiral status snapshot\",\n      \"inputSchemaJson\": \"{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{}}\"\n    }\n  ]\n}"
+                            "body": "{\n  \"captainId\": \"cpt_abc123\",\n  \"captainName\": \"captain-1\",\n  \"runtime\": \"Mux\",\n  \"toolsAccessible\": true,\n  \"availabilityVerified\": true,\n  \"availabilitySource\": \"mux-probe\",\n  \"summary\": \"Mux probe succeeded and the endpoint reported tool calling enabled.\",\n  \"endpointName\": \"local-codex\",\n  \"toolsEnabled\": true,\n  \"effectiveToolCount\": 42,\n  \"armadaToolCount\": 37,\n  \"servers\": [],\n  \"toolCount\": 37,\n  \"mcpToolCount\": 37,\n  \"runtimeBuiltInToolCount\": 0,\n  \"snapshotUtc\": \"2026-10-28T12:00:00Z\",\n  \"tools\": {\n    \"pageNumber\": 1,\n    \"pageSize\": 50,\n    \"totalPages\": 1,\n    \"totalRecords\": 37,\n    \"objects\": [\n      {\n        \"name\": \"get_status\",\n        \"description\": \"Get current Admiral status snapshot\",\n        \"registrationSource\": \"armada\",\n        \"sourceKind\": \"McpServer\"\n      }\n    ]\n  }\n}"
                         }
                     ]
+                },
+                {
+                    "name": "Enumerate Captain Tools",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/tools/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "captains",
+                                "{{captainId}}",
+                                "tools",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "The POST twin of Get Captain Tools: the CaptainToolsQuery (PageNumber, PageSize 1 to 1000, SourceKind, Refresh) comes from the JSON body.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 2,\n  \"PageSize\": 50,\n  \"SourceKind\": \"McpServer\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    }
                 },
                 {
                     "name": "Enumerate CLI Permission Requests",
@@ -12002,7 +12058,7 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/api/v1/runtimes/mux/endpoints",
+                            "raw": "{{baseUrl}}/api/v1/runtimes/mux/endpoints?pageNumber=1&pageSize=50",
                             "host": [
                                 "{{baseUrl}}"
                             ],
@@ -12012,9 +12068,61 @@
                                 "runtimes",
                                 "mux",
                                 "endpoints"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "50"
+                                },
+                                {
+                                    "key": "configDirectory",
+                                    "value": "",
+                                    "disabled": true
+                                }
                             ]
                         },
-                        "description": "List saved Mux endpoints. Add the optional configDirectory query parameter to inspect a non-default Mux config directory."
+                        "description": "One page of the saved Mux endpoints, ordered by name (MuxEndpointPage: Objects, TotalRecords, TotalPages, HarborId, ConfigDirectory, ErrorCode, ErrorMessage). pageSize is 1 to 1000 (default 10). Add the optional configDirectory query parameter to inspect a non-default Mux config directory."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate Mux Endpoints",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/runtimes/mux/endpoints/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "runtimes",
+                                "mux",
+                                "endpoints",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "The POST twin of List Mux Endpoints: paging (EnumerationQuery) in the JSON body; configDirectory and harborId stay in the querystring.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 100\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
                     },
                     "response": []
                 },

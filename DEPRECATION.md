@@ -33,7 +33,6 @@ stored collection:
 | Surface | Item | Bound |
 |---|---|---|
 | REST, MCP | `GET /api/v1/ask/quick-actions`, `list_ask_quick_actions` | A fixed catalog defined in code (a handful of entries) |
-| REST | `GET /api/v1/runtimes/mux/endpoints` | The endpoints in one Mux configuration file, read from the `mux` CLI |
 | REST, MCP, WebSocket | Captain and mission log reads (`.../log`, `get_captain_log`, `get_mission_log`) | `lines` 1 to 5000 per read; page with `offset` |
 | REST | `GET /api/v1/workspace/vessels/{vesselId}/search` | `maxResults` 1 to 1000 (default 200) |
 
@@ -50,7 +49,8 @@ They stay, because the reads are single-resource lookups; each large one has a p
 | REST, MCP | Tracked work and pending proposals in `GET /api/v1/ask/threads/{id}`, `get_ask_thread` | Messages: `POST /api/v1/ask/threads/{id}/messages/enumerate`, `list_ask_messages` |
 | REST, MCP | Transcripts in planning and refinement session reads (`GET /api/v1/planning-sessions/{id}`, `GET /api/v1/objective-refinement-sessions/{id}`, `get_backlog_planning_session`, `get_backlog_refinement_session`) | None (one conversation) |
 | REST, MCP | Items in `GET /api/v1/vessels/import/batches/{id}`; candidates of `POST /api/v1/vessels/import/discover`, `discover_vessels` | None (one import batch or one directory scan) |
-| REST, MCP | `GET /api/v1/captains/{id}/tools`, `get_captain_tools`; directory and change lists of the workspace routes | None (one captain's tool inventory; one directory or working tree) |
+| REST, MCP | `Servers` in `GET /api/v1/captains/{id}/tools`, `get_captain_tools` (at most 256 tool sources; a runtime configuration with more is rejected with CollectionLimitExceeded) | Tools are one page in the same read (`pageNumber`, `pageSize`, `sourceKind`; `POST /api/v1/captains/{id}/tools/enumerate`) |
+| REST, MCP | Directory and change lists of the workspace routes | None (one directory or working tree) |
 
 ## Removed
 

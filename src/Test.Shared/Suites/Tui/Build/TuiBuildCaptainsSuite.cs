@@ -162,7 +162,7 @@ namespace Test.Shared.Suites.Tui.Build
             stub.Json("GET", "/api/v1/runtimes/mux/endpoints", "{\"Success\":true,\"PageNumber\":1,\"PageSize\":1000,\"TotalPages\":1,\"TotalRecords\":1,\"Objects\":[{\"Name\":\"local-llm\",\"AdapterType\":\"openai\",\"Model\":\"qwen\"}]}");
             stub.Json("GET", "/api/v1/captains/cpt_2/tools", "{\"CaptainId\":\"cpt_2\",\"CaptainName\":\"mux-1\",\"Runtime\":\"Mux\",\"ToolsAccessible\":true,\"AvailabilityVerified\":true,\"Summary\":\"Armada tools reachable.\",\"ConfiguredServerCount\":1,\"ReachableServerCount\":1," +
                 "\"Servers\":[{\"Name\":\"armada\",\"SourceKind\":\"McpServer\",\"Transport\":\"http\",\"Url\":\"http://127.0.0.1:7891/rpc\",\"Enabled\":true,\"Reachable\":true,\"ToolCount\":1,\"Status\":\"Reachable\"}]," +
-                "\"Tools\":[{\"Name\":\"armada_status\",\"Description\":\"Status\",\"RegistrationSource\":\"armada\",\"SourceKind\":\"McpServer\"}]}");
+                "\"ToolCount\":1,\"McpToolCount\":1,\"Tools\":{\"PageNumber\":1,\"PageSize\":1000,\"TotalPages\":1,\"TotalRecords\":1,\"Objects\":[{\"Name\":\"armada_status\",\"Description\":\"Status\",\"RegistrationSource\":\"armada\",\"SourceKind\":\"McpServer\"}]}}");
             return stub;
         }
     }
