@@ -240,6 +240,66 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Each mission description expands into stages that share one chain identity distinct from every other description", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 4;
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 4;
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+
+                    Vessel vessel = new Vessel("stage-chain-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("StageChainDualJudge");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Alpha change", "Change alpha"),
+                        new MissionDescription("Beta change", "Change beta")
+                    };
+
+                    foreach (bool queued in new[] { false, true })
+                    {
+                        Voyage voyage = queued
+                            ? await admiralService.DispatchVoyageQueuedAsync("Stage chain voyage queued", "Test", vessel.Id, missions, pipeline.Id, null).ConfigureAwait(false)
+                            : await admiralService.DispatchVoyageAsync("Stage chain voyage", "Test", vessel.Id, missions, pipeline.Id).ConfigureAwait(false);
+                        List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                        AssertEqual(6, voyageMissions.Count, "two descriptions of three stages each");
+
+                        List<Mission> alpha = voyageMissions.Where(m => m.Title.EndsWith("Alpha change", StringComparison.Ordinal)).ToList();
+                        List<Mission> beta = voyageMissions.Where(m => m.Title.EndsWith("Beta change", StringComparison.Ordinal)).ToList();
+                        AssertEqual(3, alpha.Count, "alpha expands into three stages");
+                        AssertEqual(3, beta.Count, "beta expands into three stages");
+
+                        string? alphaChain = alpha[0].StageChainId;
+                        string? betaChain = beta[0].StageChainId;
+                        AssertFalse(String.IsNullOrEmpty(alphaChain), "every expanded stage carries a chain identity");
+                        AssertFalse(String.IsNullOrEmpty(betaChain), "every expanded stage carries a chain identity");
+                        AssertTrue(alpha.All(m => m.StageChainId == alphaChain), "stages of one description share its chain identity");
+                        AssertTrue(beta.All(m => m.StageChainId == betaChain), "stages of one description share its chain identity");
+                        AssertTrue(alphaChain != betaChain, "two descriptions never share a chain identity");
+                    }
+                }
+            });
+
             await RunTest("Each stage's own description reaches its mission, so two stages of one persona are told apart", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

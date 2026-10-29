@@ -754,7 +754,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(130, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.MysqlStatements),
                 new SchemaMigration(131, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.MysqlStatements),
                 new SchemaMigration(132, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.MysqlStatements),
-                new SchemaMigration(133, "Persist fixture battery runs", BatteryRunSchema.MysqlStatements)
+                new SchemaMigration(133, "Persist fixture battery runs", BatteryRunSchema.MysqlStatements),
+                new SchemaMigration(136, "Persist the stage chain identity that scopes the parallel-stage barrier", MissionStageChainSchema.MysqlStatements)
             };
         }
 
