@@ -362,7 +362,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("recall_captain_async_fails_active_mission", "RecallCaptainAsync FailsActiveMission", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("recall_captain_async_cancels_active_mission", "RecallCaptainAsync cancels the active mission as an operator stop with a reason", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -382,8 +382,80 @@ namespace Test.Shared.Suites.Services
                     await service.RecallCaptainAsync(captain.Id);
 
                     Mission? result = await db.Missions.ReadAsync(mission.Id);
-                    AssertEqual(MissionStatusEnum.Failed, result!.Status);
+                    AssertEqual(MissionStatusEnum.Cancelled, result!.Status, "an operator stop is a cancel, not a failure");
+                    AssertEqual(MissionFailureKindEnum.OperatorAction, result.FailureKind, "classified as an operator action");
+                    AssertContains("Stopped by operator via recall at ", result.FailureReason ?? "", "the reason names the stop");
                     AssertNotNull(result.CompletedUtc);
+                }
+            }));
+
+            cases.Add(CaseAsync("recall_captain_with_context_records_source_user_and_event", "RecallCaptainAsync records who stopped the mission, how, and emits mission.stopped_by_operator", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("stop-ctx-vessel", "https://github.com/test/repo.git"));
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("stop-ctx-voyage"));
+                    Mission mission = new Mission("Stopped Mission");
+                    mission.Status = MissionStatusEnum.Assigned;
+                    mission.VesselId = vessel.Id;
+                    mission.VoyageId = voyage.Id;
+                    await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("recall-context");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    await db.Captains.CreateAsync(captain);
+
+                    OperatorStopContext stop = new OperatorStopContext(OperatorStopContext.SourceMcpStopCaptain, "usr_operator");
+                    stop.RequestedUtc = new DateTime(2026, 10, 28, 2, 37, 59, DateTimeKind.Utc);
+                    await service.RecallCaptainAsync(captain.Id, stop);
+
+                    Mission? result = await db.Missions.ReadAsync(mission.Id);
+                    AssertEqual(MissionStatusEnum.Cancelled, result!.Status);
+                    AssertEqual("Stopped by operator (usr_operator) via stop_captain (MCP) at 2026-10-28T02:37:59Z.", result.FailureReason);
+
+                    List<ArmadaEvent> events = await db.Events.EnumerateByMissionAsync(mission.Id);
+                    ArmadaEvent? stopped = events.Find(e => e.EventType == "mission.stopped_by_operator");
+                    AssertNotNull(stopped, "a mission.stopped_by_operator event is emitted");
+                    AssertEqual(captain.Id, stopped!.CaptainId);
+                    AssertEqual(vessel.Id, stopped.VesselId);
+                    AssertEqual(voyage.Id, stopped.VoyageId);
+                    AssertContains("(usr_operator)", stopped.Message);
+                    OperatorStopEventPayload? payload = System.Text.Json.JsonSerializer.Deserialize<OperatorStopEventPayload>(stopped.Payload ?? "{}");
+                    AssertEqual(OperatorStopContext.SourceMcpStopCaptain, payload!.Source);
+                    AssertEqual("Assigned", payload.PreviousStatus);
+                    AssertEqual("usr_operator", payload.UserId);
+                }
+            }));
+
+            cases.Add(CaseAsync("recall_all_with_context_records_stop_all", "RecallAllAsync records stop_all on every interrupted mission", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    List<string> missionIds = new List<string>();
+                    for (int i = 0; i < 2; i++)
+                    {
+                        Mission mission = await db.Missions.CreateAsync(new Mission("stop-all " + i) { Status = MissionStatusEnum.InProgress });
+                        missionIds.Add(mission.Id);
+                        await db.Captains.CreateAsync(new Captain("stop-all-" + i) { State = CaptainStateEnum.Working, CurrentMissionId = mission.Id });
+                    }
+
+                    await service.RecallAllAsync(new OperatorStopContext(OperatorStopContext.SourceRestStopAll, "usr_admin"));
+
+                    foreach (string id in missionIds)
+                    {
+                        Mission? result = await db.Missions.ReadAsync(id);
+                        AssertEqual(MissionStatusEnum.Cancelled, result!.Status);
+                        AssertContains("(usr_admin) via stop_all (REST)", result.FailureReason ?? "");
+                    }
                 }
             }));
 
