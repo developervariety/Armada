@@ -21,6 +21,7 @@ import DataTable, { type DataTableColumn } from '../components/shared/DataTable'
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
 import HarborMetricsPanel from '../components/harbors/HarborMetricsPanel';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 interface HarborForm {
   name: string;
@@ -44,6 +45,7 @@ export default function Harbors() {
   const { isAdmin, isTenantAdmin } = useAuth();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const [harbors, setHarbors] = useState<Harbor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -154,13 +156,9 @@ export default function Harbors() {
       message: t('Delete "{{name}}"? Its registration is removed; running work on it is not affected until it reconnects.', { name: harbor.name }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteHarbor(harbor.id);
-          pushToast('warning', t('Harbor "{{name}}" deleted.', { name: harbor.name }));
-          await load();
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'harbor', action: () => deleteHarbor(harbor.id), errorMessage: (err) => (err instanceof Error ? err.message : t('Delete failed.')) }))) return;
+        pushToast('warning', t('Harbor "{{name}}" deleted.', { name: harbor.name }));
+        await load();
       },
     });
   }
@@ -248,6 +246,7 @@ export default function Harbors() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+      {deletion.dialog}
 
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
