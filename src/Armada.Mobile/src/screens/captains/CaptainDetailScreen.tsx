@@ -15,6 +15,7 @@ import { CliPermissionPolicyField } from '../../components/cliPermissions/CliPer
 import { AppText, Banner, Button, ErrorState, ListRow, LoadingState, Section, StatusBadge } from '../../components/ui';
 import { Disclosure } from '../../components/ui/Disclosure';
 import { useLocale } from '../../i18n/LocaleContext';
+import { planningHref } from '../../navigation/legacyRedirects';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, typography } from '../../theme/typography';
 import { CaptainChat } from './CaptainChat';
@@ -134,7 +135,7 @@ export function CaptainDetailScreen({ id, embedded, onRemoved }: CaptainDetailSc
             <Button label={t('Edit')} icon="create-outline" variant="secondary" onPress={() => setEditing(true)} testID="captain-edit" />
             <Button label={t('Duplicate')} icon="copy-outline" variant="secondary" onPress={() => void duplicate()} testID="captain-duplicate" />
             {canCaptainStartPlanning(captain) ? (
-              <Button label={t('Start Planning')} icon="bulb-outline" variant="secondary" onPress={() => router.push(`/planning?captainId=${encodeURIComponent(captain.id)}` as Href)} testID="captain-start-planning" />
+              <Button label={t('Start Planning')} icon="bulb-outline" variant="secondary" onPress={() => router.push(planningHref(null, { captainId: captain.id }) as Href)} testID="captain-start-planning" />
             ) : null}
             {lifecycle.recall ? <Button label={t('Recall Captain')} variant="secondary" onPress={() => actions.request('recall', captain)} testID="captain-recall" /> : null}
             {lifecycle.stop ? <Button label={t('Stop Captain')} variant="danger" onPress={() => actions.request('stop', captain)} testID="captain-stop" /> : null}

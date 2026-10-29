@@ -42,11 +42,13 @@ namespace Test.Shared.Suites.Services
 
             cases.Add(CaseAsync("policy_allowlist", "The read-only allowlist contains readers and nothing that changes state", TestTags.Positive, () =>
             {
-                foreach (string tool in new[] { "enumerate", "status", "voyage_status", "mission_status", "fleet_action_run_status", "vessel_health", "get_vessel", "get_mission_log", "list_objectives", "inbox" })
+                foreach (string tool in new[] { "enumerate", "status", "voyage_status", "mission_status", "fleet_action_run_status", "vessel_health", "get_vessel", "get_mission_log", "list_objectives" })
                     AssertTrue(AskToolPolicy.IsReadOnly(tool), tool + " is read-only");
                 foreach (string tool in new[] { "dispatch", "cancel_voyage", "delete_vessel", "run_fleet_action", "evaluate_vessel_health", "stop_server", "restore", "update_vessel", "send_signal", "unknown_future_tool" })
                     AssertFalse(AskToolPolicy.IsReadOnly(tool), tool + " is gated");
                 AssertTrue(AskToolPolicy.IsReadOnly("mcp__armada__enumerate"), "Claude prefix ignored");
+                foreach (string retired in new[] { "inbox", "list_cli_permission_rules", "list_cli_permission_requests" })
+                    AssertFalse(AskToolPolicy.IsReadOnly(retired), retired + " is retired and no longer on the read-only list");
                 AssertFalse(AskToolPolicy.ReadOnlyTools.Any(t => t.StartsWith("delete_") || t.StartsWith("create_") || t.StartsWith("update_") || t.StartsWith("cancel_")), "no writers on the list");
                 return Task.CompletedTask;
             }));

@@ -92,6 +92,7 @@ namespace Test.Shared.Infrastructure
             dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_stall_" + Guid.NewGuid().ToString("N"));
             dock.BranchName = "armada/stall/test";
             dock.Active = true;
+            dock.CreatedUtc = DateTime.UtcNow.AddHours(-1);
             dock = await db.Docks.CreateAsync(dock).ConfigureAwait(false);
 
             Mission mission = new Mission("Stalled mission");

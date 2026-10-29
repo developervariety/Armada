@@ -38,7 +38,9 @@ namespace Test.Shared.Suites.E2E
         // tenant's id is refused exactly like a missing one, as InvalidArgument "... not found" (REST answers 400).
         private static readonly Dictionary<string, string> _ReferenceIdTools = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["create_persona"] = "defaultCaptainId is the persona's default captain; PersonaWriteService refuses a missing or foreign one the same way"
+            ["create_persona"] = "defaultCaptainId is the persona's default captain; PersonaWriteService refuses a missing or foreign one the same way",
+            ["create_workflow_profile"] = "fleetId and vesselId are the profile's application targets; WorkflowProfileAccessService refuses a missing or foreign one the same way",
+            ["validate_workflow_profile"] = "fleetId and vesselId are the definition's application targets; WorkflowProfileAccessService refuses a missing or foreign one the same way"
         };
 
         // Tools whose id arguments refer to entities this suite does not seed. Each is scoped through its service
@@ -66,6 +68,7 @@ namespace Test.Shared.Suites.E2E
             ["delete_cli_permission_rule"] = "CLI permission rule (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
             ["get_stage_outcome"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
             ["classify_stage_outcome"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
+            ["get_handoff_artifact"] = "Handoff artifact (HandoffArtifactAccessService scopes by caller; tenant isolation covered by E2E.HandoffArtifacts)",
             ["draft_failure_cause_rule"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
             ["get_failure_cause_rule"] = "Failure-cause rule (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
             ["update_failure_cause_rule"] = "Failure-cause rule (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
@@ -99,9 +102,6 @@ namespace Test.Shared.Suites.E2E
             "list_objectives",
             "list_backlog_refinement_sessions",
             "search_memory",
-            "inbox",
-            "list_cli_permission_requests",
-            "list_cli_permission_rules",
             "list_stage_outcomes",
             "reclassify_stage_outcomes",
             "list_model_probe_runs",
@@ -114,7 +114,8 @@ namespace Test.Shared.Suites.E2E
             "objectives", "jobs", "model_endpoints", "harbors", "vessel_health", "fleets", "vessels", "captains", "missions",
             "voyages", "docks", "signals", "events", "releases", "deployments", "incidents", "runbooks", "runbook_executions",
             "merge_queue", "personas", "memories", "prompt_templates", "pipelines", "playbooks", "workflow_profiles",
-            "project_profiles", "skills", "check_runs", "vessel_import_batch", "fleet_action", "fleet_action_run"
+            "project_profiles", "skills", "check_runs", "vessel_import_batch", "fleet_action", "fleet_action_run",
+            "inbox", "cli_permission_rules", "cli_permission_requests"
         };
 
         private SecurityTestServer? _Server;
@@ -402,6 +403,10 @@ namespace Test.Shared.Suites.E2E
                     if (objective == null || !String.Equals(objective.Title, _Names["objective"], StringComparison.Ordinal)) problems.Add("objective");
                     Playbook? playbook = await db.Playbooks.ReadAsync(_Ids["playbook"]).ConfigureAwait(false);
                     if (playbook == null || !playbook.Content.Contains(_Marker)) problems.Add("playbook");
+                    WorkflowProfile? workflowProfile = await db.WorkflowProfiles.ReadAsync(_Ids["workflowprofile"]).ConfigureAwait(false);
+                    if (workflowProfile == null
+                        || !String.Equals(workflowProfile.Description, _Marker, StringComparison.Ordinal)
+                        || !String.Equals(workflowProfile.UnitTestCommand, "echo " + _Marker, StringComparison.Ordinal)) problems.Add("workflow profile");
                     Persona? persona = await db.Personas.ReadAsync(_Ids["persona"]).ConfigureAwait(false);
                     if (persona == null || !String.Equals(persona.Description, _Marker, StringComparison.Ordinal)) problems.Add("persona");
                     Pipeline? pipeline = await db.Pipelines.ReadAsync(_Ids["pipeline"]).ConfigureAwait(false);
@@ -556,6 +561,17 @@ namespace Test.Shared.Suites.E2E
                 playbook.UserId = user;
                 playbook = await db.Playbooks.CreateAsync(playbook).ConfigureAwait(false);
                 _Ids["playbook"] = playbook.Id;
+
+                WorkflowProfile workflowProfile = new WorkflowProfile();
+                workflowProfile.TenantId = tenant;
+                workflowProfile.UserId = user;
+                workflowProfile.Name = "iso-workflow-" + suffix;
+                workflowProfile.Description = _Marker;
+                workflowProfile.Scope = WorkflowProfileScopeEnum.Vessel;
+                workflowProfile.VesselId = vessel.Id;
+                workflowProfile.UnitTestCommand = "echo " + _Marker;
+                workflowProfile = await db.WorkflowProfiles.CreateAsync(workflowProfile).ConfigureAwait(false);
+                _Ids["workflowprofile"] = workflowProfile.Id;
 
                 Persona persona = new Persona("iso-persona-" + suffix, "persona.worker");
                 persona.TenantId = tenant;
@@ -741,10 +757,13 @@ namespace Test.Shared.Suites.E2E
                     single = _Ids["fleetaction"]; break;
                 case "playbookId":
                     single = _Ids["playbook"]; break;
+                case "workflowProfileId":
+                    single = _Ids["workflowprofile"]; break;
                 case "sessionId":
                     single = tool.Contains("refinement", StringComparison.Ordinal) ? _Ids["refinement"] : _Ids["planning"]; break;
                 case "id":
                     if (tool.EndsWith("_playbook", StringComparison.Ordinal)) single = _Ids["playbook"];
+                    else if (tool.EndsWith("_workflow_profile", StringComparison.Ordinal) && tool != "create_workflow_profile" && tool != "validate_workflow_profile") single = _Ids["workflowprofile"];
                     break;
                 case "name":
                     if (tool.StartsWith("create_", StringComparison.Ordinal)) break;
@@ -777,6 +796,7 @@ namespace Test.Shared.Suites.E2E
                 case "ids":
                     if (tool == "delete_vessels") listKey = "vessel";
                     else if (tool == "delete_fleets") listKey = "fleet";
+                    else if (tool == "delete_workflow_profiles") listKey = "workflowprofile";
                     else if (tool == "delete_captains") listKey = "captain";
                     else if (tool == "delete_missions") listKey = "mission";
                     else if (tool == "delete_voyages") listKey = "voyage";
