@@ -2346,6 +2346,8 @@ Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "Inval
 
 Stop a specific captain agent.
 
+The mission the captain was running is set to `Cancelled` with failure kind `OperatorAction`, and its failure reason records who stopped it, through which surface, and when (for example `Stopped by operator (usr_...) via stop_captain (MCP) at 2026-10-28T02:37:59Z.`). A `mission.stopped_by_operator` event carries the same data. Before the dock is reclaimed, uncommitted work in it is committed to the mission branch as `WIP: preserved on operator stop` and pushed, best effort; the commit hash is added to the failure reason and the event. `stop_all` does the same for every captain it stops.
+
 **Input Schema:**
 
 ```json
@@ -3176,7 +3178,7 @@ generated from the same source.
 | PullRequestOpen | Complete, LandingFailed, Cancelled |
 | Testing | Review, InProgress, Complete, Failed |
 | Review | Complete, InProgress, Failed |
-| LandingFailed | WorkProduced, Failed, Cancelled |
+| LandingFailed | WorkProduced, Complete, Failed, Cancelled |
 
 **Input Schema:**
 

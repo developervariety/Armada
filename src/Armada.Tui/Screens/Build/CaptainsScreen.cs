@@ -10,6 +10,7 @@ namespace Armada.Tui.Screens.Build
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Screens.Operations;
     using Armada.Tui.Services;
     using Armada.Tui.Widgets;
@@ -237,11 +238,11 @@ namespace Armada.Tui.Screens.Build
         {
             Confirm("Delete Captain", Tr("Delete captain \"{{name}}\"? This cannot be undone.", LocalizationArgs.Of("name", captain.Name)), () =>
             {
-                Run((c, t) => c.DeleteCaptainAsync(captain.Id, t), () =>
+                DeleteProgress.RunVoid(Context, "Deleting captain", t => Context.Client.DeleteCaptainAsync(captain.Id, t), () =>
                 {
                     Toast(NotificationSeverityEnum.Warning, Tr("Captain \"{{name}}\" deleted.", LocalizationArgs.Of("name", captain.Name)));
                     Refresh();
-                }, null, ex => ShowMessage(Tr("Delete failed.")));
+                }, "Delete failed.");
             }, "Delete");
         }
 
@@ -264,12 +265,12 @@ namespace Armada.Tui.Screens.Build
             Confirm("Delete Selected Captains", Tr("Delete {{count}} selected captain(s)? This cannot be undone.", LocalizationArgs.Of("count", ids.Count)), () =>
             {
                 Grid.ClearMarks();
-                Call(async (c, t) =>
+                DeleteProgress.Run(Context, "{count, plural, one {Deleting # captain} other {Deleting # captains}}", async t =>
                 {
                     int failed = 0;
                     foreach (string id in ids)
                     {
-                        try { await c.DeleteCaptainAsync(id, t).ConfigureAwait(false); }
+                        try { await Context.Client.DeleteCaptainAsync(id, t).ConfigureAwait(false); }
                         catch (ArmadaApiException) { failed++; }
                     }
 
@@ -286,7 +287,7 @@ namespace Armada.Tui.Screens.Build
 
                     if (failed > 0) ShowMessage(Tr("Deleted {{deleted}} captains, {{failed}} failed.", LocalizationArgs.Of("deleted", deleted, "failed", failed)));
                     Refresh();
-                }, "Delete failed.");
+                }, "Delete failed.", ids.Count);
             }, "Delete");
         }
 
