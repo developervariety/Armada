@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import CliPermissionSettings, { CLI_PERMISSION_DEFAULTS, validPromptTimeout } from './CliPermissionSettings';
 import { updateSettings } from '../../api/client';
@@ -28,7 +29,7 @@ describe('CliPermissionSettings', () => {
     vi.mocked(updateSettings).mockResolvedValue(saved);
     const onSaved = vi.fn();
     const notify = vi.fn();
-    render(<CliPermissionSettings permissions={CLI_PERMISSION_DEFAULTS} locked={false} onSaved={onSaved} notify={notify} />);
+    render(<MemoryRouter><CliPermissionSettings permissions={CLI_PERMISSION_DEFAULTS} locked={false} onSaved={onSaved} notify={notify} /></MemoryRouter>);
 
     const ask = screen.getByLabelText('Ask conversation default') as HTMLSelectElement;
     const mission = screen.getByLabelText('Mission default') as HTMLSelectElement;
@@ -52,7 +53,7 @@ describe('CliPermissionSettings', () => {
   });
 
   it('requires the strong warning before a default becomes Bypass', () => {
-    render(<CliPermissionSettings permissions={CLI_PERMISSION_DEFAULTS} locked={false} onSaved={vi.fn()} notify={vi.fn()} />);
+    render(<MemoryRouter><CliPermissionSettings permissions={CLI_PERMISSION_DEFAULTS} locked={false} onSaved={vi.fn()} notify={vi.fn()} /></MemoryRouter>);
     const ask = screen.getByLabelText('Ask conversation default') as HTMLSelectElement;
     fireEvent.change(ask, { target: { value: 'Bypass' } });
     const dialog = screen.getByRole('alertdialog');
@@ -68,14 +69,14 @@ describe('CliPermissionSettings', () => {
   });
 
   it('blocks saving an out-of-range timeout and explains the range', () => {
-    render(<CliPermissionSettings permissions={CLI_PERMISSION_DEFAULTS} locked={false} onSaved={vi.fn()} notify={vi.fn()} />);
+    render(<MemoryRouter><CliPermissionSettings permissions={CLI_PERMISSION_DEFAULTS} locked={false} onSaved={vi.fn()} notify={vi.fn()} /></MemoryRouter>);
     fireEvent.change(screen.getByLabelText('Prompt timeout (seconds)'), { target: { value: '5' } });
     expect(screen.getByRole('button', { name: 'Save CLI Tool Permissions' })).toBeDisabled();
     expect(screen.getByText(/Must be a whole number from 10 to 3,600/)).toBeInTheDocument();
   });
 
   it('falls back to the defaults when the server omits the group, and disables editing when locked', () => {
-    render(<CliPermissionSettings permissions={undefined} locked onSaved={vi.fn()} notify={vi.fn()} />);
+    render(<MemoryRouter><CliPermissionSettings permissions={undefined} locked onSaved={vi.fn()} notify={vi.fn()} /></MemoryRouter>);
     expect((screen.getByLabelText('Prompt timeout (seconds)') as HTMLInputElement).value).toBe('600');
     expect(screen.getByLabelText('Mission default')).toBeDisabled();
   });

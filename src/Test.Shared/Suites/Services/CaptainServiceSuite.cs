@@ -116,7 +116,8 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(MissionFailureKindEnum.StallRecoveryExhausted, updatedMission.FailureKind, "failure kind is recorded where the failure happens");
                     AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "Captain should return to Idle after failed recovery");
                     AssertNull(updatedCaptain.CurrentMissionId, "Captain current mission should be cleared");
-                    AssertEqual(1, docks.ReclaimCalls, "Dock should be reclaimed after failed recovery");
+                    AssertEqual(0, docks.ReclaimCalls, "Failed stall recovery must retain uncommitted work");
+                    AssertEqual(dock.Id, updatedMission.DockId, "Mission keeps the recovery location");
                 }
             }));
 

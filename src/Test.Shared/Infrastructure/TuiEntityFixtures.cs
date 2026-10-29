@@ -100,7 +100,7 @@ namespace Test.Shared.Infrastructure
         public static TScreen Screen<TScreen>(TuiTestHost host) where TScreen : ScreenBase
         {
             ScreenBase? screen = host.Tui.Shell.Screen;
-            if (screen is HubScreen hub) screen = hub.Content;
+            while (screen is HubScreen hub && !(screen is TScreen)) screen = hub.Content;
             if (screen is TScreen typed) return typed;
             throw new AssertionException("Expected screen " + typeof(TScreen).Name + " but found " + (screen?.GetType().Name ?? "null"));
         }

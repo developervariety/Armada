@@ -3,18 +3,21 @@ import { HubTabBar, useHubTab } from '../../components/app/HubTabs';
 import { Screen } from '../../components/ui';
 import { useLocale } from '../../i18n/LocaleContext';
 import { ObjectivesList } from '../objectives/ObjectivesList';
+import { PlanningTab } from '../planning/PlanningTab';
 import { DispatchForm } from './DispatchForm';
 import { dispatchPrefillFromParams } from './w24/dispatchLink';
 
 const TABS = [
   { key: 'dispatch' as const, label: 'Dispatch' },
+  { key: 'planning' as const, label: 'Planning' },
   { key: 'backlog' as const, label: 'Backlog' },
 ];
 const KEYS = TABS.map((tab) => tab.key);
 
 /**
- * The Dispatch hub (the dashboard's DispatchHub): Dispatch is the default tab; Backlog is the backlog list (W3.3's
- * ObjectivesList, embedded). Dispatch reads its draft from the link (see w24/dispatchLink.ts),
+ * The Dispatch hub (the dashboard's DispatchHub): Dispatch is the default tab; Planning is the planning sessions
+ * (PlanningTab; ?session= opens one, and /planning and /planning/:id redirect here); Backlog is the backlog list
+ * (W3.3's ObjectivesList, embedded). Dispatch reads its draft from the link (see w24/dispatchLink.ts),
  * for example /dispatch?from=vessel&vesselId=vsl_1 from a vessel.
  */
 export function DispatchHubScreen() {
@@ -26,6 +29,8 @@ export function DispatchHubScreen() {
   const draftKey = JSON.stringify(prefill);
   const title = <Stack.Screen options={{ title: t('Dispatch') }} />;
   const tabBar = <HubTabBar tabs={TABS} active={tab} onChange={setTab} label={t('Dispatch sections')} testID="dispatch" />;
+  // Planning sets its own title: an open session on a phone is its own screen.
+  if (tab === 'planning') return <PlanningTab tabBar={tabBar} />;
   // The Dispatch tab is a scrolling form with its Dispatch button in a footer; the Backlog tab is a virtualized list
   // of its own, so the screen does not scroll around it.
   if (tab === 'dispatch') {

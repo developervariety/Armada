@@ -9,6 +9,18 @@ namespace Armada.Core.Services.Interfaces
     /// </summary>
     public interface IGitService
     {
+        /// <summary>Refuse publication when the candidate inherits unpublished commits from a mapped developer checkout.</summary>
+        Task ValidatePublishedAncestryAsync(string worktreePath, string checkoutPath, string targetBranch, string commitHash, CancellationToken token = default)
+            => Task.CompletedTask;
+
+        /// <summary>Publish exactly a verified commit, without merging or modifying a developer checkout.</summary>
+        Task PushVerifiedCommitAsync(string worktreePath, string commitHash, string targetBranch, CancellationToken token = default)
+            => throw new NotSupportedException("This git service cannot publish a verified commit.");
+
+        /// <summary>Fast-forward a clean target checkout to exactly the verified commit; never create a new merge.</summary>
+        Task FastForwardVerifiedCommitAsync(string targetWorkDir, string sourceRepoPath, string commitHash, string targetBranch, CancellationToken token = default)
+            => throw new NotSupportedException("This git service cannot fast-forward a verified commit.");
+
         /// <summary>
         /// Clone a repository as a bare repo.
         /// </summary>
@@ -257,6 +269,17 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the path is a registered worktree.</returns>
         Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default);
+
+        /// <summary>
+        /// List the worktrees registered in a repository (git worktree list --porcelain), including the main entry.
+        /// </summary>
+        /// <param name="repoPath">Repository path (bare repo or worktree).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The registered worktrees, or null when this git service cannot list them.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when repoPath is null or empty.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when git fails.</exception>
+        Task<IReadOnlyList<GitWorktreeEntry>?> ListWorktreeEntriesAsync(string repoPath, CancellationToken token = default)
+            => Task.FromResult<IReadOnlyList<GitWorktreeEntry>?>(null);
 
         /// <summary>
         /// Advance a local branch to include a produced commit without rewinding newer work. Divergent work is

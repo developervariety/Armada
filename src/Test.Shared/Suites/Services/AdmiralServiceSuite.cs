@@ -2086,16 +2086,18 @@ namespace Test.Shared.Suites.Services
                     Mission updatedMission = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
                     Captain updatedCaptain = (await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
                     Dock updatedDock = (await db.Docks.ReadAsync(dock.Id).ConfigureAwait(false))!;
-                    bool shouldRetain = statusAtStop == MissionStatusEnum.WorkProduced
+                    bool landingState = statusAtStop == MissionStatusEnum.WorkProduced
                         || statusAtStop == MissionStatusEnum.PullRequestOpen
                         || statusAtStop == MissionStatusEnum.LandingFailed;
-                    AssertEqual(shouldRetain ? statusAtStop : MissionStatusEnum.Failed, updatedMission.Status, "A concurrent landing-state transition must not be replaced by stale health-check state");
-                    AssertEqual(shouldRetain ? dock.Id : null, updatedMission.DockId, "Only landing states keep the mission dock reference");
+                    // Exhausted stall recovery retains the dock even when the mission fails, so uncommitted work survives.
+                    bool retainDock = landingState || !maxRuntime;
+                    AssertEqual(landingState ? statusAtStop : MissionStatusEnum.Failed, updatedMission.Status, "A concurrent landing-state transition must not be replaced by stale health-check state");
+                    AssertEqual(retainDock ? dock.Id : null, updatedMission.DockId, "Landing states and exhausted stall recovery keep the mission dock reference");
                     AssertEqual(CaptainStateEnum.Idle, updatedCaptain.State, "The captain is released after stopping the process");
                     AssertNull(updatedCaptain.CurrentDockId, "The released captain no longer owns the retained dock");
-                    AssertEqual(!shouldRetain, !updatedDock.Active, "The dock is reclaimed only for a mission that still needs failure cleanup");
-                    AssertEqual(shouldRetain, Directory.Exists(worktree), "A landing state keeps the worktree available to landing");
-                    AssertEqual(shouldRetain, File.Exists(marker), "The landing worktree contents remain available");
+                    AssertEqual(!retainDock, !updatedDock.Active, "The dock is reclaimed only when failure cleanup does not still need the worktree");
+                    AssertEqual(retainDock, Directory.Exists(worktree), "A retained dock keeps the worktree available");
+                    AssertEqual(retainDock, File.Exists(marker), "A retained dock keeps the worktree contents available");
                 }
             }
             finally
