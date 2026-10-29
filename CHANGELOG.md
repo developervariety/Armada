@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Rescue dedupe against operator recovery
+
+- Autonomous recovery dispatches no rescue for a failed mission while an active non-rescue mission on the same vessel names the failed mission id in its description. It records one `autonomous_recovery.skipped_active_recovery_mission` event naming that mission, and evaluates the rescue again once the mission ends.
+
 ### Operator stop
 
 - A captain stop from REST, MCP or WebSocket (single and stop-all) ends the running mission Cancelled, not Failed. The reason starts with `operator_stopped:` and names who stopped it, the surface and the UTC time; it also names the `recover/<mission>-<n>` ref when the dock reclaim saved uncommitted work. A `mission.stopped_by_operator` event records the stop. Autonomous rescue and the Needs You failure feed no longer see these missions. Recalls made by the admiral itself (recovery, stall handling) still fail the mission.

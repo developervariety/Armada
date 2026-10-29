@@ -2588,6 +2588,49 @@ namespace Armada.Test.Unit.Suites.Services
                     "Recovery never writes a reconciled mission, so it cannot keep it inside the lookback window.");
             }).ConfigureAwait(false);
 
+            await RunTest("An active operator recovery mission that names the failed mission suppresses its rescue until it ends", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_dedupe", "usr_auto_dedupe").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_dedupe", "usr_auto_dedupe").ConfigureAwait(false);
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+                Mission recovered = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                Mission unrelated = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                Mission operatorRecovery = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Title = "Operator recovery",
+                    Description = "Finish the work that " + recovered.Id + " left behind.",
+                    Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(recovered, false).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(recovered, false).ConfigureAwait(false);
+                AssertEqual(0, admiral.DispatchedMissions.Count, "No rescue while an active mission names the failed mission.");
+                List<ArmadaEvent> skipped = (await testDb.Driver.Events.EnumerateByMissionAsync(recovered.Id, 50).ConfigureAwait(false))
+                    .Where(e => e.EventType == "autonomous_recovery.skipped_active_recovery_mission").ToList();
+                AssertEqual(1, skipped.Count, "The suppression is recorded once across ticks.");
+                AssertContains(operatorRecovery.Id, skipped[0].Message, "The event names the matching mission.");
+
+                await orchestrator.HandleMissionOutcomeAsync(unrelated, false).ConfigureAwait(false);
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A failure no active mission names is still rescued.");
+                AssertEqual(unrelated.Id, admiral.DispatchedMissions[0].ParentMissionId, "The rescue belongs to the unrelated failure.");
+
+                operatorRecovery.Status = MissionStatusEnum.Cancelled;
+                await testDb.Driver.Missions.UpdateAsync(operatorRecovery).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(recovered, false).ConfigureAwait(false);
+                AssertEqual(2, admiral.DispatchedMissions.Count, "Recovery runs again once the naming mission is no longer active.");
+                AssertEqual(recovered.Id, admiral.DispatchedMissions[1].ParentMissionId, "The second rescue belongs to the first failure.");
+            }).ConfigureAwait(false);
+
             await RunTest("A mission an operator stopped opens no incident and dispatches no rescue", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

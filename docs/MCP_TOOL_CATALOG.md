@@ -759,6 +759,13 @@ incident the lifecycle mitigated over its automatic cause does not stop
 recovery. Restarting the mission runs it again, and a failure newer than the
 mitigation is recovered as usual.
 
+A failure that an active non-rescue mission on the same vessel names by mission
+id in its description is treated as already under recovery by an operator:
+recovery dispatches no rescue and records one
+`autonomous_recovery.skipped_active_recovery_mission` event naming that mission.
+The rescue is evaluated again once that mission is no longer Pending, Assigned,
+InProgress, Testing or in Review.
+
 Automatic Checks obey the same hold. The heartbeat runs no Pending Check while
 the hold is engaged, records one `check.auto_deferred_dispatch_hold` event per
 engagement, and runs the waiting Checks on the first sweep after the hold
