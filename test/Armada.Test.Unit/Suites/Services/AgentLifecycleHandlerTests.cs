@@ -2563,7 +2563,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
             {
-                foreach (string scenario in new[] { "pending-reviews", "canonical-reviews", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future", "wrapped-current", "wrapped-earlier", "unpunctuated-future", "list-current", "list-earlier", "paragraph-current", "heading-current", "lowercase-marker", "next-criterion", "note-current", "note-earlier", "false-criterion" })
+                foreach (string scenario in new[] { "pending-reviews", "canonical-reviews", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future", "wrapped-current", "wrapped-earlier", "unpunctuated-future", "list-current", "list-earlier", "paragraph-current", "heading-current", "lowercase-marker", "next-criterion", "note-current", "note-earlier", "false-criterion", "intermediate-result-current", "bold-future" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -2616,6 +2616,8 @@ namespace Armada.Test.Unit.Suites.Services
                                 : scenario == "note-current" ? "Criterion 3 is NOT MET because the later reviews have not run\n[ARMADA:NOTE] and the source study is unfinished."
                                 : scenario == "note-earlier" ? "Criterion 3 is NOT MET because the later reviews have not run\n[ARMADA:NOTE] and the earlier analyst omitted required source pages."
                                 : scenario == "false-criterion" ? "Criterion 3 is NOT MET because the later reviews have not run\ncriterion source study is unfinished."
+                                : scenario == "intermediate-result-current" ? "Criterion 3 is NOT MET because the later reviews have not run\n[ARMADA:RESULT] COMPLETE\nand the source study is unfinished."
+                                : scenario == "bold-future" ? "Criterion 3 is **NOT MET** because the later reviews have not run"
                                 : scenario == "next-criterion" ? "Criterion 3 is NOT MET because the later reviews have not run\n- Acceptance criterion 4 is NOT MET because the Judge review is still pending."
                                 : scenario is "unpunctuated-future" or "lowercase-marker" ? "Criterion 3 is NOT MET because the later reviews have not run"
                                 : scenario == "mixed-obligation" ? "Criterion 3 is NOT MET because the later reviews have not run and the source study is unfinished."
@@ -2628,7 +2630,7 @@ namespace Armada.Test.Unit.Suites.Services
                         await rig.RunCaptainAsync(output.ToArray()).ConfigureAwait(false);
                         Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
                         Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
-                        if (scenario is "pending-reviews" or "canonical-reviews" or "generic-reviews" or "pending-future-reviews" or "unpunctuated-future" or "lowercase-marker" or "next-criterion")
+                        if (scenario is "pending-reviews" or "canonical-reviews" or "generic-reviews" or "pending-future-reviews" or "unpunctuated-future" or "lowercase-marker" or "next-criterion" or "bold-future")
                         {
                             AssertTrue(worker.Status is MissionStatusEnum.WorkProduced or MissionStatusEnum.Complete, "Complete current work reaches its configured review chain: " + worker.FailureReason);
                             foreach (Mission stage in futureStages)

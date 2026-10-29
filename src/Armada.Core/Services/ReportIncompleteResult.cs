@@ -85,12 +85,15 @@ namespace Armada.Core.Services
         {
             statement = String.Empty;
             if (String.IsNullOrEmpty(agentOutput)) return false;
-            if (!ProgressParser.TryFindFinalOutcome(agentOutput, out ProgressParser.ProgressSignal signal, out ProgressParser.MarkerLine _))
+            if (!ProgressParser.TryFindFinalOutcome(agentOutput, out ProgressParser.ProgressSignal signal, out ProgressParser.MarkerLine finalOutcome))
                 return false;
             if (!String.Equals(signal.Type, "result", StringComparison.Ordinal)) return false;
             if (!ProgressParser.ValueStartsWithWord(signal.Value, _CompleteWord)) return false;
 
             string text = agentOutput.Replace("**", String.Empty).Replace("__", String.Empty);
+            int markerStart = finalOutcome.LineStart;
+            while (markerStart < agentOutput.Length && Char.IsWhiteSpace(agentOutput[markerStart])) markerStart++;
+            int resultIndex = agentOutput.Substring(0, markerStart).Replace("**", String.Empty).Replace("__", String.Empty).Length;
             MatchCollection matches;
             try
             {
@@ -101,10 +104,12 @@ namespace Armada.Core.Services
             {
                 return false;
             }
-            foreach (Match match in matches)
+            for (int matchIndex = 0; matchIndex < matches.Count; matchIndex++)
             {
+                Match match = matches[matchIndex];
                 int start = SentenceStart(text, match.Index);
-                int end = SentenceEnd(text, match.Index + match.Length);
+                int nextCriterion = matchIndex + 1 < matches.Count ? matches[matchIndex + 1].Index : text.Length;
+                int end = SentenceEnd(text, match.Index + match.Length, nextCriterion, resultIndex);
                 if (hasPendingDownstreamJudge)
                 {
                     string reason = text.Substring(match.Index + match.Length, end - match.Index - match.Length);
@@ -181,7 +186,7 @@ namespace Armada.Core.Services
             return 0;
         }
 
-        private static int SentenceEnd(string text, int index)
+        private static int SentenceEnd(string text, int index, int nextCriterion, int resultIndex)
         {
             for (int i = index; i < text.Length; i++)
             {
@@ -190,7 +195,7 @@ namespace Armada.Core.Services
                 {
                     int next = i + 1;
                     while (next < text.Length && Char.IsWhiteSpace(text[next])) next++;
-                    if (StartsNextStatement(text, next)) return i;
+                    if (StartsNextStatement(text, next, nextCriterion, resultIndex)) return i;
                     i = next - 1;
                     continue;
                 }
@@ -199,7 +204,7 @@ namespace Armada.Core.Services
             return text.Length;
         }
 
-        private static bool StartsNextStatement(string text, int index)
+        private static bool StartsNextStatement(string text, int index, int nextCriterion, int resultIndex)
         {
             if (index == text.Length) return true;
             if ((text[index] == '-' || text[index] == '*' || text[index] == '+')
@@ -208,9 +213,7 @@ namespace Armada.Core.Services
                 index++;
                 while (index < text.Length && Char.IsWhiteSpace(text[index])) index++;
             }
-            return text.AsSpan(index).StartsWith("[ARMADA:", StringComparison.OrdinalIgnoreCase)
-                || text.AsSpan(index).StartsWith("criterion ", StringComparison.OrdinalIgnoreCase)
-                || text.AsSpan(index).StartsWith("acceptance criteri", StringComparison.OrdinalIgnoreCase);
+            return index == nextCriterion || index == resultIndex;
         }
 
         #endregion
