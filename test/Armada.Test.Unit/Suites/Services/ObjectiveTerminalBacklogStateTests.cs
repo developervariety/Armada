@@ -146,7 +146,8 @@ namespace Armada.Test.Unit.Suites.Services
                     UserId = auth.UserId,
                     Title = "Planned and ReadyForDispatch",
                     Status = ObjectiveStatusEnum.Planned,
-                    BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch
+                    BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                    Preparation = new ObjectivePreparation { Preflight = PreflightTestData.Complete() }
                 }).ConfigureAwait(false);
 
                 EnumerationResult<Objective> ready = await objectives.EnumerateAsync(auth, new ObjectiveQuery

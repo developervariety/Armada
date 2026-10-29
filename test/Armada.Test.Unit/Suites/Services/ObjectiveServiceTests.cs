@@ -111,15 +111,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Objective saved = await service.UpdateAsync(auth, legacy.Id,
                     new ObjectiveUpsertRequest { BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch }).ConfigureAwait(false);
                 AssertEqual(ObjectiveBacklogStateEnum.Triaged, saved.BacklogState, "a save cannot restore a false ready label");
-                ObjectivePreflight preflight = new ObjectivePreflight
-                {
-                    Questions = Enumerable.Range(1, ObjectivePreflight.QuestionCount).Select(number => new ObjectivePreflightAnswer
-                    {
-                        Number = number, Answer = number == ObjectivePreflight.OwnerQuestionNumber
-                            ? ObjectivePreflightAnswerEnum.No : ObjectivePreflightAnswerEnum.Yes,
-                        AnsweredBy = "operator", AnsweredUtc = DateTime.UtcNow, Note = "Verified input"
-                    }).ToList()
-                };
+                ObjectivePreflight preflight = PreflightTestData.Complete();
                 saved = await service.UpdateAsync(auth, legacy.Id, new ObjectiveUpsertRequest
                 {
                     BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
