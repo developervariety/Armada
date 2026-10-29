@@ -76,6 +76,33 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<TokenUsageSummaryResult>("Token-usage summary"))
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/token-usage/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                string body = req.Http.Request.DataAsString;
+                TokenUsageQuery query = String.IsNullOrWhiteSpace(body)
+                    ? new TokenUsageQuery()
+                    : JsonSerializer.Deserialize<TokenUsageQuery>(body, _jsonOptions) ?? new TokenUsageQuery();
+                ApplyQuerystringOverrides(req, query);
+                query.PageNumber = Math.Max(1, query.PageNumber);
+                query.PageSize = Math.Clamp(query.PageSize, 1, 500);
+                ApplyScope(ctx, query);
+
+                Stopwatch sw = Stopwatch.StartNew();
+                EnumerationResult<TokenUsageRecord> result = await _database.TokenUsage.EnumerateAsync(query).ConfigureAwait(false);
+                result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
+                return result;
+            },
+            api => api
+                .WithTag("TokenUsage")
+                .WithSummary("Enumerate token-usage records")
+                .WithDescription("One page of token-usage records scoped to the authenticated caller. The JSON body (TokenUsageQuery) carries the filters, PageNumber, and PageSize (1 to 500, default 25); querystring values override it.")
+                .WithRequestBody(OpenApiJson.BodyFor<TokenUsageQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<TokenUsageRecord>>("One page"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/token-usage", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
@@ -201,8 +228,11 @@ namespace Armada.Server.Routes
 
         private static TokenUsageQuery BuildQueryFromRequest(ApiRequest req)
         {
-            TokenUsageQuery query = new TokenUsageQuery();
+            return ApplyQuerystringOverrides(req, new TokenUsageQuery());
+        }
 
+        private static TokenUsageQuery ApplyQuerystringOverrides(ApiRequest req, TokenUsageQuery query)
+        {
             if (int.TryParse(QueryValueReader.Read(req.Query, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
             if (int.TryParse(QueryValueReader.Read(req.Query, "pageSize"), out int pageSize))
@@ -210,15 +240,15 @@ namespace Armada.Server.Routes
             if (double.TryParse(QueryValueReader.Read(req.Query, "bucketMinutes"), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double bucketMinutes) && bucketMinutes > 0)
                 query.BucketMinutes = bucketMinutes;
 
-            query.Model = NormalizeEmpty(QueryValueReader.Read(req.Query, "model"));
-            query.Runtime = NormalizeEmpty(QueryValueReader.Read(req.Query, "runtime"));
-            query.Source = NormalizeEmpty(QueryValueReader.Read(req.Query, "source"));
-            query.SourceId = NormalizeEmpty(QueryValueReader.Read(req.Query, "sourceId"));
-            query.VesselId = NormalizeEmpty(QueryValueReader.Read(req.Query, "vesselId"));
-            query.CaptainId = NormalizeEmpty(QueryValueReader.Read(req.Query, "captainId"));
-            query.HarborId = NormalizeEmpty(QueryValueReader.Read(req.Query, "harborId"));
-            query.TenantId = NormalizeEmpty(QueryValueReader.Read(req.Query, "tenantId"));
-            query.UserId = NormalizeEmpty(QueryValueReader.Read(req.Query, "userId"));
+            query.Model = NormalizeEmpty(QueryValueReader.Read(req.Query, "model")) ?? query.Model;
+            query.Runtime = NormalizeEmpty(QueryValueReader.Read(req.Query, "runtime")) ?? query.Runtime;
+            query.Source = NormalizeEmpty(QueryValueReader.Read(req.Query, "source")) ?? query.Source;
+            query.SourceId = NormalizeEmpty(QueryValueReader.Read(req.Query, "sourceId")) ?? query.SourceId;
+            query.VesselId = NormalizeEmpty(QueryValueReader.Read(req.Query, "vesselId")) ?? query.VesselId;
+            query.CaptainId = NormalizeEmpty(QueryValueReader.Read(req.Query, "captainId")) ?? query.CaptainId;
+            query.HarborId = NormalizeEmpty(QueryValueReader.Read(req.Query, "harborId")) ?? query.HarborId;
+            query.TenantId = NormalizeEmpty(QueryValueReader.Read(req.Query, "tenantId")) ?? query.TenantId;
+            query.UserId = NormalizeEmpty(QueryValueReader.Read(req.Query, "userId")) ?? query.UserId;
 
             if (DateTime.TryParse(QueryValueReader.Read(req.Query, "fromUtc"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();

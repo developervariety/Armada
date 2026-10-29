@@ -620,58 +620,15 @@ namespace Armada.Server.Routes
                 if (!valid)
                     { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid transition from " + mission.Status + " to " + newStatus }; }
 
-                // If manually transitioning to Complete and an active dock exists, route through
-                // the full landing pipeline (PR creation, merge, branch cleanup, dock reclaim)
-                // instead of just mutating the status. This ensures manual completion has the
-                // same semantics as agent-driven completion.
-                if (newStatus == MissionStatusEnum.Complete && !String.IsNullOrEmpty(mission.DockId))
+                string? handoffRefusal = ManualMissionHandoff.Refusal(mission, newStatus);
+                if (handoffRefusal != null)
+                { req.Http.Response.StatusCode = 409; return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = handoffRefusal }; }
+                if ((newStatus == MissionStatusEnum.WorkProduced || newStatus == MissionStatusEnum.Complete)
+                    && !MissionModeContract.IsReadOnly(mission.Mode))
                 {
-                    Dock? landingDock = ctx.IsAdmin
-                        ? await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
-                        : ctx.IsTenantAdmin
-                            ? await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false)
-                            : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
-                    if (landingDock != null && landingDock.Active)
-                    {
-                        // Capture diff before landing
-                        if (_admiral.OnCaptureDiff != null)
-                        {
-                            try
-                            {
-                                await _admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
-                            }
-                            catch (Exception diffEx)
-                            {
-                                _logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
-                            }
-                        }
-
-                        // Set to WorkProduced first so the landing handler can process it
-                        mission.Status = MissionStatusEnum.WorkProduced;
-                        mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                        _logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
-
-                        // Invoke the full landing pipeline (same as agent-driven completion)
-                        await _handleMissionComplete(mission, landingDock).ConfigureAwait(false);
-
-                        // Re-read the mission to get the final state after landing
-                        mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
-                        if (mission == null)
-                            { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" }; }
-
-                        Signal landingSignal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " manual completion — landed as " + mission.Status);
-                        if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
-                        await _database.Signals.CreateAsync(landingSignal).ConfigureAwait(false);
-
-                        await _emitMissionStatusChanged(mission, previousStatus, "Mission " + id + " manually completed - landed as " + mission.Status).ConfigureAwait(false);
-
-                        if (_webSocketHub != null)
-                            _webSocketHub.BroadcastMissionChange(mission, mission.Status.ToString());
-
-                        return (object)mission;
-                    }
+                    try { return (object)await ManualMissionHandoff.LandAsync(_database, _admiral, mission, newStatus, _git, _settings).ConfigureAwait(false); }
+                    catch (InvalidOperationException ex)
+                    { req.Http.Response.StatusCode = 409; return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = ex.Message }; }
                 }
 
                 // Standard transition: no dock available or not transitioning to Complete
@@ -970,10 +927,11 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.LandingFailed)
+                if (mission.Status != MissionStatusEnum.Pending && mission.Status != MissionStatusEnum.Failed
+                    && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.LandingFailed)
                 {
                     req.Http.Response.StatusCode = 409;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Only Failed, LandingFailed, or Cancelled missions can be restarted (current: " + mission.Status + ")" };
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted (current: " + mission.Status + ")" };
                 }
 
                 MissionRestartRequest? body = null;
@@ -1008,11 +966,11 @@ namespace Armada.Server.Routes
             },
             api => api
                 .WithTag("Missions")
-                .WithSummary("Restart a failed or cancelled mission")
-                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields.")
+                .WithSummary("Restart a failed or cancelled mission, or start a pending one")
+                .WithDescription("Resets a Failed, LandingFailed, or Cancelled mission back to Pending (clearing captain assignment, branch, PR URL, and timing fields), or keeps a Pending mission as it is, then dispatches it at once when a captain is available. When no captain is available the mission stays Pending and the regular dispatcher picks it up later. Optionally update the title and description (instructions) before restarting. Any other status returns 409.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<MissionRestartRequest>("Optional updated instructions", false))
-                .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission"))
+                .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission (Pending, Assigned, or InProgress)"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
@@ -1069,6 +1027,10 @@ namespace Armada.Server.Routes
                                 + ". The mission's work is complete and its branch '" + branch + "' is available in the repository for manual integration. "
                                 + "To land it automatically, set a landing mode (Local Merge, Merge and Push, Pull Request, or Merge Queue) on the vessel or voyage and retry; "
                                 + "or merge the branch yourself from the vessel's Manage Branches view.";
+                        }
+                        else if (mission.Status == MissionStatusEnum.LandingFailed && !String.IsNullOrWhiteSpace(mission.FailureReason))
+                        {
+                            reason = mission.FailureReason;
                         }
                         else if (mission.Status == MissionStatusEnum.LandingFailed)
                         {

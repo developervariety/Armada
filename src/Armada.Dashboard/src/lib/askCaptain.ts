@@ -12,6 +12,7 @@ export function instructionsDocUrl(runtime: string | null | undefined): string {
     Gemini: 'INSTRUCTIONS_FOR_GEMINI.md',
     Mux: 'INSTRUCTIONS_FOR_MUX.md',
     OpenCode: 'INSTRUCTIONS_FOR_OPENCODE.md',
+    Pi: 'INSTRUCTIONS_FOR_PI.md',
   };
   const file = (runtime && files[runtime]) || 'MCP_API.md';
   return 'https://github.com/jchristn/Armada/blob/main/docs/' + file;

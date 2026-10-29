@@ -117,32 +117,6 @@ namespace Armada.Server.Routes
                 .WithResponse(201, OpenApiJson.For<Signal>("Created signal"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/signals/recent", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
-                }
-                string countStr = QueryValueReader.Read(req.Query, "count");
-                int count = 50;
-                if (!String.IsNullOrEmpty(countStr) && int.TryParse(countStr, out int parsedCount)) count = Math.Clamp(parsedCount, 1, Constants.MaxRecentSignals);
-                List<Signal> signals = ctx.IsAdmin
-                    ? await _database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false)
-                    : await _database.Signals.EnumerateRecentAsync(ctx.TenantId!, count).ConfigureAwait(false);
-                if (!ctx.IsAdmin && !ctx.IsTenantAdmin)
-                    signals = signals.Where(s => String.Equals(s.UserId, ctx.UserId, StringComparison.Ordinal)).ToList();
-                return signals;
-            },
-            api => api
-                .WithTag("Signals")
-                .WithSummary("Get recent signals")
-                .WithDescription("Returns the most recent signals, ordered by creation time descending.")
-                .WithParameter(OpenApiParameterMetadata.Query("count", "Maximum number of signals to return (default 50, at most 1000)", false, OpenApiSchemaMetadata.Integer()))
-                .WithResponse(200, OpenApiJson.For<List<Signal>>("Signal list"))
-                .WithSecurity("ApiKey"));
-
             app.Get("/api/v1/signals/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -211,33 +185,6 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Signal ID (sig_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<Signal>("Updated signal"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithSecurity("ApiKey"));
-
-            app.Get("/api/v1/signals/recipient/{captainId}", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
-                }
-                string captainId = req.Parameters["captainId"];
-                string unreadOnlyStr = QueryValueReader.Read(req.Query, "unreadOnly");
-                bool unreadOnly = String.IsNullOrEmpty(unreadOnlyStr) || bool.Parse(unreadOnlyStr);
-                List<Signal> signals = ctx.IsAdmin
-                    ? await _database.Signals.EnumerateByRecipientAsync(captainId, unreadOnly).ConfigureAwait(false)
-                    : await _database.Signals.EnumerateByRecipientAsync(ctx.TenantId!, captainId, unreadOnly).ConfigureAwait(false);
-                if (!ctx.IsAdmin && !ctx.IsTenantAdmin)
-                    signals = signals.Where(s => String.Equals(s.UserId, ctx.UserId, StringComparison.Ordinal)).ToList();
-                return signals;
-            },
-            api => api
-                .WithTag("Signals")
-                .WithSummary("Enumerate signals by recipient")
-                .WithDescription("Returns signals addressed to a specific captain. Defaults to unread only.")
-                .WithParameter(OpenApiParameterMetadata.Path("captainId", "Captain ID (cpt_ prefix)"))
-                .WithParameter(OpenApiParameterMetadata.Query("unreadOnly", "Filter to unread signals only (default: true)", false, OpenApiSchemaMetadata.Boolean()))
-                .WithResponse(200, OpenApiJson.For<List<Signal>>("Signal list"))
                 .WithSecurity("ApiKey"));
 
             app.Delete("/api/v1/signals/{id}", async (ApiRequest req) =>

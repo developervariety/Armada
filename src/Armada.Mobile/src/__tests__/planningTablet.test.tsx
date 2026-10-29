@@ -5,6 +5,7 @@ import * as client from '@dashboard/api/client';
 import type { Captain, PlanningSession, PlanningSessionDetail } from '@dashboard/types/models';
 import PlanningIndexRoute from '../app/(app)/(work)/planning/index';
 import PlanningSessionRoute from '../app/(app)/(work)/planning/[id]';
+import DispatchRoute from '../app/(app)/(work)/dispatch';
 import { BuildProviders, buildSockets, page } from '../test/buildFixtures';
 
 jest.mock('@dashboard/api/client', () => require('../test/buildClientMock').buildClientMockFactory());
@@ -33,6 +34,7 @@ const ROUTES = {
   '(work)/_layout': () => <Stack />,
   '(work)/planning/index': PlanningIndexRoute,
   '(work)/planning/[id]': PlanningSessionRoute,
+  '(work)/dispatch': DispatchRoute,
 };
 
 beforeEach(() => {
@@ -55,8 +57,11 @@ describe('Planning on tablets', () => {
     await waitFor(() => expect(screen.getByText('First plan')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('planning-open-pls_1'));
     await waitFor(() => expect(api.getPlanningSession).toHaveBeenCalledWith('pls_1'));
-    // Selecting in place keeps the route; the list stays visible.
-    expect(result.getPathname()).toBe('/planning/pls_2');
+    // The old /planning/:id link landed on the Dispatch hub's Planning tab; selecting in place keeps that route and
+    // the hub's tabs, and the list stays visible.
+    expect(result.getPathname()).toBe('/dispatch');
+    expect(result.getSearchParams()).toEqual(expect.objectContaining({ tab: 'planning', session: 'pls_2' }));
     expect(screen.getByTestId('planning-list')).toBeTruthy();
+    expect(screen.getByTestId('dispatch-tab-planning')).toBeTruthy();
   });
 });

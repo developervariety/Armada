@@ -72,19 +72,6 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<Harbor>>("One page"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/harbors", async (ApiRequest req) =>
-            {
-                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
-                return await _Harbors.EnumerateAsync(ctx).ConfigureAwait(false);
-            },
-            api => api
-                .WithTag("Harbors")
-                .WithSummary("List Harbors")
-                .WithDescription("Returns all registered Harbors (host runners) visible to the caller.")
-                .WithResponse(200, OpenApiJson.For<List<Harbor>>("Harbors"))
-                .WithSecurity("ApiKey"));
-
             app.Post("/api/v1/harbors", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
@@ -265,6 +252,34 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Page number (1-based)", false))
                 .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size (1 to 1000, default 10)", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<HarborJobRecord>>("Jobs"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/harbors/{id}/jobs/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                EnumerationQuery query = EnumerationRequestReader.Read(req, _BodyJsonOptions);
+                bool openOnly = String.Equals(QueryValueReader.Read(req.Query, "open"), "true", StringComparison.OrdinalIgnoreCase);
+                EnumerationResult<HarborJobRecord>? page = _Jobs == null ? null
+                    : await _Jobs.EnumerateJobsAsync(ctx, req.Parameters["id"], openOnly, query).ConfigureAwait(false);
+                if (page == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Harbor not found" };
+                }
+
+                return page;
+            },
+            api => api
+                .WithTag("Harbors")
+                .WithSummary("Enumerate a Harbor's jobs")
+                .WithDescription("One page of the captain launches the Admiral recorded on a Harbor, newest first. The JSON body (EnumerationQuery) carries PageNumber, PageSize (1 to 1000, default 10), CreatedAfter, and CreatedBefore (default: the last 7 days); open=true in the querystring lists only jobs that have not ended.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Harbor ID (hbr_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("open", "true to list only jobs that have not ended", false))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<HarborJobRecord>>("One page"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

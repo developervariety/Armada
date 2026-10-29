@@ -124,6 +124,8 @@ namespace Armada.Server.Routes
                     StartUtc = _startUtc,
                     Uptime = uptime.ToString(@"d\.hh\:mm\:ss"),
                     Version = ArmadaConstants.ProductVersion,
+                    BuildVersion = BuildIdentity.InformationalVersion,
+                    CommitHash = BuildIdentity.CommitHash,
                     Ports = new
                     {
                         Admiral = _settings.AdmiralPort,

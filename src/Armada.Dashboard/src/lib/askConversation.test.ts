@@ -1,5 +1,5 @@
 import { parseAskEvent, parseTurnState, type AskEvent } from './askEvents';
-import { CLOSED_TURN_LIMIT, conversationReducer, initialConversation, isLocalMessage, mergeMessages, proposalForMessage, workCardHosts, type ConversationState } from './askConversation';
+import { CLOSED_TURN_LIMIT, conversationReducer, initialConversation, isLocalMessage, mergeMessages, mergeStreamText, mergeStreamTools, proposalForMessage, workCardHosts, type ConversationState } from './askConversation';
 import { applyActivityEvent, applyThreadUpdate, isThreadWorking, sortThreads } from './askThreads';
 import { isWorkActive, statusCounts, workProgress, workRoute } from './askWork';
 import type { AskMessage, AskThread, AskThreadDetail, AskWorkSnapshot } from '../types/models';
@@ -296,5 +296,89 @@ describe('ask.turn state parsing', () => {
     expect(parseTurnState('failed')).toBe('failed');
     expect(parseTurnState('cancelled')).toBe('cancelled');
     expect(parseTurnState('something-new')).toBe('completed');
+  });
+});
+
+describe('restoring a running turn after navigating away and back', () => {
+  const progress = {
+    turnId: 'turn_1',
+    messageId: 'amg_2',
+    text: 'Two of four ',
+    thinkingText: 'Checking.',
+    toolCalls: [
+      { id: 'atc_1', callId: 'c1', toolName: 'mcp__armada__status', argumentsText: '{"verbose":true}', resultText: '{"health":"ok"}', ok: true, elapsedMs: 12 },
+      { id: 'atc_2', callId: 'c2', toolName: 'mcp__armada__enumerate', argumentsText: '{"entityType":"voyage"}', resultText: null, ok: null },
+    ],
+  };
+  const reserved = [msg('amg_1', 1, { role: 'User', contentText: 'How is it going?' }), msg('amg_2', 2, { contentText: '' })];
+
+  it('hydrates the stream (text, thinking, tool calls with details) from the detail snapshot', () => {
+    const s = loaded(reserved, { thread: thread('ath_1', { activeTurnId: 'turn_1' }), activeTurn: progress });
+    expect(s.turnActive).toBe(true);
+    expect(s.streaming).toMatchObject({ turnId: 'turn_1', text: 'Two of four ', thinking: 'Checking.', finished: false });
+    expect(s.streaming?.tools).toEqual([
+      { id: 'c1', name: 'mcp__armada__status', status: 'success', arguments: '{"verbose":true}', result: '{"health":"ok"}', elapsedMs: 12 },
+      { id: 'c2', name: 'mcp__armada__enumerate', status: 'running', arguments: '{"entityType":"voyage"}', result: null, elapsedMs: null },
+    ]);
+  });
+
+  it('merges socket events that arrived while the page loaded without duplicating cards or text', () => {
+    // The page subscribed before the snapshot was taken: the socket delivered the tail of the text and the second call's
+    // completion; the snapshot already holds part of that tail.
+    let s = conversationReducer(initialConversation('ath_1'), { type: 'event', event: ev('ask.chunk', { threadId: 'ath_1', turnId: 'turn_1', delta: 'four ' }) });
+    s = conversationReducer(s, { type: 'event', event: ev('ask.chunk', { threadId: 'ath_1', turnId: 'turn_1', delta: 'missions are done.' }) });
+    s = conversationReducer(s, { type: 'event', event: ev('ask.tool', { threadId: 'ath_1', turnId: 'turn_1', phase: 'completed', id: 'c2', name: 'mcp__armada__enumerate', ok: true, result: '[]', elapsedMs: 30 }) });
+    s = conversationReducer(s, { type: 'event', event: ev('ask.tool', { threadId: 'ath_1', turnId: 'turn_1', phase: 'started', id: 'c1', name: 'mcp__armada__status' }) });
+    s = conversationReducer(s, {
+      type: 'loaded', threadId: 'ath_1', detail: { thread: thread('ath_1', { activeTurnId: 'turn_1' }), trackedWork: [], pendingProposals: [], activeTurn: progress }, messages: reserved, hasMore: false,
+    });
+    expect(s.streaming?.text).toBe('Two of four missions are done.');
+    expect(s.streaming?.tools.map((t) => [t.id, t.status, t.result ?? null])).toEqual([['c1', 'success', '{"health":"ok"}'], ['c2', 'success', '[]']]);
+    expect(s.streaming?.tools[1].arguments).toBe('{"entityType":"voyage"}');
+  });
+
+  it('does not restore the stream once the reply is persisted, so the cards are not shown twice', () => {
+    const filled = [reserved[0], msg('amg_2', 2, { contentText: 'Done.', toolCalls: progress.toolCalls })];
+    const s = loaded(filled, { thread: thread('ath_1', { activeTurnId: 'turn_1' }), activeTurn: progress });
+    expect(s.streaming).toMatchObject({ turnId: 'turn_1', text: '', tools: [] });
+  });
+
+  it('ignores a snapshot for another turn, a finished turn, or a missing one', () => {
+    expect(loaded(reserved, { thread: thread('ath_1', { activeTurnId: 'turn_2' }), activeTurn: progress }).streaming).toMatchObject({ turnId: 'turn_2', text: '', tools: [] });
+    expect(loaded(reserved, { thread: thread('ath_1', { activeTurnId: null }), activeTurn: progress }).streaming).toBeNull();
+    expect(loaded(reserved, { thread: thread('ath_1', { activeTurnId: 'turn_1' }) }).streaming).toMatchObject({ turnId: 'turn_1', text: '', tools: [] });
+    expect(loaded(reserved, { thread: thread('ath_1', { activeTurnId: 'turn_1' }), activeTurn: { turnId: 'turn_1' } }).streaming).toMatchObject({ turnId: 'turn_1', text: '', thinking: '', tools: [] });
+    let closed = conversationReducer(initialConversation('ath_1'), { type: 'event', event: ev('ask.turn', { threadId: 'ath_1', turnId: 'turn_1', state: 'completed' }) });
+    closed = conversationReducer(closed, { type: 'loaded', threadId: 'ath_1', detail: { thread: thread('ath_1', { activeTurnId: 'turn_1' }), activeTurn: progress }, messages: reserved, hasMore: false });
+    expect(closed.streaming).toBeNull();
+  });
+
+  it('hands the restored stream over to the persisted reply when the turn completes', () => {
+    let s = loaded(reserved, { thread: thread('ath_1', { activeTurnId: 'turn_1' }), activeTurn: progress });
+    s = conversationReducer(s, { type: 'event', event: ev('ask.message', { threadId: 'ath_1', message: msg('amg_2', 2, { contentText: 'Two of four missions are done.', toolCalls: progress.toolCalls }) }) });
+    s = conversationReducer(s, { type: 'event', event: ev('ask.turn', { threadId: 'ath_1', turnId: 'turn_1', state: 'completed', messageId: 'amg_2' }) });
+    expect(s.streaming).toBeNull();
+    expect(s.messages.find((m) => m.id === 'amg_2')?.toolCalls).toHaveLength(2);
+  });
+
+  it('mergeStreamText joins a snapshot with overlapping, contained, older, or newer socket text', () => {
+    expect(mergeStreamText('abc', '')).toBe('abc');
+    expect(mergeStreamText('', 'xyz')).toBe('xyz');
+    expect(mergeStreamText('Two of four ', 'four missions')).toBe('Two of four missions');
+    expect(mergeStreamText('Two of four missions', 'four ')).toBe('Two of four missions');
+    expect(mergeStreamText('Two of four missions', 'Two of')).toBe('Two of four missions');
+    expect(mergeStreamText('Two of', 'Two of four')).toBe('Two of four');
+    expect(mergeStreamText('Two of four', ' done')).toBe('Two of four done');
+  });
+
+  it('mergeStreamTools never turns a finished call back to running', () => {
+    const merged = mergeStreamTools(
+      [{ id: 'c1', name: 'status', status: 'success', arguments: '{}', result: 'ok', elapsedMs: 5 }],
+      [{ id: 'c1', name: 'status', status: 'running', arguments: null }, { id: 'c3', name: 'other', status: 'running' }],
+    );
+    expect(merged).toEqual([
+      { id: 'c1', name: 'status', status: 'success', arguments: '{}', result: 'ok', elapsedMs: 5 },
+      { id: 'c3', name: 'other', status: 'running' },
+    ]);
   });
 });

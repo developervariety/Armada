@@ -30,6 +30,25 @@ namespace Armada.Core.Services
         public bool RelativeToWorkingDirectory { get; set; } = false;
 
         /// <summary>
+        /// When true (with <see cref="RelativeToWorkingDirectory"/>), the file is added to the git exclude file
+        /// (<c>info/exclude</c>) of the repository the working directory belongs to before it is written, so a file
+        /// written into a dock is never committed. Default false.
+        /// </summary>
+        public bool ExcludeFromGit { get; set; } = false;
+
+        /// <summary>
+        /// When true (with <see cref="RelativeToWorkingDirectory"/>), the runtime removes the file when the process exits,
+        /// before it reports the exit, or restores <see cref="OriginalContents"/> when the file existed before. Default false.
+        /// </summary>
+        public bool RemoveAfterExit { get; set; } = false;
+
+        /// <summary>
+        /// Contents the file had before the launch wrote it, restored after exit when <see cref="RemoveAfterExit"/> is set;
+        /// null when the file did not exist. Default null.
+        /// </summary>
+        public string? OriginalContents { get; set; } = null;
+
+        /// <summary>
         /// Exact contents to write to the file.
         /// </summary>
         public string Contents
