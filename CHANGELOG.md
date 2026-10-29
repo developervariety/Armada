@@ -7,6 +7,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Delivered Judge holds
+
+- A Judge held for its independent Checks, either a PASS or a NEEDS_REVISION, completes without a re-run when its reviewed commit is already on `origin/<default branch>` or a commit there carries its exact `Armada-Mission-Id` trailer, using the landing sweep's proof. The decision records `delivered` on `mission.check_hold_decided`, and the voyage ends by the ordinary completion rule, so it no longer holds a sibling-lane slot.
+
+### Cancelled missions keep no assignment hold
+
+- Storing a Cancelled mission clears its assignment hold reason and holder, so a cancelled mission no longer reads as waiting on a dependency or a continuation dock.
+- A reassigned root mission whose saved branch holds no commit beyond its start ref (or the default branch) takes a fresh dock and branch instead of holding on `root_continuation_dock_missing`.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

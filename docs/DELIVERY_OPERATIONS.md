@@ -452,7 +452,12 @@ a Judge re-run on the same commit. A Check that passed (or no Check gates the
 verdict) re-runs the Judge once with the Checks' result, because the revision
 may have been asked only because the Checks were pending; the wait budget
 ending re-runs it too. The re-run happens once per mission and spends no
-recovery budget; a NEEDS_REVISION after it is recorded as usual. Every Judge
+recovery budget; a NEEDS_REVISION after it is recorded as usual. A Judge held for
+its Checks, by either hold, is not decided by them when its reviewed commit is
+already on `origin/<default branch>`, or a commit there carries its exact
+`Armada-Mission-Id` trailer (the proof the landing sweep reads). The Judge then
+completes without a re-run or a landing, `mission.check_hold_decided` records
+`delivered`, and the voyage ends by its ordinary completion rule. Every Judge
 run a mission goes through keeps its output and verdict: an in-place re-run
 preserves the run it replaces, so the persisted mission output read path shows
 every run and the first run's requested revisions, never only the last. The automatic

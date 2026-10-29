@@ -518,6 +518,62 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, held.Landed.LandedMissionIds.Count, "Nothing lands on a stale review");
                 }
             });
+
+            // Work that reached the default branch by another path needs no new review: a Judge run on it
+            // would end nothing and hold the voyage's sibling-lane slot until an operator cancelled it.
+            await RunTest("A held Judge NEEDS_REVISION whose reviewed commit is already on the default branch completes without a Judge re-run", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb, "NEEDS_REVISION").ConfigureAwait(false);
+                    AssertTrue(JudgeRevisionCheckWaitHold.IsHeld(await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false)),
+                        "Fixture: the revision waits on its Check");
+                    await SetCheckAsync(testDb, held.UnitTest.Id, CheckRunStatusEnum.Passed, _JudgeReviewedCommit).ConfigureAwait(false);
+                    held.Landed.Scenario.Git.AncestorResult = true;
+
+                    AssertEqual(1, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "The held revision is decided once the Checks resolve");
+
+                    Mission? decided = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Complete, decided!.Status, "Delivered work completes the Judge instead of re-running it");
+                    AssertFalse(decided.HeldForOperatorReview, "The hold is cleared");
+                    AssertNull(decided.FailureReason, "No revision is recorded");
+                    AssertEqual(0, held.Landed.LandedMissionIds.Count, "Delivered work is not landed again");
+
+                    Voyage? voyage = await testDb.Driver.Voyages.ReadAsync(held.Landed.Scenario.Voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, voyage!.Status, "The voyage leaves InProgress and frees its sibling-lane slot");
+
+                    EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                    {
+                        EventType = MissionService.CheckWaitHoldDecidedEventType, PageNumber = 1, PageSize = 10
+                    }).ConfigureAwait(false);
+                    AssertEqual(1, events.Objects.Count, "One decision event is recorded");
+                    AssertContains("delivered", events.Objects[0].Message ?? String.Empty, "The event says the work was already delivered");
+                }
+            });
+
+            await RunTest("A held Judge PASS whose reviewed commit is already on the default branch completes without waiting for its Checks", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb).ConfigureAwait(false);
+                    AssertTrue(JudgeCheckWaitHold.IsHeld(await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false)),
+                        "Fixture: the PASS waits for its Check");
+
+                    held.Landed.Scenario.Git.AncestorResult = false;
+                    AssertEqual(0, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "Work that is not on the default branch keeps waiting for its Checks");
+
+                    held.Landed.Scenario.Git.AncestorResult = true;
+                    AssertEqual(1, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "Delivered work is decided while its Check still runs");
+
+                    Mission? decided = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Complete, decided!.Status, "The delivered PASS completes");
+                    AssertFalse(decided.HeldForOperatorReview, "The hold is cleared");
+                    AssertEqual(0, held.Landed.LandedMissionIds.Count, "Delivered work is not landed again");
+                }
+            });
         }
 
         private const string _JudgeReviewedCommit = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -788,7 +844,8 @@ namespace Armada.Test.Unit.Suites.Services
                 WorkerCaptain = assignedWorker!,
                 JudgeCaptain = judgeCaptain,
                 WorkerMission = workerMission,
-                DownstreamMission = downstreamMission
+                DownstreamMission = downstreamMission,
+                Git = git
             };
         }
 
@@ -802,6 +859,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Captain? JudgeCaptain { get; set; } = null;
             public Mission WorkerMission { get; set; } = null!;
             public Mission? DownstreamMission { get; set; } = null;
+            public DirCreatingGitStub Git { get; set; } = null!;
         }
 
         /// <summary>
@@ -809,6 +867,13 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         private sealed class DirCreatingGitStub : IGitService
         {
+            /// <summary>Answer to every ancestry probe; null reads as "could not be established".</summary>
+            public bool? AncestorResult { get; set; } = null;
+
+            /// <inheritdoc />
+            public Task<bool?> TryIsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
+                => Task.FromResult(AncestorResult);
+
             private readonly HashSet<string> _Branches = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "main" };
 
             public Task CloneBareAsync(string repoUrl, string localPath, CancellationToken token = default) => Task.CompletedTask;

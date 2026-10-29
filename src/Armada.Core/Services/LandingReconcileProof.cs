@@ -11,11 +11,12 @@ namespace Armada.Core.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Finds the proof that a LandingFailed mission's work is already on its vessel's remote default branch: the
-    /// mission's own commit is an ancestor of <c>origin/&lt;default branch&gt;</c>, or a commit on that ref carries the
-    /// mission's exact <c>Armada-Mission-Id</c> trailer. A mission whose failure is a landing refusal, or whose
+    /// Finds the proof that a mission's work is already on its vessel's remote default branch: the mission's own
+    /// commit is an ancestor of <c>origin/&lt;default branch&gt;</c>, or a commit on that ref carries the mission's
+    /// exact <c>Armada-Mission-Id</c> trailer. A LandingFailed mission whose failure is a landing refusal, or whose
     /// recorded commit is the commit its stage started from, never has proof: the first holds work Armada declined to
     /// land, and the second names a commit that is on the default branch before the mission did any work.
+    /// <see cref="ProveDeliveredAsync"/> reads the same proof for a mission in any status.
     /// </summary>
     /// <remarks>
     /// Git runs through the injected <see cref="IGitService"/>, so a vessel whose repository path is a Harbor checkout
@@ -70,8 +71,20 @@ namespace Armada.Core.Services
         /// <returns>The ref, for example <c>refs/remotes/origin/main</c>.</returns>
         public static string TargetRefOf(Vessel vessel)
         {
+            return TargetRefOf(vessel, null);
+        }
+
+        /// <summary>
+        /// The remote-tracking ref a vessel's work must reach on a named branch.
+        /// </summary>
+        /// <param name="vessel">Vessel.</param>
+        /// <param name="targetBranch">Branch the work was meant for, or null for the vessel's default branch.</param>
+        /// <returns>The ref, for example <c>refs/remotes/origin/main</c>.</returns>
+        public static string TargetRefOf(Vessel vessel, string? targetBranch)
+        {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
-            string branch = String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? "main" : vessel.DefaultBranch.Trim();
+            string branch = !String.IsNullOrWhiteSpace(targetBranch) ? targetBranch.Trim()
+                : String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? "main" : vessel.DefaultBranch.Trim();
             return "refs/remotes/origin/" + branch;
         }
 
@@ -87,12 +100,32 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (mission.Status != MissionStatusEnum.LandingFailed) return null;
-            if (String.IsNullOrWhiteSpace(vessel.LocalPath)) return null;
             if (LandingRefusalReasons.IsRefusal(mission.FailureReason)) return null;
+            return await ProveDeliveredAsync(mission, vessel, null, null, token).ConfigureAwait(false);
+        }
 
-            string targetRef = TargetRefOf(vessel);
+        /// <summary>
+        /// Read the proof that a mission's work is on a branch of its vessel's remote, whatever the mission's status.
+        /// </summary>
+        /// <param name="mission">Mission whose commit or trailer is searched for.</param>
+        /// <param name="vessel">The mission's vessel; its LocalPath is the repository to read.</param>
+        /// <param name="startMission">
+        /// Mission whose recorded stage start decides which commit is "before any work", or null for <paramref name="mission"/>
+        /// itself. A later stage of a pipeline starts from its predecessor's tip, so it names the first stage here.
+        /// </param>
+        /// <param name="targetBranch">Branch the work was meant for, or null for the vessel's default branch.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The proof, or null when the repository holds none.</returns>
+        public async Task<LandingReconcileEvidence?> ProveDeliveredAsync(
+            Mission mission, Vessel vessel, Mission? startMission = null, string? targetBranch = null, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (String.IsNullOrWhiteSpace(vessel.LocalPath)) return null;
+
+            string targetRef = TargetRefOf(vessel, targetBranch);
             string? commit = String.IsNullOrWhiteSpace(mission.CommitHash) ? null : mission.CommitHash.Trim();
-            if (commit != null && await IsStageStartCommitAsync(mission, commit, token).ConfigureAwait(false)) commit = null;
+            if (commit != null && await IsStageStartCommitAsync(startMission ?? mission, commit, token).ConfigureAwait(false)) commit = null;
 
             string? evidence = null;
             LandingEvidenceKindEnum kind = LandingEvidenceKindEnum.CommitAncestry;

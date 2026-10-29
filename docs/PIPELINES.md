@@ -348,7 +348,8 @@ vessel with consumer suites this hold can last many minutes. Every reason except
 `dependency_unfinished` records `mission.assignment_held` once when it starts or
 changes, and `mission.assignment_hold_released` once when assignment proceeds;
 each event's payload carries the reason and the holding record. A hold that lasts
-many assignment ticks records one event, not one per tick.
+many assignment ticks records one event, not one per tick. Storing a Cancelled
+mission clears its hold, so a cancelled mission never reads as still waiting.
 
 A mission that depends on a stage in another voyage waits on that stage. When
 that stage was cancelled or failed and an autonomous rescue of its voyage

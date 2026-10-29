@@ -340,7 +340,10 @@ authorizes it, the mission holds with the assignment hold
 dock authorizes the branch but it no longer resolves in the vessel repository,
 the mission holds with `root_continuation_ref_missing`. A branch name with no
 committed work and no active dock still gets a fresh captain branch, exactly as a
-first assignment would.
+first assignment would. A saved branch whose head is reachable from the mission's
+start ref (the default branch when none is set) holds no committed work, so a
+dockless root mission with such a branch takes a fresh dock and branch and
+releases its hold. Unknown ancestry keeps the hold.
 
 ## Ref cleanup evidence
 

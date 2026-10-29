@@ -153,6 +153,33 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("mission_cancelled_stores_no_assignment_hold", "Storing a Cancelled mission clears its assignment hold", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+
+                    Mission mission = new Mission("Held then cancelled");
+                    mission.VesselId = prereqs.Vessel.Id;
+                    mission.VoyageId = prereqs.Voyage.Id;
+                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                    mission.AssignmentHoldReason = "dependency_unfinished";
+                    mission.AssignmentHoldEntityId = "msn_holder";
+                    await db.Missions.CreateAsync(mission);
+                    Mission held = (await db.Missions.ReadAsync(mission.Id))!;
+                    AssertEqual("dependency_unfinished", held.AssignmentHoldReason, "precondition: a Pending mission keeps its hold");
+
+                    held.Status = MissionStatusEnum.Cancelled;
+                    await db.Missions.UpdateAsync(held);
+
+                    Mission stored = (await db.Missions.ReadAsync(mission.Id))!;
+                    AssertEqual(MissionStatusEnum.Cancelled, stored.Status);
+                    AssertNull(stored.AssignmentHoldReason, "a cancelled mission waits for nothing");
+                    AssertNull(stored.AssignmentHoldEntityId, "a cancelled mission names no holder");
+                }
+            }));
+
             cases.Add(CaseAsync("mission_cancelled_refuses_stale_full_row_writes", "Cancelled mission refuses stale full-row writes and permits restart", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

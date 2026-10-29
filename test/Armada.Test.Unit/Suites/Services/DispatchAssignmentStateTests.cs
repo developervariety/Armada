@@ -1040,6 +1040,96 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A root mission whose saved branch sits at the commit it started from has no work to orphan.
+            // Holding it for a continuation dock waits for a dock that no mission will ever provision, so
+            // it takes a fresh dock and branch instead.
+            await RunTest("TryAssign_ReassignedRootMissionWhoseSavedBranchHoldsNoCommits_ProvisionsFreshAndReleasesTheHold", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    GitService git = new GitService(logging);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string bareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("no-commit-branch-vessel", bareRepo)).ConfigureAwait(false);
+
+                    Mission root = new Mission("Root worker", "Implements the first slice.");
+                    root.VesselId = vessel.Id;
+                    root.Persona = "Worker";
+                    root.Status = MissionStatusEnum.Pending;
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+
+                    string savedBranch = "armada/captain-a/" + root.Id;
+                    RunGitProcess(bareRepo, "branch", savedBranch, "main");
+                    root.BranchName = savedBranch;
+                    root.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                    root.AssignmentHoldReason = MissionAssignmentHold.RootContinuationDockMissing;
+                    root.AssignmentHoldEntityId = savedBranch;
+                    await testDb.Driver.Missions.UpdateAsync(root).ConfigureAwait(false);
+
+                    await testDb.Driver.Captains.CreateAsync(new Captain("captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(root, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "The root mission must still exist");
+                    AssertTrue(assigned, "A root mission whose saved branch holds no commits is assigned; state=" + readBack!.AssignmentState + " hold=" + (readBack.AssignmentHoldReason ?? "(none)"));
+                    AssertNull(readBack.AssignmentHoldReason, "The stale continuation hold is released");
+                    AssertTrue(!String.Equals(savedBranch, readBack.BranchName, StringComparison.Ordinal), "The mission works on a fresh captain branch, not the empty saved one");
+                    AssertNotNull(readBack.DockId, "A dock is provisioned from the start ref");
+                }
+            });
+
+            // Cancelling a held mission, and every stage the cancel cascades to, ends the wait it recorded.
+            await RunTest("Cancel_MissionsHeldForAssignment_ClearTheirHolds", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("cancel-hold-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("cancel hold voyage")).ConfigureAwait(false);
+
+                    Mission root = new Mission("Held root", "Waits for a continuation dock.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Worker",
+                        Status = MissionStatusEnum.Pending,
+                        AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                        AssignmentHoldReason = MissionAssignmentHold.RootContinuationDockMissing,
+                        AssignmentHoldEntityId = "armada/captain-a/branch"
+                    };
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+                    Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission("Held stage", "Waits for the root.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Judge",
+                        Status = MissionStatusEnum.Pending,
+                        DependsOnMissionId = root.Id,
+                        AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                        AssignmentHoldReason = MissionAssignmentHold.DependencyUnfinished,
+                        AssignmentHoldEntityId = root.Id
+                    }).ConfigureAwait(false);
+
+                    MissionCancellationResult result = await MissionCancellation.CancelAsync(
+                        testDb.Driver, root, MissionCancellation.OperatorCancelReason, null).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "precondition: the cancel is applied");
+
+                    foreach (string id in new[] { root.Id, dependent.Id })
+                    {
+                        Mission? cancelled = await testDb.Driver.Missions.ReadAsync(id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Cancelled, cancelled!.Status, id + " is cancelled");
+                        AssertNull(cancelled.AssignmentHoldReason, id + " keeps no assignment hold");
+                        AssertNull(cancelled.AssignmentHoldEntityId, id + " names no holder");
+                    }
+                }
+            });
+
             // RETRY: the FIRST assignment of a reassigned root mission fails in launch (an I/O error, an
             // out-of-memory brief build), which clears the mission's dock pointer but keeps the committed
             // branch. The retry must re-authorize continuation from the still-active retained dock and sit
