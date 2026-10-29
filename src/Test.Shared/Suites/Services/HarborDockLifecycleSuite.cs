@@ -338,6 +338,21 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(String.Empty, remaining, "no integration branches remain");
             }));
 
+            cases.Add(CaseAsync("missing_diff_preserves_real_unlanded_branch", "Missing diff snapshot keeps real Harbor work recoverable without completing or deleting its branch", TestTags.Negative, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_missing_diff").ConfigureAwait(false);
+                LandingRun run = await s.RunLandingAsync("hbr_missing_diff", LandingModeEnum.LocalMerge, captureDiff: false).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.WorkProduced, run.Mission.Status, "missing evidence is not successful landing");
+                AssertTrue(run.Mission.CommitHash == null || run.Mission.CommitHash == run.WorkCommit, "only the unlanded work commit may be recorded");
+                AssertNull(run.Mission.CompletedUtc, "not completed");
+                AssertContains("Work remains unlanded", run.Mission.FailureReason!);
+                AssertEqual(run.WorkCommit, await HarborDockGitFixture.ResolveAsync(run.Dock.RepositoryPath!, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "the branch still holds the work");
+                AssertFalse(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "work is not on main");
+                AssertFalse((await s.Db.Driver.Events.EnumerateByMissionAsync(run.Mission.Id).ConfigureAwait(false)).Any(e => e.EventType == "mission.completed"), "no false completion event");
+            }));
+
             cases.Add(CaseAsync("merge_queue_refuses_already_landed", "Enqueueing a mission that already landed, or a branch already in the target, is refused with a reason", TestTags.Negative, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
@@ -347,11 +362,30 @@ namespace Test.Shared.Suites.Services
                 MergeEntry entry = (await s.MergeQueue.ListAsync().ConfigureAwait(false)).Single(e => e.MissionId == run.Mission.Id);
 
                 AssertNull(await s.MergeQueue.GetAlreadyLandedReasonAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId, MissionId = run.Mission.Id }).ConfigureAwait(false), "not landed yet");
+                string? producedCommit = run.Mission.CommitHash;
+                run.Mission.Status = MissionStatusEnum.Complete;
+                run.Mission.CommitHash = null;
+                await s.Db.Driver.Missions.UpdateAsync(run.Mission).ConfigureAwait(false);
+                string? mismatch = await s.MergeQueue.GetAlreadyLandedReasonAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId, MissionId = run.Mission.Id }).ConfigureAwait(false);
+                AssertContains("status mismatch", mismatch!);
+                AssertFalse(mismatch!.Contains("already landed", StringComparison.Ordinal), "status alone does not establish landing");
+                run.Mission.Status = MissionStatusEnum.WorkProduced;
+                run.Mission.CommitHash = producedCommit;
+                // A plain update never leaves Complete, so restore the fixture through the explicit status guard.
+                AssertTrue(await s.Db.Driver.Missions.TryUpdateIfStatusAsync(run.Mission, new[] { MissionStatusEnum.Complete }).ConfigureAwait(false), "fixture restored");
                 await s.MergeQueue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
 
                 string? missionReason = await s.MergeQueue.GetAlreadyLandedReasonAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId, MissionId = run.Mission.Id }).ConfigureAwait(false);
                 AssertNotNull(missionReason, "a Complete mission is refused");
                 AssertContains("already landed", missionReason!);
+
+                // A legacy Complete row without a commit can still have real branch-containment evidence.
+                Mission landed = (await s.Db.Driver.Missions.ReadAsync(run.Mission.Id).ConfigureAwait(false))!;
+                landed.CommitHash = null;
+                await s.Db.Driver.Missions.UpdateAsync(landed).ConfigureAwait(false);
+                string? containedReason = await s.MergeQueue.GetAlreadyLandedReasonAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId, MissionId = run.Mission.Id }).ConfigureAwait(false);
+                AssertNotNull(containedReason, "containment is evidence without a recorded commit");
+                AssertContains("already contained", containedReason!);
 
                 await HarborDockGitFixture.GitAsync(git.Checkout, "fetch", "origin").ConfigureAwait(false);
                 string? branchReason = await s.MergeQueue.GetAlreadyLandedReasonAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId }).ConfigureAwait(false);
@@ -394,7 +428,7 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "upstream.txt").ConfigureAwait(false), "the upstream work is kept");
             }));
 
-            cases.Add(CaseAsync("merge_and_push_refuses_unpushed_main", "MergeAndPush into a checkout whose main has commits not on origin is refused before merging", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("merge_and_push_preserves_unpushed_main", "MergeAndPush publishes isolated work without leaking or changing unpublished checkout commits", TestTags.Positive, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
                 using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
@@ -403,14 +437,13 @@ namespace Test.Shared.Suites.Services
 
                 LandingRun run = await s.RunLandingAsync("hbr_land_ahead", LandingModeEnum.MergeAndPush).ConfigureAwait(false);
 
-                AssertEqual(MissionStatusEnum.LandingFailed, run.Mission.Status);
-                AssertContains("not on origin/main", run.Mission.FailureReason ?? "");
+                AssertEqual(MissionStatusEnum.Complete, run.Mission.Status, run.Mission.FailureReason);
+                AssertFalse(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "local-only.txt").ConfigureAwait(false), "Unpublished user work is never published");
                 AssertEqual(localTip, await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/main").ConfigureAwait(false), "main was not merged into");
-                AssertFalse(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "nothing was pushed");
-                AssertNotNull(await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "the mission branch is kept for a retry");
+                AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "Only isolated mission work is pushed");
             }));
 
-            cases.Add(CaseAsync("local_merge_uses_merge_commit_template", "LocalMerge with a merge commit template makes a merge commit with that message even when a fast-forward was possible", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("local_merge_uses_merge_commit_template", "LocalMerge fast-forwards the verified commit without creating an untested merge commit", TestTags.Positive, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
                 using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
@@ -422,9 +455,10 @@ namespace Test.Shared.Suites.Services
 
                 AssertEqual(MissionStatusEnum.Complete, run.Mission.Status, run.Mission.FailureReason);
                 string parents = await HarborDockGitFixture.GitAsync(git.Checkout, "rev-list", "--parents", "-n", "1", "refs/heads/main").ConfigureAwait(false);
-                AssertEqual(3, parents.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length, "a merge commit, not a fast-forward");
+                AssertEqual(2, parents.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length, "No extra merge commit after verification");
+                AssertEqual(run.WorkCommit, await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/main").ConfigureAwait(false), "The target is the verified SHA");
                 string subject = await HarborDockGitFixture.GitAsync(git.Checkout, "log", "-1", "--format=%s", "refs/heads/main").ConfigureAwait(false);
-                AssertEqual("Land " + run.Mission.Id, subject, "the template's message");
+                AssertEqual("Mission work", subject, "The verified commit is not rewritten to apply a template");
             }));
 
             cases.Add(CaseAsync("local_merge_refuses_dirty_checkout", "LocalMerge into a Harbor checkout with uncommitted changes is refused and the changes are kept", TestTags.Negative, async () =>
@@ -761,7 +795,7 @@ namespace Test.Shared.Suites.Services
             /// <summary>
             /// Create a dock on the Harbor, commit one file in it (as a captain would), capture the diff, and land it.
             /// </summary>
-            public async Task<LandingRun> RunLandingAsync(string harborId, LandingModeEnum landingMode)
+            public async Task<LandingRun> RunLandingAsync(string harborId, LandingModeEnum landingMode, bool captureDiff = true)
             {
                 Vessel vessel = await CreateVesselAsync(_Git.Origin, landingMode).ConfigureAwait(false);
                 Captain captain = await CreateCaptainAsync().ConfigureAwait(false);
@@ -774,7 +808,7 @@ namespace Test.Shared.Suites.Services
                 mission = await Db.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
 
                 string workCommit = await HarborDockGitFixture.CommitFileAsync(dock.WorktreePath!, "landed.txt", "landed\n", "Mission work").ConfigureAwait(false);
-                await Landing.HandleCaptureDiffAsync(mission, dock).ConfigureAwait(false);
+                if (captureDiff) await Landing.HandleCaptureDiffAsync(mission, dock).ConfigureAwait(false);
                 await Landing.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
 
                 Mission stored = (await Db.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;

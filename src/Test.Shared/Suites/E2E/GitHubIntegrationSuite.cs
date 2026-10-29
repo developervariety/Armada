@@ -223,9 +223,11 @@ namespace Test.Shared.Suites.E2E
                     AssertEqual("ChangesRequested", missionPullRequest.ReviewStatus);
                     AssertEqual(1, missionPullRequest.Checks.Count);
 
-                    HttpResponseMessage releasePullRequestsResponse = await authClient.GetAsync("/api/v1/releases/" + releaseId + "/github/pull-requests").ConfigureAwait(false);
+                    HttpResponseMessage releasePullRequestsResponse = await authClient.PostAsync("/api/v1/releases/" + releaseId + "/github/pull-requests/enumerate", JsonHelper.ToJsonContent(new { PageSize = 100 })).ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, releasePullRequestsResponse.StatusCode);
-                    List<GitHubPullRequestDetail> releasePullRequests = await JsonHelper.DeserializeAsync<List<GitHubPullRequestDetail>>(releasePullRequestsResponse).ConfigureAwait(false);
+                    EnumerationResult<GitHubPullRequestDetail> releasePullRequestPage = await JsonHelper.DeserializeAsync<EnumerationResult<GitHubPullRequestDetail>>(releasePullRequestsResponse).ConfigureAwait(false);
+                    AssertEqual(1L, releasePullRequestPage.TotalRecords, "pull request total");
+                    List<GitHubPullRequestDetail> releasePullRequests = releasePullRequestPage.Objects;
                     AssertEqual(1, releasePullRequests.Count);
                     AssertEqual("Armada Integration PR", releasePullRequests[0].Title);
                     AssertEqual("ChangesRequested", releasePullRequests[0].ReviewStatus);

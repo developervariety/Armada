@@ -26,7 +26,7 @@ namespace Armada.Tui.Screens.Delivery
         /// </summary>
         public static readonly CheckRunTypeEnum[] CheckTypes = new[]
         {
-            CheckRunTypeEnum.Build, CheckRunTypeEnum.UnitTest, CheckRunTypeEnum.IntegrationTest, CheckRunTypeEnum.E2ETest,
+            CheckRunTypeEnum.Build, CheckRunTypeEnum.UnitTest, CheckRunTypeEnum.AbbreviatedUnitTest, CheckRunTypeEnum.IntegrationTest, CheckRunTypeEnum.E2ETest,
             CheckRunTypeEnum.Migration, CheckRunTypeEnum.SecurityScan, CheckRunTypeEnum.Performance, CheckRunTypeEnum.Deploy,
             CheckRunTypeEnum.Rollback, CheckRunTypeEnum.SmokeTest, CheckRunTypeEnum.HealthCheck, CheckRunTypeEnum.DeploymentVerification,
             CheckRunTypeEnum.RollbackVerification, CheckRunTypeEnum.Custom

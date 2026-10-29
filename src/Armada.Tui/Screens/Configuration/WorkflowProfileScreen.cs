@@ -111,9 +111,31 @@ namespace Armada.Tui.Screens.Configuration
 
         private static readonly string[] _CommandLabels = new[]
         {
-            "Lint Command", "Build Command", "Unit Test Command", "Integration Test Command", "E2E Test Command", "Migration Command",
-            "Security Scan Command", "Performance Command", "Package Command", "Deployment Verification Command",
+            "Lint Command", "Build Command", FullUnitTestLabel, AbbreviatedUnitTestLabel, "Integration Test Command", "E2E Test Command",
+            "Migration Command", "Security Scan Command", "Performance Command", "Package Command", "Deployment Verification Command",
             "Rollback Verification Command", "Publish Artifact Command", "Release Versioning Command", "Changelog Generation Command"
+        };
+
+        private const string FullUnitTestLabel = "Unit Test Command (Full)";
+        private const string AbbreviatedUnitTestLabel = "Unit Test Command (Abbreviated)";
+
+        private static readonly Dictionary<string, string> _CommandHints = new Dictionary<string, string>
+        {
+            { "Lint Command", "Runs for a Lint check in the vessel's working directory. Blank: no lint step." },
+            { "Build Command", "Runs for a Build check and first in every stage check. Blank: no build step." },
+            { FullUnitTestLabel, "Complete unit-test suite. Runs for a UnitTest check, and in stage checks unless the abbreviated suite is requested." },
+            { AbbreviatedUnitTestLabel, WorkflowProfileForms.AbbreviatedUnitTestHint },
+            { "Integration Test Command", "Runs for an IntegrationTest check. Blank: no integration test step." },
+            { "E2E Test Command", "Runs for an E2ETest check. Blank: no end-to-end test step." },
+            { "Migration Command", "Runs for a Migration check, for example a schema update. Blank: no migration step." },
+            { "Security Scan Command", "Runs for a SecurityScan check, for example npm audit. Blank: no security scan step." },
+            { "Performance Command", "Runs for a Performance check. Blank: no performance step." },
+            { "Package Command", "Runs for a Package check. Blank: no package step." },
+            { "Deployment Verification Command", "Default check that a deployment worked; an environment can set its own." },
+            { "Rollback Verification Command", "Default check that a rollback worked; an environment can set its own." },
+            { "Publish Artifact Command", "Runs for a PublishArtifact check, for example a package push." },
+            { "Release Versioning Command", "Runs for a ReleaseVersioning check and is used to infer release versions." },
+            { "Changelog Generation Command", "Runs for a Changelog check." }
         };
 
         #endregion
@@ -129,16 +151,16 @@ namespace Armada.Tui.Screens.Configuration
             : base(route, context)
         {
             Editor = new EntityForm(context);
-            _Name = Editor.Text("Name", "Default Workflow", "", true);
-            _Scope = Editor.Select("Scope", ProfileFormSupport.ScopeOptions(context), "Global", null, true);
+            _Name = Editor.Text("Name", "Default Workflow", "", true, "Name for this profile, for example dotnet-service or web-frontend.");
+            _Scope = Editor.Select("Scope", ProfileFormSupport.ScopeOptions(context), "Global", null, true, "Global: all vessels. Fleet: one fleet's vessels. Vessel: one repository. A vessel uses Vessel, then Fleet, then Global.");
             _Fleet = Editor.Select("Fleet", new List<SelectOption<string>>(), null, "Select a fleet...", false, "Used when the scope is Fleet.");
             _Vessel = Editor.Select("Vessel", new List<SelectOption<string>>(), null, "Select a vessel...", false, "Used when the scope is Vessel.");
-            _Description = Editor.Text("Description", "");
-            _IsDefault = Editor.Check("Default for this scope", false);
-            _Active = Editor.Check("Active", true);
-            _LanguageHints = Editor.Area("Language / Runtime Hints", "", 3);
+            _Description = Editor.Text("Description", "", "", false, "Optional note on what kind of project this profile is for.");
+            _IsDefault = Editor.Check("Default for this scope", false, "Wins when several active profiles match the same vessel at the same scope.");
+            _Active = Editor.Check("Active", true, "Off: Armada never chooses this profile, even when a vessel names it.");
+            _LanguageHints = Editor.Area("Language / Runtime Hints", "", 3, false, "Languages and tools the project uses, one per line. For reference only.");
             _LanguageHints.Placeholder = "dotnet\nreact\npostgres";
-            _ExpectedArtifacts = Editor.Area("Expected Artifacts", "", 3);
+            _ExpectedArtifacts = Editor.Area("Expected Artifacts", "", 3, false, "Files the checks produce, one path per line; collected onto each check run.");
             _ExpectedArtifacts.Placeholder = "bin/Release/app.zip\ncoverage/summary.xml";
             Editor.Section("Required Inputs");
             _Inputs = Editor.List<WorkflowInputReference>("Required Inputs", i => WorkflowProfileForms.DescribeInput(context, i), null, 5,
@@ -146,7 +168,7 @@ namespace Armada.Tui.Screens.Configuration
             _Inputs.EmptyText = "No required inputs configured.";
             _Inputs.Fingerprint = i => i.Provider + "|" + i.Key + "|" + i.EnvironmentName + "|" + i.Description;
             Editor.Section("Commands");
-            foreach (string label in _CommandLabels) _Commands[label] = Editor.Area(label, "", 2, false, null, ".sh");
+            foreach (string label in _CommandLabels) _Commands[label] = Editor.Area(label, "", 2, false, _CommandHints.TryGetValue(label, out string? hint) ? hint : null, ".sh");
             Editor.Section("Environment Commands");
             _Environments = Editor.List<WorkflowEnvironmentProfile>("Environment Commands", e => WorkflowProfileForms.DescribeEnvironment(context, e), null, 5);
             _Environments.EmptyText = "No environment-specific commands configured yet.";
@@ -185,7 +207,8 @@ namespace Armada.Tui.Screens.Configuration
             payload.ExpectedArtifacts = EntityUi.SplitLines(_ExpectedArtifacts.Value);
             payload.LintCommand = Command("Lint Command");
             payload.BuildCommand = Command("Build Command");
-            payload.UnitTestCommand = Command("Unit Test Command");
+            payload.UnitTestCommand = Command(FullUnitTestLabel);
+            payload.AbbreviatedUnitTestCommand = Command(AbbreviatedUnitTestLabel);
             payload.IntegrationTestCommand = Command("Integration Test Command");
             payload.E2ETestCommand = Command("E2E Test Command");
             payload.MigrationCommand = Command("Migration Command");
@@ -474,7 +497,8 @@ namespace Armada.Tui.Screens.Configuration
             _ExpectedArtifacts.Value = EntityUi.JoinLines(p.ExpectedArtifacts);
             _Commands["Lint Command"].Value = p.LintCommand ?? "";
             _Commands["Build Command"].Value = p.BuildCommand ?? "";
-            _Commands["Unit Test Command"].Value = p.UnitTestCommand ?? "";
+            _Commands[FullUnitTestLabel].Value = p.UnitTestCommand ?? "";
+            _Commands[AbbreviatedUnitTestLabel].Value = p.AbbreviatedUnitTestCommand ?? "";
             _Commands["Integration Test Command"].Value = p.IntegrationTestCommand ?? "";
             _Commands["E2E Test Command"].Value = p.E2ETestCommand ?? "";
             _Commands["Migration Command"].Value = p.MigrationCommand ?? "";
