@@ -16,9 +16,9 @@ namespace Armada.Core.Services
     /// <summary>
     /// Runs a battery pack against one captain. For each task it resets the fixture repository, dispatches the task
     /// through <see cref="IBatteryTaskDispatcher"/> (a real voyage on the fixture vessel, landing mode None, evaluation
-    /// work), and grades the mission's worktree on the Admiral host per the manifest. Each task ends with one grade:
-    /// Passed, Failed, or CouldNotRun when the task could not be judged (a missing tool, another captain, a reclaimed
-    /// worktree). The run record holds the grades and timings; the attempts behind each grade are the mission's
+    /// work), and grades an isolated checkout of the result commit on the Admiral host per the manifest. Each task ends with one grade:
+    /// Passed, Failed, or CouldNotRun when the task could not be judged (a missing tool, another captain, an unavailable
+    /// result commit). The run record holds the grades and timings; the attempts behind each grade are the mission's
     /// attempt provenance records.
     /// </summary>
     public class BatteryRunService
@@ -234,7 +234,8 @@ namespace Armada.Core.Services
 
                 result.VoyageId = dispatch.VoyageId;
                 result.MissionId = dispatch.Mission?.Id;
-                Apply(result, await GradeAsync(pack, task, captain, dispatch, needed, missingTools).ConfigureAwait(false));
+                using (dispatch.Workspace as IDisposable)
+                    Apply(result, await GradeAsync(pack, task, captain, dispatch, needed, missingTools).ConfigureAwait(false));
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {

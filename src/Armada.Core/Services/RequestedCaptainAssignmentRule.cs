@@ -167,7 +167,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Apply the requested captain and fallback tier to a gated pool of idle captains.
+        /// Apply the requested captain and fallback tier to a gated pool of idle captains. An evaluation with a
+        /// requested captain waits for that captain instead of using the fallback pool.
         /// </summary>
         /// <param name="mission">Mission being assigned.</param>
         /// <param name="requestedCaptain">The stored requested captain's record, or null when it does not exist.</param>
@@ -203,16 +204,24 @@ namespace Armada.Core.Services
                 requestedUnavailableReason = "not assignable";
             }
 
-            CaptainTierEnum? floor = mission.Tier;
-            if (!floor.HasValue && requestedCaptain != null)
-                floor = CaptainTierSelector.EffectiveTier(requestedCaptain);
-            decision.FallbackTier = floor;
-
             string requestPart = requestedId == null
                 ? "No requested captain"
                 : requestedCaptain == null
                     ? "Requested captain " + requestedId + " was not found"
                     : "Requested captain " + requestedId + " is " + (requestedUnavailableReason ?? "not assignable");
+
+            if (mission.IsEvaluation && requestedId != null)
+            {
+                decision.Outcome = RequestedCaptainOutcomeEnum.WaitForRequested;
+                decision.Candidates = new List<Captain>();
+                decision.Reason = requestPart + "; this evaluation waits for its requested captain.";
+                return decision;
+            }
+
+            CaptainTierEnum? floor = mission.Tier;
+            if (!floor.HasValue && requestedCaptain != null)
+                floor = CaptainTierSelector.EffectiveTier(requestedCaptain);
+            decision.FallbackTier = floor;
 
             if (!floor.HasValue)
             {

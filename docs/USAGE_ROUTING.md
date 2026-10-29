@@ -29,6 +29,8 @@ Armada reads captain and persona records again on every dispatch pass, and the
 usage preview reads them for each preview. A record edit applies within one
 pass. No restart is required.
 
+An `IsEvaluation` mission with `requestedCaptainId` waits for that exact captain if it is busy or unavailable. It records the requested-captain outcome `WaitForRequested` and does not use a fallback-tier substitute. Eligibility, quarantine, reservations and usage limits still apply. This keeps model-comparison results on the requested captain; ordinary missions retain their requested-captain fallback behavior.
+
 ## Layer 1: eligibility
 
 A captain is eligible when both of these are true:

@@ -38,6 +38,12 @@ namespace Armada.Core.Enums
         /// The requested captain no longer exists and no tier is stored; normal routing applies.
         /// </summary>
         [EnumMember(Value = "RequestedNotFound")]
-        RequestedNotFound
+        RequestedNotFound,
+
+        /// <summary>
+        /// An evaluation waits for its named captain instead of substituting another captain.
+        /// </summary>
+        [EnumMember(Value = "WaitForRequested")]
+        WaitForRequested
     }
 }

@@ -95,6 +95,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Captains acquire `armada_suite_lease` around a full-suite run. The lease takes the same per-vessel and host-wide slots the definition-of-done gate and armed checks use. Defaults: one per vessel (`definitionOfDone.vesselSuiteSlots`), host-wide equal to `hostCommandSlots`. A wait records `captain.suite_lease_wait` and is not a stall. When the captain process exits or the mission ends, a held lease is released and a waiting acquire is cancelled, so the mission's own definition-of-done gate never waits on it.
 
+### Battery result isolation
+
+- Battery waits for completion handling before grading and checks out the recorded result in a separate temporary workspace. Hidden grader overlays cannot change the captain's worktree or race its final checks.
+
+### Evaluation captain selection
+
+- An evaluation with a requested captain waits for that captain when it is unavailable. It records `WaitForRequested` instead of substituting a captain from the fallback tier.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

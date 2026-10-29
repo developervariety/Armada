@@ -15,8 +15,8 @@ namespace Armada.Server
 
     /// <summary>
     /// Real battery dispatch: one evaluation voyage on the fixture vessel with the Worker persona, requesting the
-    /// captain under test. The fixture vessel's landing mode is None, so the work stays in its dock for grading. It
-    /// then polls the mission until it finishes or the timeout passes, which cancels the voyage.
+    /// captain under test. The fixture vessel's landing mode is None. Dispatch waits until completion handling
+    /// releases the captain, then grades an isolated checkout of the recorded commit. A timeout cancels the voyage.
     /// </summary>
     public class BatteryTaskDispatcher : IBatteryTaskDispatcher
     {
@@ -107,7 +107,21 @@ namespace Armada.Server
             {
                 List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
                 current = missions.OrderBy(m => m.CreatedUtc).LastOrDefault();
-                if (current != null && missions.All(m => FinishedStatuses.Contains(m.Status))) break;
+                if (current != null && missions.All(m => FinishedStatuses.Contains(m.Status)))
+                {
+                    bool completing = false;
+                    foreach (Mission mission in missions)
+                    {
+                        if (String.IsNullOrEmpty(mission.CaptainId)) continue;
+                        Captain? assigned = await _Database.Captains.ReadAsync(mission.CaptainId!, token).ConfigureAwait(false);
+                        if (assigned?.CurrentMissionId == mission.Id) completing = true;
+                    }
+                    if (!completing)
+                    {
+                        current = await _Database.Missions.ReadAsync(current.Id, token).ConfigureAwait(false) ?? current;
+                        break;
+                    }
+                }
                 if (DateTime.UtcNow >= deadline)
                 {
                     result.TimedOut = true;
@@ -136,7 +150,13 @@ namespace Armada.Server
                 else if (dock.HostCheckout != null)
                     result.WorkspaceUnavailableReason = "The dock lives on a Harbor runner; battery grading runs only on worktrees on the Admiral host.";
                 else
-                    result.Workspace = new LocalBatteryWorkspace(dock.WorktreePath!);
+                {
+                    if (String.IsNullOrWhiteSpace(current.CommitHash) || String.IsNullOrWhiteSpace(request.Vessel.LocalPath))
+                        result.WorkspaceUnavailableReason = "The completed mission has no recorded commit or local repository to grade.";
+                    else if (!result.TimedOut && current.Status != MissionStatusEnum.Failed
+                        && current.Status != MissionStatusEnum.Cancelled && current.Status != MissionStatusEnum.LandingFailed)
+                        result.Workspace = await LocalBatteryWorkspace.CreateSnapshotAsync(request.Vessel.LocalPath!, current.CommitHash!, token).ConfigureAwait(false);
+                }
             }
 
             return result;

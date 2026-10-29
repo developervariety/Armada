@@ -12,7 +12,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// A battery workspace over a directory on the Admiral's own machine.
     /// </summary>
-    public class LocalBatteryWorkspace : IBatteryWorkspace
+    public class LocalBatteryWorkspace : IBatteryWorkspace, IDisposable
     {
         #region Public-Members
 
@@ -26,6 +26,7 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
+        private bool _OwnsDirectory;
         private const int _OutputLimitBytes = 256 * 1024;
         private static readonly UTF8Encoding _Utf8 = new UTF8Encoding(false);
 
@@ -47,6 +48,48 @@ namespace Armada.Core.Services
         #endregion
 
         #region Public-Methods
+
+        /// <summary>
+        /// Create an isolated checkout of the recorded result, independent of the captain's reclaimed dock.
+        /// </summary>
+        /// <param name="repository">Local repository that holds the commit.</param>
+        /// <param name="commit">Recorded result commit.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>An owned workspace; dispose it after grading.</returns>
+        public static async Task<LocalBatteryWorkspace> CreateSnapshotAsync(string repository, string commit, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(repository)) throw new ArgumentNullException(nameof(repository));
+            if (commit == null || commit.Length != 40 || !System.Linq.Enumerable.All(commit, Uri.IsHexDigit))
+                throw new ArgumentException("A full result commit is required.", nameof(commit));
+            string root = Path.Combine(Path.GetTempPath(), "armada-battery-grade-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            LocalBatteryWorkspace workspace = new LocalBatteryWorkspace(root) { _OwnsDirectory = true };
+            try
+            {
+                BoundedProcessResult clone = await workspace.RunAsync("git", new List<string>
+                {
+                    "clone", "--no-checkout", "--no-hardlinks", "--", Path.GetFullPath(repository), "."
+                }, 120000, token).ConfigureAwait(false);
+                if (!clone.Succeeded) throw new InvalidOperationException("Could not preserve the result for grading: " + clone.StandardError);
+                BoundedProcessResult checkout = await workspace.RunAsync("git", new List<string>
+                {
+                    "-c", "core.autocrlf=false", "checkout", "--detach", commit
+                }, 120000, token).ConfigureAwait(false);
+                if (!checkout.Succeeded) throw new InvalidOperationException("Could not check out the recorded result: " + checkout.StandardError);
+                return workspace;
+            }
+            catch
+            {
+                workspace.Dispose();
+                throw;
+            }
+        }
+
+        /// <summary>Delete an owned grading checkout. Caller-owned workspaces are retained.</summary>
+        public void Dispose()
+        {
+            if (_OwnsDirectory && Directory.Exists(Root)) Directory.Delete(Root, true);
+        }
 
         /// <inheritdoc />
         public Task<bool> ExistsAsync(CancellationToken token = default)

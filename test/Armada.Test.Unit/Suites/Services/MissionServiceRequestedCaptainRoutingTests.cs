@@ -193,6 +193,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_EvaluationWaitsForRequestedCaptainThenAssignsIt", async () =>
+            {
+                foreach (bool smartRouting in new[] { false, true })
+                foreach (bool quarantined in new[] { false, true })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.ModelTier.UsageRouting.Enabled = smartRouting;
+                        MissionService service = CreateMissionService(testDb.Driver, settings);
+                        Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                        Captain requested = await CreateCaptainAsync(testDb.Driver, "evaluation-requested",
+                            quarantined ? CaptainStateEnum.Idle : CaptainStateEnum.Working, CaptainTierEnum.Standard).ConfigureAwait(false);
+                        if (quarantined)
+                        {
+                            requested.QuarantineUntilUtc = DateTime.UtcNow.AddHours(1);
+                            await testDb.Driver.Captains.UpdateAsync(requested).ConfigureAwait(false);
+                        }
+                        Captain substitute = await CreateCaptainAsync(testDb.Driver, "idle-substitute", CaptainStateEnum.Idle, CaptainTierEnum.Standard, "Worker").ConfigureAwait(false);
+                        Mission mission = await CreateMissionAsync(testDb.Driver, vessel, requested.Id, CaptainTierEnum.Standard).ConfigureAwait(false);
+                        mission.IsEvaluation = true;
+                        await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                        AssertFalse(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "An evaluation must wait for its requested captain even when a tier-eligible substitute is idle");
+                        Mission? waiting = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNull(waiting!.CaptainId, "The evaluation must not record a substitute captain");
+                        AssertEqual(MissionStatusEnum.Pending, waiting.Status, "The evaluation stays pending");
+                        AssertEqual(CaptainStateEnum.Idle, (await testDb.Driver.Captains.ReadAsync(substitute.Id).ConfigureAwait(false))!.State, "The substitute remains available for other work");
+                        List<ArmadaEvent> events = await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                        AssertEqual(1, events.Count, "The evaluation wait is recorded once");
+                        AssertContains(requested.Id, events[0].Message, "The wait names the requested captain");
+                        AssertContains("evaluation", events[0].Message, "The wait explains why substitution is disabled");
+                        AssertFalse(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "An unchanged evaluation remains waiting");
+                        AssertEqual(1, (await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false)).Count, "An unchanged wait does not add events");
+
+                        requested.State = CaptainStateEnum.Idle;
+                        requested.QuarantineUntilUtc = null;
+                        await testDb.Driver.Captains.UpdateAsync(requested).ConfigureAwait(false);
+                        AssertTrue(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "The evaluation starts when its requested captain becomes available");
+                        AssertEqual(requested.Id, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId, "The requested captain runs the evaluation");
+                    }
+                }
+            });
+
             await RunTest("TryAssign_BusyRequestedCaptain_FallsBackToLowestTierAtOrAboveStoredTier", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

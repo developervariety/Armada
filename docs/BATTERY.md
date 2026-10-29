@@ -9,7 +9,9 @@ A run targets one captain and one pack. For each task the Admiral:
 2. Dispatches a voyage on the pack's fixture vessel. The voyage uses the `WorkerOnly` pipeline, landing mode `None`,
    and `IsEvaluation` true, so no battery work lands and no evaluation mission counts as production work.
 3. Waits for the mission to finish or for the task timeout (60 minutes unless the task sets `timeoutMinutes`).
-4. Grades the mission's worktree on the Admiral host.
+4. Waits for mission completion handling to release the captain, then grades an isolated checkout of the recorded result commit on the Admiral host. Hidden grading files do not change the captain's dock. The grading checkout is removed after grading.
+
+Evaluation missions wait for their requested captain when it is busy or unavailable; they do not use another captain from the fallback tier. The normal eligibility and usage gates still apply. Captain wait time is included in `MissionDurationMs`, so use the mission's start and completion times when comparing execution time.
 
 The fixture vessel is named `battery-<pack id>` and is created on request. Fixture repositories live under the
 `battery` folder of the data directory. Creating or reusing that vessel also writes a vessel-scoped default
@@ -68,7 +70,7 @@ A command has `executable`, `arguments` and `timeoutSeconds` (default 600). A mu
 |---|---|
 | `Passed` | The grader's condition held. `Score` is 1. |
 | `Failed` | The grader ran and the condition did not hold, or the mission failed, was cancelled or timed out after the captain started. `Score` is the share of commands run, files matched or mutants killed. |
-| `CouldNotRun` | The task could not be judged: a toolchain tool is missing on the Admiral host, the fixture could not be reset, no worktree exists (the dock is Harbor-owned or reclaimed), another captain ran the mission, or the captain never took it. |
+| `CouldNotRun` | The task could not be judged: a toolchain tool is missing on the Admiral host, the fixture could not be reset, the result commit is unavailable or the dock is Harbor-owned, another captain ran the mission, or the captain never took it. |
 
 A missing tool never grades `Failed`. After one task finds a tool missing, later tasks that need it are not
 dispatched.
@@ -95,3 +97,5 @@ The dashboard Battery page lists runs and shows each run's tasks.
 
 The shipped packs are `csharp` (needs the .NET SDK) and `javascript` (needs Node.js). Both need `git` on the Admiral
 host's `PATH`.
+
+When the installation's definition-of-done gate requires workflow commands, configure a workflow profile for the fixture vessel before collecting comparative results. For `battery-csharp`, use `dotnet build Inventory.sln -c Release` and `dotnet run --project tests/Inventory.Tests -c Release --no-build --no-restore`. A missing profile is an infrastructure failure before grading; retain that attempt separately from model-quality results.
