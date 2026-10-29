@@ -76,6 +76,16 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("Mux", runtime.Name);
             }));
 
+            cases.Add(Case("create_pi_returns_pi_runtime", "Create Pi Returns PiRuntime", TestTags.Positive, () =>
+            {
+                AgentRuntimeFactory factory = CreateFactory();
+                IAgentRuntime runtime = factory.Create(AgentRuntimeEnum.Pi);
+                AssertNotNull(runtime);
+                AssertTrue(runtime is PiRuntime, "expected PiRuntime");
+                AssertEqual("Pi", runtime.Name);
+                AssertFalse(runtime.SupportsResume, "pi resume is not wired");
+            }));
+
             cases.Add(Case("create_custom_without_registration_throws", "Create Custom Without Registration Throws", TestTags.Negative, () =>
             {
                 AgentRuntimeFactory factory = CreateFactory();

@@ -103,9 +103,9 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(vendorDefault.Id, chosen!.Id);
             }));
 
-            cases.Add(Case("other_runtime_default_model_not_premium", "Mux, OpenCode, Cursor and API captains with no model stay Standard for Premium work", TestTags.Negative, () =>
+            cases.Add(Case("other_runtime_default_model_not_premium", "Mux, OpenCode, Pi, Cursor and API captains with no model stay Standard for Premium work", TestTags.Negative, () =>
             {
-                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.ApiEndpoint, AgentRuntimeEnum.Custom })
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Pi, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.ApiEndpoint, AgentRuntimeEnum.Custom })
                 {
                     Captain captain = new Captain();
                     captain.Runtime = runtime;

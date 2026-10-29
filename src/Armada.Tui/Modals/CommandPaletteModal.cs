@@ -39,7 +39,7 @@ namespace Armada.Tui.Modals
             ["dpl_"] = "/deployments/", ["env_"] = "/environments/", ["rel_"] = "/releases/", ["inc_"] = "/incidents/",
             ["chk_"] = "/checks/", ["rbk_"] = "/runbooks/", ["rbd_"] = "/runbooks/", ["req_"] = "/requests/",
             ["wfp_"] = "/workflow-profiles/", ["ppf_"] = "/project-profiles/", ["pbk_"] = "/playbooks/",
-            ["skl_"] = "/skills/", ["psn_"] = "/planning/"
+            ["skl_"] = "/skills/", ["psn_"] = "/dispatch?tab=planning&session="
         };
 
         #endregion

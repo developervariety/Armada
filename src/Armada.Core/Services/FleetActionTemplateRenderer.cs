@@ -44,6 +44,26 @@ namespace Armada.Core.Services
         public static readonly string BuildCommandVariable = "vessel.buildCommand";
 
         /// <summary>
+        /// {{vessel.ecosystems}}: detected ecosystem names, comma-separated, or empty when none were detected.
+        /// </summary>
+        public static readonly string EcosystemsVariable = "vessel.ecosystems";
+
+        /// <summary>
+        /// {{vessel.testCommand}}: the resolved Test command (vessel override, repo script, then ecosystem default), or empty.
+        /// </summary>
+        public static readonly string TestCommandVariable = "vessel.testCommand";
+
+        /// <summary>
+        /// {{vessel.lintCommand}}: the resolved Lint command (vessel override, repo script, then ecosystem default), or empty.
+        /// </summary>
+        public static readonly string LintCommandVariable = "vessel.lintCommand";
+
+        /// <summary>
+        /// {{vessel.auditCommand}}: the resolved Audit command (vessel override, repo script, ecosystem default, then osv-scanner).
+        /// </summary>
+        public static readonly string AuditCommandVariable = "vessel.auditCommand";
+
+        /// <summary>
         /// {{health.summary}}: a plain-text list of the vessel's non-passing health findings and outdated or
         /// vulnerable dependencies.
         /// </summary>
@@ -63,6 +83,11 @@ namespace Armada.Core.Services
                     DefaultBranchVariable,
                     WorkingDirectoryVariable,
                     BuildCommandVariable,
+                    EcosystemsVariable,
+                    TestCommandVariable,
+                    LintCommandVariable,
+                    AuditCommandVariable,
+                    "scan.summary",
                     HealthSummaryVariable
                 };
             }
@@ -116,13 +141,14 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="template">Template text.</param>
         /// <exception cref="FleetActionTemplateException">Thrown for the first unknown variable.</exception>
-        public static void Validate(string? template)
+        /// <param name="inputNames">Declared runtime input names.</param>
+        public static void Validate(string? template, IEnumerable<string>? inputNames = null)
         {
             if (String.IsNullOrEmpty(template)) return;
             foreach (Match match in _VariablePattern.Matches(template))
             {
                 string raw = match.Groups[1].Value.Trim();
-                if (Canonicalize(raw) == null) throw new FleetActionTemplateException(raw);
+                if (Canonicalize(raw) == null && !(raw.StartsWith("input.", StringComparison.OrdinalIgnoreCase) && (inputNames ?? Enumerable.Empty<string>()).Contains(raw.Substring(6), StringComparer.OrdinalIgnoreCase))) throw new FleetActionTemplateException(raw);
             }
         }
 
@@ -139,10 +165,12 @@ namespace Armada.Core.Services
             if (context == null) throw new ArgumentNullException(nameof(context));
             if (String.IsNullOrEmpty(template)) return String.Empty;
 
-            Validate(template);
+            Validate(template, context.InputValues.Keys);
             return _VariablePattern.Replace(template, match =>
             {
-                string name = Canonicalize(match.Groups[1].Value.Trim())!;
+                string raw = match.Groups[1].Value.Trim();
+                if (raw.StartsWith("input.", StringComparison.OrdinalIgnoreCase)) return context.InputValues.First(p => String.Equals(p.Key, raw.Substring(6), StringComparison.OrdinalIgnoreCase)).Value;
+                string name = Canonicalize(raw)!;
                 return Resolve(name, context);
             });
         }
@@ -163,11 +191,16 @@ namespace Armada.Core.Services
 
         private static string Resolve(string name, FleetActionTemplateContext context)
         {
+            if (name == "scan.summary") return context.ScanSummary;
             if (name == VesselNameVariable) return context.VesselName;
             if (name == VesselIdVariable) return context.VesselId;
             if (name == DefaultBranchVariable) return context.DefaultBranch;
             if (name == WorkingDirectoryVariable) return context.WorkingDirectory;
             if (name == BuildCommandVariable) return context.BuildCommand;
+            if (name == EcosystemsVariable) return context.Ecosystems;
+            if (name == TestCommandVariable) return context.TestCommand;
+            if (name == LintCommandVariable) return context.LintCommand;
+            if (name == AuditCommandVariable) return context.AuditCommand;
             if (name == HealthSummaryVariable) return context.HealthSummary;
             throw new FleetActionTemplateException(name);
         }

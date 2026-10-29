@@ -109,11 +109,12 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(HttpStatusCode.OK, markResponse.StatusCode);
 
                 // Enumerate with unreadOnly=true (default)
-                HttpResponseMessage response = await authClient.GetAsync(
-                    "/api/v1/signals/recipient/" + recipientId + "?unreadOnly=true");
+                HttpResponseMessage response = await authClient.PostAsync(
+                    "/api/v1/signals/enumerate",
+                    JsonHelper.ToJsonContent(new { ToCaptainId = recipientId, UnreadOnly = true, PageSize = 1000 }));
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
-                List<Signal> signals = await JsonHelper.DeserializeAsync<List<Signal>>(response);
+                List<Signal> signals = (await JsonHelper.DeserializeAsync<EnumerationResult<Signal>>(response)).Objects;
 
                 AssertEqual(2, signals.Count, "Should return only 2 unread signals");
 
@@ -146,11 +147,12 @@ namespace Test.Shared.Suites.E2E
                     JsonHelper.ToJsonContent(new { }));
 
                 // Enumerate with unreadOnly=false to get all signals
-                HttpResponseMessage response = await authClient.GetAsync(
-                    "/api/v1/signals/recipient/" + recipientId + "?unreadOnly=false");
+                HttpResponseMessage response = await authClient.PostAsync(
+                    "/api/v1/signals/enumerate",
+                    JsonHelper.ToJsonContent(new { ToCaptainId = recipientId, UnreadOnly = false, PageSize = 1000 }));
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
-                List<Signal> signals = await JsonHelper.DeserializeAsync<List<Signal>>(response);
+                List<Signal> signals = (await JsonHelper.DeserializeAsync<EnumerationResult<Signal>>(response)).Objects;
 
                 AssertEqual(3, signals.Count, "Should return all 3 signals (read and unread)");
 
@@ -165,7 +167,7 @@ namespace Test.Shared.Suites.E2E
 
             #region Signal-EnumerateRecent-Tests
 
-            cases.Add(CaseAsync("signal_enumerate_recent", "Signal_EnumerateRecent", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("signal_enumerate_recent", "Signal_EnumerateRecent: signals/recent is retired (410); signals/enumerate pages newest first", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
@@ -182,37 +184,22 @@ namespace Test.Shared.Suites.E2E
                 await Task.Delay(50);
                 await CreateSignalAsync(authClient, createdSignalIds, "Mail", "recent-5");
 
-                // Request only 3 most recent
-                // Note: /api/v1/signals/recent may conflict with /api/v1/signals/{id} route
-                // depending on route registration order. If the server treats "recent" as an ID,
-                // we get a 200 with an error body -- handle gracefully.
-                HttpResponseMessage response = await authClient.GetAsync("/api/v1/signals/recent?count=3");
+                // The retired GET /api/v1/signals/recent answers 410 Gone and names its replacement.
+                HttpResponseMessage retired = await authClient.GetAsync("/api/v1/signals/recent?count=3");
+                AssertEqual((HttpStatusCode)410, retired.StatusCode, "signals/recent is retired");
+                string retiredBody = await retired.Content.ReadAsStringAsync();
+                AssertContains("/api/v1/signals/enumerate", retiredBody, "410 names the replacement");
+
+                // The replacement returns one bounded page, newest first.
+                HttpResponseMessage response = await authClient.PostAsync("/api/v1/signals/enumerate", JsonHelper.ToJsonContent(new { PageSize = 3 }));
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                EnumerationResult<Signal> page = await JsonHelper.DeserializeAsync<EnumerationResult<Signal>>(response);
+                AssertEqual(3, page.PageSize, "page size echoed");
+                List<Signal> signals = page.Objects;
+                AssertTrue(signals.Count <= 3, "At most 3 signals in the page");
+                AssertTrue(page.TotalRecords >= 5, "Total counts every signal");
 
-                string body = await response.Content.ReadAsStringAsync();
-
-                // Try to detect if it's an error response (route conflict)
-                ArmadaErrorResponse? errorCheck = null;
-                if (errorCheck != null && errorCheck.Error != null)
-                    return; // Route conflict -- /signals/{id} matched "recent" as an ID; skip test
-
-                // Response may be a plain array or an envelope with Objects or Data property
-                List<Signal> signals;
-                try
-                {
-                    signals = JsonHelper.Deserialize<List<Signal>>(body);
-                }
-                catch
-                {
-                    // Try as EnumerationResult
-                    EnumerationResult<Signal> envelope = JsonHelper.Deserialize<EnumerationResult<Signal>>(body);
-                    if (envelope != null && envelope.Objects != null)
-                        signals = envelope.Objects;
-                    else
-                        throw new Exception("Unexpected response format for signals/recent: " + body.Substring(0, Math.Min(200, body.Length)));
-                }
-
-                AssertTrue(signals.Count >= 3, "Should return at least 3 signals");
+                AssertEqual(3, signals.Count, "A full page of 3 signals");
 
                 // Verify descending order by CreatedUtc
                 for (int i = 0; i < signals.Count - 1; i++)
@@ -255,11 +242,12 @@ namespace Test.Shared.Suites.E2E
                 AssertTrue(readSignal.Read, "Signal should be marked as read");
 
                 // Verify EnumerateByRecipient with unreadOnly=true no longer returns this signal
-                HttpResponseMessage recipientResponse = await authClient.GetAsync(
-                    "/api/v1/signals/recipient/" + recipientId + "?unreadOnly=true");
+                HttpResponseMessage recipientResponse = await authClient.PostAsync(
+                    "/api/v1/signals/enumerate",
+                    JsonHelper.ToJsonContent(new { ToCaptainId = recipientId, UnreadOnly = true, PageSize = 1000 }));
                 AssertEqual(HttpStatusCode.OK, recipientResponse.StatusCode);
 
-                List<Signal> recipientSignals = await JsonHelper.DeserializeAsync<List<Signal>>(recipientResponse);
+                List<Signal> recipientSignals = (await JsonHelper.DeserializeAsync<EnumerationResult<Signal>>(recipientResponse)).Objects;
 
                 // The marked-read signal should not appear in unread results
                 foreach (Signal sig in recipientSignals)
