@@ -522,7 +522,7 @@ namespace Test.Shared.Suites.Services
 
             public Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, CancellationToken token = default) => _Inner.ProvisionAsync(vessel, captain, branchName, missionId, token);
             public Task<Dock> ProvisionOnHarborAsync(Vessel vessel, Captain captain, string branchName, string missionId, string harborId, CancellationToken token = default) => _Inner.ProvisionOnHarborAsync(vessel, captain, branchName, missionId, harborId, token);
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.ReclaimAsync(dockId, tenantId, token);
+            public Task<bool> ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? forceReason = null, string caller = "") => _Inner.ReclaimAsync(dockId, tenantId, token, forceReason, caller);
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.RepairAsync(dockId, tenantId, token);
             public Task UnstickAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.UnstickAsync(dockId, tenantId, token);
             public Task<bool> DeleteAsync(string dockId, string? tenantId = null, CancellationToken token = default) => _Inner.DeleteAsync(dockId, tenantId, token);

@@ -22,6 +22,7 @@ import {
 } from '../lib/checkRunComparison';
 import { formatCheckDuration, formatCoverageMetric } from '../lib/deliveryForms';
 import { useLiveRefresh } from '../lib/useLiveRefresh';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 function checkRunEventMatchesOpenRun(message: WebSocketMessage, openId: string): boolean {
   const data = message.data;
@@ -37,6 +38,7 @@ export default function CheckRunDetail() {
   const navigate = useNavigate();
   const { t, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
 
   const [run, setRun] = useState<CheckRun | null>(null);
   const [vessel, setVessel] = useState<Vessel | null>(null);
@@ -134,13 +136,9 @@ export default function CheckRunDetail() {
       message: t('Delete check run "{{id}}"?', { id: run.id }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteCheckRun(run.id);
-          pushToast('warning', t('Check run deleted.'));
-          navigate('/checks');
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'checkRun', action: () => deleteCheckRun(run.id), errorMessage: (err) => (err instanceof Error ? err.message : t('Delete failed.')) }))) return;
+        pushToast('warning', t('Check run deleted.'));
+        navigate('/checks');
       },
     });
   }
@@ -199,6 +197,7 @@ export default function CheckRunDetail() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+      {deletion.dialog}
 
       <div className="detail-grid" style={{ marginBottom: '1rem' }}>
         <div className="detail-field">
