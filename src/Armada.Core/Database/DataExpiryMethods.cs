@@ -130,10 +130,14 @@ namespace Armada.Core.Database
                 // A mission whose parent expires loses the link instead of blocking the delete, matching
                 // ON DELETE SET NULL on the providers whose foreign key declares it.
                 await ExecuteAsync(connection, "missions", null, ClearParentSql(missionsOfExpiredVoyages), "voyages", cutoff, cutoffs, token).ConfigureAwait(false);
+                // Attempt provenance goes with its mission. The rows are deleted first, so a provider whose connection
+                // does not enforce a cascading foreign key leaves none behind.
+                await ExecuteAsync(connection, "mission_attempt_provenance", null, "DELETE FROM mission_attempt_provenance WHERE mission_id IN (SELECT id FROM missions WHERE " + missionsOfExpiredVoyages + ");", "voyages", cutoff, cutoffs, token).ConfigureAwait(false);
                 await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + missionsOfExpiredVoyages + ";", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
                 await ExecuteAsync(connection, "voyages", result, "DELETE FROM voyages WHERE status IN (" + Literals(ExpiringVoyageStatuses) + ")"
                     + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff;", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
                 await ExecuteAsync(connection, "missions", null, ClearParentSql(expiredStandaloneMissions), "missions", cutoff, cutoffs, token).ConfigureAwait(false);
+                await ExecuteAsync(connection, "mission_attempt_provenance", null, "DELETE FROM mission_attempt_provenance WHERE mission_id IN (SELECT id FROM missions WHERE " + expiredStandaloneMissions + ");", "missions", cutoff, cutoffs, token).ConfigureAwait(false);
                 await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + expiredStandaloneMissions + ";", "missions", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
 
                 await ExecuteAsync(connection, "signals", result, "DELETE FROM signals WHERE " + ReadColumn() + " = @true AND created_utc < @cutoff;",

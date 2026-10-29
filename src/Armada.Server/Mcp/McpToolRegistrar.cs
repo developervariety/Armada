@@ -141,6 +141,7 @@ namespace Armada.Server.Mcp
             // The mission change summary resolves its mission, vessel and both commits from the caller and recorded
             // mission evidence, so it sits in the caller-scoped catalogue beside unified recall.
             McpMissionChangeSummaryTools.Register(register, database, effectiveSettings, git, logging);
+            McpMissionAttemptTools.Register(register, database);
             if (captainAdministration == null)
             {
                 captainAdministration = new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);

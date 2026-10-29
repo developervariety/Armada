@@ -88,6 +88,101 @@ namespace Armada.Test.Database
             DatabaseAssert.True(page.Items.All(item => item.TenantId == tenant && item.MissionId == missionId), "Mission query applies exact tenant and mission filters");
         }
 
+        internal async Task VerifyMissionAttemptProvenanceAsync(CancellationToken token)
+        {
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            string tenant = "ten_prov_" + suffix;
+            string otherTenant = "ten_other_prov_" + suffix;
+            string missionId = "msn_prov_" + suffix;
+            DateTime startUtc = new DateTime(2035, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
+            MissionAttemptProvenance first = await _Driver.MissionAttempts.CreateAsync(NewAttempt(tenant, missionId, 101, startUtc), token).ConfigureAwait(false);
+            MissionAttemptProvenance second = await _Driver.MissionAttempts.CreateAsync(NewAttempt(tenant, missionId, 102, startUtc.AddMinutes(10)), token).ConfigureAwait(false);
+            MissionAttemptProvenance third = await _Driver.MissionAttempts.CreateAsync(NewAttempt(tenant, missionId, 103, startUtc.AddMinutes(20)), token).ConfigureAwait(false);
+            await _Driver.MissionAttempts.CreateAsync(NewAttempt(tenant, "msn_prov_unrelated_" + suffix, 101, startUtc.AddMinutes(40)), token).ConfigureAwait(false);
+
+            DateTime endUtc = startUtc.AddMinutes(5);
+            int wrongProcess = await _Driver.MissionAttempts.CloseAsync(missionId, 999, MissionAttemptOutcomeEnum.Completed, 0, null, endUtc, token).ConfigureAwait(false);
+            DatabaseAssert.Equal(0, wrongProcess, "Close matches the process id of the running row");
+            int closed = await _Driver.MissionAttempts.CloseAsync(missionId, 101, MissionAttemptOutcomeEnum.Failed, 7, "Exit Nonzero", endUtc, token).ConfigureAwait(false);
+            DatabaseAssert.Equal(1, closed, "Close ends exactly the matching running row of the mission");
+            int closedAgain = await _Driver.MissionAttempts.CloseAsync(missionId, 101, MissionAttemptOutcomeEnum.Completed, 0, null, endUtc.AddMinutes(1), token).ConfigureAwait(false);
+            DatabaseAssert.Equal(0, closedAgain, "A closed row is never rewritten");
+
+            int interrupted = await _Driver.MissionAttempts.InterruptRunningAsync(missionId, "superseded_by_relaunch", startUtc.AddMinutes(25), token).ConfigureAwait(false);
+            DatabaseAssert.Equal(2, interrupted, "Interrupt ends every row of the mission still running");
+            await _Driver.MissionAttempts.CreateAsync(NewAttempt(otherTenant, missionId, 101, startUtc.AddMinutes(30)), token).ConfigureAwait(false);
+
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                ProductionFactPage<MissionAttemptProvenance> page = await reopened.MissionAttempts.EnumerateByMissionAsync(tenant, missionId, 100, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(3, page.Items.Count, "Enumerate returns this tenant's attempts of the mission only");
+                DatabaseAssert.True(!page.Truncated, "A page inside the limit is not truncated");
+                DatabaseAssert.Equal(first.Id, page.Items[0].Id, "Attempts return oldest first");
+                DatabaseAssert.Equal(third.Id, page.Items[2].Id, "Attempts return oldest first");
+
+                MissionAttemptProvenance failed = page.Items[0];
+                DatabaseAssert.Equal(MissionAttemptOutcomeEnum.Failed, failed.Outcome, "Outcome survives reopen");
+                DatabaseAssert.Equal(7, failed.ExitCode, "Exit code survives reopen");
+                DatabaseAssert.Equal("exit_nonzero", failed.ReasonCode, "Reason code is bounded to a machine code");
+                DatabaseAssert.Equal(endUtc, failed.EndedUtc, "End time survives reopen");
+                DatabaseAssert.Equal("cap_prov", failed.CaptainId, "Captain survives reopen");
+                DatabaseAssert.Equal("ClaudeCode", failed.Runtime, "Runtime survives reopen");
+                DatabaseAssert.Equal("model-x", failed.Model, "Model survives reopen");
+                DatabaseAssert.Equal("1.2.3 (Test CLI)", failed.RuntimeVersion, "Runtime version survives reopen");
+                DatabaseAssert.Equal(101, failed.ProcessId, "Process id survives reopen");
+
+                DatabaseAssert.Equal(MissionAttemptOutcomeEnum.Interrupted, page.Items[1].Outcome, "A superseded row reads Interrupted");
+                DatabaseAssert.Equal("superseded_by_relaunch", page.Items[1].ReasonCode, "A superseded row names why");
+                DatabaseAssert.True(page.Items[1].ExitCode == null, "An interrupted row holds no exit code");
+
+                ProductionFactPage<MissionAttemptProvenance> bounded = await reopened.MissionAttempts.EnumerateByMissionAsync(tenant, missionId, 2, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(2, bounded.Items.Count, "Enumerate returns its bounded newest window");
+                DatabaseAssert.True(bounded.Truncated, "Enumerate reports older attempts beyond the limit");
+                DatabaseAssert.Equal(second.Id, bounded.Items[0].Id, "The window keeps the newest attempts in ascending order");
+
+                ProductionFactPage<MissionAttemptProvenance> foreign = await reopened.MissionAttempts.EnumerateByMissionAsync(otherTenant, missionId, 100, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1, foreign.Items.Count, "Another tenant sees only its own attempt of the same mission id");
+            }
+        }
+
+        internal async Task VerifyMissionAttemptProvenancePurgedWithMissionAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, false);
+            try
+            {
+                DateTime startUtc = new DateTime(2035, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+                TenantMetadata tenant = await fixture.CreateTenantAsync("provpurge", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "provpurge", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "provpurge", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "provpurge", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "provpurge", token).ConfigureAwait(false);
+
+                Mission byId = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "prov-by-id", token).ConfigureAwait(false);
+                Mission byTenant = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "prov-by-tenant", token).ConfigureAwait(false);
+                Mission byOwner = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "prov-by-owner", token).ConfigureAwait(false);
+                Mission kept = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "prov-kept", token).ConfigureAwait(false);
+                foreach (Mission mission in new[] { byId, byTenant, byOwner, kept })
+                    await _Driver.MissionAttempts.CreateAsync(NewAttempt(tenant.Id, mission.Id, 201, startUtc), token).ConfigureAwait(false);
+
+                await _Driver.Missions.DeleteAsync(byId.Id, token).ConfigureAwait(false);
+                await _Driver.Missions.DeleteAsync(tenant.Id, byTenant.Id, token).ConfigureAwait(false);
+                await _Driver.Missions.DeleteAsync(tenant.Id, user.Id, byOwner.Id, token).ConfigureAwait(false);
+
+                foreach (Mission deleted in new[] { byId, byTenant, byOwner })
+                {
+                    ProductionFactPage<MissionAttemptProvenance> page = await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, deleted.Id, 100, token).ConfigureAwait(false);
+                    DatabaseAssert.Equal(0, page.Items.Count, "Deleting a mission deletes its attempt rows: " + deleted.Title);
+                }
+                ProductionFactPage<MissionAttemptProvenance> keptPage = await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, kept.Id, 100, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1, keptPage.Items.Count, "Another mission keeps its attempt rows");
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyCheckRegressionLinksAsync(CancellationToken token)
         {
             CheckRun created = await _Driver.CheckRuns.CreateAsync(new CheckRun
@@ -221,6 +316,26 @@ namespace Armada.Test.Database
                 CheckRun? cleared = await reopened.CheckRuns.ReadAsync(slotted.Id, null, token).ConfigureAwait(false);
                 DatabaseAssert.True(!cleared!.SlotRequestedUtc.HasValue, "Update clears the slot request time");
             }
+        }
+
+        private static MissionAttemptProvenance NewAttempt(string tenant, string missionId, int processId, DateTime startedUtc)
+        {
+            return new MissionAttemptProvenance
+            {
+                TenantId = tenant,
+                UserId = "usr_prov",
+                MissionId = missionId,
+                VoyageId = "vyg_prov",
+                VesselId = "vsl_prov",
+                CaptainId = "cap_prov",
+                Persona = "Worker",
+                Runtime = "ClaudeCode",
+                Model = "model-x",
+                RuntimeVersion = "1.2.3 (Test CLI)",
+                ProcessId = processId,
+                StartedUtc = startedUtc,
+                Outcome = MissionAttemptOutcomeEnum.Running
+            };
         }
 
         private static MissionAttemptFact NewFact(string tenant, string missionId, MissionAttemptFactTypeEnum type, bool rescue, string? reason, DateTime createdUtc)

@@ -97,6 +97,8 @@ namespace Armada.Core.Database.Postgresql
                 { "memory_proposals.promoted_utc", StoredTimestampEnum.TimestampWithZone },
                 { "memory_proposals.last_update_utc", StoredTimestampEnum.TimestampWithZone },
                 { "mission_attempt_facts.created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "mission_attempt_provenance.started_utc", StoredTimestampEnum.TimestampWithZone },
+                { "mission_attempt_provenance.ended_utc", StoredTimestampEnum.TimestampWithZone },
                 { "model_endpoints.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "model_endpoints.last_health_check_utc", StoredTimestampEnum.TimestampWithZone },
                 { "model_endpoints.last_update_utc", StoredTimestampEnum.TimestampWithZone },
@@ -423,6 +425,7 @@ namespace Armada.Core.Database.Postgresql
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_DataSource);
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            MissionAttempts = new MissionAttemptProvenanceMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MemoryProposals = new MemoryProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);

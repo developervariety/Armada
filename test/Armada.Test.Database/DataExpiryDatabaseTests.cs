@@ -74,6 +74,9 @@ namespace Armada.Test.Database
                 MergeEntry oldQueued = await CreateMergeEntryAsync(tenant.Id, user.Id, vessel.Id, MergeStatusEnum.Queued, old, token).ConfigureAwait(false);
                 MergeEntry recentLanded = await CreateMergeEntryAsync(tenant.Id, user.Id, vessel.Id, MergeStatusEnum.Landed, now, token).ConfigureAwait(false);
 
+                foreach (Mission seeded in new[] { inOldVoyage, inRecentVoyage, standaloneOldFailed })
+                    await _Driver.MissionAttempts.CreateAsync(new MissionAttemptProvenance { TenantId = tenant.Id, UserId = user.Id, MissionId = seeded.Id, ProcessId = 301, StartedUtc = old }, token).ConfigureAwait(false);
+
                 LoggingModule logging = new LoggingModule();
                 logging.Settings.EnableConsole = false;
                 DataExpiryService service = CreateService(logging, 1, 0);
@@ -96,6 +99,9 @@ namespace Armada.Test.Database
                 DatabaseAssert.True(child.ParentMissionId == null, "A child of a purged mission loses its parent link");
                 DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(standaloneOldPending.Id, token).ConfigureAwait(false), "A nonterminal standalone mission is kept");
                 DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(standaloneRecent.Id, token).ConfigureAwait(false), "A recent standalone mission is kept");
+                DatabaseAssert.Equal(0, (await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, inOldVoyage.Id, 10, token).ConfigureAwait(false)).Items.Count, "Attempt rows of a mission purged with its voyage are purged");
+                DatabaseAssert.Equal(0, (await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, standaloneOldFailed.Id, 10, token).ConfigureAwait(false)).Items.Count, "Attempt rows of an expired standalone mission are purged");
+                DatabaseAssert.Equal(1, (await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, inRecentVoyage.Id, 10, token).ConfigureAwait(false)).Items.Count, "Attempt rows of a retained mission are kept");
 
                 DatabaseAssert.True(await _Driver.Signals.ReadAsync(oldRead.Id, token).ConfigureAwait(false) == null, "An expired read signal is purged");
                 DatabaseAssert.NotNull(await _Driver.Signals.ReadAsync(oldUnread.Id, token).ConfigureAwait(false), "An unread signal is kept");

@@ -800,7 +800,7 @@ What a caller may use:
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
 | Mission captain (a mission session token), whatever its owner's role | The caller-scoped tools below, plus the read-only voyage tools `armada_enumerate`, `armada_mission_status`, `armada_get_mission_log`, `armada_voyage_status`, `armada_mission_output` and `get_objective`. An administrator owner's mission still reaches no operator tool, and its model is sent only these definitions with each request |
-| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, `armada_mission_attempts`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -1375,6 +1375,23 @@ is named there and in the decision state, and when no repository search ran the
 answer says so in `note`, so "nothing found" is never read as a verified
 absence. The tool edits nothing and never blocks. It is caller-scoped like the other captain tools, and it is
 dormant (returns unavailable) until the `prior_art` decision is enabled.
+
+### armada_mission_attempts
+
+List the recorded process attempts of one mission, oldest first. Args: `missionId` (required) and optional `limit`
+(default 100, maximum 1000, newest kept). The REST route `GET /api/v1/missions/{id}/attempts` calls the same reader, so
+both surfaces share one authorization rule and one answer.
+
+Each attempt names the captain, runtime, model and runtime version that ran it, when it started and ended, and its
+outcome (`Running`, `Completed`, `Failed` or `Interrupted`) with an exit code and a reason code
+(`exit_nonzero`, `exit_unknown`, `superseded_by_relaunch`). The runtime version is the executable's own `--version`
+line; it is empty when the probe was slower than the 3-second launch wait, failed, or the attempt ran on a Harbor
+runner. The answer carries `MissionId`, `Attempts` and `Truncated`; `Truncated` true means older attempts exist beyond
+`limit`.
+
+The tool reads a mission through the caller's scope: an administrator reads any mission, a tenant administrator its
+tenant's, and any other user its own. A mission outside that scope answers `{"Error": "Mission not found"}`. It is
+not offered to mission callers. It is read-only and writes no record. Ask threads may call it.
 
 ### armada_mission_change_summary
 

@@ -4758,6 +4758,42 @@
 					]
 				},
 				{
+					"name": "List Mission Attempts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/attempts?limit=100",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"missions",
+								"{{missionId}}",
+								"attempts"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "100",
+									"description": "Most attempts to return, newest kept (default 100, maximum 1000)"
+								}
+							]
+						},
+						"description": "Lists each process attempt recorded for the mission, oldest first: the captain, runtime, model and runtime version that ran it, when it started and ended, and its outcome. Reads only missions in the caller's scope."
+					},
+					"response": [
+						{
+							"name": "Attempts",
+							"status": "OK",
+							"code": 200,
+							"body": "{\n  \"MissionId\": \"msn_abc123\",\n  \"Attempts\": [\n    {\n      \"Id\": \"mat_mabc1234_xyz\",\n      \"MissionId\": \"msn_abc123\",\n      \"CaptainId\": \"cpt_abc123\",\n      \"Persona\": \"Worker\",\n      \"Runtime\": \"ClaudeCode\",\n      \"Model\": \"claude-sonnet-5-5\",\n      \"RuntimeVersion\": \"2.1.0 (Claude Code)\",\n      \"ProcessId\": 4242,\n      \"StartedUtc\": \"2026-10-28T12:00:00Z\",\n      \"EndedUtc\": \"2026-10-28T12:14:30Z\",\n      \"Outcome\": \"Completed\",\n      \"ExitCode\": 0,\n      \"ReasonCode\": null\n    }\n  ],\n  \"Truncated\": false\n}"
+						}
+					]
+				},
+				{
 					"name": "Get Mission Log",
 					"request": {
 						"method": "GET",

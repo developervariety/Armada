@@ -12,7 +12,7 @@ namespace Armada.Server.Mcp
             "armada_status", "armada_enumerate", "armada_get_fleet", "armada_get_vessel",
             "armada_get_captain", "armada_get_dock", "armada_voyage_status", "armada_mission_status",
             "armada_mission_output", "armada_get_mission_diff", "armada_get_mission_log",
-            "armada_mission_change_summary", "armada_job_status", "list_objectives", "get_objective",
+            "armada_mission_change_summary", "armada_mission_attempts", "armada_job_status", "list_objectives", "get_objective",
             "list_backlog", "get_backlog_item", "preview_objective_dispatch", "get_check_run",
             "get_persona", "get_pipeline", "get_prompt_template", "list_prompt_templates", "get_playbook",
             "armada_coordination_read", "armada_campaign_status", "token_usage_summary",

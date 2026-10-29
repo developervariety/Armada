@@ -249,7 +249,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = "DELETE FROM missions WHERE id = @id;";
+                    cmd.CommandText = MissionAttemptProvenanceSchema.DeleteWithMissionsSql("id = @id") + "DELETE FROM missions WHERE id = @id;";
                     StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -517,7 +517,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND id = @id;";
+                    cmd.CommandText = MissionAttemptProvenanceSchema.DeleteWithMissionsSql("tenant_id = @tenantId AND id = @id") + "DELETE FROM missions WHERE tenant_id = @tenantId AND id = @id;";
                     StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     StoredValueBinder.Value(cmd, "@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -644,7 +644,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
+                    cmd.CommandText = MissionAttemptProvenanceSchema.DeleteWithMissionsSql("tenant_id = @tenantId AND user_id = @userId AND id = @id") + "DELETE FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
                     StoredValueBinder.Value(cmd, "@tenantId", tenantId);
                     StoredValueBinder.Value(cmd, "@userId", userId);
                     StoredValueBinder.Value(cmd, "@id", id);

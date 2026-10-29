@@ -2340,6 +2340,54 @@ only its own mission, whatever `{id}` names.
 
 ---
 
+#### GET /api/v1/missions/{id}/attempts
+
+Lists each process attempt recorded for a mission, oldest first: the captain, runtime, model and runtime version that ran
+it, when it started and ended, and how it ended. One row is written when a captain process launches and closed when its
+exit is observed; the rows are deleted with the mission. REST and MCP `armada_mission_attempts` read them through one
+reader, which resolves the mission through the caller's scope first. A mission outside that scope answers `404`, and a
+mission session token reads only its own mission.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `limit` | integer | 100 | Most attempts to return, newest kept (maximum 1000) |
+
+**Response:** `200 OK` - a [MissionAttemptProvenanceReport](#missionattemptprovenancereport).
+
+```json
+{
+  "MissionId": "msn_abc123",
+  "Attempts": [
+    {
+      "Id": "mat_mabc1234_xyz",
+      "MissionId": "msn_abc123",
+      "CaptainId": "cpt_abc123",
+      "Persona": "Worker",
+      "Runtime": "ClaudeCode",
+      "Model": "claude-sonnet-5-5",
+      "RuntimeVersion": "2.1.0 (Claude Code)",
+      "ProcessId": 4242,
+      "StartedUtc": "2026-10-28T12:00:00Z",
+      "EndedUtc": "2026-10-28T12:14:30Z",
+      "Outcome": "Completed",
+      "ExitCode": 0,
+      "ReasonCode": null
+    }
+  ],
+  "Truncated": false
+}
+```
+
+**Errors:** `400` - `limit` is not a positive integer; `404` - Mission not found
+
+---
+
 #### GET /api/v1/missions/{id}/log
 
 Returns the session log (captured stdout/stderr) for a mission. Log files are written to disk when a captain executes a mission. Supports pagination via query parameters. When the canonical log is empty or absent, the newest non-empty sidecar log (`<id>.*.log`) is read. REST, WebSocket `get_mission_log` and MCP `armada_get_mission_log` read the page through one reader: runtime noise is filtered, a negative offset reads as 0, the line count is at least 1, and secret-shaped values are redacted.
@@ -5803,6 +5851,40 @@ Response from `GET /api/v1/missions/{id}/change-summary` and MCP `armada_mission
 
 ---
 
+#### MissionAttemptProvenanceReport
+
+Response from `GET /api/v1/missions/{id}/attempts` and MCP `armada_mission_attempts`.
+
+| Field | Type | Description |
+|---|---|---|
+| `MissionId` | string | Mission the attempts belong to |
+| `Attempts` | array | Attempts, oldest first. Each entry is the table below |
+| `Truncated` | bool | True when older attempts exist beyond `limit` |
+
+Each attempt:
+
+| Field | Type | Description |
+|---|---|---|
+| `Id` | string | Attempt ID (`mat_` prefix) |
+| `TenantId`, `UserId` | string? | Owner of the mission |
+| `MissionId`, `VoyageId`, `VesselId` | string | Mission and the voyage and vessel it belongs to |
+| `CaptainId` | string? | Captain that ran the process |
+| `Persona` | string? | Persona the mission ran as |
+| `Runtime` | string? | Runtime name, such as `ClaudeCode` or `Codex` |
+| `Model` | string? | Model the captain was configured with at launch |
+| `RuntimeVersion` | string? | First line of the runtime executable's `--version` output. Null when the probe timed out, failed, or the attempt ran on a Harbor runner |
+| `ProcessId` | int? | Process id of the launch |
+| `StartedUtc` | datetime | When the process launched |
+| `EndedUtc` | datetime? | When its exit was observed; null while `Running` |
+| `Outcome` | string | `Running`, `Completed` (exit code 0), `Failed` (non-zero exit code) or `Interrupted` (no exit code, or replaced by a later launch) |
+| `ExitCode` | int? | Exit code when one was observed |
+| `ReasonCode` | string? | `exit_nonzero`, `exit_unknown` or `superseded_by_relaunch`; null for a clean exit |
+
+The runtime version is probed once per executable and cached for 30 minutes (5 minutes when the probe returned nothing).
+A launch waits at most 3 seconds for it and proceeds without a version when the probe is slower.
+
+---
+
 #### MissionLog
 
 Response from `GET /api/v1/missions/{id}/log`.
@@ -5973,6 +6055,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 107 | POST | `/api/v1/inbox/enumerate` | One page of the needs-you inbox | Yes |
 | 108 | POST | `/api/v1/model-endpoints/enumerate` | One page of the model endpoints the caller may see | Yes |
 | 109 | POST | `/api/v1/planning-sessions/enumerate` | One page of the planning sessions the caller may see | Yes |
+| 110 | GET | `/api/v1/missions/{id}/attempts` | Attempts recorded for one mission: captain, runtime, model, runtime version, times and outcome | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 
