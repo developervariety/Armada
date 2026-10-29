@@ -17,14 +17,15 @@ namespace Armada.Core.Services
     {
         #region Private-Methods
 
-        private async Task<HostCommandResult> RunStageCommandAsync(IHostCommandExecutor executor, bool windows, string workingDirectory, string command, CancellationToken token)
+        private async Task<HostCommandResult> RunStageCommandAsync(IHostCommandExecutor executor, bool windows, string workingDirectory, string command, DateTime deadline, CancellationToken token)
         {
+            if (DateTime.UtcNow >= deadline) return new HostCommandResult { TimedOut = true };
             return await executor.RunAsync(new HostCommandRequest
             {
                 Executable = windows ? "cmd.exe" : "/bin/sh",
                 WorkingDirectory = workingDirectory,
                 Arguments = windows ? new List<string> { "/c", command } : new List<string> { "-lc", command },
-                TimeoutMs = (int)TimeSpan.FromMinutes(_Settings.StageCheckTimeoutMinutes).TotalMilliseconds,
+                TimeoutMs = Math.Max(1, (int)(deadline - DateTime.UtcNow).TotalMilliseconds),
                 Kind = HostCommandKindEnum.CheckRun,
                 Label = "Stage check: " + command
             }, token).ConfigureAwait(false);
@@ -59,7 +60,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<bool> FailsOnBaseCommitAsync(IHostCommandExecutor executor, bool windows, string vesselId, string worktree, string baseCommit, string command, CancellationToken token)
+        private async Task<bool?> FailsOnBaseCommitAsync(IHostCommandExecutor executor, bool windows, string vesselId, string worktree, string baseCommit, string command, DateTime deadline, CancellationToken token)
         {
             string key = vesselId + "|" + baseCommit + "|" + command;
             if (_BaseCommitCheckFailures.TryGetValue(key, out bool known)) return known;
@@ -74,11 +75,12 @@ namespace Armada.Core.Services
                 if (!added.Success)
                 {
                     _Logging.Warn(_Header + "could not create a base-commit worktree to classify a stage check failure: " + (added.StandardError ?? "").Trim());
-                    return false;
+                    return null;
                 }
 
-                HostCommandResult result = await RunStageCommandAsync(executor, windows, baseline, command, token).ConfigureAwait(false);
-                fails = result.TimedOut || result.ExitCode != 0;
+                HostCommandResult result = await RunStageCommandAsync(executor, windows, baseline, command, deadline, token).ConfigureAwait(false);
+                if (result.TimedOut || result.ExitCode == -1 || result.ExitCode == 126 || result.ExitCode == 127) return null;
+                fails = result.ExitCode != 0;
             }
             finally
             {

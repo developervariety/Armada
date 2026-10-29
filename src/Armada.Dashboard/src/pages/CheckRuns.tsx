@@ -269,13 +269,6 @@ export default function CheckRuns() {
 
   const columns: DataTableColumn<CheckRun>[] = [
     {
-      key: 'check', label: t('Check'), required: true, headerTitle: t('Run label, or the check type when no label was given.'),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by check')} title={t('Show only runs whose label or type contains this text.')} value={colFilters.label} onChange={e => setColFilters(f => ({ ...f, label: e.target.value }))} placeholder={t('Filter...')} />,
-      // One line: type, parsed results, comparison and ID were stacked under the label; each is its own column now.
-      cellTitle: (run) => `${run.label || run.type} (${run.type})`,
-      render: (run) => <strong className="cell-one-line">{run.label || run.type}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Check run ID (chk_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (run) => (
         <span className="id-display">
@@ -283,6 +276,13 @@ export default function CheckRuns() {
           <CopyButton text={run.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'check', label: t('Check'), required: true, headerTitle: t('Run label, or the check type when no label was given.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by check')} title={t('Show only runs whose label or type contains this text.')} value={colFilters.label} onChange={e => setColFilters(f => ({ ...f, label: e.target.value }))} placeholder={t('Filter...')} />,
+      // One line: type, parsed results, comparison and ID were stacked under the label; each is its own column now.
+      cellTitle: (run) => `${run.label || run.type} (${run.type})`,
+      render: (run) => <strong className="cell-one-line">{run.label || run.type}</strong>,
     },
     { key: 'type', label: t('Type'), headerTitle: t('Which workflow profile command ran, such as Build, UnitTest, Deploy, or HealthCheck.'), cellClassName: 'text-dim cell-nowrap', render: (run) => run.type },
     {
