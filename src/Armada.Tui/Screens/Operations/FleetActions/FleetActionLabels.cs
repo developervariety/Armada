@@ -45,7 +45,7 @@ namespace Armada.Tui.Screens.Operations
         /// </summary>
         public static readonly string[] TemplateVariableNames = new string[]
         {
-            "vessel.name", "vessel.id", "vessel.defaultBranch", "vessel.workingDirectory", "vessel.buildCommand", "health.summary",
+            "vessel.name", "vessel.id", "vessel.defaultBranch", "vessel.workingDirectory", "vessel.buildCommand", "vessel.ecosystems", "vessel.testCommand", "vessel.lintCommand", "vessel.auditCommand", "health.summary",
         };
 
         /// <summary>
@@ -58,6 +58,10 @@ namespace Armada.Tui.Screens.Operations
             "The vessel default branch",
             "The vessel working directory, or empty",
             "The definition-of-done build command, or empty (vessels without one are skipped)",
+            "Detected ecosystems, comma-separated, or empty; rendered on the server",
+            "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server",
+            "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server",
+            "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server",
             "Failing, warning, and unknown health findings; rendered on the server",
         };
 
@@ -71,7 +75,7 @@ namespace Armada.Tui.Screens.Operations
         #region Private-Members
 
         private static readonly Regex _Variable = new Regex(@"\{\{\s*([^{}]*?)\s*\}\}", RegexOptions.Compiled);
-        private static readonly string[] _Known = new string[] { "vessel.name", "vessel.id", "vessel.defaultbranch", "vessel.workingdirectory", "vessel.buildcommand", "health.summary" };
+        private static readonly string[] _Known = new string[] { "vessel.name", "vessel.id", "vessel.defaultbranch", "vessel.workingdirectory", "vessel.buildcommand", "vessel.ecosystems", "vessel.testcommand", "vessel.lintcommand", "vessel.auditcommand", "health.summary" };
 
         #endregion
 
@@ -223,6 +227,12 @@ namespace Armada.Tui.Screens.Operations
                         string cmd = vessel.DefinitionOfDoneBuildCommand ?? "";
                         if (cmd.Length == 0) missing = true;
                         return cmd;
+                    case "vessel.testcommand":
+                        return FirstSet(vessel.TestCommand, vessel.DefinitionOfDoneTestCommand) ?? m.Value;
+                    case "vessel.lintcommand":
+                        return FirstSet(vessel.LintCommand) ?? m.Value;
+                    case "vessel.auditcommand":
+                        return FirstSet(vessel.AuditCommand) ?? m.Value;
                     case "health.summary":
                         health = true;
                         return healthPlaceholder;
@@ -325,6 +335,16 @@ namespace Armada.Tui.Screens.Operations
         #endregion
 
         #region Private-Methods
+
+        private static string? FirstSet(params string?[] values)
+        {
+            foreach (string? value in values)
+            {
+                if (!String.IsNullOrWhiteSpace(value)) return value;
+            }
+
+            return null;
+        }
 
         private static string? SkipReason(string code)
         {
