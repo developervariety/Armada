@@ -1241,6 +1241,62 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<IReadOnlyList<string>> FindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(revision)) throw new ArgumentNullException(nameof(revision));
+            if (String.IsNullOrEmpty(trailerKey)) throw new ArgumentNullException(nameof(trailerKey));
+            if (String.IsNullOrEmpty(trailerValue)) throw new ArgumentNullException(nameof(trailerValue));
+
+            List<string> found = new List<string>();
+            int limit = Math.Max(1, maxCount);
+            if (!await RefResolvesAsync(repoPath, revision, token).ConfigureAwait(false)) return found;
+
+            // The grep narrows the walk to messages that mention the value; the parsed trailers then decide, so a message
+            // that only quotes the value in prose is not a match. The candidate window is wider than the result limit for
+            // that reason.
+            List<string> args = new List<string>
+            {
+                "log",
+                revision,
+                "--fixed-strings",
+                "--grep=" + trailerValue,
+                "--max-count=" + (limit * 4).ToString(CultureInfo.InvariantCulture),
+                "--format=%H%x09%(trailers:key=" + trailerKey + ",valueonly,separator=%x09)"
+            };
+            if (sinceUtc.HasValue)
+                args.Add("--since=" + sinceUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture));
+
+            GitProcessResult result;
+            try
+            {
+                result = await ExecuteProcessAsync(repoPath, "git", token, args.ToArray()).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Debug(_Header + "trailer search failed in " + repoPath + ": " + ex.Message);
+                return found;
+            }
+
+            if (!result.Succeeded || String.IsNullOrEmpty(result.StandardOutput)) return found;
+            foreach (string rawLine in result.StandardOutput.Replace("\r", String.Empty).Split('\n'))
+            {
+                string[] fields = rawLine.Split('\t');
+                if (fields.Length < 2 || String.IsNullOrWhiteSpace(fields[0])) continue;
+                bool matches = false;
+                for (int i = 1; i < fields.Length; i++)
+                {
+                    if (String.Equals(fields[i].Trim(), trailerValue, StringComparison.Ordinal)) matches = true;
+                }
+
+                if (matches) found.Add(fields[0].Trim());
+                if (found.Count >= limit) break;
+            }
+
+            return found;
+        }
+
+        /// <inheritdoc />
         public async Task<bool> CommitAllAsync(string worktreePath, string message, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
