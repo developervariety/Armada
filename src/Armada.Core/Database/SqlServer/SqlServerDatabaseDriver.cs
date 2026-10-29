@@ -88,6 +88,9 @@ namespace Armada.Core.Database.SqlServer
             BatteryRuns = new BatteryRunMethods(this, _Settings, _Logging);
             BatteryTaskResults = new BatteryTaskResultMethods(this, _Settings, _Logging);
             PushDevices = new PushDeviceMethods(this, _Settings, _Logging);
+            Incidents = new IncidentMethods(this, _Settings, _Logging);
+            RunbookExecutions = new RunbookExecutionMethods(this, _Settings, _Logging);
+            Runbooks = new RunbookMethods(this, _Settings, _Logging);
             HarborJobs = new HarborJobMethods(this, _Settings, _Logging);
             HarborLinkSamples = new HarborLinkSampleMethods(this, _Settings, _Logging);
             HarborLinkEvents = new HarborLinkEventMethods(this, _Settings, _Logging);

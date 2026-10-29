@@ -13,9 +13,11 @@ import type {
   EnumerationResult,
   Job,
   Fleet,
+  FleetDetailResponse,
   Vessel,
   Captain,
   CaptainToolAccessResult,
+  CaptainToolsQuery,
   Mission,
   MissionSummary,
   MissionHistorySummaryResult,
@@ -28,8 +30,14 @@ import type {
   GitHubActionsSyncResult,
   GitHubObjectiveImportRequest,
   GitHubPullRequestDetail,
+  GitHubPullRequestReview,
+  GitHubPullRequestComment,
+  GitHubPullRequestCheck,
+  VoyageProgress,
+  VoyageCancelResult,
   ObjectiveQuery,
   ObjectiveReorderRequest,
+  ObjectiveReorderResult,
   ObjectiveUpsertRequest,
   ArmadaEvent,
   MergeEntry,
@@ -110,7 +118,7 @@ import type {
   VesselCommitPage,
   VesselCommitQuery,
   LandingPreviewResult,
-  MuxEndpointListResult,
+  MuxEndpointPage,
   MuxEndpointShowResult,
   WorkspaceChangesResult,
   WorkspaceCreateDirectoryRequest,
@@ -160,6 +168,8 @@ import type {
   VesselHealth,
   VesselHealthCriterion,
   VesselHealthDetail,
+  VesselDependency,
+  WorkspaceActiveMission,
   VesselHealthEnumerateRequest,
   VesselHealthEvaluateRequest,
   VesselHealthEvaluationStart,
@@ -175,6 +185,13 @@ import type {
   AskActionProposal,
   AskWorkSnapshot,
   AskQuickAction,
+  AskTrackedWork,
+  AskMissionSnapshot,
+  AskTargetSnapshot,
+  AskToolCall,
+  PagedQuery,
+  PlanningSessionMessage,
+  ObjectiveRefinementMessage,
   CliPermissionDecisionRequest,
   CliPermissionPolicy,
   CliPermissionRequest,
@@ -193,7 +210,7 @@ import type {
   ModelProbeRun,
   ModelProbeRunQuery,
 } from '../types/models';
-import { MAX_PAGE_SIZE } from './paging';
+import { MAX_PAGE_SIZE, MAX_PAGES } from './paging';
 
 /**
  * Host services the client cannot implement portably. The dashboard registers a browser adapter (anchor
@@ -548,6 +565,11 @@ function buildQuery(params?: { pageNumber?: number; pageSize?: number; filters?:
  * Every row of a paged enumerate route, collected page by page. Each request returns at most one page; use this where a
  * screen needs the whole set (pickers, maps), and the route itself for one page.
  */
+/** One page (default the first, of the largest size) of a POST .../enumerate route, with its true totals. */
+async function enumeratePage<T>(path: string, params: { pageNumber?: number; pageSize?: number } = {}, body: Record<string, unknown> = {}): Promise<EnumerationResult<T>> {
+  return post<EnumerationResult<T>>(path, { ...body, PageNumber: params.pageNumber ?? 1, PageSize: params.pageSize ?? MAX_PAGE_SIZE });
+}
+
 /**
  * One bounded page (the first MAX_PAGE_SIZE rows) of an enumerate route, for the array-returning list helpers below.
  * It never loops over pages: a caller that needs more pages the route itself, explicitly (see api/paging.ts).
@@ -779,8 +801,9 @@ export async function logoutProxy(): Promise<void> {
   }
 }
 
-export const lookupTenants = (email: string) =>
-  post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email });
+/** One page of the tenants where the email exists (pageSize 1 to 1000, default 10); see lib/tenantLookup for every page. */
+export const lookupTenants = (email: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email, PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
 
 // ==================== Tenants (admin) ====================
 export const listTenants = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) => get<EnumerationResult<TenantMetadata>>(`/api/v1/tenants${buildQuery(params)}`);
@@ -803,11 +826,25 @@ export const deleteCredential = (id: string) => del<void>(`/api/v1/credentials/$
 // ==================== Fleets ====================
 export const listFleets = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Fleet>>(`/api/v1/fleets${buildQuery(params)}`);
-export const getFleet = (id: string) => get<Fleet>(`/api/v1/fleets/${id}`);
+/** The fleet and its vessel count; the vessels themselves are paged with listVessels and a fleetId filter. */
+export const getFleetDetail = (id: string) => get<FleetDetailResponse>(`/api/v1/fleets/${id}`);
+export const getFleet = async (id: string): Promise<Fleet> => (await getFleetDetail(id)).fleet;
 export const createFleet = (data: Partial<Fleet>) => post<Fleet>('/api/v1/fleets', data);
 export const updateFleet = (id: string, data: Partial<Fleet>) => put<Fleet>(`/api/v1/fleets/${id}`, data);
 export const deleteFleet = (id: string) => del<void>(`/api/v1/fleets/${id}`);
-export const deleteFleetsBatch = (ids: string[]) => post<BatchDeleteResult>('/api/v1/fleets/delete/multiple', { Ids: ids });
+/** The server accepts at most 1000 ids per bulk delete; larger selections are sent in chunks and the results merged. */
+export const BULK_DELETE_CHUNK = 1000;
+export async function deleteInChunks(ids: string[], send: (chunk: string[]) => Promise<BatchDeleteResult>): Promise<BatchDeleteResult> {
+  const merged: BatchDeleteResult = { deleted: 0, skipped: [] };
+  for (let i = 0; i < ids.length; i += BULK_DELETE_CHUNK) {
+    const result = await send(ids.slice(i, i + BULK_DELETE_CHUNK));
+    merged.deleted += result?.deleted ?? 0;
+    merged.skipped.push(...(result?.skipped ?? []));
+  }
+  return merged;
+}
+export const deleteFleetsBatch = (ids: string[]) =>
+  deleteInChunks(ids, chunk => post<BatchDeleteResult>('/api/v1/fleets/delete/multiple', { Ids: chunk }));
 
 // ==================== Vessels ====================
 export const listVessels = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
@@ -908,7 +945,8 @@ export interface VesselCleanupInventory {
   vesselId: string;
   vesselName: string;
   scannedUtc: string;
-  resources: VesselCleanupResource[];
+  /** Resources are not embedded; page them with listVesselCleanupResources. */
+  resourceCount: number;
   safeCount: number;
   inUseCount: number;
   unknownCount: number;
@@ -936,9 +974,34 @@ export interface VesselCleanupResult {
 export const getVesselCleanupInventory = (id: string) =>
   get<VesselCleanupInventory>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { timeout: 300000 });
 
-/** Clean up the selected inventory keys; the server revalidates each one and returns per-item outcomes plus a fresh inventory. */
-export const runVesselCleanup = (id: string, keys: string[]) =>
-  post<VesselCleanupResult>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { Keys: keys }, { timeout: 600000 });
+/** One page of a vessel's cleanup resources, optionally filtered by disposition. Deletes nothing. */
+export const listVesselCleanupResources = (id: string, params?: { pageNumber?: number; pageSize?: number; status?: VesselCleanupDisposition }) =>
+  post<EnumerationResult<VesselCleanupResource>>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup/resources/enumerate`,
+    { PageNumber: params?.pageNumber ?? 1, PageSize: params?.pageSize ?? 10, Status: params?.status ?? null }, { timeout: 300000 });
+
+/** Most keys one cleanup request may carry. */
+export const CLEANUP_KEY_CHUNK = 1000;
+
+/**
+ * Clean up the selected inventory keys; the server revalidates each one and returns per-item outcomes plus a fresh
+ * inventory summary. More than 1000 keys are sent in chunks of 1000 and the outcomes merged.
+ */
+export async function runVesselCleanup(id: string, keys: string[]): Promise<VesselCleanupResult> {
+  let merged: VesselCleanupResult | null = null;
+  for (let i = 0; i < keys.length || (i === 0 && keys.length === 0); i += CLEANUP_KEY_CHUNK) {
+    const result = await post<VesselCleanupResult>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { Keys: keys.slice(i, i + CLEANUP_KEY_CHUNK) }, { timeout: 600000 });
+    if (!merged) merged = { ...result, results: [...(result.results ?? [])] };
+    else {
+      merged.results.push(...(result.results ?? []));
+      merged.deleted += result.deleted;
+      merged.skipped += result.skipped;
+      merged.failed += result.failed;
+      merged.inventory = result.inventory;
+    }
+    if (keys.length === 0) break;
+  }
+  return merged!;
+}
 
 // ==================== Vessel History ====================
 /** Per-day commit counts for a vessel branch (heatmap). A missing repo or branch returns 200 with `error` set. */
@@ -970,8 +1033,27 @@ function encodeWorkspaceQueryPath(path: string) {
 
 export const getWorkspaceStatus = (vesselId: string) =>
   get<WorkspaceStatusResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/status`);
-export const getWorkspaceTree = (vesselId: string, path?: string) =>
-  get<WorkspaceTreeResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/tree${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
+/** One page of one workspace directory (the server default page size is 10; pass pageSize up to 1000). */
+export const getWorkspaceTree = (vesselId: string, path?: string, page?: { pageNumber?: number; pageSize?: number }) => {
+  const parts: string[] = [];
+  if (path) parts.push(`path=${encodeWorkspaceQueryPath(path)}`);
+  if (page?.pageNumber) parts.push(`pageNumber=${page.pageNumber}`);
+  if (page?.pageSize) parts.push(`pageSize=${page.pageSize}`);
+  return get<WorkspaceTreeResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/tree${parts.length ? `?${parts.join('&')}` : ''}`);
+};
+/** Every entry of one workspace directory, read in explicit pages of 1000 (bounded by MAX_WORKSPACE_PAGES). */
+export const MAX_WORKSPACE_PAGES = 100;
+export async function listWorkspaceDirectory(vesselId: string, path?: string): Promise<WorkspaceTreeResult> {
+  const first = await getWorkspaceTree(vesselId, path, { pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  const entries = [...(first.entries ?? [])];
+  const pages = Math.min(first.totalPages ?? 1, MAX_WORKSPACE_PAGES);
+  for (let page = 2; page <= pages; page++) {
+    const next = await getWorkspaceTree(vesselId, path, { pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    if (!next.entries?.length) break;
+    entries.push(...next.entries);
+  }
+  return { ...first, entries };
+}
 export const getWorkspaceFile = (vesselId: string, path: string) =>
   get<WorkspaceFileResponse>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/file?path=${encodeWorkspaceQueryPath(path)}`);
 export const saveWorkspaceFile = (vesselId: string, data: WorkspaceSaveRequest) =>
@@ -984,8 +1066,39 @@ export const deleteWorkspaceEntry = (vesselId: string, path: string) =>
   del<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/entry?path=${encodeWorkspaceQueryPath(path)}`);
 export const searchWorkspace = (vesselId: string, query: string, maxResults = 200) =>
   get<WorkspaceSearchResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/search?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
-export const getWorkspaceChanges = (vesselId: string) =>
-  get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes`);
+/** Branch state and one page of changed files (server default page size 10; totalRecords counts every change). */
+export const getWorkspaceChanges = (vesselId: string, page?: { pageNumber?: number; pageSize?: number }) => {
+  const parts: string[] = [];
+  if (page?.pageNumber) parts.push(`pageNumber=${page.pageNumber}`);
+  if (page?.pageSize) parts.push(`pageSize=${page.pageSize}`);
+  return get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes${parts.length ? `?${parts.join('&')}` : ''}`);
+};
+/** Every changed file, read in explicit pages of 1000 (bounded by MAX_WORKSPACE_PAGES). */
+export async function listAllWorkspaceChanges(vesselId: string): Promise<WorkspaceChangesResult> {
+  const first = await getWorkspaceChanges(vesselId, { pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  const changes = [...(first.changes ?? [])];
+  const pages = Math.min(first.totalPages ?? 1, MAX_WORKSPACE_PAGES);
+  for (let page = 2; page <= pages; page++) {
+    const next = await getWorkspaceChanges(vesselId, { pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    if (!next.changes?.length) break;
+    changes.push(...next.changes);
+  }
+  return { ...first, changes };
+}
+/** One page of the vessel's active missions with their scoped files (the status carries only activeMissionCount). */
+export const listWorkspaceActiveMissions = (vesselId: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<EnumerationResult<WorkspaceActiveMission>>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/active-missions/enumerate`,
+    { PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
+/** Every active mission on the vessel, read in explicit pages of 1000. */
+export async function listAllWorkspaceActiveMissions(vesselId: string): Promise<WorkspaceActiveMission[]> {
+  const all: WorkspaceActiveMission[] = [];
+  for (let page = 1; page <= MAX_WORKSPACE_PAGES; page++) {
+    const result = await listWorkspaceActiveMissions(vesselId, { pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    all.push(...(result.objects ?? []));
+    if (!result.objects?.length || page >= (result.totalPages ?? 1)) break;
+  }
+  return all;
+}
 /** Open a terminal window at the vessel's checkout on the machine that holds it (its Harbor, or the Admiral host). */
 export const openWorkspaceTerminal = (vesselId: string) =>
   post<WorkspaceOpenTerminalResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/open-terminal`, {});
@@ -1015,7 +1128,7 @@ export const listObjectives = (params?: ObjectiveQuery) =>
   get<EnumerationResult<Objective>>(`/api/v1/objectives${buildObjectiveQuery(params)}`);
 export const enumerateObjectives = (query?: ObjectiveQuery) =>
   post<EnumerationResult<Objective>>('/api/v1/objectives/enumerate', query || {});
-export const reorderObjectives = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/objectives/reorder', data);
+export const reorderObjectives = (data: ObjectiveReorderRequest) => post<ObjectiveReorderResult>('/api/v1/objectives/reorder', data);
 export const getObjective = (id: string) => get<Objective>(`/api/v1/objectives/${encodeURIComponent(id)}`);
 export const createObjective = (data: ObjectiveUpsertRequest) => post<Objective>('/api/v1/objectives', data);
 export const updateObjective = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/objectives/${encodeURIComponent(id)}`, data);
@@ -1025,15 +1138,30 @@ export const listBacklog = (params?: ObjectiveQuery) =>
   get<EnumerationResult<Objective>>(`/api/v1/backlog${buildObjectiveQuery(params)}`);
 export const enumerateBacklog = (query?: ObjectiveQuery) =>
   post<EnumerationResult<Objective>>('/api/v1/backlog/enumerate', query || {});
-export const reorderBacklog = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/backlog/reorder', data);
+export const reorderBacklog = (data: ObjectiveReorderRequest) => post<ObjectiveReorderResult>('/api/v1/backlog/reorder', data);
 export const getBacklogItem = (id: string) => get<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`);
 export const createBacklogItem = (data: ObjectiveUpsertRequest) => post<Objective>('/api/v1/backlog', data);
 export const updateBacklogItem = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`, data);
 export const deleteBacklogItem = (id: string) => del<void>(`/api/v1/backlog/${encodeURIComponent(id)}`);
-export const listObjectiveRefinementSessions = (objectiveId: string) =>
-  enumerateFirstPage<ObjectiveRefinementSession>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`);
-export const listBacklogRefinementSessions = (objectiveId: string) =>
-  enumerateFirstPage<ObjectiveRefinementSession>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`);
+/** Paging body for the POST .../enumerate routes (PascalCase for the C# server). */
+function pagedBody(query?: PagedQuery): Record<string, unknown> {
+  return {
+    PageNumber: query?.pageNumber ?? 1,
+    PageSize: query?.pageSize ?? 10,
+    ...(query?.order ? { Order: query.order } : {}),
+    ...(query?.status ? { Status: query.status } : {}),
+  };
+}
+
+/** One page of an objective's refinement sessions, most recently updated first (TotalRecords counts them all). */
+export const listObjectiveRefinementSessions = (objectiveId: string, query?: PagedQuery) =>
+  post<EnumerationResult<ObjectiveRefinementSession>>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`, pagedBody(query));
+/** One page of a backlog item's refinement sessions, most recently updated first (TotalRecords counts them all). */
+export const listBacklogRefinementSessions = (objectiveId: string, query?: PagedQuery) =>
+  post<EnumerationResult<ObjectiveRefinementSession>>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`, pagedBody(query));
+/** One page of a refinement session's transcript; newest first unless `order` is CreatedAscending. */
+export const listObjectiveRefinementMessages = (sessionId: string, query?: PagedQuery) =>
+  post<EnumerationResult<ObjectiveRefinementMessage>>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/messages/enumerate`, pagedBody(query));
 export const createObjectiveRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
   post<ObjectiveRefinementSessionDetail>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions`, data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
 export const createBacklogRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
@@ -1057,7 +1185,17 @@ export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; 
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
 // The runtime tool probe (e.g. Mux) launches the CLI and can take tens of seconds; allow well
 // beyond the default 30s so slow probes resolve instead of aborting and reading as "unknown".
-export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`, { timeout: 120000 });
+// Tools come back one page at a time (Tools is an EnumerationResult); the server reuses its probe snapshot for 60
+// seconds unless refresh is set, so paging does not probe again.
+export const getCaptainTools = (id: string, query: CaptainToolsQuery = {}) => {
+  const search = new URLSearchParams();
+  if (query.pageNumber) search.set('pageNumber', String(query.pageNumber));
+  if (query.pageSize) search.set('pageSize', String(query.pageSize));
+  if (query.sourceKind) search.set('sourceKind', query.sourceKind);
+  if (query.refresh) search.set('refresh', 'true');
+  const qs = search.toString();
+  return get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools${qs ? `?${qs}` : ''}`, { timeout: 120000 });
+};
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);
@@ -1091,6 +1229,10 @@ export const enumerateVesselHealth = (query: VesselHealthEnumerateRequest) =>
 export const getVesselHealthSummary = () => get<VesselHealthSummary>('/api/v1/vessel-health/summary');
 export const getVesselHealth = (vesselId: string) =>
   get<VesselHealthDetail>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/health`);
+/** One page of a vessel's outdated or vulnerable dependency rows (the health detail carries only dependencyCount). */
+export const listVesselDependencies = (vesselId: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<EnumerationResult<VesselDependency>>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/health/dependencies/enumerate`,
+    { PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
 /** Starts an evaluation job. 409 (already running) is not an error: it resolves with `alreadyRunning: true` and the running job id. */
 export const evaluateVesselHealth = (body: VesselHealthEvaluateRequest = {}) =>
   post<VesselHealthEvaluationStart>('/api/v1/vessel-health/evaluate', body, { acceptStatuses: [409] });
@@ -1098,8 +1240,32 @@ export const setVesselHealthOverride = (vesselId: string, criterion: VesselHealt
   put<VesselHealthDetail>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/health/overrides/${encodeURIComponent(criterion)}`, { Status: status, Note: note ?? null });
 export const deleteVesselHealthOverride = (vesselId: string, criterion: VesselHealthCriterion) =>
   del<VesselHealthDetail>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/health/overrides/${encodeURIComponent(criterion)}`);
-export const listMuxEndpoints = (configDirectory?: string | null) =>
-  get<MuxEndpointListResult>(`/api/v1/runtimes/mux/endpoints${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
+/** One page of the saved Mux endpoints, ordered by name. */
+export const enumerateMuxEndpoints = (params: { configDirectory?: string | null; pageNumber?: number; pageSize?: number } = {}) => {
+  const search = new URLSearchParams();
+  search.set('pageNumber', String(params.pageNumber ?? 1));
+  search.set('pageSize', String(params.pageSize ?? 10));
+  if (params.configDirectory) search.set('configDirectory', params.configDirectory);
+  return get<MuxEndpointPage>(`/api/v1/runtimes/mux/endpoints?${search.toString()}`);
+};
+/**
+ * Every saved Mux endpoint for a picker: an explicit, bounded iteration over pages of 1000 until the server's
+ * totalPages (or the MAX_PAGES safety stop) is reached. Returns the first page's metadata with every endpoint in objects (totalRecords is the
+ * server's count); a failed page is returned as is.
+ */
+export const listAllMuxEndpoints = async (configDirectory?: string | null): Promise<MuxEndpointPage> => {
+  const first = await enumerateMuxEndpoints({ configDirectory, pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  if (!first || !first.success) return first;
+  const objects = [...(first.objects ?? [])];
+  for (let page = 2; page <= Math.min(first.totalPages ?? 1, MAX_PAGES); page++) {
+    const next = await enumerateMuxEndpoints({ configDirectory, pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    if (!next || !next.success) return next;
+    objects.push(...(next.objects ?? []));
+  }
+  return { ...first, objects };
+};
+/** Picker helper used by the captain forms: every saved Mux endpoint, read page by page (see listAllMuxEndpoints). */
+export const listMuxEndpoints = (configDirectory?: string | null) => listAllMuxEndpoints(configDirectory);
 export const getMuxEndpoint = (name: string, configDirectory?: string | null) =>
   get<MuxEndpointShowResult>(`/api/v1/runtimes/mux/endpoints/${encodeURIComponent(name)}${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
 
@@ -1132,7 +1298,8 @@ export const getMissionHistory = (params?: { fromUtc?: string; toUtc?: string; b
         .map(([key, value]) => [key, String(value)]),
     ),
   } : undefined)}`);
-export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; model?: string; runtime?: string; source?: string; sourceId?: string; vesselId?: string; captainId?: string; harborId?: string }) =>
+/** Token-usage summary: at most 1000 buckets (a larger window is a 400); byModel lists the modelLimit top models and otherModels sums the rest. */
+export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; modelLimit?: number; model?: string; runtime?: string; source?: string; sourceId?: string; vesselId?: string; captainId?: string; harborId?: string }) =>
   get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${buildQuery(params ? {
     filters: Object.fromEntries(
       Object.entries(params)
@@ -1142,6 +1309,15 @@ export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucke
   } : undefined)}`);
 export const getMissionLandingPreview = (id: string) => get<LandingPreviewResult>(`/api/v1/missions/${encodeURIComponent(id)}/landing-preview`);
 export const getMissionGitHubPullRequest = (id: string) => get<GitHubPullRequestDetail>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request`);
+/** One page (1 to 100, GitHub's largest page) of the mission pull request's reviews; newest first unless order is CreatedAscending. */
+export const enumerateMissionPullRequestReviews = (id: string, query?: { pageNumber?: number; pageSize?: number; order?: string }) =>
+  post<EnumerationResult<GitHubPullRequestReview>>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/reviews/enumerate`, query ?? {});
+/** One page of the mission pull request's issue comments. */
+export const enumerateMissionPullRequestComments = (id: string, query?: { pageNumber?: number; pageSize?: number; order?: string }) =>
+  post<EnumerationResult<GitHubPullRequestComment>>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/comments/enumerate`, query ?? {});
+/** One page of the provider checks on the mission pull request's head commit. */
+export const enumerateMissionPullRequestChecks = (id: string, query?: { pageNumber?: number; pageSize?: number; order?: string }) =>
+  post<EnumerationResult<GitHubPullRequestCheck>>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/checks/enumerate`, query ?? {});
 export const createMission = (data: Partial<Mission>) => post<Mission>('/api/v1/missions', data);
 export const updateMission = (id: string, data: Partial<Mission>) => put<Mission>(`/api/v1/missions/${id}`, data);
 export const deleteMission = (id: string) => del<void>(`/api/v1/missions/${id}`);
@@ -1161,15 +1337,23 @@ export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/
 // ==================== Voyages ====================
 export const listVoyages = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Voyage>>(`/api/v1/voyages${buildQuery(params)}`);
-export const getVoyage = (id: string) => get<Voyage>(`/api/v1/voyages/${id}`);
-/** The voyage with its missions ({ Voyage, Missions }), as the status view shows it. */
+/** The voyage with its mission counts (VoyageProgress); the missions are paged with listMissions({ filters: { voyageId } }). */
+export const getVoyage = (id: string) => get<VoyageProgress>(`/api/v1/voyages/${id}`);
+/** The voyage with its mission counts, as raw JSON for the status view. */
 export const getVoyageStatus = (id: string) => get<Record<string, unknown>>(`/api/v1/voyages/${encodeURIComponent(id)}`);
+/** One page of voyages with progress; with no status filter, the active voyages (InProgress, then Open). */
+export const enumerateVoyageProgress = (query?: { pageNumber?: number; pageSize?: number; status?: string; order?: string }) =>
+  post<EnumerationResult<VoyageProgress>>('/api/v1/voyages/progress/enumerate', query ?? {});
 export const createVoyage = (data: VoyageCreateRequest) => post<Voyage>('/api/v1/voyages', data);
-export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);
+export const cancelVoyage = (id: string) => del<VoyageCancelResult>(`/api/v1/voyages/${id}`);
 export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purge`);
 
 // ==================== Planning Sessions ====================
-export const listPlanningSessions = () => enumerateFirstPage<PlanningSession>('/api/v1/planning-sessions/enumerate');
+/** One page of the planning sessions visible to the caller, most recently updated first (TotalRecords counts them all). */
+export const listPlanningSessions = (query?: PagedQuery) => post<EnumerationResult<PlanningSession>>('/api/v1/planning-sessions/enumerate', pagedBody(query));
+/** One page of a planning session's transcript; newest first unless `order` is CreatedAscending. */
+export const listPlanningSessionMessages = (id: string, query?: PagedQuery) =>
+  post<EnumerationResult<PlanningSessionMessage>>(`/api/v1/planning-sessions/${encodeURIComponent(id)}/messages/enumerate`, pagedBody(query));
 export const getPlanningSession = (id: string) => get<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}`);
 export const createPlanningSession = (data: PlanningSessionCreateRequest) =>
   post<PlanningSessionDetail>('/api/v1/planning-sessions', data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
@@ -1255,6 +1439,9 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 
 // Harbors (host runners)
 export const listHarbors = () => enumerateFirstPage<Harbor>('/api/v1/harbors/enumerate');
+/** One page of Harbors with true totals (default: the first page of 1000). */
+export const enumerateHarbors = (params: { pageNumber?: number; pageSize?: number } = {}) =>
+  enumeratePage<Harbor>('/api/v1/harbors/enumerate', params);
 export const getHarbor = (id: string) => get<Harbor>(`/api/v1/harbors/${encodeURIComponent(id)}`);
 export const createHarbor = (data: Partial<Harbor>) => post<Harbor>('/api/v1/harbors', data);
 export const updateHarbor = (id: string, data: Partial<Harbor>) =>
@@ -1274,6 +1461,9 @@ export const stopHarborJob = (id: string, jobId: string) =>
 
 // Model endpoints (embedding/inference)
 export const listModelEndpoints = () => enumerateFirstPage<ModelEndpoint>('/api/v1/model-endpoints/enumerate');
+/** One page of model endpoints with true totals (default: the first page of 1000). */
+export const enumerateModelEndpoints = (params: { pageNumber?: number; pageSize?: number } = {}) =>
+  enumeratePage<ModelEndpoint>('/api/v1/model-endpoints/enumerate', params);
 export const duplicateModelEndpoint = (sourceId: string, data: Partial<ModelEndpoint> & { apiKey?: string | null }) =>
   post<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(sourceId)}/duplicate`, data);
 export const getModelEndpoint = (id: string) => get<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(id)}`);
@@ -1377,6 +1567,25 @@ export const rejectAskProposal = (id: string, proposalId: string) =>
 export const getAskWorkSnapshot = (id: string, workId: string) =>
   get<AskWorkSnapshot>(`${askThreadPath(id)}/work/${encodeURIComponent(workId)}`);
 
+/** One page of the work a conversation tracks (each with a counts-only snapshot); `status` filters by state. */
+export const enumerateAskWork = (id: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskTrackedWork>>(`${askThreadPath(id)}/work/enumerate`, pagedBody(query));
+/** One page of the mission rows of tracked work (voyage or mission work). */
+export const enumerateAskWorkMissions = (id: string, workId: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskMissionSnapshot>>(`${askThreadPath(id)}/work/${encodeURIComponent(workId)}/missions/enumerate`, pagedBody(query));
+/** One page of the target rows of a tracked fleet action run. */
+export const enumerateAskWorkTargets = (id: string, workId: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskTargetSnapshot>>(`${askThreadPath(id)}/work/${encodeURIComponent(workId)}/targets/enumerate`, pagedBody(query));
+/** One page of a conversation's proposals; `status` filters (for example Pending). */
+export const enumerateAskProposals = (id: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskActionProposal>>(`${askThreadPath(id)}/proposals/enumerate`, pagedBody(query));
+/** One page of one message's tool calls. */
+export const enumerateAskToolCalls = (id: string, messageId: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskToolCall>>(`${askThreadPath(id)}/messages/${encodeURIComponent(messageId)}/tool-calls/enumerate`, pagedBody(query));
+/** One page of the tool calls the running turn has made so far (empty when no turn runs). */
+export const enumerateAskTurnToolCalls = (id: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskToolCall>>(`${askThreadPath(id)}/turn/tool-calls/enumerate`, pagedBody(query));
+
 /** The quick-action catalog; tolerates a bare array or an `{ QuickActions | Actions | Objects }` wrapper. */
 export const getAskQuickActions = async (): Promise<AskQuickAction[]> => {
   const result = await get<unknown>(`${ASK}/quick-actions`);
@@ -1430,6 +1639,9 @@ export const decideCliPermissionRequest = (id: string, body: CliPermissionDecisi
 /** Rules visible to the caller (own tenant plus all-tenant rules). */
 export const listCliPermissionRules = (query?: { scope?: CliPermissionRuleScope | null; vesselId?: string | null; captainId?: string | null }) =>
   enumerateFirstPage<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/enumerate${cliQuery({ scope: query?.scope, vesselId: query?.vesselId, captainId: query?.captainId })}`);
+/** One page of the rules visible to the caller with true totals (default: the first page of 1000). */
+export const enumerateCliPermissionRules = (query?: { scope?: CliPermissionRuleScope | null; vesselId?: string | null; captainId?: string | null }, params: { pageNumber?: number; pageSize?: number } = {}) =>
+  enumeratePage<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/enumerate${cliQuery({ scope: query?.scope, vesselId: query?.vesselId, captainId: query?.captainId })}`, params);
 
 export const getCliPermissionRule = (id: string) =>
   get<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/${encodeURIComponent(id)}`);
@@ -1654,8 +1866,9 @@ export const createRelease = (data: ReleaseUpsertRequest) => post<Release>('/api
 export const updateRelease = (id: string, data: ReleaseUpsertRequest) => put<Release>(`/api/v1/releases/${encodeURIComponent(id)}`, data);
 export const refreshRelease = (id: string) => post<Release>(`/api/v1/releases/${encodeURIComponent(id)}/refresh`, {});
 export const deleteRelease = (id: string) => del<void>(`/api/v1/releases/${encodeURIComponent(id)}`);
-export const getReleaseGitHubPullRequests = (id: string) =>
-  enumerateFirstPage<GitHubPullRequestDetail>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests/enumerate`);
+/** One page of a release's GitHub pull requests (only that page is read from GitHub), with the total. */
+export const getReleaseGitHubPullRequests = (id: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<EnumerationResult<GitHubPullRequestDetail>>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests/enumerate`, { PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 25 });
 
 // ==================== Check Runs ====================
 export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
@@ -1806,9 +2019,29 @@ export function encodeBrowsePath(path: string): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** List browsable subdirectories of a directory on the Admiral host; omit `path` to list the allowed roots. */
-export const browseVesselImport = (path?: string | null) =>
-  get<VesselBrowseResult>(`/api/v1/vessels/import/browse${path ? `?path=${encodeBrowsePath(path)}` : ''}`);
+/**
+ * List one page of browsable subdirectories of a directory on the Admiral host; omit `path` to list the allowed roots.
+ * The server default page size is 10; pass up to 1000 and follow totalPages for the rest.
+ */
+export const browseVesselImport = (path?: string | null, page?: { pageNumber?: number; pageSize?: number }) => {
+  const parts: string[] = [];
+  if (path) parts.push(`path=${encodeBrowsePath(path)}`);
+  if (page?.pageNumber) parts.push(`pageNumber=${page.pageNumber}`);
+  if (page?.pageSize) parts.push(`pageSize=${page.pageSize}`);
+  return get<VesselBrowseResult>(`/api/v1/vessels/import/browse${parts.length ? `?${parts.join('&')}` : ''}`);
+};
+/** Every browsable entry of one directory, read in explicit pages of 1000 (at most 100 pages); `truncated` is kept. */
+export async function browseAllVesselImport(path?: string | null): Promise<VesselBrowseResult> {
+  const first = await browseVesselImport(path, { pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  const entries = [...(first.entries ?? [])];
+  const pages = Math.min(first.totalPages ?? 1, 100);
+  for (let page = 2; page <= pages; page++) {
+    const next = await browseVesselImport(path, { pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    if (!next.entries?.length) break;
+    entries.push(...next.entries);
+  }
+  return { ...first, entries, truncated: Boolean(first.truncated) || (first.totalPages ?? 1) > pages };
+}
 
 /** Scan directories and roots for git repositories and persist an import batch (creates no vessels). */
 export const discoverVesselImport = (data: VesselDiscoveryRequest) =>
@@ -1919,4 +2152,18 @@ export function getStorage(): Promise<import('../types/storage').StorageSnapshot
 }
 export function refreshStorage(exactCounts = false): Promise<import('../types/storage').StorageSnapshot> {
   return request('POST', '/api/v1/storage/refresh', { exactCounts }, { dictionaryKeys: ['retention', 'categories', 'hosts', 'tables'] });
+}
+/** One page of cached storage host reports (the Admiral first, then each Harbor). */
+export function listStorageHosts(page?: { pageNumber?: number; pageSize?: number }): Promise<EnumerationResult<import('../types/storage').StorageHostReport>> {
+  return post('/api/v1/storage/hosts/enumerate', { PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
+}
+/** Every cached storage host report, read in explicit pages of 100 (bounded at 200 pages). */
+export async function listAllStorageHosts(): Promise<import('../types/storage').StorageHostReport[]> {
+  const all: import('../types/storage').StorageHostReport[] = [];
+  for (let page = 1; page <= 200; page++) {
+    const result = await listStorageHosts({ pageNumber: page, pageSize: 100 });
+    all.push(...(result.objects ?? []));
+    if (!result.objects?.length || page >= (result.totalPages ?? 1)) break;
+  }
+  return all;
 }

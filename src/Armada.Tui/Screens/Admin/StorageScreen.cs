@@ -53,9 +53,15 @@ namespace Armada.Tui.Screens.Admin
             }
             if (_Loading) return;
             _Loading = true;
-            _ = ScreenOps.Run(Context, async () => collect
-                ? await Context.Client.RefreshStorageAsync(new StorageRefreshRequest { ExactCounts = exact }).ConfigureAwait(false)
-                : await Context.Client.GetStorageAsync().ConfigureAwait(false), snapshot =>
+            _ = ScreenOps.Run(Context, async () =>
+            {
+                StorageSnapshot? read = collect
+                    ? await Context.Client.RefreshStorageAsync(new StorageRefreshRequest { ExactCounts = exact }).ConfigureAwait(false)
+                    : await Context.Client.GetStorageAsync().ConfigureAwait(false);
+                // The snapshot carries host totals only; the host reports are paged.
+                if (read != null) read.Hosts = await Context.Client.ListAllStorageHostsAsync().ConfigureAwait(false);
+                return read;
+            }, snapshot =>
             {
                 _Loading = false;
                 if (snapshot != null) Show(snapshot);

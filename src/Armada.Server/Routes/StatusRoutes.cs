@@ -484,6 +484,16 @@ namespace Armada.Server.Routes
                 SettingsUpdateRequest body = JsonSerializer.Deserialize<SettingsUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as SettingsUpdateRequest.");
 
+                // Lists stored in settings are bounded (docs/ENUMERATION.md); checked before anything is applied.
+                try
+                {
+                    CollectionBounds.Validate(body);
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RouteErrorMapper.LimitExceeded(req, limit);
+                }
+
                 if (body.DataRetentionDays < 0 || body.RequestHistoryRetentionDays < 0)
                 {
                     req.Http.Response.StatusCode = 400;
@@ -591,7 +601,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Settings")
                 .WithSummary("Update server settings")
-                .WithDescription("Accepts partial update of editable settings. Validates values and persists to settings file.")
+                .WithDescription("Accepts partial update of editable settings. Validates values and persists to settings file. Lists are bounded: Import.AllowedRoots, Import.ExcludedDirectoryNames and FleetActions.OfflineHarborIds hold at most 256 entries each (400 with Data.Code CollectionLimitExceeded otherwise); RepositoryHealth.ScoredCriteria and Push.Categories keep one entry per defined value.")
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/server/reset", async (ApiRequest req) =>

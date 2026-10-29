@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { getStorage, refreshStorage } from '@dashboard/api/client';
+import { getStorage, listAllStorageHosts, refreshStorage } from '@dashboard/api/client';
 import { formatStorageBytes } from '@dashboard/lib/storageFormatting';
-import type { StorageSnapshot } from '@dashboard/types/storage';
+import type { StorageHostReport, StorageSnapshot } from '@dashboard/types/storage';
 import { useAuth } from '../../auth/AuthContext';
 import { DetailBody } from '../../components/resource/DetailParts';
 import { ResourceRow } from '../../components/resource/ResourceRow';
@@ -16,17 +16,22 @@ export function StorageTab() {
   const { isAdmin } = useAuth();
   const { t, locale, formatDateTime } = useLocale();
   const [data, setData] = useState<StorageSnapshot | null>(null);
+  // Host reports are not in the snapshot; they are read in explicit bounded pages (100 hosts per page).
+  const [hosts, setHosts] = useState<StorageHostReport[]>([]);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [group, setGroup] = useState('locations');
   const [page, setPage] = useState(0);
   const read = useCallback(async () => {
     if (!isAdmin) return;
-    try { setData(await getStorage()); setError(false); } catch { setError(true); }
+    try {
+      const [snapshot, reports] = await Promise.all([getStorage(), listAllStorageHosts()]);
+      setData(snapshot); setHosts(reports); setError(false);
+    } catch { setError(true); }
   }, [isAdmin]);
   useEffect(() => {
     let active = true;
-    if (isAdmin) getStorage().then(result => { if (active) setData(result); }).catch(() => { if (active) setError(true); });
+    if (isAdmin) Promise.all([getStorage(), listAllStorageHosts()]).then(([result, reports]) => { if (active) { setData(result); setHosts(reports); } }).catch(() => { if (active) setError(true); });
     return () => { active = false; };
   }, [isAdmin]);
   useEffect(() => {
@@ -36,14 +41,14 @@ export function StorageTab() {
   }, [data?.collecting, isAdmin, read]);
   const collect = async (exact: boolean) => {
     setBusy(true);
-    try { setData(await refreshStorage(exact)); setError(false); } catch { setError(true); }
+    try { setData(await refreshStorage(exact)); setHosts(await listAllStorageHosts()); setError(false); } catch { setError(true); }
     finally { setBusy(false); }
   };
   if (!isAdmin) return <AppText accessibilityRole="alert">{t('storage.denied')}</AppText>;
   const bytes = (n: number | null | undefined) => formatStorageBytes(n, locale, t('storage.unavailable'));
   const state = (s: string) => t(`storage.${s}`);
   const rows: { title: string; detail: string }[] = [];
-  for (const host of data?.hosts ?? []) {
+  for (const host of hosts) {
     if (group === 'hosts') rows.push({ title: host.name, detail: `${state(host.status)} ${host.stale ? state('Stale') : ''}\n${formatDateTime(host.measuredUtc)}\n${host.warnings.map(state).join('\n')}` });
     if (group === 'volumes') for (const volume of host.volumes) rows.push({ title: `${host.name}: ${volume.path}`, detail: `${t('storage.capacity')}: ${bytes(volume.totalBytes)}\n${t('storage.available')}: ${bytes(volume.availableBytes)}\n${state(volume.status)}` });
     for (const location of host.locations) {

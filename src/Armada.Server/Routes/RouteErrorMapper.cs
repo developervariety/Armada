@@ -89,6 +89,7 @@ namespace Armada.Server.Routes
             DuplicateEntityException? duplicate = UniqueConstraintViolation.Translate(ex);
             if (duplicate != null) return Conflict(req, duplicate);
             if (ex is VesselCheckoutUnavailableException checkout) return CheckoutUnavailable(req, checkout);
+            if (ex is CollectionLimitExceededException limit) return LimitExceeded(req, limit);
             int statusCode = StatusCodeFor(ex, invalidOperationStatusCode);
             req.Http.Response.StatusCode = statusCode;
             return new ApiErrorResponse { Error = ResultFor(statusCode), Message = ex.Message };
@@ -128,6 +129,23 @@ namespace Armada.Server.Routes
         }
 
         /// <summary>
+        /// Set a 400 status and build the error body for a collection over its limit: <c>Error</c> BadRequest, the
+        /// exception's message (which names the field and the limit), and a <see cref="CollectionLimitErrorDetail"/>
+        /// (Code CollectionLimitExceeded) in <c>Data</c>.
+        /// </summary>
+        /// <param name="req">Request.</param>
+        /// <param name="ex">Exception.</param>
+        /// <returns>Error body.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        public static ApiErrorResponse LimitExceeded(ApiRequest req, CollectionLimitExceededException ex)
+        {
+            if (req == null) throw new ArgumentNullException(nameof(req));
+            if (ex == null) throw new ArgumentNullException(nameof(ex));
+            req.Http.Response.StatusCode = 400;
+            return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message, Data = CollectionLimitErrorDetail.FromException(ex) };
+        }
+
+        /// <summary>
         /// Watson middleware that turns a <see cref="DuplicateEntityException"/> (or a provider unique-constraint
         /// violation) escaping any API route into a 409 Conflict with a <see cref="DuplicateEntityErrorDetail"/>, instead
         /// of the generic 500 that would carry the exception's message. Anything else propagates unchanged.
@@ -149,6 +167,13 @@ namespace Armada.Server.Routes
                 WebserverException conflict = new WebserverException(ApiResultEnum.Conflict, duplicate.Message, duplicate);
                 conflict.Data = DuplicateEntityErrorDetail.FromException(duplicate);
                 throw conflict;
+            }
+            catch (CollectionLimitExceededException limit)
+            {
+                // A collection over its limit escaping any API route is a typed 400, never a 500.
+                WebserverException badRequest = new WebserverException(ApiResultEnum.BadRequest, limit.Message, limit);
+                badRequest.Data = CollectionLimitErrorDetail.FromException(limit);
+                throw badRequest;
             }
         }
 

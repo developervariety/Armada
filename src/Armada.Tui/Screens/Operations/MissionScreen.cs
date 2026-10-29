@@ -48,6 +48,21 @@ namespace Armada.Tui.Screens.Operations
         public GitHubPullRequestDetail? PullRequest { get; private set; } = null;
 
         /// <summary>
+        /// Newest reviews of the pull request (one page of <see cref="PullRequestPageSize"/>).
+        /// </summary>
+        public List<GitHubPullRequestReview> PullRequestReviews { get; private set; } = new List<GitHubPullRequestReview>();
+
+        /// <summary>
+        /// Checks of the pull request head commit (one page of <see cref="PullRequestPageSize"/>).
+        /// </summary>
+        public List<GitHubPullRequestCheck> PullRequestChecks { get; private set; } = new List<GitHubPullRequestCheck>();
+
+        /// <summary>
+        /// Reviews and checks shown per pull request (the counts say how many there are in all).
+        /// </summary>
+        public const int PullRequestPageSize = 10;
+
+        /// <summary>
         /// Linked check runs.
         /// </summary>
         public List<CheckRun> LinkedChecks { get; private set; } = new List<CheckRun>();
@@ -297,9 +312,19 @@ namespace Armada.Tui.Screens.Operations
             _PullRequestFor = Mission.Id + Mission.PrUrl;
             _LoadingPullRequest = true;
             Invalidate();
-            Call((c, t) => c.GetMissionGitHubPullRequestAsync(MissionId, t), pr =>
+            Call(async (c, t) =>
             {
-                PullRequest = pr;
+                GitHubPullRequestDetail? pr = await c.GetMissionGitHubPullRequestAsync(MissionId, t).ConfigureAwait(false);
+                EnumerationQuery page = new EnumerationQuery();
+                page.PageSize = PullRequestPageSize;
+                EnumerationResult<GitHubPullRequestReview>? reviews = pr == null || pr.ReviewCount == 0 ? null : await c.EnumerateMissionPullRequestReviewsAsync(MissionId, page, t).ConfigureAwait(false);
+                EnumerationResult<GitHubPullRequestCheck>? checks = pr == null || pr.CheckCount == 0 ? null : await c.EnumerateMissionPullRequestChecksAsync(MissionId, page, t).ConfigureAwait(false);
+                return new PullRequestEvidence(pr, reviews?.Objects, checks?.Objects);
+            }, evidence =>
+            {
+                PullRequest = evidence.Detail;
+                PullRequestReviews = evidence.Reviews;
+                PullRequestChecks = evidence.Checks;
                 _LoadingPullRequest = false;
                 Invalidate();
             }, null, ex =>
@@ -391,12 +416,12 @@ namespace Armada.Tui.Screens.Operations
                     doc.Field("State", pr.State);
                     doc.Field("Mergeability", pr.MergeableState);
                     doc.Text(pr.Title, doc.Theme.Muted);
-                    doc.Note("Reviews", doc.Theme.Accent);
-                    if (pr.Reviews == null || pr.Reviews.Count == 0) doc.Note("No reviews");
-                    else foreach (GitHubPullRequestReview r in pr.Reviews) doc.Text("  " + (r.ReviewerLogin ?? Tr("Unknown")) + "  " + r.State);
-                    doc.Note("Checks", doc.Theme.Accent);
-                    if (pr.Checks == null || pr.Checks.Count == 0) doc.Note("No provider checks");
-                    else foreach (GitHubPullRequestCheck c in pr.Checks) doc.Text("  " + c.Name + "  " + c.Status + (String.IsNullOrEmpty(c.Conclusion) ? "" : " / " + c.Conclusion));
+                    doc.Note(Tr("Reviews") + (pr.ReviewCount > PullRequestReviews.Count ? " (" + PullRequestReviews.Count + "/" + pr.ReviewCount + ")" : ""), doc.Theme.Accent);
+                    if (PullRequestReviews.Count == 0) doc.Note("No reviews");
+                    else foreach (GitHubPullRequestReview r in PullRequestReviews) doc.Text("  " + (r.ReviewerLogin ?? Tr("Unknown")) + "  " + r.State);
+                    doc.Note(Tr("Checks") + (pr.CheckCount > PullRequestChecks.Count ? " (" + PullRequestChecks.Count + "/" + pr.CheckCount + ")" : ""), doc.Theme.Accent);
+                    if (PullRequestChecks.Count == 0) doc.Note("No provider checks");
+                    else foreach (GitHubPullRequestCheck c in PullRequestChecks) doc.Text("  " + c.Name + "  " + c.Status + (String.IsNullOrEmpty(c.Conclusion) ? "" : " / " + c.Conclusion));
                 }
             }
 
