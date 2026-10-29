@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
+    using System;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Single authoritative definition of the mission lifecycle: which status transitions are legal
@@ -137,6 +139,19 @@ namespace Armada.Core.Services
         {
             return IsValidTransition(status, MissionStatusEnum.Cancelled)
                 && !IsTerminalOrPostWork(status);
+        }
+
+        /// <summary>
+        /// Whether a mission waits on an explicit operator review decision: it is in Review and its stage
+        /// requires review. A captain may report Review as progress while it works; that Review status
+        /// alone asks nothing of the operator.
+        /// </summary>
+        /// <param name="mission">Mission to classify.</param>
+        /// <returns>True if approve or deny applies to the mission.</returns>
+        public static bool AwaitsReviewDecision(Mission mission)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            return mission.Status == MissionStatusEnum.Review && mission.RequiresReview;
         }
 
         /// <summary>

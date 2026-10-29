@@ -51,8 +51,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO signals (id, tenant_id, user_id, from_captain_id, to_captain_id, type, payload, `read`, created_utc)
-                        VALUES (@id, @tenant_id, @user_id, @from_captain_id, @to_captain_id, @type, @payload, @read, @created_utc);";
+                    cmd.CommandText = @"INSERT INTO signals (id, tenant_id, user_id, from_captain_id, to_captain_id, mission_id, type, payload, `read`, created_utc)
+                        VALUES (@id, @tenant_id, @user_id, @from_captain_id, @to_captain_id, @mission_id, @type, @payload, @read, @created_utc);";
                     SignalColumns.Write(MysqlDatabaseDriver.StoredBinder.For(cmd, "signals"), signal);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -147,6 +147,28 @@ namespace Armada.Core.Database.Mysql.Implementations
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Address the unread mail of a mission to a captain.
+        /// </summary>
+        public async Task<int> ReaddressUnreadMissionMailAsync(string missionId, string captainId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE signals SET to_captain_id = @captain_id WHERE type = @type AND mission_id = @mission_id AND `read` = FALSE AND (to_captain_id IS NULL OR to_captain_id <> @captain_id);";
+                    StoredValueBinder.Value(cmd, "@captain_id", captainId);
+                    StoredValueBinder.Value(cmd, "@type", SignalTypeEnum.Mail.ToString());
+                    StoredValueBinder.Value(cmd, "@mission_id", missionId);
+                    return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
         }
 
         /// <summary>

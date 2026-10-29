@@ -24,6 +24,7 @@ namespace Armada.Core.Database
             signal.UserId = row.NullableText("user_id");
             signal.FromCaptainId = row.NullableText("from_captain_id");
             signal.ToCaptainId = row.NullableText("to_captain_id");
+            signal.MissionId = row.NullableText("mission_id");
             signal.Type = row.Enum<SignalTypeEnum>("type");
             signal.Payload = row.NullableText("payload");
             signal.Read = row.Bool("read");
@@ -44,6 +45,7 @@ namespace Armada.Core.Database
                 .Text("user_id", signal.UserId)
                 .Text("from_captain_id", signal.FromCaptainId)
                 .Text("to_captain_id", signal.ToCaptainId)
+                .Text("mission_id", signal.MissionId)
                 .Text("type", signal.Type.ToString())
                 .Text("payload", signal.Payload)
                 .Bool("read", signal.Read)

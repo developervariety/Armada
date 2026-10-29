@@ -297,7 +297,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_update_mission",
-                "Update an existing mission's title, description, priority, branch, or PR URL. A mission cannot move to another vessel or voyage. Operational fields (status, timestamps, captain) are managed by the system.",
+                "Update an existing mission's title, description, priority, branch, or PR URL. A mission cannot move to another vessel or voyage. Operational fields (status, timestamps, captain) are managed by the system. When a description change targets a running mission on a runtime that does not apply a brief mid-mission, the response includes Delivery=stored_until_next_launch and a reason that names the runtime.",
                 new
                 {
                     type = "object",

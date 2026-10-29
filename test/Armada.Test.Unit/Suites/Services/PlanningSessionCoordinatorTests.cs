@@ -120,6 +120,60 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A planning turn with runtime usage stores a planning usage record for the captain", async () =>
+            {
+                RuntimeTokenUsage usage = RuntimeTokenUsage.FromUncachedInput("replay", 41, 3, 2, 7);
+                usage.Model = "replay-planner";
+                List<string> records = new List<string> { "Here is the plan." };
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver, records, usage))
+                {
+                    Vessel vessel = await fixture.CreateVesselAsync("planning-usage").ConfigureAwait(false);
+                    Captain captain = await fixture.CreateCaptainAsync("planner-usage").ConfigureAwait(false);
+                    captain.Model = "replay-planner";
+                    captain = await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    PlanningSession session = await fixture.Coordinator.CreateAsync(
+                        null,
+                        null,
+                        captain,
+                        vessel,
+                        new PlanningSessionCreateRequest { Title = "Plan with usage" }).ConfigureAwait(false);
+
+                    await fixture.Coordinator.SendMessageAsync(session, "Draft the plan").ConfigureAwait(false);
+
+                    TokenUsageRecord? stored = null;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(20);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        PlanningSession current = (await testDb.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false))!;
+                        EnumerationResult<TokenUsageRecord> page = await testDb.Driver.TokenUsage.EnumerateAsync(new TokenUsageQuery
+                        {
+                            Source = "planning",
+                            CaptainId = captain.Id,
+                            SourceId = session.Id,
+                            PageSize = 10
+                        }).ConfigureAwait(false);
+                        if (current.Status != PlanningSessionStatusEnum.Responding && page.Objects.Count > 0)
+                        {
+                            stored = page.Objects[0];
+                            break;
+                        }
+                        await Task.Delay(100).ConfigureAwait(false);
+                    }
+
+                    AssertNotNull(stored, "a planning turn that reports runtime usage must write a usage record");
+                    AssertEqual("planning", stored!.Source);
+                    AssertEqual(captain.Id, stored.CaptainId);
+                    AssertEqual(session.Id, stored.SourceId);
+                    AssertEqual((long?)41, stored.UncachedInputTokens);
+                    AssertEqual((long?)3, stored.CacheReadInputTokens);
+                    AssertEqual((long?)2, stored.CacheWriteInputTokens);
+                    AssertEqual(7L, stored.OutputTokens);
+                    AssertEqual(TokenUsageRuleEnum.SeparateInputBuckets, stored.UsageRule);
+                }
+            });
+
             await RunTest("DispatchAsync links every planning objective inside dispatch admission", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -376,7 +430,7 @@ namespace Armada.Test.Unit.Suites.Services
             private readonly string _rootDirectory;
             private readonly LoggingModule _logging;
 
-            public CoordinatorFixture(SqliteDatabaseDriver database, IReadOnlyList<string>? replayRecords = null)
+            public CoordinatorFixture(SqliteDatabaseDriver database, IReadOnlyList<string>? replayRecords = null, RuntimeTokenUsage? replayUsage = null)
             {
                 Database = database;
                 _logging = CreateLogging();
@@ -396,7 +450,7 @@ namespace Armada.Test.Unit.Suites.Services
                 DockService docks = new DockService(_logging, Database, Settings, Git);
                 AdmiralService admiral = CreateAdmiralService(_logging, Database, Settings, Git);
                 AgentRuntimeFactory runtimeFactory = replayRecords != null
-                    ? new ReplayRuntimeFactory(_logging, replayRecords)
+                    ? new ReplayRuntimeFactory(_logging, replayRecords, replayUsage)
                     : new AgentRuntimeFactory(_logging);
                 Objectives = new ObjectiveService(Database, _logging);
 

@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -935,6 +936,64 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A stage-2 mission stopped with uncommitted work -- an edit, a deletion and a new file -- keeps
+            // its branch across the restart. The rebuilt checkout shows that work again as uncommitted
+            // changes, with no commit made for it.
+            await RunTest("TryAssign_ReassignedStageTwoMissionWithUncommittedWork_ResumesTheWorkAsUncommittedChanges", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StageTwoRestart restart = await StageTwoRestart.StopWithUncommittedWorkAsync(testDb, CreateLogging(), CreateSettings(), commitAfterSavingTheWork: false).ConfigureAwait(false);
+
+                    bool assigned = await restart.MissionService.TryAssignAsync(restart.Stage, restart.Vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(restart.Stage.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "The restarted stage must be assignable; reason: " + (readBack?.FailureReason ?? "(none)"));
+                    Dock? dock = await testDb.Driver.Docks.ReadAsync(readBack!.DockId ?? "").ConfigureAwait(false);
+                    string checkout = dock!.WorktreePath!;
+                    AssertEqual(restart.BranchHead, RunGitProcess(checkout, "rev-parse", "HEAD").Trim(), "No commit is made for the resumed work");
+                    AssertEqual("edited by the stopped captain", File.ReadAllText(Path.Combine(checkout, "README.md")).Trim(), "The edit is back");
+                    AssertFalse(File.Exists(Path.Combine(checkout, "work.txt")), "The deletion is back");
+                    AssertEqual("new file", File.ReadAllText(Path.Combine(checkout, "new.txt")).Trim(), "The new file is back");
+                    string status = RunGitProcess(checkout, "status", "--porcelain");
+                    AssertContains(" M README.md", status);
+                    AssertContains(" D work.txt", status);
+                    AssertContains("?? new.txt", status);
+                    AssertEqual(0, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "A resume posts no warning");
+
+                    List<ArmadaEvent> events = (await testDb.Driver.Events.EnumerateByMissionAsync(restart.Stage.Id, 50).ConfigureAwait(false));
+                    AssertEqual(1, events.Count(e => e.EventType == "mission.work_snapshot_applied"), "The resume is recorded once");
+                    AssertEqual(0, events.Count(e => e.EventType == "mission.work_snapshot_skipped"), "A resume is not a skip");
+                }
+            });
+
+            // Saved work made on an older commit than the rebuilt checkout's HEAD is not applied: it would land
+            // on a tree it was not made on. The skip is recorded and announced once, and the work stays saved.
+            await RunTest("TryAssign_ReassignedStageTwoMissionWhoseSavedWorkIsOnAnOlderCommit_AppliesNothingAndRecordsTheSkip", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StageTwoRestart restart = await StageTwoRestart.StopWithUncommittedWorkAsync(testDb, CreateLogging(), CreateSettings(), commitAfterSavingTheWork: true).ConfigureAwait(false);
+
+                    bool assigned = await restart.MissionService.TryAssignAsync(restart.Stage, restart.Vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(restart.Stage.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "The restarted stage must still be assignable; reason: " + (readBack?.FailureReason ?? "(none)"));
+                    Dock? dock = await testDb.Driver.Docks.ReadAsync(readBack!.DockId ?? "").ConfigureAwait(false);
+                    string checkout = dock!.WorktreePath!;
+                    AssertEqual("", RunGitProcess(checkout, "status", "--porcelain").Trim(), "Nothing is applied to a checkout on a different commit");
+                    AssertEqual(restart.BranchHead, RunGitProcess(checkout, "rev-parse", "HEAD").Trim(), "The checkout sits on the newer branch head");
+
+                    List<ArmadaEvent> events = (await testDb.Driver.Events.EnumerateByMissionAsync(restart.Stage.Id, 50).ConfigureAwait(false));
+                    ArmadaEvent skipped = events.Single(e => e.EventType == "mission.work_snapshot_skipped");
+                    AssertContains("recover/" + restart.Stage.Id + "-1", skipped.Message);
+                    AssertEqual(0, events.Count(e => e.EventType == "mission.work_snapshot_applied"), "Nothing was applied");
+                    AssertEqual(1, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "The skip is announced once on the board");
+                    AssertTrue(RunGitProcess(restart.BareRepo, "for-each-ref", "refs/heads/recover/" + restart.Stage.Id + "-1").Contains("recover/", StringComparison.Ordinal),
+                        "The saved work stays in its recover ref");
+                }
+            });
+
             // NEGATIVE: the retained dock authorizes continuation but the saved branch no longer resolves
             // in the vessel repository. The mission must HOLD, never silently cut a fresh branch from the
             // default branch (which would orphan the committed work).
@@ -1037,6 +1096,96 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionAssignmentHold.RootContinuationDockMissing, readBack.AssignmentHoldReason ?? "(null)", "The hold names the dock-missing reason");
                     AssertEqual(savedBranch, readBack.BranchName ?? "(null)", "The committed branch name is retained, never replaced by a fresh one");
                     AssertTrue(String.IsNullOrEmpty(readBack.CaptainId), "No captain is assigned to the held mission");
+                }
+            });
+
+            // A root mission whose saved branch sits at the commit it started from has no work to orphan.
+            // Holding it for a continuation dock waits for a dock that no mission will ever provision, so
+            // it takes a fresh dock and branch instead.
+            await RunTest("TryAssign_ReassignedRootMissionWhoseSavedBranchHoldsNoCommits_ProvisionsFreshAndReleasesTheHold", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    GitService git = new GitService(logging);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string bareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("no-commit-branch-vessel", bareRepo)).ConfigureAwait(false);
+
+                    Mission root = new Mission("Root worker", "Implements the first slice.");
+                    root.VesselId = vessel.Id;
+                    root.Persona = "Worker";
+                    root.Status = MissionStatusEnum.Pending;
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+
+                    string savedBranch = "armada/captain-a/" + root.Id;
+                    RunGitProcess(bareRepo, "branch", savedBranch, "main");
+                    root.BranchName = savedBranch;
+                    root.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                    root.AssignmentHoldReason = MissionAssignmentHold.RootContinuationDockMissing;
+                    root.AssignmentHoldEntityId = savedBranch;
+                    await testDb.Driver.Missions.UpdateAsync(root).ConfigureAwait(false);
+
+                    await testDb.Driver.Captains.CreateAsync(new Captain("captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(root, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "The root mission must still exist");
+                    AssertTrue(assigned, "A root mission whose saved branch holds no commits is assigned; state=" + readBack!.AssignmentState + " hold=" + (readBack.AssignmentHoldReason ?? "(none)"));
+                    AssertNull(readBack.AssignmentHoldReason, "The stale continuation hold is released");
+                    AssertTrue(!String.Equals(savedBranch, readBack.BranchName, StringComparison.Ordinal), "The mission works on a fresh captain branch, not the empty saved one");
+                    AssertNotNull(readBack.DockId, "A dock is provisioned from the start ref");
+                }
+            });
+
+            // Cancelling a held mission, and every stage the cancel cascades to, ends the wait it recorded.
+            await RunTest("Cancel_MissionsHeldForAssignment_ClearTheirHolds", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("cancel-hold-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("cancel hold voyage")).ConfigureAwait(false);
+
+                    Mission root = new Mission("Held root", "Waits for a continuation dock.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Worker",
+                        Status = MissionStatusEnum.Pending,
+                        AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                        AssignmentHoldReason = MissionAssignmentHold.RootContinuationDockMissing,
+                        AssignmentHoldEntityId = "armada/captain-a/branch"
+                    };
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+                    Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission("Held stage", "Waits for the root.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Judge",
+                        Status = MissionStatusEnum.Pending,
+                        DependsOnMissionId = root.Id,
+                        AssignmentState = MissionAssignmentStateEnum.WaitingForDependency,
+                        AssignmentHoldReason = MissionAssignmentHold.DependencyUnfinished,
+                        AssignmentHoldEntityId = root.Id
+                    }).ConfigureAwait(false);
+
+                    MissionCancellationResult result = await MissionCancellation.CancelAsync(
+                        testDb.Driver, root, MissionCancellation.OperatorCancelReason, null).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "precondition: the cancel is applied");
+
+                    foreach (string id in new[] { root.Id, dependent.Id })
+                    {
+                        Mission? cancelled = await testDb.Driver.Missions.ReadAsync(id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Cancelled, cancelled!.Status, id + " is cancelled");
+                        AssertNull(cancelled.AssignmentHoldReason, id + " keeps no assignment hold");
+                        AssertNull(cancelled.AssignmentHoldEntityId, id + " names no holder");
+                    }
                 }
             });
 
@@ -1322,6 +1471,113 @@ namespace Armada.Test.Unit.Suites.Services
             // in one pass must not both provision a dock for the one idle captain: the second must
             // wait for an idle captain without spending the provisioning cost. Measured live: 12
             // aborted claims in one day, each after a full dock and sibling provisioning.
+            // A mission that moves from one captain to another announces the move once on the board, and the
+            // unread mail addressed to the mission moves with it. Mail addressed to a captain, to another
+            // mission, or already read stays where it is.
+            await RunTest("TryAssign_MissionMovesToADifferentCaptain_AnnouncesOnceAndMovesItsUnreadMail", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    FakeBoardNotePoster poster = new FakeBoardNotePoster();
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    missionService.ReassignmentNotePoster = poster;
+
+                    Vessel vessel = new Vessel("reassign-note-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain previous = await testDb.Driver.Captains.CreateAsync(new Captain("previous-captain") { State = CaptainStateEnum.Stalled }).ConfigureAwait(false);
+                    Captain replacement = await testDb.Driver.Captains.CreateAsync(new Captain("replacement-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Mission moved = new Mission("Slice that outlives its captain", "Implements the slice.");
+                    moved.VesselId = vessel.Id;
+                    moved.Persona = "Worker";
+                    moved.Status = MissionStatusEnum.Pending;
+                    moved = await testDb.Driver.Missions.CreateAsync(moved).ConfigureAwait(false);
+                    Mission other = await testDb.Driver.Missions.CreateAsync(new Mission("Another slice", "Implements another slice.")).ConfigureAwait(false);
+                    await MissionAttemptProvenanceRecorder.StartAsync(testDb.Driver, moved, previous, 8812, null).ConfigureAwait(false);
+
+                    Signal missionMail = await CreateMailAsync(testDb, previous.Id, moved.Id, "fix list for the moved mission").ConfigureAwait(false);
+                    Signal waitingMail = await CreateMailAsync(testDb, null, moved.Id, "mail sent while the mission had no captain").ConfigureAwait(false);
+                    Signal readMail = await CreateMailAsync(testDb, previous.Id, moved.Id, "already read").ConfigureAwait(false);
+                    await testDb.Driver.Signals.MarkReadAsync(readMail.Id).ConfigureAwait(false);
+                    Signal otherMissionMail = await CreateMailAsync(testDb, previous.Id, other.Id, "fix list for another mission").ConfigureAwait(false);
+                    Signal captainMail = await CreateMailAsync(testDb, previous.Id, null, "addressed to the captain").ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(moved, vessel).ConfigureAwait(false);
+
+                    AssertTrue(assigned, "The mission must be assignable to the replacement captain");
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(moved.Id).ConfigureAwait(false);
+                    AssertEqual(replacement.Id, readBack!.CaptainId ?? "(null)", "The replacement captain holds the mission");
+                    AssertEqual(1, poster.Posts.Count, "The move is announced once");
+                    AssertContains(moved.Id, poster.Posts[0]);
+                    AssertContains(previous.Name, poster.Posts[0]);
+                    AssertContains(replacement.Name, poster.Posts[0]);
+                    AssertEqual(moved.Id, poster.MissionIds[0] ?? "(null)", "The note names the mission");
+
+                    AssertEqual(replacement.Id, (await testDb.Driver.Signals.ReadAsync(missionMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Unread mission mail follows the mission");
+                    AssertEqual(replacement.Id, (await testDb.Driver.Signals.ReadAsync(waitingMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Mail sent while the mission had no captain reaches its next captain");
+                    AssertEqual(previous.Id, (await testDb.Driver.Signals.ReadAsync(readMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Read mail stays where it was read");
+                    AssertEqual(previous.Id, (await testDb.Driver.Signals.ReadAsync(otherMissionMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Mail for another mission stays");
+                    AssertEqual(previous.Id, (await testDb.Driver.Signals.ReadAsync(captainMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Mail addressed to a captain stays");
+                }
+            });
+
+            // The first assignment of a mission, and a relaunch on the same captain, announce nothing.
+            await RunTest("TryAssign_FirstAssignmentOrSameCaptain_PostsNoReassignmentNote", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    FakeBoardNotePoster poster = new FakeBoardNotePoster();
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    missionService.ReassignmentNotePoster = poster;
+
+                    Vessel vessel = new Vessel("no-note-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("only-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Mission first = new Mission("Fresh slice", "Implements the slice.");
+                    first.VesselId = vessel.Id;
+                    first.Persona = "Worker";
+                    first.Status = MissionStatusEnum.Pending;
+                    first = await testDb.Driver.Missions.CreateAsync(first).ConfigureAwait(false);
+                    AssertTrue(await missionService.TryAssignAsync(first, vessel).ConfigureAwait(false), "The first assignment must succeed");
+                    AssertEqual(0, poster.Posts.Count, "A first assignment is not a reassignment");
+                    Mission? finished = await testDb.Driver.Missions.ReadAsync(first.Id).ConfigureAwait(false);
+                    finished!.Status = MissionStatusEnum.Complete;
+                    await testDb.Driver.Missions.UpdateAsync(finished).ConfigureAwait(false);
+
+                    Mission again = new Mission("Slice relaunched on its captain", "Implements the slice.");
+                    again.VesselId = vessel.Id;
+                    again.Persona = "Worker";
+                    again.Status = MissionStatusEnum.Pending;
+                    again = await testDb.Driver.Missions.CreateAsync(again).ConfigureAwait(false);
+                    await MissionAttemptProvenanceRecorder.StartAsync(testDb.Driver, again, captain, 8812, null).ConfigureAwait(false);
+                    Captain? idle = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    idle!.State = CaptainStateEnum.Idle;
+                    idle.CurrentMissionId = null;
+                    idle.CurrentDockId = null;
+                    await testDb.Driver.Captains.UpdateAsync(idle).ConfigureAwait(false);
+                    AssertTrue(await missionService.TryAssignAsync(again, vessel).ConfigureAwait(false), "The relaunch must succeed");
+                    AssertEqual(0, poster.Posts.Count, "A relaunch on the same captain is not a reassignment");
+                }
+            });
+
             await RunTest("TryAssign_StartRefThatDoesNotResolve_FailsByNameAndReleasesTheCaptain_ResolvableRefCutsTheBranch", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -2248,6 +2504,14 @@ namespace Armada.Test.Unit.Suites.Services
             return logging;
         }
 
+        private static async Task<Signal> CreateMailAsync(TestDatabase testDb, string? toCaptainId, string? missionId, string message)
+        {
+            Signal signal = new Signal(SignalTypeEnum.Mail, message);
+            signal.ToCaptainId = toCaptainId;
+            signal.MissionId = missionId;
+            return await testDb.Driver.Signals.CreateAsync(signal).ConfigureAwait(false);
+        }
+
         private LoggingModule CreateLogging()
         {
             LoggingModule logging = new LoggingModule();
@@ -2372,6 +2636,86 @@ namespace Armada.Test.Unit.Suites.Services
         #endregion
 
         #region Private-Types
+
+        /// <summary>
+        /// A stage-2 mission whose first checkout held uncommitted work when the admiral restarted: the mission is
+        /// back to Pending with its branch and its stopped dock, and one idle captain is free to take it.
+        /// </summary>
+        private sealed class StageTwoRestart
+        {
+            public IMissionService MissionService { get; private set; } = null!;
+            public FakeBoardNotePoster Poster { get; } = new FakeBoardNotePoster();
+            public Vessel Vessel { get; private set; } = null!;
+            public Mission Stage { get; private set; } = null!;
+            public string BareRepo { get; private set; } = "";
+            public string BranchHead { get; private set; } = "";
+
+            public static async Task<StageTwoRestart> StopWithUncommittedWorkAsync(TestDatabase testDb, LoggingModule logging, ArmadaSettings settings, bool commitAfterSavingTheWork)
+            {
+                StageTwoRestart restart = new StageTwoRestart();
+                GitService git = new GitService(logging);
+                IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                missionService.ReassignmentNotePoster = restart.Poster;
+                restart.MissionService = missionService;
+
+                restart.BareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                restart.Vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("stage-two-resume-vessel", restart.BareRepo)).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("chain") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                string branch = "armada/chain/stage-one";
+                restart.BranchHead = CommitAheadOnBranch(restart.BareRepo, branch, "Stage one committed work");
+                Mission predecessor = await testDb.Driver.Missions.CreateAsync(new Mission("Earlier stage", "Produced the branch")
+                {
+                    VesselId = restart.Vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.Complete,
+                    BranchName = branch, CommitHash = restart.BranchHead
+                }).ConfigureAwait(false);
+                restart.Stage = await testDb.Driver.Missions.CreateAsync(new Mission("Next stage", "Continue on the branch")
+                {
+                    VesselId = restart.Vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.Pending,
+                    DependsOnMissionId = predecessor.Id, BranchName = branch
+                }).ConfigureAwait(false);
+
+                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("stage-two-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                if (!await missionService.TryAssignAsync(restart.Stage, restart.Vessel).ConfigureAwait(false))
+                    throw new InvalidOperationException("Fixture stage was not assigned");
+                restart.Stage = (await testDb.Driver.Missions.ReadAsync(restart.Stage.Id).ConfigureAwait(false))!;
+                Dock dock = (await testDb.Driver.Docks.ReadAsync(restart.Stage.DockId ?? "").ConfigureAwait(false))!;
+
+                File.WriteAllText(Path.Combine(dock.WorktreePath!, "README.md"), "edited by the stopped captain\n");
+                File.Delete(Path.Combine(dock.WorktreePath!, "work.txt"));
+                File.WriteAllText(Path.Combine(dock.WorktreePath!, "new.txt"), "new file\n");
+
+                if (commitAfterSavingTheWork)
+                {
+                    // The work was saved earlier and the captain has since committed on top, so the checkout the
+                    // restart leaves is clean and its HEAD is a newer commit than the one the saved work sits on.
+                    DockWorkSnapshot saved = await git.SnapshotDockWorkAsync(dock.WorktreePath!, restart.Stage.Id, "Example snapshot").ConfigureAwait(false);
+                    if (!saved.HasRef) throw new InvalidOperationException("Fixture snapshot was not saved: " + saved.Message);
+                    RunGitProcess(dock.WorktreePath!, "reset", "--hard", "HEAD");
+                    RunGitProcess(dock.WorktreePath!, "clean", "-fd");
+                    File.WriteAllText(Path.Combine(dock.WorktreePath!, "later.txt"), "committed later\n");
+                    RunGitProcess(dock.WorktreePath!, "add", "later.txt");
+                    RunGitProcess(dock.WorktreePath!, "-c", "user.name=Armada Tests", "-c", "user.email=armada-tests@example.com", "commit", "-m", "Committed after the snapshot");
+                    restart.BranchHead = RunGitProcess(dock.WorktreePath!, "rev-parse", "HEAD").Trim();
+                }
+
+                // The restart leaves the mission Pending with its branch and its stopped dock, and frees the captain.
+                restart.Stage.Status = MissionStatusEnum.Pending;
+                restart.Stage.AssignmentState = MissionAssignmentStateEnum.Pending;
+                restart.Stage.CaptainId = null;
+                restart.Stage.ProcessId = null;
+                await testDb.Driver.Missions.UpdateAsync(restart.Stage).ConfigureAwait(false);
+                Captain freed = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                freed.State = CaptainStateEnum.Idle;
+                freed.CurrentMissionId = null;
+                freed.ProcessId = null;
+                await testDb.Driver.Captains.UpdateAsync(freed).ConfigureAwait(false);
+                return restart;
+            }
+        }
 
         /// <summary>
         /// Mission service stub that returns false for configured mission ids and sets AssignmentState.

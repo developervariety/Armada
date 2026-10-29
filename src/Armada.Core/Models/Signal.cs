@@ -44,6 +44,12 @@ namespace Armada.Core.Models
         public string? ToCaptainId { get; set; } = null;
 
         /// <summary>
+        /// Mission the signal is addressed to, or null when it is addressed to a captain. A signal that names
+        /// a mission follows the mission to whichever captain holds it.
+        /// </summary>
+        public string? MissionId { get; set; } = null;
+
+        /// <summary>
         /// Signal type.
         /// </summary>
         public SignalTypeEnum Type { get; set; } = SignalTypeEnum.Nudge;
@@ -62,6 +68,19 @@ namespace Armada.Core.Models
         /// Creation timestamp in UTC.
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// How this send reaches a running captain. Set on a send response only; not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Delivery { get; set; } = null;
+
+        /// <summary>
+        /// Why <see cref="Delivery"/> has that value, naming the runtime when mail is stored until the next launch.
+        /// Set on a send response only; not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? DeliveryReason { get; set; } = null;
 
         #endregion
 

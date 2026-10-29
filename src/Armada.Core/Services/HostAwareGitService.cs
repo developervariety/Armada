@@ -7,7 +7,7 @@ namespace Armada.Core.Services
     using Armada.Core.Services.Interfaces;
 
     /// <summary>Routes opaque Harbor checkout addresses to Harbor while preserving local Git behavior.</summary>
-    public sealed partial class HostAwareGitService : IGitService, IBranchInventory
+    public sealed partial class HostAwareGitService : IGitService, IBranchInventory, IDockWorkSnapshotApplier
     {
         private readonly IGitService _Local;
         private readonly IBranchInventory? _LocalInventory;

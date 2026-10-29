@@ -339,6 +339,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DeepSeekInferenceClientTests());
             runner.AddSuite(new TypeSafeDecisionClientTests());
             runner.AddSuite(new DecisionStateRedactorTests());
+            runner.AddSuite(new SecretRedactorTests());
             runner.AddSuite(new TypedDecisionRecorderTests());
             runner.AddSuite(new TypedDecisionBatcherTests());
             runner.AddSuite(new TypedDecisionEvalTests());
@@ -483,6 +484,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpResultPreviewTests());
             runner.AddSuite(new DefinitionOfDoneGateTests());
             runner.AddSuite(new HostWideCommandLockTests());
+            runner.AddSuite(new CaptainSuiteLeaseTests());
             runner.AddSuite(new VoyageObjectiveResolverTests());
             runner.AddSuite(new DefinitionOfDoneReportTests());
             runner.AddSuite(new MissionRecoveryReportTests());

@@ -846,7 +846,7 @@ Broadcast when rollout monitoring or verification updates health-related evidenc
 
 ### approval-needed
 
-Broadcast when a mission enters review and awaits an explicit approve or deny decision.
+Broadcast when a mission enters Review on a stage that requires review and so awaits an explicit approve or deny decision. A captain that reports Review as progress on a stage without a review gate produces no broadcast.
 
 ```json
 {

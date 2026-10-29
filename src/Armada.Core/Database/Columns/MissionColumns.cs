@@ -58,6 +58,7 @@ namespace Armada.Core.Database
             mission.Tier = row.NullableEnum<CaptainTierEnum>("tier");
             mission.DependsOnMissionId = row.NullableText("depends_on_mission_id");
             mission.StageOrder = row.NullableInt("stage_order");
+            mission.StageChainId = row.NullableText(MissionStageChainSchema.Column);
             mission.PreferredModel = row.NullableText("preferred_model");
             mission.CapabilityHint = row.NullableText("capabilityhint");
             mission.Mode = MissionModes.Parse(row.NullableText("mission_mode"));
@@ -100,6 +101,7 @@ namespace Armada.Core.Database
         internal static void Write(StoredParameters parameters, Mission mission)
         {
             if (mission.Tier.HasValue && !System.Enum.IsDefined(mission.Tier.Value)) throw new System.ArgumentOutOfRangeException(nameof(mission), "Mission tier is not a defined member.");
+            Armada.Core.Services.MissionAssignmentHold.ReleaseWhenCancelled(mission);
             parameters
                 .Text("id", mission.Id)
                 .Text("tenant_id", mission.TenantId)
@@ -128,6 +130,7 @@ namespace Armada.Core.Database
                 .Text("persona", mission.Persona)
                 .Text("depends_on_mission_id", mission.DependsOnMissionId)
                 .Int("stage_order", mission.StageOrder)
+                .Text(MissionStageChainSchema.Column, mission.StageChainId)
                 .Text("failure_reason", mission.FailureReason)
                 .Utc("reconciled_utc", mission.ReconciledUtc)
                 .Text("reconciled_reason", mission.ReconciledReason)

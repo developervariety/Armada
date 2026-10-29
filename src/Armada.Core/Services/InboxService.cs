@@ -14,7 +14,7 @@ namespace Armada.Core.Services
     /// Builds the operator's inbox: a single consolidated list of items across the fleet that require a
     /// human's attention or action, ordered most-urgent first. Two kinds of item qualify:
     ///
-    /// - Awaiting your decision (human-in-the-loop): a mission in Review, a Judge PASS held for operator
+    /// - Awaiting your decision (human-in-the-loop): a mission waiting on a review decision, a Judge PASS held for operator
     ///   review, or a deployment pending approval.
     /// - Failed and needs intervention (autonomous work that could not finish on its own): a failed
     ///   mission or a mission whose work could not land (while its voyage is still live), an open
@@ -39,6 +39,11 @@ namespace Armada.Core.Services
         /// Kind of the item that asks an operator to confirm a LandingFailed mission the landing sweep proved landed.
         /// </summary>
         public const string LandingReconcileKind = "landing_reconcile";
+
+        /// <summary>
+        /// Kind of the item for a Failed merge entry whose work is proven to be on the target branch.
+        /// </summary>
+        public const string MergeFailedDeliveredKind = "merge_failed_delivered";
 
         #endregion
 
@@ -164,7 +169,8 @@ namespace Armada.Core.Services
             try
             {
                 List<Mission> reviews = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
-                foreach (Mission mission in reviews.Take(_MaxPerCategory))
+                // A captain may report Review as progress; only a stage that requires review asks for a decision.
+                foreach (Mission mission in reviews.Where(MissionStateMachine.AwaitsReviewDecision).Take(_MaxPerCategory))
                 {
                     items.Add(new InboxItem
                     {
@@ -314,12 +320,16 @@ namespace Armada.Core.Services
                 List<MergeEntry> mergeFailed = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Failed, token).ConfigureAwait(false);
                 foreach (MergeEntry entry in mergeFailed.Take(_MaxPerCategory))
                 {
+                    // A failure whose work is proven to be on the target branch needs no rescue: it is context, not an alarm.
+                    bool delivered = entry.DeliveryEvidence != null;
                     items.Add(new InboxItem
                     {
-                        Kind = "merge_failed",
-                        Severity = InboxSeverityEnum.Critical,
-                        Title = "Merge failed: " + entry.TargetBranch,
-                        Detail = "A queued merge failed testing or landing and needs attention.",
+                        Kind = delivered ? MergeFailedDeliveredKind : "merge_failed",
+                        Severity = delivered ? InboxSeverityEnum.Info : InboxSeverityEnum.Critical,
+                        Title = (delivered ? "Merge failed, work already delivered: " : "Merge failed: ") + entry.TargetBranch,
+                        Detail = delivered
+                            ? "A queued merge failed, but its work is already on the target branch. " + entry.DeliveryEvidence!.Describe()
+                            : "A queued merge failed testing or landing and needs attention.",
                         EntityType = "merge_entry",
                         EntityId = entry.Id,
                         VesselIds = VesselsOf(entry.VesselId),

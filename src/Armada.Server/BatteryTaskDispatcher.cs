@@ -150,7 +150,7 @@ namespace Armada.Server
                 else if (dock.HostCheckout != null)
                     result.WorkspaceUnavailableReason = "The dock lives on a Harbor runner; battery grading runs only on worktrees on the Admiral host.";
                 else
-                    {
+                {
                     if (String.IsNullOrWhiteSpace(current.CommitHash) || String.IsNullOrWhiteSpace(request.Vessel.LocalPath))
                         result.WorkspaceUnavailableReason = "The completed mission has no recorded commit or local repository to grade.";
                     else if (!result.TimedOut && current.Status != MissionStatusEnum.Failed

@@ -146,6 +146,7 @@ namespace Armada.Core.Services
                 // reloaded count and memory floor are pushed to them here; a raised count or a lowered floor
                 // admits waiting commands at once.
                 HostWideCommandLock.SetSlotCount(_Settings.DefinitionOfDone.HostCommandSlots);
+                HostWideCommandLock.SetVesselSlotCount(_Settings.DefinitionOfDone.VesselSuiteSlots);
                 HostWideCommandLock.SetMemoryFloorMb(_Settings.DefinitionOfDone.HostCommandMemoryFloorMb);
                 _LastAppliedHash = hash;
                 result.Outcome = SettingsReloadOutcomeEnum.Applied;

@@ -31,16 +31,17 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_send_signal",
-                "Send a signal/message to a captain",
+                "Send a signal/message to a captain, or to a mission. Mail that names a mission reaches the captain that holds the mission now and follows the mission when it moves to another captain, so address a mission rather than a captain when the work matters more than who does it. The stored signal is returned. When the captain is running on a runtime that does not deliver mail mid-mission, the response includes Delivery=stored_until_next_launch and a reason that names the runtime.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        captainId = new { type = "string", description = "Target captain ID" },
+                        captainId = new { type = "string", description = "Target captain ID. Optional when missionId is given." },
+                        missionId = new { type = "string", description = "Target mission ID (msn_ prefix). The mail goes to the mission's current captain." },
                         message = new { type = "string", description = "Signal message" }
                     },
-                    required = new[] { "captainId", "message" }
+                    required = new[] { "message" }
                 },
                 async (args) =>
                 {
@@ -48,15 +49,15 @@ namespace Armada.Server.Mcp.Tools
                     string captainId = request.CaptainId;
                     string message = request.Message;
 
-                    // captainId is required. Without this guard an absent target deserializes to its
+                    // A recipient is required. Without this guard an absent target deserializes to its
                     // default and a signal addressed to no captain is stored while returning success.
-                    if (String.IsNullOrWhiteSpace(captainId))
+                    if (String.IsNullOrWhiteSpace(captainId) && String.IsNullOrWhiteSpace(request.MissionId))
                         return (object)new
                         {
-                            error = "armada_send_signal requires the captainId argument.",
+                            error = "armada_send_signal requires the captainId or missionId argument.",
                             code = "missing_captain",
-                            reason = "The captainId argument was absent or empty.",
-                            action = "Pass captainId naming the captain the signal is for."
+                            reason = "The captainId and missionId arguments were both absent or empty.",
+                            action = "Pass captainId naming the captain the signal is for, or missionId naming the mission."
                         };
 
                     // message is required. Without this guard an absent message deserializes to its
@@ -76,8 +77,23 @@ namespace Armada.Server.Mcp.Tools
                     Signal signal = new Signal(SignalTypeEnum.Mail, message);
                     signal.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(sendCaller);
                     signal.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(sendCaller);
-                    signal.ToCaptainId = captainId;
+                    signal.ToCaptainId = String.IsNullOrWhiteSpace(captainId) ? null : captainId;
+                    if (!String.IsNullOrWhiteSpace(request.MissionId))
+                    {
+                        Mission? addressed = await Armada.Core.Authorization.CallerScopedRead.ReadMissionAsync(database, sendCaller, request.MissionId).ConfigureAwait(false);
+                        if (addressed != null)
+                            MissionMailRouting.AddressToMission(signal, addressed);
+                        else
+                            return (object)new
+                            {
+                                error = "Mission not found: " + request.MissionId,
+                                code = "mission_not_found",
+                                reason = "No mission has the missionId argument as its identifier.",
+                                action = "Pass the identifier of an existing mission."
+                            };
+                    }
                     signal = await database.Signals.CreateAsync(signal).ConfigureAwait(false);
+                    signal = await SignalDelivery.AnnotateAsync(database, signal).ConfigureAwait(false);
                     return (object)signal;
                 });
 

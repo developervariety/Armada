@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Harbor;
+    using Armada.Core.Services.Interfaces;
 
     /// <summary>Routes worktree and reference mutations.</summary>
     public sealed partial class HostAwareGitService
@@ -87,6 +88,14 @@ namespace Armada.Core.Services
             request.MissionId = missionId;
             request.CommitMessage = message;
             return SendValueAsync(worktreePath, request, token, result => result.Snapshot ?? throw MissingResult("snapshot"));
+        }
+
+        /// <inheritdoc />
+        public Task<Armada.Core.Models.DockWorkRestore> ApplyDockWorkAsync(string worktreePath, string missionId, CancellationToken token = default)
+        {
+            if (IsRemote(worktreePath) || _Local is not IDockWorkSnapshotApplier applier)
+                return Task.FromResult(Armada.Core.Models.DockWorkRestore.NothingSaved());
+            return applier.ApplyDockWorkAsync(worktreePath, missionId, token);
         }
     }
 }

@@ -98,8 +98,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Why the assignment pass is holding this Pending mission back from a captain, as a reason code from
         /// <see cref="Armada.Core.Services.MissionAssignmentHold"/>. Null when nothing holds it. The assignment pass
-        /// clears it when it releases the hold; a mission that leaves Pending another way, such as a cancel, keeps
-        /// the last hold it recorded.
+        /// clears it when it releases the hold, and storing a Cancelled mission clears it too.
         /// </summary>
         public string? AssignmentHoldReason { get; set; } = null;
 
@@ -226,6 +225,23 @@ namespace Armada.Core.Models
         /// independently of each other.
         /// </summary>
         public int? StageOrder { get; set; } = null;
+
+        /// <summary>
+        /// Identity shared by every stage one mission description expands into, or null for a mission
+        /// that did not come from a pipeline expansion. The parallel-stage barrier waits only on
+        /// siblings that carry the same identity, so independent root chains of one voyage never
+        /// hold each other's reviewers. A row without an identity keeps the grouping on voyage,
+        /// upstream dependency and stage order alone.
+        /// </summary>
+        public string? StageChainId { get; set; } = null;
+
+        /// <summary>
+        /// Creates a new stage chain identity for one mission description's pipeline expansion.
+        /// </summary>
+        public static string NewStageChainId()
+        {
+            return "stc_" + Guid.NewGuid().ToString("N");
+        }
 
         /// <summary>
         /// Optional captain Model filter for mission assignment. When set, dispatch
@@ -459,6 +475,19 @@ namespace Armada.Core.Models
         /// been emitted or when the payload is unreadable.
         /// </summary>
         public PromptBudgetSummary? PromptBudget { get; set; } = null;
+
+        /// <summary>
+        /// How a brief edit reaches a running captain. Set on an update response only; not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Delivery { get; set; } = null;
+
+        /// <summary>
+        /// Why <see cref="Delivery"/> has that value, naming the runtime when a brief edit is stored
+        /// until the next launch. Set on an update response only; not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? DeliveryReason { get; set; } = null;
 
         #endregion
 

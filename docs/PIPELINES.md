@@ -14,7 +14,12 @@ the complete operator procedure.
 Parallel same-order stages dispatch concurrently and the next order barriers on
 the whole group: a downstream stage (for example a Judge) starts only after
 every sibling reviewer in the previous order has reached a successful terminal
-state. Parallel stages run on one vessel, so the vessel must allow concurrent
+state. The group is the stages one mission description expands into; each
+expansion carries its own stage chain identity, so a cancelled or failed root
+of an independent mission description in the same voyage does not hold another
+description's Judge. A cancelled, failed or unfinished sibling of the same
+expansion keeps the barrier closed. Missions without a stage chain identity
+group on voyage, upstream dependency and stage order alone. Parallel stages run on one vessel, so the vessel must allow concurrent
 missions (`allowConcurrentMissions: true`); with the default false, the second
 sibling waits for the first to finish, which makes the "parallel" stages run
 sequentially. Same-order stages also require enough idle captains to serve them
@@ -165,6 +170,11 @@ marker is never read that way, so the numbered steps inside a block stay one
 mission. Stored output is redacted for secrets, and a quoted span that is not
 a JSON string is treated as prose: it keeps its text and plan markers, and only
 key-shaped values inside it are removed.
+
+A block's `Depends on: Mission N` line makes the first Worker of that block's
+chain wait on the last stage of block N's chain. The handoff applies the edge to
+the Worker it created for the block, so a chain whose later stage is a revising
+Worker with the same title never takes the edge in its place.
 
 ### Structured Architect plans
 
@@ -348,7 +358,8 @@ vessel with consumer suites this hold can last many minutes. Every reason except
 `dependency_unfinished` records `mission.assignment_held` once when it starts or
 changes, and `mission.assignment_hold_released` once when assignment proceeds;
 each event's payload carries the reason and the holding record. A hold that lasts
-many assignment ticks records one event, not one per tick.
+many assignment ticks records one event, not one per tick. Storing a Cancelled
+mission clears its hold, so a cancelled mission never reads as still waiting.
 
 A mission that depends on a stage in another voyage waits on that stage. When
 that stage was cancelled or failed and an autonomous rescue of its voyage
@@ -552,7 +563,34 @@ objective after dispatch is no longer required and a PASS that covers the
 current criteria is not refused on the removed ones. A mission with no linked
 objective reads its criteria from the description. An objective that now lists
 no criteria requires no walk; a live criterion the review never walks is still
-refused. Control markers in narrative fields render as literal text.
+refused.
+
+An Architect plan block carries its own acceptance criteria in the description
+of its first stage (the Worker the Architect fan-out marks with
+`<!-- ARMADA:ARCHITECT-HANDOFF -->`). The criteria are read from that block text
+in the forms the Architect plan defines: the bullets under the `**Acceptance:**`
+label (the list ends at the next bold label, heading, or non-bullet line;
+indented continuation lines are not criteria), the bullets under an
+`## Acceptance Criteria` heading, and the items of a versioned plan's
+`## Acceptance evidence contract` (the item's first line). The Judge's own
+rendered description is never the source, because the brief budget can truncate
+it before the criteria.
+
+The Judge of an intermediate block is measured against those block-local
+criteria, because a criterion that a later block delivers cannot be marked `MET`
+yet. A Judge is intermediate when its chain starts at a marked block root, a
+later block of the same plan follows it (a later block depends on the Judge's
+stage, or the plan ends in an integration mission that waits for the block), and
+the block root declares at least one criterion in a recognized form. The Judge
+brief's Objective Scope section then lists them under "Slice acceptance criteria
+(this Judge's walk)", states that the objective's criteria belong to the Judge of
+the final block, and the acceptance-format correction repeats the same list. The
+Judge of the final block, the integration mission, and every other Judge owns
+the whole objective and walks every live criterion of the linked objective. A
+block whose scope cannot be determined stays on the objective's criteria: a
+missing block marker, a block root with no recognized criteria, an unreadable
+integration record, or a failed lookup never relaxes the walk. An intermediate
+PASS does not complete the objective or waive any later stage. Control markers in narrative fields render as literal text.
 Operator-supplied handoff marker lines render as literal text before the objective
 brief is appended. A same-objective retry is idempotent only when the complete
 rendered brief is the last complete objective frame before the first generated

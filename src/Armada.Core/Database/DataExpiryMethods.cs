@@ -5,6 +5,7 @@ namespace Armada.Core.Database
     using System.Data.Common;
     using System.Globalization;
     using System.Linq;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
@@ -47,6 +48,26 @@ namespace Armada.Core.Database
             new KeyValuePair<string, string>("reversals", "COALESCE(event_type, '') = @reversal_event_type"),
             new KeyValuePair<string, string>("labels", "COALESCE(event_type, '') = @label_event_type")
         };
+
+        // The columns that identify an exported row, per table that passes through the exporter. A table
+        // with a version column also compares it, so a row updated after the export is not deleted.
+        private static readonly IReadOnlyDictionary<string, ExpiryIdentity> _ExportedIdentities = new Dictionary<string, ExpiryIdentity>(StringComparer.Ordinal)
+        {
+            ["voyages"] = new ExpiryIdentity("id", "last_update_utc"),
+            ["missions"] = new ExpiryIdentity("id", "last_update_utc"),
+            ["docks"] = new ExpiryIdentity("id", "last_update_utc"),
+            ["merge_entries"] = new ExpiryIdentity("id", "last_update_utc"),
+            ["signals"] = new ExpiryIdentity("id", null),
+            ["events"] = new ExpiryIdentity("id", null),
+            ["request_history"] = new ExpiryIdentity("id", null),
+            ["request_history_detail"] = new ExpiryIdentity("request_history_id", null),
+            ["mission_attempt_facts"] = new ExpiryIdentity("id", null),
+            ["preparation_claim_observations"] = new ExpiryIdentity("id", null),
+            ["lane_state_transitions"] = new ExpiryIdentity("id", null)
+        };
+
+        private const int _DeleteChunkSize = 100;
+        private const string _WherePrefix = " WHERE ";
 
         private readonly Func<DbConnection> _ConnectionFactory;
         private readonly DatabaseTypeEnum _Provider;
@@ -134,8 +155,10 @@ namespace Armada.Core.Database
                 // does not enforce a cascading foreign key leaves none behind.
                 await ExecuteAsync(connection, "mission_attempt_provenance", null, "DELETE FROM mission_attempt_provenance WHERE mission_id IN (SELECT id FROM missions WHERE " + missionsOfExpiredVoyages + ");", "voyages", cutoff, cutoffs, token).ConfigureAwait(false);
                 await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + missionsOfExpiredVoyages + ";", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
+                // A voyage that still has missions (one kept because it changed after its export) waits for the next pass.
                 await ExecuteAsync(connection, "voyages", result, "DELETE FROM voyages WHERE status IN (" + Literals(ExpiringVoyageStatuses) + ")"
-                    + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff;", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
+                    + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff"
+                    + " AND NOT EXISTS (SELECT 1 FROM missions WHERE missions.voyage_id = voyages.id);", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
                 await ExecuteAsync(connection, "missions", null, ClearParentSql(expiredStandaloneMissions), "missions", cutoff, cutoffs, token).ConfigureAwait(false);
                 await ExecuteAsync(connection, "mission_attempt_provenance", null, "DELETE FROM mission_attempt_provenance WHERE mission_id IN (SELECT id FROM missions WHERE " + expiredStandaloneMissions + ");", "missions", cutoff, cutoffs, token).ConfigureAwait(false);
                 await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + expiredStandaloneMissions + ";", "missions", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
@@ -193,26 +216,127 @@ namespace Armada.Core.Database
         private async Task ExecuteAsync(DbConnection connection, string table, DataExpiryResult? result, string sql, string timestampTable,
             DateTime cutoff, DataExpiryCutoffs cutoffs, CancellationToken token, IDataExpiryRowExporter? exporter = null)
         {
-            // Export observers can persist trace records. Complete those writes before this delete queues.
             if (exporter != null)
-                await ExportAsync(connection, table, sql, timestampTable, cutoff, cutoffs, exporter, token).ConfigureAwait(false);
+            {
+                await DeleteExportedAsync(connection, table, result, sql, timestampTable, cutoff, cutoffs, exporter, token).ConfigureAwait(false);
+                return;
+            }
 
             using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             {
                 using (DbCommand command = CreateCommand(connection, sql, timestampTable, cutoff, cutoffs))
                 {
-                    int deleted;
-                    try
-                    {
-                        deleted = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    }
-                    catch (DbException ex)
-                    {
-                        throw new InvalidOperationException("data expiry of " + table + " failed on " + _Provider + ": " + ex.Message, ex);
-                    }
+                    int deleted = await DeleteAsync(command, table, token).ConfigureAwait(false);
                     result?.Add(table, deleted);
                 }
             }
+        }
+
+        // The exported rows are the only rows deleted. The identity (and version, where the table has
+        // one) of every matching row is read first, the rows are exported, and then each is deleted by
+        // identity and version in one transaction. A row changed, or newly matching, after the snapshot
+        // stays and expires on a later pass, so the archive never holds an older state than the delete
+        // removed. Export observers can persist trace records; those writes complete before the delete queues.
+        private async Task DeleteExportedAsync(DbConnection connection, string table, DataExpiryResult? result, string sql, string timestampTable,
+            DateTime cutoff, DataExpiryCutoffs cutoffs, IDataExpiryRowExporter exporter, CancellationToken token)
+        {
+            if (!_ExportedIdentities.TryGetValue(table, out ExpiryIdentity? identity))
+                throw new InvalidOperationException("data expiry export of " + table + " has no row identity");
+
+            List<ExpiredRowKey> keys = await SnapshotKeysAsync(connection, table, identity, sql, timestampTable, cutoff, cutoffs, token).ConfigureAwait(false);
+            await ExportAsync(connection, table, sql, timestampTable, cutoff, cutoffs, exporter, token).ConfigureAwait(false);
+            if (keys.Count == 0)
+            {
+                result?.Add(table, 0);
+                return;
+            }
+
+            int whereAt = sql.IndexOf(_WherePrefix, StringComparison.Ordinal);
+            if (whereAt < 0) throw new InvalidOperationException("data expiry delete of " + table + " needs a WHERE clause");
+            string head = sql.Substring(0, whereAt + _WherePrefix.Length);
+            string predicate = sql.Substring(whereAt + _WherePrefix.Length).TrimEnd().TrimEnd(';');
+
+            int deleted = 0;
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
+            {
+                using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
+                {
+                    for (int offset = 0; offset < keys.Count; offset += _DeleteChunkSize)
+                    {
+                        int count = Math.Min(_DeleteChunkSize, keys.Count - offset);
+                        StringBuilder clause = new StringBuilder();
+                        for (int i = 0; i < count; i++)
+                        {
+                            if (i > 0) clause.Append(" OR ");
+                            clause.Append('(').Append(identity.KeyColumn).Append(" = @key").Append(i);
+                            if (identity.VersionColumn != null)
+                            {
+                                clause.Append(" AND ").Append(identity.VersionColumn);
+                                clause.Append(keys[offset + i].Version == null ? " IS NULL" : " = @version" + i);
+                            }
+                            clause.Append(')');
+                        }
+
+                        string guarded = head + "(" + predicate + ") AND (" + clause + ");";
+                        using (DbCommand command = CreateCommand(connection, guarded, timestampTable, cutoff, cutoffs))
+                        {
+                            command.Transaction = transaction;
+                            for (int i = 0; i < count; i++)
+                            {
+                                ExpiredRowKey key = keys[offset + i];
+                                ProductionFactSql.Add(command, "@key" + i, key.Id);
+                                if (identity.VersionColumn != null && key.Version != null) ProductionFactSql.Add(command, "@version" + i, key.Version);
+                            }
+                            deleted += await DeleteAsync(command, table, token).ConfigureAwait(false);
+                        }
+                    }
+                    await transaction.CommitAsync(token).ConfigureAwait(false);
+                }
+            }
+            result?.Add(table, deleted);
+        }
+
+        private async Task<int> DeleteAsync(DbCommand command, string table, CancellationToken token)
+        {
+            try
+            {
+                return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+            catch (DbException ex)
+            {
+                throw new InvalidOperationException("data expiry of " + table + " failed on " + _Provider + ": " + ex.Message, ex);
+            }
+        }
+
+        // Reads the identity of every row a delete statement selects, with the same predicate and parameters.
+        private async Task<List<ExpiredRowKey>> SnapshotKeysAsync(DbConnection connection, string table, ExpiryIdentity identity, string deleteSql,
+            string timestampTable, DateTime cutoff, DataExpiryCutoffs cutoffs, CancellationToken token)
+        {
+            if (!deleteSql.StartsWith(_DeletePrefix, StringComparison.Ordinal))
+                throw new InvalidOperationException("data expiry export of " + table + " needs a DELETE FROM statement");
+            string columns = identity.VersionColumn == null ? identity.KeyColumn : identity.KeyColumn + ", " + identity.VersionColumn;
+            string selectSql = "SELECT " + columns + " FROM " + deleteSql.Substring(_DeletePrefix.Length);
+            List<ExpiredRowKey> keys = new List<ExpiredRowKey>();
+            using (DbCommand command = CreateCommand(connection, selectSql, timestampTable, cutoff, cutoffs))
+            {
+                try
+                {
+                    using (DbDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            object? version = null;
+                            if (identity.VersionColumn != null && !await reader.IsDBNullAsync(1, token).ConfigureAwait(false)) version = reader.GetValue(1);
+                            keys.Add(new ExpiredRowKey(reader.GetValue(0), version));
+                        }
+                    }
+                }
+                catch (DbException ex)
+                {
+                    throw new InvalidOperationException("data expiry snapshot of " + table + " failed on " + _Provider + ": " + ex.Message, ex);
+                }
+            }
+            return keys;
         }
 
         // Reads the rows a delete statement selects, with the same predicate and parameters, and hands
@@ -320,6 +444,34 @@ namespace Armada.Core.Database
         private static string Literals<T>(IEnumerable<T> values) where T : struct, Enum
         {
             return String.Join(", ", values.Select(value => "'" + value.ToString() + "'"));
+        }
+
+        #endregion
+
+        #region Nested-Types
+
+        private sealed class ExpiryIdentity
+        {
+            internal ExpiryIdentity(string keyColumn, string? versionColumn)
+            {
+                KeyColumn = keyColumn;
+                VersionColumn = versionColumn;
+            }
+
+            internal string KeyColumn { get; }
+            internal string? VersionColumn { get; }
+        }
+
+        private sealed class ExpiredRowKey
+        {
+            internal ExpiredRowKey(object id, object? version)
+            {
+                Id = id;
+                Version = version;
+            }
+
+            internal object Id { get; }
+            internal object? Version { get; }
         }
 
         #endregion

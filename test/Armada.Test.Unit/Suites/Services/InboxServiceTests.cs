@@ -22,24 +22,33 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("GetInboxAsync surfaces a Review mission", async () =>
+            await RunTest("GetInboxAsync lists a Review mission only when its stage requires a review decision", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Mission mission = new Mission("Review me")
                     {
-                        Status = MissionStatusEnum.Review
+                        Status = MissionStatusEnum.Review,
+                        RequiresReview = true,
+                        ReviewRequestedUtc = DateTime.UtcNow
                     };
                     await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    // A captain reported Review as progress on a stage that asks for no review.
+                    Mission progress = new Mission("Still working")
+                    {
+                        Status = MissionStatusEnum.Review
+                    };
+                    await testDb.Driver.Missions.CreateAsync(progress).ConfigureAwait(false);
 
                     InboxService service = CreateService(testDb.Driver);
                     List<InboxItem> items = await service.GetInboxAsync().ConfigureAwait(false);
 
-                    InboxItem? review = items.FirstOrDefault(item => item.Kind == "review");
-                    AssertNotNull(review, "a review mission must produce a review inbox item");
-                    AssertEqual("Review: Review me", review!.Title);
-                    AssertEqual(mission.Id, review.EntityId);
-                    AssertEqual("/missions/" + mission.Id, review.Href);
+                    List<InboxItem> reviews = items.Where(item => item.Kind == "review").ToList();
+                    AssertEqual(1, reviews.Count, "only the mission whose stage requires review waits on a review decision");
+                    AssertEqual("Review: Review me", reviews[0].Title);
+                    AssertEqual(mission.Id, reviews[0].EntityId);
+                    AssertEqual("/missions/" + mission.Id, reviews[0].Href);
+                    AssertFalse(items.Any(item => item.EntityId == progress.Id), "Review reported as progress is not an operator action");
                 }
             });
 
@@ -344,7 +353,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Mission review = new Mission("Review this")
                     {
-                        Status = MissionStatusEnum.Review
+                        Status = MissionStatusEnum.Review,
+                        RequiresReview = true
                     };
                     await testDb.Driver.Missions.CreateAsync(review).ConfigureAwait(false);
 
@@ -377,7 +387,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(settings.Database).ConfigureAwait(false))
                 {
                     for (int i = 1; i <= 3; i++)
-                        await driver.Missions.CreateAsync(new Mission("Review me " + i) { Status = MissionStatusEnum.Review }).ConfigureAwait(false);
+                        await driver.Missions.CreateAsync(new Mission("Review me " + i) { Status = MissionStatusEnum.Review, RequiresReview = true }).ConfigureAwait(false);
                     AuthContext auth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "UnitTest");
                     await new IncidentService(driver).CreateAsync(auth, new IncidentUpsertRequest
                     {

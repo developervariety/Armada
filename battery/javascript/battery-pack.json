@@ -9,6 +9,7 @@
     "path": "fixture",
     "defaultBranch": "main"
   },
+  "unitTestCommand": "npm test",
   "toolchain": [
     {
       "name": "node",

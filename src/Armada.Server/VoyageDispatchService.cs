@@ -1476,6 +1476,7 @@ namespace Armada.Server
                 string baseTitle = md.Title.Length > 60 ? md.Title.Substring(0, 60).TrimEnd() + "..." : md.Title;
                 string? previousOrderLastMissionId = null;
                 string? lastStageMissionId = null;
+                string stageChainId = Mission.NewStageChainId();
 
                 IOrderedEnumerable<IGrouping<int, PipelineStage>> stageGroups =
                     pipeline!.Stages.GroupBy(s => s.Order).OrderBy(g => g.Key);
@@ -1502,6 +1503,7 @@ namespace Armada.Server
                         // would let a Judge review a diff its parallel sibling reviewers had not
                         // finished contributing to.
                         stageMission.StageOrder = stage.Order;
+                        stageMission.StageChainId = stageChainId;
                         stageMission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
                             stage.PreferredModel,
                             md.PreferredModel,

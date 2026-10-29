@@ -103,8 +103,9 @@ namespace Armada.Test.Database
                     await conn.OpenAsync(token).ConfigureAwait(false);
                     foreach (object[] row in later)
                     {
-                        // The recreated historical table lacks this column; its upgrade must run again.
-                        if (Convert.ToInt32(row[0]) == _ObjectiveLinkVersion) continue;
+                        // The recreated historical table predates the objective link, so the ledger holds no version from
+                        // that upgrade on; those upgrades run again, as they would on a database of that age.
+                        if (Convert.ToInt32(row[0]) >= _ObjectiveLinkVersion) continue;
                         using (NpgsqlCommand restore = new NpgsqlCommand("INSERT INTO schema_migrations (version, description, applied_utc) VALUES (@version, @description, @applied_utc) ON CONFLICT (version) DO NOTHING;", conn))
                         {
                             restore.Parameters.AddWithValue("@version", row[0]);

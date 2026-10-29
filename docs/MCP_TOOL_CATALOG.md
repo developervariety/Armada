@@ -28,7 +28,9 @@ intervention from the operator, ordered most-urgent first. It answers "is there
 anything waiting on me?" in one call instead of polling each entity. Three kinds
 of item qualify:
 
-- **Human-in-the-loop**: a mission in Review to approve or reject, a Judge PASS
+- **Human-in-the-loop**: a mission in Review whose stage requires review, to
+  approve or reject (a captain may report Review as progress on a stage without
+  a review gate; that mission is not listed), a Judge PASS
   held for operator review (`judge_pass_held`; resolve it with
   `armada_review_hold`), a stage handoff held by the `handoff_outcome` hold
   (`handoff_outcome_hold`; resolve it with `armada_handoff_hold`), or a
@@ -107,6 +109,11 @@ expiry and offer **Quarantine** and **Lift Quarantine**.
 | --- | --- |
 | Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_mission_change_summary` (caller-scoped; the stage's recorded commit pair, no dock), `armada_mission_attempts` (caller-scoped; captain, runtime, model, runtime version and outcome of each attempt), `armada_get_mission_log`, `armada_battery_packs`, `armada_battery_runs`, `armada_battery_run` (global administrators; fixture battery packs and runs) |
 | Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26), `armada_review_hold` (`action=fail`), `armada_handoff_hold` (`action=rescue`) |
+
+When `armada_update_mission` changes the description of a running mission (Assigned or InProgress) on a runtime
+that does not apply a brief mid-mission, the result includes `Delivery` `stored_until_next_launch` and a
+`DeliveryReason` that names the runtime. REST `PUT /api/v1/missions/{id}` and WebSocket `update_mission` return
+the same notice. The stored description is used at the next launch.
 | Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_review_hold` (`action=clear` lands or hands off the held PASS), `armada_handoff_hold` (`action=release` or `mail_release` hands off the held stage) |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
@@ -302,8 +309,8 @@ presence default; a deploy with verification finishes well inside that). It
 wakes every active session and posts a board note naming the stale owner, the
 recorded reason, the set time and the measured absence, then clears once and
 persists. An unattributed pause is refused and stays an operator's to clear.
-The dispatch hold is never touched: it clears itself on a successful redeploy,
-so a hold that survives is a deploy that stopped halfway and needs a human.
+The dispatch hold is never touched: only `armada_dispatch_hold action=clear`
+releases it.
 Pass `dryRun=true` to read the decision and evidence without acting. Scheduler dispatches use the same Build and
 UnitTest Check arming path as operator dispatches. A dispatch hold blocks both.
 The Admiral also requests a debounced immediate sweep when an eligible objective
@@ -321,9 +328,12 @@ campaign quality and handle work outside the scheduler.
 | --- | --- |
 | Read | `get_check_run` |
 | Write | `resolve_check`, `armada_resolve_check` |
-| Execute | `run_check`, `retry_check_run` |
+| Execute | `run_check`, `retry_check_run`, `armada_suite_lease` |
 
 `armada_resolve_check` is a compatibility alias for `resolve_check`.
+`armada_suite_lease` is a mission-credential tool: acquire the same per-vessel
+and host-wide full-suite slots the gate and armed checks use before a captain
+full-suite run, then release them. See [MCP API](MCP_API.md).
 
 `run_check`, `retry_check_run`, `get_check_run`, and `resolve_check` (with its
 `armada_resolve_check` alias) return a BOUNDED view of a check run, not the
@@ -400,7 +410,21 @@ Pass `includeHandled: true` to list every item, each with its `Handled` marker
 | --- | --- |
 | Read | `armada_get_dock`, `armada_list_papercuts`, `armada_list_memory_proposals` |
 | Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read`, `armada_repair_dock`, `armada_dismiss_memory_proposal`, `armada_promote_memory_proposal` |
+
+`armada_send_signal` stores the Mail and returns it. When the recipient captain is running (Working or Stalled) on
+a runtime that does not inject mail into a live process, the result includes `Delivery` `stored_until_next_launch`
+and a `DeliveryReason` that names the runtime. Every shipped runtime is in that class. REST `POST /api/v1/signals`
+and WebSocket `send_signal` return the same notice. Mail is not a new channel: the captain reads stored mail at
+the next launch.
 | Destructive | `armada_delete_dock`, `armada_purge_dock`, `armada_unstick_dock`, `armada_delete_docks`, `armada_delete_signals`, `armada_delete_event`, `armada_delete_events` |
+
+`armada_send_signal` takes `captainId`, `missionId`, or both. Mail that names a
+mission goes to the captain that holds the mission when it is sent, and unread
+mail of a mission moves to the next captain when the mission is assigned to a
+different one. A mission with no captain yet leaves the mail without a recipient
+until its next captain takes the mission. When a mission moves to a different
+captain, the Admiral posts one `[reassigned]` system note on the coordination
+board naming the mission and both captains.
 
 #### Coordination Board (Chatroom)
 
@@ -719,8 +743,10 @@ deployment names a different candidate, or when the environment's
 
 The hold is fleet-wide: while it is engaged every new dispatch is refused,
 whichever session or scheduler asks, and in-flight voyages continue. Engage it
-with a reason before an Admiral rebuild; a successful restart clears it by
-design. `setBy` names the session that engaged it; without it the hold takes
+with a reason before an Admiral rebuild. The hold is stored in the database:
+a restart restores it before any dispatch path runs and posts one system note
+on the coordination board naming its reason and setter, and it stays engaged
+until `action=clear`. `setBy` names the session that engaged it; without it the hold takes
 the caller's participant board name, then the name of the credential the call
 authenticated with, and an engage that carries neither is refused. Hold changes require an authorized operator.
 
@@ -1220,6 +1246,17 @@ in it holds nothing a snapshot can save and is removed as before. Both events
 appear in the mission recovery report. Every completed reclaim also records
 `dock.reclaimed`, naming the calling code path, the dock's mission and the
 mission's status at that moment.
+
+A mission that continues a preserved branch -- a stage with an inherited branch, or a
+reassigned root mission -- gets the newest saved work back: after its checkout is
+provisioned and its base is verified, the work is applied as uncommitted changes
+(edits, deletions and new files) and no commit is made. The work is applied only
+when the new checkout is clean and its HEAD is the commit the saved work was made
+on. `mission.work_snapshot_applied` records the resume. When the work is not applied
+-- the checkout is on another commit, or the apply conflicts -- the checkout is left
+unchanged, `mission.work_snapshot_skipped` names the reason, and one `[work not
+restored]` note on the coordination board names the `recover/` ref that still holds
+the work. A mission with no saved work records nothing.
 
 Both families use one retention rule. The sweep keeps an anchor in these cases:
 

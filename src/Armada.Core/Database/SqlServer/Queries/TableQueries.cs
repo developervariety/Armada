@@ -1034,7 +1034,10 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(133, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.SqlServerStatements),
                 new SchemaMigration(134, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.SqlServerStatements),
                 new SchemaMigration(135, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.SqlServerStatements),
-                new SchemaMigration(136, "Persist fixture battery runs", BatteryRunSchema.SqlServerStatements)
+                new SchemaMigration(136, "Persist fixture battery runs", BatteryRunSchema.SqlServerStatements),
+                new SchemaMigration(137, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.SqlServerStatements.Concat(SignalMissionSchema.SqlServerStatements).ToArray()),
+                new SchemaMigration(138, "Persist the delivery proof of a failed merge entry", MergeDeliveryPersistence.SqlServerStatements),
+                new SchemaMigration(139, "Persist the stage chain identity that scopes the parallel-stage barrier", MissionStageChainSchema.SqlServerStatements)
             };
         }
 

@@ -12,6 +12,103 @@ upstream integrations and excludes changes already present at that baseline.
 - Campaign status reports unresolved scope and missing completion evidence across the full descendant tree. Objective updates refuse premature parent completion and retain the acceptance criteria for evidence review.
 - Objective saves and legacy-row repair move incomplete preflight rows out of ReadyForDispatch without changing their rank, priority or dependencies. A readiness event records why the label changed.
 
+### Review inbox items
+
+- The inbox `review` item and the `approval-needed` WebSocket broadcast list a mission in Review only when its stage requires review, the same rule approve and deny apply. A captain that reports Review as progress on a stage without a review gate no longer produces an "Awaiting your review" item.
+
+### Architect slice Judge acceptance scope
+
+- A Judge that reviews an intermediate Architect block is measured against that block's own acceptance criteria, read from the block's first stage (the `**Acceptance:**` list, an `## Acceptance Criteria` list, or a versioned `## Acceptance evidence contract`), instead of the whole linked objective's, so a correct intermediate review is not refused for criteria a later block delivers. The Judge brief and the acceptance-format correction list those criteria. The Judge of the final block, the integration mission, and any block whose scope cannot be determined still walk every live criterion of the linked objective.
+
+### Architect dependencies on revising chains
+
+- A `Depends on: Mission N` edge moves the first Worker of the dependent block's chain, never a revising Worker with the same title later in that chain, on every database provider.
+
+### Mission mail and captain changes
+
+- `armada_send_signal` and `POST /api/v1/signals` accept a `missionId`. Mail that names a mission goes to the captain that holds the mission, and its unread mail moves to the next captain when the mission is assigned to a different one, so mail no longer reaches the wrong mission after a restart swaps captains. Migrations: SQLite 141, PostgreSQL 146, MySQL 134, SQL Server 137 (shared with the dispatch hold table).
+
+- A mission assigned to a different captain than its previous attempt posts one `[reassigned]` system note on the coordination board naming the mission and both captains.
+
+- A mission that continues a preserved branch (a stage with an inherited branch, or a reassigned root mission) gets its newest saved `recover/<missionId>-<n>` work back as uncommitted changes in the rebuilt checkout, with no commit. Work saved on a different commit than the new checkout's HEAD is not applied; `mission.work_snapshot_applied` or `mission.work_snapshot_skipped` records the outcome and a skip posts one `[work not restored]` board note. No migration.
+
+### Dispatch hold across restarts
+
+- The dispatch hold is stored in the database and restored at startup before any dispatch path runs. A restart no longer opens dispatch while a hold is engaged. A restored hold posts one system note on the coordination board naming its reason and setter, and it stays engaged until `armada_dispatch_hold action=clear`. Migrations: SQLite 141, PostgreSQL 146, MySQL 134, SQL Server 137.
+
+### Delivered Judge holds
+
+- A Judge held for its independent Checks, either a PASS or a NEEDS_REVISION, completes without a re-run when its reviewed commit is already on `origin/<default branch>` or a commit there carries its exact `Armada-Mission-Id` trailer, using the landing sweep's proof. The decision records `delivered` on `mission.check_hold_decided`, and the voyage ends by the ordinary completion rule, so it no longer holds a sibling-lane slot.
+
+### Failed merges with delivered work
+
+- The landing sweep also checks a rotating page of `Failed` merge entries per cycle. When the entry's mission commit is an ancestor of `origin/<target branch>`, or a commit there carries the mission's exact `Armada-Mission-Id` trailer, it stores the evidence on the entry (`DeliveryEvidence`, a new `merge_entries.delivery_evidence` column) and records `merge.delivery_proven`. The entry keeps its `Failed` outcome. The inbox lists it as an `Info` item of kind `merge_failed_delivered` with the evidence; an unproven entry stays a `Critical` `merge_failed` item.
+
+### Cancelled missions keep no assignment hold
+
+- Storing a Cancelled mission clears its assignment hold reason and holder, so a cancelled mission no longer reads as waiting on a dependency or a continuation dock.
+- A reassigned root mission whose saved branch holds no commit beyond its start ref (or the default branch) takes a fresh dock and branch instead of holding on `root_continuation_dock_missing`.
+
+### Parallel-stage barrier chain identity
+
+- Every pipeline expansion of a mission description stamps its stages with one persisted stage chain identity (SQLite migration 143, PostgreSQL 148, MySQL 136, SQL Server 139). The parallel-stage barrier waits only on siblings of the same chain, so a cancelled or failed independent root no longer holds another description's Judge in `parallel_stages_running`; unfinished, Failed, LandingFailed and Cancelled siblings of the same chain, and rows without an identity, still hold it.
+
+### Expiry export snapshots
+
+- Data expiry deletes only the rows it exported. A voyage, mission, dock or merge entry updated between its export and the delete, and any row that starts matching after the snapshot, stays for a later pass instead of being deleted with an older exported state. A voyage with remaining missions waits for the pass that deletes them.
+
+### Provider-failure retry docks
+
+- A provider safeguard block that continues a mission on an alternate runtime keeps the mission's active dock and saved branch, as credential and quota requeues already do, so the continuation resumes the saved work instead of cutting a fresh branch. A provider credential rejection (401) requeue has a regression test for the retained dock and worktree.
+
+### Report completion guard
+
+- A report-only Worker that names its pending reviews in one natural sentence is no longer failed as `report_incomplete`. The sentence can name the current pending roles, give the pending Revising Worker stage its own pending verb, and end with a semicolon and positive process statements (an artifact-only report, no tracked change in the checkouts, no copied body or restricted value). Every named role must still be an owned, Pending stage on the dependency path to the Judge. Unfinished current or earlier work, unowned, cancelled or missing roles and malformed clauses still fail the report.
+- A report-only Worker whose output is cut off no longer reaches `WorkProduced`. A captured stream that kept only its tail, or an output with no closing `[ARMADA:RESULT]` or `[ARMADA:VERDICT]` marker, fails as `report_incomplete` with the reason `stream_capture_limit` or `closing_marker_missing` and the last 200 characters of the output.
+- A named pending-review clause accepts only fixed process statements after its semicolon. A qualifier that admits unfinished work ("only this partial report exists") still blocks, and a closing marker counts with Markdown decoration but not inside a code fence.
+
+### Secret redaction
+
+- An unquoted labelled secret value (`token = ...`) stops at a comma, semicolon, closing bracket, brace or paren, so the delimiter and the text after it stay.
+- Redaction leaves an already redacted value (`token=[REDACTED]`) unchanged, so text redacted twice reads the same as text redacted once.
+
+### Objective completion time
+
+- Setting an objective to Completed stamps `CompletedUtc` on that transition. Leaving Completed clears it, so a later re-completion records the new time.
+
+### Captain credential rejection
+
+- A captain whose own runtime fails with HTTP 401 or an invalid credential is quarantined instead of remaining Idle.
+
+### Dispatch preflight
+
+- Question 2 matches deliverable phrasing, not a bare `report-only` token that names the code under change.
+- A high Q1 model reading is not raised when the Q1 citation fact passes and the model names no disputed claim.
+
+### SQL Server captain delete
+
+- Captain delete retries SQL Server deadlock error 1205 up to two more times, then surfaces the error.
+
+### Operator mail delivery notice
+
+- `armada_send_signal`, REST `POST /api/v1/signals` and WebSocket `send_signal` return `Delivery=stored_until_next_launch` and a reason that names the runtime when the recipient captain is running on a runtime that does not inject mail into a live process. Every shipped runtime is in that class. A description change on a running mission (`armada_update_mission`, REST `PUT /api/v1/missions/{id}`, WebSocket `update_mission`) returns the same notice. The stored mail or brief is used at the next launch; this is not a new delivery channel.
+
+### Planning token usage
+
+- A planning-session turn that reports runtime token usage writes a token-usage record through `TokenUsageCapture` with `source=planning`, the captain id and the session id.
+
+### Battery fixture workflow profile
+
+- Creating or reusing a battery fixture vessel writes a vessel-scoped default workflow profile named `battery-<pack id> fixture` with the pack's `buildCommand` and `unitTestCommand`. A pack with neither command is refused before launch with reason `pack_missing_workflow_commands`. The shipped `csharp` pack declares `dotnet build Inventory.sln` and `dotnet run --project tests/Inventory.Tests`; the shipped `javascript` pack declares `npm test`.
+
+### Definition-of-done host-fault re-run
+
+- When the definition-of-done gate fails as a host-fault Timeout (no failing tests) or as Infra with a signal or timeout, and the result is not a `HostLoadTimeout`, completion holds the produced work. The GateReruns sweep re-runs only the gate once, without relaunching the captain. A second host-fault records the existing failure.
+
+### Captain suite lease
+
+- Captains acquire `armada_suite_lease` around a full-suite run. The lease takes the same per-vessel and host-wide slots the definition-of-done gate and armed checks use. Defaults: one per vessel (`definitionOfDone.vesselSuiteSlots`), host-wide equal to `hostCommandSlots`. A wait records `captain.suite_lease_wait` and is not a stall. When the captain process exits or the mission ends, a held lease is released and a waiting acquire is cancelled, so the mission's own definition-of-done gate never waits on it.
+
 ### Battery result isolation
 
 - Battery waits for completion handling before grading and checks out the recorded result in a separate temporary workspace. Hidden grader overlays cannot change the captain's worktree or race its final checks.

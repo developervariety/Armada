@@ -980,6 +980,7 @@ namespace Armada.Test.Unit.Suites.Services
                         await service.GenerateClaudeMdAsync(codexDir, linter, vessel, codex);
                         string codexBrief = await File.ReadAllTextAsync(Path.Combine(codexDir, MissionPromptBuilder.GetInstructionsFileName(codex.Runtime.ToString())));
                         AssertContains("scripts/check.sh", codexBrief, "the Linter verifies with the repository check script");
+                        AssertContains("armada_suite_lease", codexBrief, "the Linter takes the suite lease around a full-suite run");
                         AssertContains("If you leave the tracked tree unchanged", codexBrief, "an unchanged Linter uses bounded review");
                         AssertContains("If you change any tracked file", codexBrief, "edits retain full repository verification");
                         AssertContains("Automatic DoD gates and required structured Checks remain required", codexBrief, "review guidance does not waive gates");
@@ -3784,6 +3785,8 @@ namespace Armada.Test.Unit.Suites.Services
                 string judgeSignals = SectionOf(judge.Content, "## Runtime Signals");
                 string architectSignals = SectionOf(architect.Content, "## Runtime Signals");
 
+                AssertContains("armada_suite_lease", worker.Content, "a Worker takes the suite lease around a full-suite run");
+                AssertContains("armada_suite_lease", judge.Content, "a Judge takes the suite lease around a full-suite run");
                 AssertContains("[ARMADA:RESULT] COMPLETE", workerSignals, "a Worker keeps its result signal");
                 AssertFalse(workerSignals.Contains("[ARMADA:VERDICT]", StringComparison.Ordinal), "a Worker brief carries no verdict signal");
                 AssertFalse(workerSignals.Contains("Architect missions", StringComparison.Ordinal), "a Worker brief carries no Architect signal rule");

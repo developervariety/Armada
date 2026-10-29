@@ -717,7 +717,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Update a mission")
-                .WithDescription("Updates the metadata fields the body names (Title, Description, Priority, BranchName, PrUrl, ParentMissionId, DependsOnMissionId, Persona); a field left out keeps its value, and an empty DependsOnMissionId or ParentMissionId clears the link. A changed link must name a mission visible to the caller; otherwise 404 and nothing changes. A different VesselId or VoyageId returns 409.")
+                .WithDescription("Updates the metadata fields the body names (Title, Description, Priority, BranchName, PrUrl, ParentMissionId, DependsOnMissionId, Persona); a field left out keeps its value, and an empty DependsOnMissionId or ParentMissionId clears the link. A changed link must name a mission visible to the caller; otherwise 404 and nothing changes. A different VesselId or VoyageId returns 409. When a description change targets a running mission on a runtime that does not apply a brief mid-mission, the response includes Delivery=stored_until_next_launch and a reason that names the runtime.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Mission>("Updated mission data", true))
                 .WithResponse(200, OpenApiJson.For<Mission>("Updated mission"))

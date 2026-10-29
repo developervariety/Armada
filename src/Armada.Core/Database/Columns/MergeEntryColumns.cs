@@ -1,6 +1,8 @@
 namespace Armada.Core.Database
 {
+    using System;
     using System.Data;
+    using System.Text.Json;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
@@ -54,6 +56,7 @@ namespace Armada.Core.Database
             entry.ConflictedFiles = row.TextOrNull("conflicted_files");
             entry.MergeFailureSummary = row.TextOrNull("merge_failure_summary");
             entry.DiffLineCount = row.Int("diff_line_count");
+            entry.DeliveryEvidence = ReadDeliveryEvidence(row.TextOrNull("delivery_evidence"));
             return entry;
         }
 
@@ -96,7 +99,22 @@ namespace Armada.Core.Database
                 .Text("merge_failure_class", entry.MergeFailureClass?.ToString())
                 .Text("conflicted_files", entry.ConflictedFiles)
                 .Text("merge_failure_summary", entry.MergeFailureSummary)
-                .Int("diff_line_count", entry.DiffLineCount);
+                .Int("diff_line_count", entry.DiffLineCount)
+                .Text("delivery_evidence", entry.DeliveryEvidence == null ? null : JsonSerializer.Serialize(entry.DeliveryEvidence));
+        }
+
+        // A value this version cannot read is no proof: the entry stays a failed merge that needs attention.
+        private static LandingReconcileEvidence? ReadDeliveryEvidence(string? stored)
+        {
+            if (String.IsNullOrWhiteSpace(stored)) return null;
+            try
+            {
+                return JsonSerializer.Deserialize<LandingReconcileEvidence>(stored);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
         }
     }
 }

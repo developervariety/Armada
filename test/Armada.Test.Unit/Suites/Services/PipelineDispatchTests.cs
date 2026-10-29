@@ -240,6 +240,66 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Each mission description expands into stages that share one chain identity distinct from every other description", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 4;
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 4;
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+
+                    Vessel vessel = new Vessel("stage-chain-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("StageChainDualJudge");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Alpha change", "Change alpha"),
+                        new MissionDescription("Beta change", "Change beta")
+                    };
+
+                    foreach (bool queued in new[] { false, true })
+                    {
+                        Voyage voyage = queued
+                            ? await admiralService.DispatchVoyageQueuedAsync("Stage chain voyage queued", "Test", vessel.Id, missions, pipeline.Id, null).ConfigureAwait(false)
+                            : await admiralService.DispatchVoyageAsync("Stage chain voyage", "Test", vessel.Id, missions, pipeline.Id).ConfigureAwait(false);
+                        List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                        AssertEqual(6, voyageMissions.Count, "two descriptions of three stages each");
+
+                        List<Mission> alpha = voyageMissions.Where(m => m.Title.EndsWith("Alpha change", StringComparison.Ordinal)).ToList();
+                        List<Mission> beta = voyageMissions.Where(m => m.Title.EndsWith("Beta change", StringComparison.Ordinal)).ToList();
+                        AssertEqual(3, alpha.Count, "alpha expands into three stages");
+                        AssertEqual(3, beta.Count, "beta expands into three stages");
+
+                        string? alphaChain = alpha[0].StageChainId;
+                        string? betaChain = beta[0].StageChainId;
+                        AssertFalse(String.IsNullOrEmpty(alphaChain), "every expanded stage carries a chain identity");
+                        AssertFalse(String.IsNullOrEmpty(betaChain), "every expanded stage carries a chain identity");
+                        AssertTrue(alpha.All(m => m.StageChainId == alphaChain), "stages of one description share its chain identity");
+                        AssertTrue(beta.All(m => m.StageChainId == betaChain), "stages of one description share its chain identity");
+                        AssertTrue(alphaChain != betaChain, "two descriptions never share a chain identity");
+                    }
+                }
+            });
+
             await RunTest("Each stage's own description reaches its mission, so two stages of one persona are told apart", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -621,6 +681,109 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, landingCalls, "Upstream judge should not land while a dependent worker chain remains");
                     AssertEqual(MissionStatusEnum.InProgress, backendWorker!.Status, "Dependent worker should start once the upstream chain completes");
                     AssertEqual(coreJudge.BranchName, backendWorker.BranchName, "Dependent worker should inherit the approved upstream branch");
+                }
+            });
+
+            // A chain with a revising Worker carries two Worker stages with the same title. An explicit
+            // dependency must move the slice's initial Worker, the stage that starts the slice, never its
+            // revising Worker further down the same chain.
+            await RunTest("Architect dependency moves the slice's initial Worker, not a same-titled revising Worker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(6000 + git.WorktreeCalls.Count);
+
+                    Vessel vessel = new Vessel("revising-fanout-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain architectCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("revising-architect") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                    for (int i = 0; i < 3; i++)
+                        await testDb.Driver.Captains.CreateAsync(new Captain("revising-worker-" + i) { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("revising-fanout-voyage")).ConfigureAwait(false);
+
+                    Mission architect = new Mission("[Architect] Plan", "Break this down");
+                    architect.VesselId = vessel.Id;
+                    architect.VoyageId = voyage.Id;
+                    architect.CaptainId = architectCaptain.Id;
+                    architect.Persona = "Architect";
+                    architect.Status = MissionStatusEnum.InProgress;
+                    architect.BranchName = "armada/revising/architect";
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+                    Dock architectDock = new Dock(vessel.Id);
+                    architectDock.CaptainId = architectCaptain.Id;
+                    architectDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, architect.Id);
+                    architectDock.BranchName = architect.BranchName;
+                    architectDock.Active = true;
+                    architectDock = await testDb.Driver.Docks.CreateAsync(architectDock).ConfigureAwait(false);
+                    architect.DockId = architectDock.Id;
+                    await testDb.Driver.Missions.UpdateAsync(architect).ConfigureAwait(false);
+
+                    string previous = architect.Id;
+                    foreach ((string title, string persona) in new[] { ("[Worker] Placeholder", "Worker"), ("[Test Engineer] Placeholder", "Test Engineer"), ("[Worker] Placeholder", "Worker"), ("[Judge] Placeholder", "Judge") })
+                    {
+                        Mission stage = new Mission(title, "Template stage");
+                        stage.VesselId = vessel.Id;
+                        stage.VoyageId = voyage.Id;
+                        stage.Persona = persona;
+                        stage.Status = MissionStatusEnum.Pending;
+                        stage.DependsOnMissionId = previous;
+                        stage = await testDb.Driver.Missions.CreateAsync(stage).ConfigureAwait(false);
+                        previous = stage.Id;
+                    }
+
+                    architectCaptain.CurrentMissionId = architect.Id;
+                    architectCaptain.CurrentDockId = architectDock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(architectCaptain).ConfigureAwait(false);
+
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:MISSION] Add the core model\n" +
+                        "Update the model types.\n" +
+                        "[ARMADA:MISSION] Add the service layer\n" +
+                        "Depends on: Mission 1\n" +
+                        "Use the new model in the service.\n" +
+                        "[ARMADA:MISSION] Add the client panel\n" +
+                        "Depends on: Mission 2\n" +
+                        "Show the service data in the panel.";
+
+                    await missionService.HandleCompletionAsync(architectCaptain, architect.Id).ConfigureAwait(false);
+
+                    List<Mission> rows = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    static Mission testStageOf(List<Mission> all, string title) => all.Single(m => m.Title == title + " [Test Engineer]");
+                    string[] titles = { "Add the core model", "Add the service layer", "Add the client panel" };
+                    Mission[] roots = new Mission[3];
+                    Mission[] revising = new Mission[3];
+                    Mission[] judges = new Mission[3];
+                    for (int i = 0; i < 3; i++)
+                    {
+                        List<Mission> workers = rows.Where(m => m.Title == titles[i] + " [Worker]").ToList();
+                        AssertEqual(2, workers.Count, titles[i] + " has an initial and a revising Worker with the same title");
+                        Mission? testStage = rows.FirstOrDefault(m => m.Title == titles[i] + " [Test Engineer]");
+                        AssertNotNull(testStage, titles[i] + " has its Test Engineer stage");
+                        revising[i] = workers.Single(m => m.DependsOnMissionId == testStage!.Id);
+                        roots[i] = workers.Single(m => m.Id != revising[i].Id);
+                        judges[i] = rows.Single(m => m.Title == titles[i] + " [Judge]");
+                        AssertEqual(revising[i].Id, judges[i].DependsOnMissionId, titles[i] + " Judge follows its revising Worker");
+                        AssertEqual(roots[i].Id, testStage!.DependsOnMissionId, titles[i] + " Test Engineer follows its initial Worker");
+                    }
+
+                    AssertEqual(architect.Id, roots[0].DependsOnMissionId, "The core model slice starts from the Architect");
+                    AssertEqual(judges[0].Id, roots[1].DependsOnMissionId, "The service slice's initial Worker waits for the core model slice's Judge");
+                    AssertEqual(judges[1].Id, roots[2].DependsOnMissionId, "The panel slice's initial Worker waits for the service slice's Judge");
+                    AssertEqual(testStageOf(rows, titles[1]).Id, revising[1].DependsOnMissionId, "The service slice's revising Worker keeps its own chain edge");
+                    AssertEqual(testStageOf(rows, titles[2]).Id, revising[2].DependsOnMissionId, "The panel slice's revising Worker keeps its own chain edge");
+                    AssertEqual(MissionStatusEnum.Pending, roots[1].Status, "The service slice does not start before the core model slice ends");
+                    AssertEqual(MissionStatusEnum.Pending, roots[2].Status, "The panel slice does not start before the service slice ends");
                 }
             });
 
@@ -1049,6 +1212,211 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotEqual(MissionStatusEnum.Complete, judge.Status, "A PASS that omits the criterion is not accepted");
                     AssertContains("does not list every acceptance criterion", judge.Description ?? String.Empty, "The omission is named");
                 }
+            });
+
+            // An Architect plan block carries its own acceptance criteria. A Judge that reviews a block which a
+            // later block follows is measured against that block's criteria; the Judge of the final block owns
+            // every criterion of the linked objective.
+            await RunTest("Intermediate slice Judge PASS is measured against the slice's own criteria", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(SliceOneCriteria)).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, judge.Status, "A PASS that walks every criterion of its own slice is accepted");
+                    AssertNull(judge.FailureReason, "The slice PASS is not refused on criteria a later slice delivers");
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(SliceOneCriteria.Take(2).ToArray())).ConfigureAwait(false);
+                    AssertNotEqual(MissionStatusEnum.WorkProduced, judge.Status, "A slice PASS that omits one of its own criteria is not accepted");
+                    AssertContains("does not list every acceptance criterion", judge.Description ?? judge.FailureReason ?? String.Empty);
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string notMet = FormatReviewBody + "## Acceptance Criteria\n"
+                        + "- " + SliceOneCriteria[0] + " -- NOT MET.\n"
+                        + "- " + SliceOneCriteria[1] + " -- MET. src/Api/Two.cs:2\n"
+                        + "- " + SliceOneCriteria[2] + " -- MET. src/Api/Three.cs:3\n\n## Verdict\n[ARMADA:VERDICT] PASS\n";
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, notMet).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, judge.Status, "A local criterion marked NOT MET is a real rejection");
+                    AssertContains("NOT MET", judge.FailureReason ?? String.Empty);
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string[] all = SliceOneCriteria.Concat(ParentOnlyCriteria).ToArray();
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(all)).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, judge.Status, "A slice PASS that also walks extra criteria is not penalised");
+                }
+            });
+
+            await RunTest("Final slice Judge PASS still walks every criterion of the linked objective", async () =>
+            {
+                string[] parent = SliceOneCriteria.Concat(ParentOnlyCriteria).ToArray();
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 2, SlicePass(ParentOnlyCriteria)).ConfigureAwait(false);
+                    AssertNotEqual(MissionStatusEnum.Complete, judge.Status, "The final slice's own criteria do not stand in for the objective's");
+                    AssertContains("does not list every acceptance criterion", judge.Description ?? judge.FailureReason ?? String.Empty);
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 2, SlicePass(parent)).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Complete, judge.Status, "The final slice Judge that walks every objective criterion is accepted");
+                }
+
+                // The final scope reads the objective's live criteria: an operator narrowing them is honoured.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission narrowedJudge = await CompleteSliceJudgeAsync(testDb, 2, SlicePass(ParentOnlyCriteria),
+                        parentCriteria: ParentOnlyCriteria).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Complete, narrowedJudge.Status, "Criteria narrowed on the linked objective are honoured at the final scope");
+                }
+            });
+
+            await RunTest("Slice Judge without a determinable slice scope stays on the linked objective's criteria", async () =>
+            {
+                string[] parent = SliceOneCriteria.Concat(ParentOnlyCriteria).ToArray();
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(SliceOneCriteria), sliceOneForm: "none").ConfigureAwait(false);
+                    AssertNotEqual(MissionStatusEnum.WorkProduced, judge.Status, "A slice that declares no criteria is not measured by an empty set");
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(SliceOneCriteria), unmarkedSliceRoots: true).ConfigureAwait(false);
+                    AssertNotEqual(MissionStatusEnum.WorkProduced, judge.Status, "A chain with no Architect slice marker is not treated as a slice");
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(parent), sliceOneForm: "none").ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, judge.Status, "The fallback still accepts a PASS that walks every objective criterion");
+                }
+            });
+
+            await RunTest("Slice criteria are read from the slice root in every form the Architect plan defines", async () =>
+            {
+                foreach (string form in new[] { "heading" })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(SliceOneCriteria), sliceOneForm: form).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.WorkProduced, judge.Status, "A root with a " + form + " criteria list is read");
+                    }
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(SliceOneContractCriteria),
+                        sliceOneForm: "contract", sliceOneCriteria: SliceOneContractCriteria).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, judge.Status, "A versioned evidence contract root is read by its item lines");
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string[] continuation = SliceOneContractCriteria.Concat(new[] { "Expected: it holds" }).ToArray();
+                    Mission judge = await CompleteSliceJudgeAsync(testDb, 1, SlicePass(continuation),
+                        sliceOneForm: "contract", sliceOneCriteria: SliceOneContractCriteria).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, judge.Status, "Continuation lines are not criteria");
+                }
+
+                string labelBlock = "**Acceptance:**\n- First\n  - nested note\n- Second\n\n**Conventions:**\n- Not a criterion\n";
+                List<string> items = JudgeAcceptanceWalk.ExtractSliceBlockCriteria(labelBlock);
+                AssertEqual(2, items.Count, "The label list ends at the next bold label and ignores nested bullets");
+                AssertEqual("Second", items[1]);
+                AssertEqual(0, JudgeAcceptanceWalk.ExtractSliceBlockCriteria("Acceptance is described in prose.\n- A bullet\n").Count,
+                    "No other form is a criteria list");
+            });
+
+            await RunTest("Intermediate slice Judge brief lists the slice criteria and not the objective's", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("slice-brief-voyage")).ConfigureAwait(false);
+                    Vessel vessel = new Vessel("slice-brief-vessel", "https://github.com/test/repo.git");
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_slice_brief_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+                    try
+                    {
+                        Mission intermediate = await SeedSliceChainAsync(testDb, voyage, 1, "label", false, null, null).ConfigureAwait(false);
+                        await service.GenerateClaudeMdAsync(tempDir, intermediate, vessel).ConfigureAwait(false);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md")).ConfigureAwait(false);
+                        AssertContains("**Slice acceptance criteria (this Judge's walk):**", brief);
+                        foreach (string criterion in SliceOneCriteria) AssertContains("- " + criterion, brief);
+                        AssertContains("owned by the Judge of the final slice", brief);
+                        AssertFalse(brief.Contains(ParentOnlyCriteria[2], StringComparison.Ordinal), "The objective's later criteria are not in the slice walk");
+                        AssertEqual(0, JudgeAcceptanceWalk.ExtractCriteria(brief).Count, "The slice list creates no second criteria heading");
+
+                        Mission final = await testDb.Driver.Missions.ReadAsync(
+                            (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false))
+                                .Single(m => m.Title == "Slice two [Judge]").Id).ConfigureAwait(false) ?? throw new InvalidOperationException();
+                        string finalDir = Path.Combine(tempDir, "final");
+                        Directory.CreateDirectory(finalDir);
+                        await service.GenerateClaudeMdAsync(finalDir, final, vessel).ConfigureAwait(false);
+                        string finalBrief = await File.ReadAllTextAsync(Path.Combine(finalDir, "CLAUDE.md")).ConfigureAwait(false);
+                        AssertContains("**Acceptance Criteria:**", finalBrief);
+                        AssertContains(ParentOnlyCriteria[2], finalBrief);
+                        AssertFalse(finalBrief.Contains("Slice acceptance criteria", StringComparison.Ordinal), "The final slice walks the objective");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("Format correction on an intermediate slice names the criteria it is measured against", () =>
+            {
+                string withSlice = MissionService.AppendAcceptanceFormatCorrection("brief", "reason", "prior", SliceOneCriteria);
+                foreach (string criterion in SliceOneCriteria) AssertContains("- " + criterion, withSlice);
+                AssertFalse(MissionService.AppendAcceptanceFormatCorrection("brief", "reason", "prior").Contains("measured against exactly", StringComparison.Ordinal));
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Slice scope resolves by the plan's barrier as well as by serial dependency", () =>
+            {
+                Mission architect = new Mission("Plan", "Plan the work") { Persona = "Architect" };
+                architect.Id = "msn_example_plan";
+                Mission first = SliceWorker("msn_example_a", architect.Id, "Slice A");
+                first.Description += "\n\n**Acceptance:**\n- Alpha works\n";
+                Mission firstJudge = SliceStage("msn_example_a_judge", first.Id, "Judge", TruncatedJudgeDescription);
+                Mission second = SliceWorker("msn_example_b", architect.Id, "Slice B");
+                second.Description += "\n\n**Acceptance:**\n- Beta works\n";
+                Mission secondJudge = SliceStage("msn_example_b_judge", second.Id, "Judge", TruncatedJudgeDescription);
+                Mission integration = SliceWorker("msn_example_i", architect.Id, "Integrate");
+                integration.Description += "\n\n**Acceptance:**\n- Alpha and Beta integrate\n";
+                Mission integrationJudge = SliceStage("msn_example_i_judge", integration.Id, "Judge", TruncatedJudgeDescription);
+                List<Mission> rows = new List<Mission> { architect, first, firstJudge, second, secondJudge, integration, integrationJudge };
+
+                AssertNull(MissionService.ResolveIntermediateSliceCriteria(firstJudge, rows),
+                    "Parallel slices with no integration mission and no serial order own the whole objective");
+
+                integration.IntegrationBarrier = new MissionIntegrationBarrier { ArchitectMissionId = architect.Id, IntegrationMissionId = integration.Id };
+                IReadOnlyList<string>? alpha = MissionService.ResolveIntermediateSliceCriteria(firstJudge, rows);
+                AssertNotNull(alpha, "A branch of a plan with an integration mission is an intermediate slice");
+                AssertEqual("Alpha works", alpha![0]);
+                AssertNull(MissionService.ResolveIntermediateSliceCriteria(integrationJudge, rows), "The integration mission owns the whole objective");
+
+                integration.IntegrationBarrier = null;
+                integration.IntegrationBarrierInvalid = true;
+                AssertNull(MissionService.ResolveIntermediateSliceCriteria(firstJudge, rows), "An unreadable barrier record never relaxes the walk");
+
+                AssertNull(MissionService.ResolveIntermediateSliceCriteria(
+                    new Mission("[Judge] Review", "x\n## Acceptance Criteria\n- Local\n") { Persona = "Worker" }, rows), "Only a Judge is rescoped");
+                return Task.CompletedTask;
             });
 
             await RunTest("Judge parser accepts structured ARMADA verdict signal", async () =>
@@ -1836,6 +2204,124 @@ namespace Armada.Test.Unit.Suites.Services
 
         #endregion
 
+        private static readonly string[] SliceOneCriteria =
+        {
+            "The export endpoint returns the stored rows",
+            "The export endpoint rejects an unknown format",
+            "The export endpoint requires authorization"
+        };
+
+        private static readonly string[] SliceTwoCriteria =
+        {
+            "The export button downloads the file",
+            "The export dialog names the chosen format"
+        };
+
+        private static readonly string[] ParentOnlyCriteria =
+        {
+            "The export button downloads the file",
+            "The export dialog names the chosen format",
+            "The export page shows a failure message"
+        };
+
+        private static string SlicePass(string[] criteria)
+        {
+            System.Text.StringBuilder walk = new System.Text.StringBuilder(FormatReviewBody);
+            walk.Append("## Acceptance Criteria\n");
+            for (int i = 0; i < criteria.Length; i++)
+                walk.Append("- ").Append(criteria[i]).Append(" -- MET. src/Export/File").Append(i + 1).Append(".cs:").Append(i + 1).Append('\n');
+            walk.Append("\n## Verdict\n[ARMADA:VERDICT] PASS\n");
+            return walk.ToString();
+        }
+
+        private static Mission SliceWorker(string id, string dependsOn, string title)
+        {
+            Mission worker = new Mission(title + " [Worker]", "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + title);
+            worker.Id = id;
+            worker.Persona = "Worker";
+            worker.DependsOnMissionId = dependsOn;
+            return worker;
+        }
+
+        private static Mission SliceStage(string id, string dependsOn, string persona, string description)
+        {
+            Mission stage = new Mission("Slice [" + persona + "]", description);
+            stage.Id = id;
+            stage.Persona = persona;
+            stage.DependsOnMissionId = dependsOn;
+            return stage;
+        }
+
+        private static readonly string[] SliceOneContractCriteria =
+        {
+            "AC1 [R1]: The export endpoint returns the stored rows",
+            "AC2 [R2]: The export endpoint rejects an unknown format"
+        };
+
+        // The slice Judge's rendered description: budget truncation removed the slice block and its criteria.
+        private const string TruncatedJudgeDescription =
+            "Review the change.\n\n[mission brief truncated to fit the budget]\n";
+
+        private static string SliceBlockBody(string title, string form, string[] criteria)
+        {
+            string body = title + "\n\n**Implementation:**\n- Build it.\n\n";
+            if (form == "label")
+                body += "**Acceptance:**\n" + String.Join("\n", criteria.Select(item => "- " + item)) + "\n\n**Conventions:**\n- Follow the repository style.\n";
+            else if (form == "heading")
+                body += "## Acceptance Criteria\n" + String.Join("\n", criteria.Select(item => "- " + item)) + "\n";
+            else if (form == "contract")
+                body += "## Acceptance evidence contract\n" + String.Join("\n", criteria.Select(item =>
+                    "- " + item + "\n  Expected: it holds\n  Verify: run the check\n  Failure/boundary: bad input\n")) + "\n## Required validation commands\n- dotnet test\n";
+            else
+                body += "Acceptance is described in prose only.\n";
+            return body;
+        }
+
+        /// <summary>
+        /// Seeds a two-slice Architect plan that serves one linked objective and returns the Judge of slice one or
+        /// two. Each slice root carries its block verbatim; the Judges carry a truncated rendered description with
+        /// no criteria. Slice one declares the criteria it owns; the objective also lists criteria that only
+        /// slice two delivers.
+        /// </summary>
+        private async Task<Mission> SeedSliceChainAsync(TestDatabase db, Voyage voyage, int slice, string sliceOneForm,
+            bool unmarkedSliceRoots, string[]? parentCriteria, string[]? sliceOneCriteria)
+        {
+            string[] objectiveCriteria = parentCriteria ?? SliceOneCriteria.Concat(ParentOnlyCriteria).ToArray();
+            Objective objective = new Objective { Title = "Export feature", AcceptanceCriteria = objectiveCriteria.ToList() };
+            objective.VoyageIds = new List<string> { voyage.Id };
+            await db.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+            Mission architect = new Mission("Plan the export", "Plan the work") { Persona = "Architect", VoyageId = voyage.Id, Status = MissionStatusEnum.Complete };
+            architect = await db.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+            string marker = unmarkedSliceRoots ? String.Empty : "<!-- ARMADA:ARCHITECT-HANDOFF -->\n";
+            Mission workerOne = SliceWorker("msn_" + Guid.NewGuid().ToString("N"), architect.Id, "Slice one");
+            workerOne.VoyageId = voyage.Id;
+            workerOne.Description = marker + SliceBlockBody("Slice one: the API", sliceOneForm, sliceOneCriteria ?? SliceOneCriteria);
+            workerOne.Status = MissionStatusEnum.Complete;
+            workerOne = await db.Driver.Missions.CreateAsync(workerOne).ConfigureAwait(false);
+
+            Mission judgeOne = new Mission("Slice one [Judge]", TruncatedJudgeDescription) { Persona = "Judge", VoyageId = voyage.Id, DependsOnMissionId = workerOne.Id };
+            judgeOne = await db.Driver.Missions.CreateAsync(judgeOne).ConfigureAwait(false);
+
+            Mission workerTwo = SliceWorker("msn_" + Guid.NewGuid().ToString("N"), judgeOne.Id, "Slice two");
+            workerTwo.VoyageId = voyage.Id;
+            workerTwo.Description = marker + SliceBlockBody("Slice two: the UI", "label", SliceTwoCriteria);
+            workerTwo = await db.Driver.Missions.CreateAsync(workerTwo).ConfigureAwait(false);
+
+            Mission judgeTwo = new Mission("Slice two [Judge]", TruncatedJudgeDescription) { Persona = "Judge", VoyageId = voyage.Id, DependsOnMissionId = workerTwo.Id };
+            judgeTwo = await db.Driver.Missions.CreateAsync(judgeTwo).ConfigureAwait(false);
+
+            return slice == 1 ? judgeOne : judgeTwo;
+        }
+
+        private Task<Mission> CompleteSliceJudgeAsync(TestDatabase testDb, int slice, string output,
+            string sliceOneForm = "label", bool unmarkedSliceRoots = false, string[]? parentCriteria = null, string[]? sliceOneCriteria = null)
+        {
+            return CompleteJudgeAsync(testDb, String.Empty, output, null,
+                (db, voyage) => SeedSliceChainAsync(db, voyage, slice, sliceOneForm, unmarkedSliceRoots, parentCriteria, sliceOneCriteria));
+        }
+
         private const string FormatBrief =
             "Review the change.\n" +
             "## Acceptance Criteria\n" +
@@ -1860,7 +2346,8 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>
         /// Completes one in-progress Judge mission with the given output and returns it as stored.
         /// </summary>
-        private async Task<Mission> CompleteJudgeAsync(TestDatabase testDb, string description, string output, Mission? existing = null)
+        private async Task<Mission> CompleteJudgeAsync(TestDatabase testDb, string description, string output, Mission? existing = null,
+            Func<TestDatabase, Voyage, Task<Mission>>? seedChain = null)
         {
             LoggingModule logging = CreateLogging();
             ArmadaSettings settings = CreateSettings();
@@ -1890,12 +2377,21 @@ namespace Armada.Test.Unit.Suites.Services
             if (existing == null)
             {
                 Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("judge-format-voyage")).ConfigureAwait(false);
-                judge = new Mission("[Judge] Review worker output", description);
-                judge.VesselId = vessel.Id;
-                judge.VoyageId = voyage.Id;
-                judge.Persona = "Judge";
-                judge.BranchName = "armada/judge/format";
-                judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+                if (seedChain != null)
+                {
+                    judge = await seedChain(testDb, voyage).ConfigureAwait(false);
+                    judge.VesselId = vessel.Id;
+                    judge.BranchName = "armada/judge/format";
+                }
+                else
+                {
+                    judge = new Mission("[Judge] Review worker output", description);
+                    judge.VesselId = vessel.Id;
+                    judge.VoyageId = voyage.Id;
+                    judge.Persona = "Judge";
+                    judge.BranchName = "armada/judge/format";
+                    judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+                }
                 await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
             }
             else

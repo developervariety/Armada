@@ -31,6 +31,15 @@ namespace Armada.Core.Services
         /// <summary>The largest statement text kept, in characters.</summary>
         public const int MaxStatementLength = 600;
 
+        /// <summary>The truncation reason of an output whose captured head was dropped at the stream capture limit.</summary>
+        public const string StreamCaptureLimitReason = "stream_capture_limit";
+
+        /// <summary>The truncation reason of an output that holds no closing result marker.</summary>
+        public const string ClosingMarkerMissingReason = "closing_marker_missing";
+
+        /// <summary>The largest output tail quoted in a truncation failure reason, in characters.</summary>
+        public const int MaxTruncationTailLength = 200;
+
         #endregion
 
         #region Private-Members
@@ -49,6 +58,30 @@ namespace Armada.Core.Services
 
         private static readonly Regex _PendingRoleReviewsOnly = new Regex(
             @"\A\s*(?:at\s+this\s+[A-Za-z]+\s+precursor\s+stage\s+)?(?:only\s+)?because\s+(?:the\s+)?(?:(?<count>[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:later|downstream|future)\s+(?:role\s+)?reviews\s+(?:do\s+not\s+(?:yet\s+)?exist|have\s+not\s+(?:yet\s+)?run|(?:are|remain)\s+(?:still\s+)?pending)\s*[.!]?\s*\z",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _ProcessAssertionSeparator = new Regex(
+            @"\s*,?\s*\b(?:although|while|and)\b\s+",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private const string _WithheldContent = @"(?:(?:copied|vendor|restricted)[\s-]+)+(?:body[\s-]+)?(?:bod(?:y|ies)|values?|cop(?:y|ies)|text)";
+
+        private static readonly Regex _ProcessAssertion = new Regex(
+            @"\A(?:only\s+this\s+(?:Worker|Research|Audit)\s+(?:artifact|report)\s+exists"
+            + @"|(?:the\s+)?(?:(?:all|both|two|three|four|five|six|\d+)\s+)?(?:checkouts?|worktrees?)\s+shows?\s+no\s+(?:tracked\s+)?changes?"
+            + @"|this\s+report\s+contains\s+no\s+" + _WithheldContent + @"(?:\s+or\s+" + _WithheldContent + @")*)\z",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _ClosingMarkerLine = new Regex(
+            @"\A[>*_`\-\s]*\[ARMADA:(?:RESULT|VERDICT)\]",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _PendingRevisingStage = new Regex(
+            @"\A(?<first>.+?\s+have\s+not\s+(?:yet\s+)?run),\s+and\s+(?:the\s+)?(?:additional\s+)?Revising\s*Worker\s+stage\s+(?:has|have)\s+not\s+(?:yet\s+)?run[.!]?\s*\z",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
@@ -225,6 +258,61 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Read whether a finished report-only Worker's output was cut off: the stream capture kept only a tail,
+        /// or no closing <c>[ARMADA:RESULT]</c> or <c>[ARMADA:VERDICT]</c> marker ends the report.
+        /// </summary>
+        /// <param name="agentOutput">Captain output. Empty output is read by the no-op completion rule, not here.</param>
+        /// <param name="reason">The named truncation reason: <see cref="StreamCaptureLimitReason"/> or <see cref="ClosingMarkerMissingReason"/>.</param>
+        /// <returns>True when the output is truncated.</returns>
+        public static bool TryReadTruncation(string? agentOutput, out string reason)
+        {
+            reason = String.Empty;
+            if (String.IsNullOrWhiteSpace(agentOutput)) return false;
+            if (agentOutput!.StartsWith(MissionOutputArtifact.StreamTruncationMarker, StringComparison.Ordinal))
+            {
+                reason = StreamCaptureLimitReason;
+                return true;
+            }
+            if (HasClosingMarker(agentOutput)) return false;
+            reason = ClosingMarkerMissingReason;
+            return true;
+        }
+
+        // A closing marker may carry Markdown decoration; a marker quoted inside a code fence is an example, not the close.
+        private static bool HasClosingMarker(string output)
+        {
+            bool fenced = false;
+            foreach (string raw in output.Split('\n'))
+            {
+                string line = raw.Trim();
+                if (line.StartsWith("```", StringComparison.Ordinal) || line.StartsWith("~~~", StringComparison.Ordinal))
+                {
+                    fenced = !fenced;
+                    continue;
+                }
+                if (!fenced && _ClosingMarkerLine.IsMatch(line)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Build the failure reason for a report-only Worker whose output is truncated.
+        /// </summary>
+        /// <param name="persona">Stage persona.</param>
+        /// <param name="truncationReason">The named reason from <see cref="TryReadTruncation"/>.</param>
+        /// <param name="agentOutput">Captain output; its last <see cref="MaxTruncationTailLength"/> characters are quoted.</param>
+        /// <returns>The failure reason.</returns>
+        public static string BuildTruncatedFailureReason(string? persona, string truncationReason, string? agentOutput)
+        {
+            string stage = String.IsNullOrWhiteSpace(persona) ? "Worker" : persona!.Trim();
+            string output = (agentOutput ?? String.Empty).TrimEnd();
+            string tail = output.Length <= MaxTruncationTailLength ? output : "..." + output.Substring(output.Length - MaxTruncationTailLength);
+            return FailureReasonPrefix + " the " + stage + " stage ended, but its report output is truncated (" + truncationReason + ")."
+                + " The reviewer stages were not run, because they could only confirm a cut report.\n"
+                + StatementHeading + "\n" + tail;
+        }
+
+        /// <summary>
         /// Build the failure reason for a report-only Worker whose report states its criteria are not met.
         /// </summary>
         /// <param name="persona">Stage persona.</param>
@@ -274,6 +362,15 @@ namespace Armada.Core.Services
 
         private static bool IsFutureClause(string clause, PendingReviewObligations obligations)
         {
+            int semicolon = clause.IndexOf(';');
+            if (semicolon >= 0)
+            {
+                if (!IsProcessStatement(clause.Substring(semicolon + 1))) return false;
+                clause = clause.Substring(0, semicolon);
+            }
+            Match revising = _PendingRevisingStage.Match(clause.Trim());
+            if (revising.Success)
+                return obligations.Contains(PersonaCatalog.Worker) && IsFutureClause(revising.Groups["first"].Value + ".", obligations);
             Match details = Regex.Match(clause.Trim(), @"\A(?<summary>[^:]+):\s*(?<roles>[A-Za-z ,]+?)\s+have\s+not\s+(?:yet\s+)?reviewed\s+(?:this|the)\s+report,\s+and\s+(?:the\s+)?Revising\s*Worker\s+is\s+a\s+separate\s+later\s+stage\s+and\s+has\s+not\s+(?:yet\s+)?run[.!]?\s*\z",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             if (details.Success)
@@ -298,7 +395,7 @@ namespace Armada.Core.Services
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             if (generic.Success) return obligations.ReviewCount > 0
                 && (!generic.Groups["count"].Success || ReadReviewCount(generic.Groups["count"].Value) == obligations.ReviewCount);
-            Match named = Regex.Match(subject, @"\A(?:the\s+)?(?<roles>[A-Za-z ,]+?)\s+reviews\z",
+            Match named = Regex.Match(subject, @"\A(?:the\s+)?(?:current\s+)?(?<roles>[A-Za-z ,]+?)\s+reviews\z",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             if (!named.Success) return false;
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -312,6 +409,15 @@ namespace Armada.Core.Services
                 if (!seen.Add(role) || !obligations.Contains(role)) return false;
             }
             return seen.Count > 0;
+        }
+
+        private static bool IsProcessStatement(string tail)
+        {
+            string value = tail.Trim().TrimEnd('.', '!').Trim();
+            if (value.Length == 0 || value.Contains(';')) return false;
+            foreach (string assertion in _ProcessAssertionSeparator.Split(value))
+                if (!_ProcessAssertion.IsMatch(assertion.Trim())) return false;
+            return true;
         }
 
         private static int AssociatedParagraphEnd(string text, int start, int nextCriterion, int resultIndex)

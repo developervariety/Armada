@@ -425,7 +425,8 @@ submission with `dispatch_hold_active`, the holder (`SetBy`), `SetByUtc` and
 the reason, and accepts no job: `armada_dispatch` (plain and alias-ordered),
 REST `POST /api/v1/voyages`, WebSocket `create_voyage`, planning-session
 dispatch, and mission, architect and remote-control dispatch. The objective
-scheduler records `dispatch_hold` and autonomous rescue defers. Automatic
+scheduler records `dispatch_hold` and autonomous rescue defers. The hold is
+stored in the database and survives an Admiral restart. Automatic
 Checks for eligible work on active voyages may run so those voyages can drain;
 Checks for idle vessels, completed voyages and unrelated work wait until the
 hold clears.
@@ -499,7 +500,10 @@ that must be yes is answered no (including 14), or the open-owner-question
 question (13) is answered yes; the preview reports this as a blocking
 `objective_preflight_incomplete` finding listing the offending question
 numbers, and reports the deterministic questions as facts to check the recorded
-answers against the repository. An `armada_dispatch` call may set
+answers against the repository. Question 2 matches deliverable phrasing
+(`deliver a report`, `report only, no code`), not a bare `report-only` token
+that names the code under change. A high Q1 model reading is not raised when
+the Q1 citation fact passes and the model names no disputed claim. An `armada_dispatch` call may set
 `forcePreflight: true` to override an incomplete preflight or a
 `objective_preflight_model_flag` finding, including question 14. It overrides
 only those preflight-class findings; any other blocking issue still refuses the
@@ -806,7 +810,7 @@ What a caller may use:
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
 | Mission captain (a mission session token), whatever its owner's role | The caller-scoped tools below, plus the read-only voyage tools `armada_enumerate`, `armada_mission_status`, `armada_get_mission_log`, `armada_voyage_status`, `armada_mission_output` and `get_objective`. An administrator owner's mission still reaches no operator tool, and its model is sent only these definitions with each request |
-| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, `armada_mission_attempts`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, `armada_mission_attempts`, `armada_suite_lease`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -1410,6 +1414,18 @@ The tools are read-only and answer a global administrator only; any other caller
 receives a refusal. No MCP tool starts a run, because a run dispatches real missions and spends captain tokens; start
 one with `POST /api/v1/battery/runs`.
 
+### armada_suite_lease
+
+Acquire or release the Armada suite lease before a full-suite run (for example
+`scripts/check.sh`). Args: `action` (`acquire` or `release`). The lease takes
+the per-vessel suite slot and then a host command slot, the same slots the
+definition-of-done gate and armed checks use (`docs/reference/backend-dod.md`).
+A mission credential acts only for its own mission; a caller with no mission
+credential is refused (`mission_required`). `acquire` waits if the slots are
+held and records `captain.suite_lease_wait` with the wait position; that wait
+is not a stall. `release` frees the slots. When the captain process exits or the
+mission ends, a held lease is released and a waiting acquire is cancelled.
+
 ### armada_mission_change_summary
 
 List every path one mission stage committed, with its status. Args: optional
@@ -1917,7 +1933,9 @@ template through the caller scope, and require edit rights.
 
 `create_objective`, `create_backlog_item`, `update_objective` and
 `update_backlog_item` share one input schema and call the same service methods
-as `POST` and `PUT /api/v1/objectives` (and `/api/v1/backlog`). The update tools
+as `POST` and `PUT /api/v1/objectives` (and `/api/v1/backlog`). Setting status to
+`Completed` stamps `CompletedUtc` to that transition; leaving `Completed` clears
+it, so a later re-completion records the new time. The update tools
 change only supplied top-level fields, including `autoDispatchEnabled`. A
 top-level field the schema does not list is refused and nothing is written: the
 tools return code `objective_unknown_field` with outcome `Invalid` and the

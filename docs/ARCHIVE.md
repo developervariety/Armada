@@ -107,8 +107,14 @@ Data expiry treats every expired row as history. In `Archive` mode it reads the
 rows each delete statement selects, writes them as gzip JSON lines to a staging
 file under `<dataDirectory>/archive-staging`, uploads and verifies the file,
 and only then runs the delete. A failed export stops the run with the failure
-named, and no row of that statement or any later statement is deleted. In
-`Keep` mode data expiry deletes nothing. The server sets the archive and
+named, and no row of that statement or any later statement is deleted. Whenever
+an exporter is attached, the delete removes only the rows it exported: the
+identity of every selected row is read before the export, and the delete matches
+each row by that identity and, for voyages, missions, docks and merge entries,
+by the exported `last_update_utc`, in one transaction. A row updated after its
+export, or one that starts matching after the snapshot, stays and expires on a
+later pass with its newer state exported then. A voyage that still has a mission
+waits for the pass that deletes that mission. In `Keep` mode data expiry deletes nothing. The server sets the archive and
 staging folder on its data-expiry service; the data-retention values
 themselves are read at startup.
 

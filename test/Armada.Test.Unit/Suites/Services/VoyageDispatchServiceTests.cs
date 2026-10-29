@@ -1036,6 +1036,55 @@ namespace Armada.Test.Unit.Suites.Services
                 });
             }
 
+            foreach (bool useAlias in new[] { false, true })
+            {
+                string pathLabel = useAlias ? "alias dispatch" : "dispatch";
+                await RunTest("Each mission description of a pipeline dispatch carries its own stage chain identity (" + pathLabel + ")", async () =>
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
+                        Pipeline pipeline = await harness.CreatePipelineAsync("ChainIdentityWorkerJudge", "Worker", "Judge").ConfigureAwait(false);
+                        await SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Judge").ConfigureAwait(false);
+
+                        List<MissionDescription> descriptions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Alpha change", "Change alpha"),
+                            new MissionDescription("Beta change", "Change beta")
+                        };
+                        if (useAlias)
+                        {
+                            descriptions[0].Alias = "alpha";
+                            descriptions[1].Alias = "beta";
+                        }
+
+                        VoyageDispatchResult result = await harness.Service.DispatchAsync(new SharedVoyageDispatchRequest
+                        {
+                            Title = "Chain identity voyage",
+                            VesselId = harness.Vessel.Id,
+                            PipelineId = pipeline.Id,
+                            CodeContextMode = "off",
+                            Missions = descriptions
+                        }).ConfigureAwait(false);
+                        AssertTrue(result.Succeeded, "dispatch should succeed: " + System.Text.Json.JsonSerializer.Serialize(result.Value));
+
+                        List<Mission> missions = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 4).ConfigureAwait(false);
+                        List<Mission> alpha = missions.Where(m => m.Title.EndsWith("Alpha change", StringComparison.Ordinal)).ToList();
+                        List<Mission> beta = missions.Where(m => m.Title.EndsWith("Beta change", StringComparison.Ordinal)).ToList();
+                        AssertEqual(2, alpha.Count, "alpha expands into two stages");
+                        AssertEqual(2, beta.Count, "beta expands into two stages");
+
+                        string? alphaChain = alpha[0].StageChainId;
+                        string? betaChain = beta[0].StageChainId;
+                        AssertFalse(String.IsNullOrEmpty(alphaChain), "every expanded stage carries a chain identity");
+                        AssertFalse(String.IsNullOrEmpty(betaChain), "every expanded stage carries a chain identity");
+                        AssertTrue(alpha.All(m => m.StageChainId == alphaChain), "stages of one description share its chain identity");
+                        AssertTrue(beta.All(m => m.StageChainId == betaChain), "stages of one description share its chain identity");
+                        AssertTrue(alphaChain != betaChain, "two descriptions never share a chain identity");
+                    }
+                });
+            }
+
             await RunTest("A captain assignment on a single-stage Worker pipeline stamps the persona and assigns the named captain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

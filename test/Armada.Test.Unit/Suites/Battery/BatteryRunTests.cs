@@ -30,6 +30,7 @@ namespace Armada.Test.Unit.Suites.Battery
         private const string RunManifest = @"{
   ""schemaVersion"": 1, ""id"": ""mini"", ""name"": ""Mini"", ""version"": 3,
   ""fixture"": { ""path"": ""fixture"" },
+  ""buildCommand"": ""git --version"", ""unitTestCommand"": ""git --version"",
   ""toolchain"": [
     { ""name"": ""git"", ""executable"": ""git"", ""arguments"": [ ""--version"" ] },
     { ""name"": ""ghost"", ""executable"": ""armada-battery-no-such-tool"", ""hint"": ""install ghost"" }
@@ -293,6 +294,81 @@ namespace Armada.Test.Unit.Suites.Battery
 
                         AssertFalse(McpToolAccessPolicy.IsAllowed(mission, tool), tool + " is not offered to a mission credential");
                     }
+                }
+                finally
+                {
+                    Directory.Delete(battery, true);
+                    Directory.Delete(root, true);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("FixtureVessel_RefusesAPackWithNoWorkflowCommands_AndCreatesAVesselScopedProfile", async () =>
+            {
+                string battery = BatteryPackFixtures.NewDirectory("battery");
+                string root = BatteryPackFixtures.NewDirectory("fixtures");
+                try
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    BatteryPackFixtures.WritePack(battery, "mini", RunManifest, new BatteryPackFixtures.PackFile("fixture/readme.txt", "fixture"));
+                    BatteryPackFixtures.WritePack(
+                        battery,
+                        "empty",
+                        @"{
+  ""schemaVersion"": 1, ""id"": ""empty"", ""name"": ""Empty"", ""version"": 1,
+  ""fixture"": { ""path"": ""fixture"" },
+  ""toolchain"": [ { ""name"": ""git"", ""executable"": ""git"", ""arguments"": [ ""--version"" ] } ],
+  ""tasks"": [ { ""id"": ""t1"", ""title"": ""T"", ""prompt"": ""p"", ""grader"": { ""type"": ""command"", ""commands"": [ { ""executable"": ""git"", ""arguments"": [ ""--version"" ] } ] } } ]
+}",
+                        new BatteryPackFixtures.PackFile("fixture/readme.txt", "fixture"));
+                    BatteryFixtureService fixtures = new BatteryFixtureService(testDb.Driver, new LoggingModule(), root);
+                    List<BatteryPack> packs = BatteryPackLoader.LoadAll(battery);
+                    BatteryPack mini = packs.Single(pack => pack.Id == "mini");
+                    BatteryPack empty = packs.Single(pack => pack.Id == "empty");
+
+                    try
+                    {
+                        await fixtures.EnsureVesselAsync(empty, null, "usr_test", true).ConfigureAwait(false);
+                        AssertTrue(false, "a pack with no buildCommand or unitTestCommand must be refused");
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        AssertContains(BatteryFixtureService.MissingWorkflowCommandsReason, ex.Message);
+                    }
+                    AssertNull(await fixtures.FindVesselAsync(empty, null).ConfigureAwait(false), "a refused pack creates no fixture vessel");
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                        BatteryFixtureService.VesselNameFor("mini"),
+                        "https://example.invalid/mini.git")
+                    {
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
+
+                    Vessel first = await fixtures.EnsureVesselAsync(mini, null, "usr_test", false).ConfigureAwait(false);
+                    AssertEqual(vessel.Id, first.Id);
+                    List<WorkflowProfile> created = await testDb.Driver.WorkflowProfiles.EnumerateAllAsync(new WorkflowProfileQuery
+                    {
+                        TenantId = vessel.TenantId,
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id
+                    }).ConfigureAwait(false);
+                    AssertEqual(1, created.Count, "the fixture vessel gets one vessel-scoped workflow profile");
+                    AssertEqual(BatteryFixtureService.WorkflowProfileNameFor("mini"), created[0].Name);
+                    AssertEqual(WorkflowProfileScopeEnum.Vessel, created[0].Scope);
+                    AssertEqual(vessel.Id, created[0].VesselId);
+                    AssertTrue(created[0].IsDefault);
+                    AssertEqual("git --version", created[0].BuildCommand);
+                    AssertEqual("git --version", created[0].UnitTestCommand);
+
+                    Vessel second = await fixtures.EnsureVesselAsync(mini, null, "usr_test", false).ConfigureAwait(false);
+                    AssertEqual(vessel.Id, second.Id);
+                    List<WorkflowProfile> reused = await testDb.Driver.WorkflowProfiles.EnumerateAllAsync(new WorkflowProfileQuery
+                    {
+                        TenantId = vessel.TenantId,
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id
+                    }).ConfigureAwait(false);
+                    AssertEqual(1, reused.Count, "reusing the fixture vessel keeps a single workflow profile");
+                    AssertEqual(created[0].Id, reused[0].Id);
                 }
                 finally
                 {

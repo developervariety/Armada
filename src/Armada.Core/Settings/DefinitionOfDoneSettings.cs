@@ -72,6 +72,18 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// How many full suite commands of one vessel may run at once, across definition-of-done gates,
+        /// check runs, merge-queue tests, and captain suite leases. Clamped to [1, 8]. Defaults to 1.
+        /// Applied at startup and on every settings reload. The host-wide cap remains
+        /// <see cref="HostCommandSlots"/>.
+        /// </summary>
+        public int VesselSuiteSlots
+        {
+            get => _VesselSuiteSlots;
+            set => _VesselSuiteSlots = HostWideCommandLock.ClampSlotCount(value);
+        }
+
+        /// <summary>
         /// Available memory in megabytes the host must have before the next full build or test command
         /// takes a free host command slot. Clamped to [0, 1048576]; 0 turns the check off. Defaults to
         /// 6144. Applied at startup and on every settings reload.
@@ -251,6 +263,7 @@ namespace Armada.Core.Settings
             RunRestoreBeforeBuild = source.RunRestoreBeforeBuild;
             CommandTimeoutSeconds = source.CommandTimeoutSeconds;
             HostCommandSlots = source.HostCommandSlots;
+            VesselSuiteSlots = source.VesselSuiteSlots;
             HostCommandMemoryFloorMb = source.HostCommandMemoryFloorMb;
             HostSlotWaitReportMinutes = source.HostSlotWaitReportMinutes;
             HostSlotWaitBoardNoteMinutes = source.HostSlotWaitBoardNoteMinutes;
@@ -272,6 +285,7 @@ namespace Armada.Core.Settings
         private string _DocOnlyMarker = "[DOD:DOC-ONLY]";
         private int _CommandTimeoutSeconds = 600;
         private int _HostCommandSlots = HostWideCommandLock.MinimumSlots;
+        private int _VesselSuiteSlots = HostWideCommandLock.MinimumSlots;
         private int _HostCommandMemoryFloorMb = HostWideCommandLock.DefaultMemoryFloorMb;
         private int _HostSlotWaitReportMinutes = 5;
         private int _HostSlotWaitBoardNoteMinutes = 10;

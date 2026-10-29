@@ -2075,6 +2075,11 @@ Only the fields the body names change: `Title`, `Description`, `Priority`, `Bran
 
 Mission metadata updates preserve omitted `vesselId` and `voyageId`. Explicit changes, including clearing an existing binding with null, return 409.
 
+When the body names `Description` and the mission is running (Assigned or InProgress) on a runtime that does not
+apply a brief mid-mission, the response includes `Delivery` `stored_until_next_launch` and a `DeliveryReason` that
+names the runtime. Those fields are response-only and are not stored. The stored description is used at the next
+launch. MCP `armada_update_mission` and WebSocket `update_mission` return the same notice.
+
 **Path Parameters:**
 | Parameter | Description |
 |---|---|
@@ -2932,7 +2937,8 @@ curl http://localhost:7890/api/v1/captains/cpt_abc123/log?lines=200 \
 Delete a captain, then remove the events, planning sessions and objective
 refinement sessions that reference it. The rule and cleanup are shared with the
 batch route, MCP `armada_delete_captain` / `armada_delete_captains` and WebSocket
-`delete_captain`.
+`delete_captain`. On SQL Server the delete transaction retries deadlock error
+1205 up to two more times, then surfaces the error.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -3017,9 +3023,15 @@ Send a new signal (message).
 | `Type` | string | no | Signal type (default: `Nudge`) |
 | `Payload` | string | no | Signal payload (message content) |
 | `ToCaptainId` | string | no | Recipient captain ID (null = to Admiral) |
+| `MissionId` | string | no | Mission the signal is addressed to. The recipient becomes the mission's current captain, and unread mail of the mission moves to the mission's next captain. An unknown mission answers `404`. |
 | `FromCaptainId` | string | no | Sender captain ID (null = from Admiral) |
 
 **Response:** `201 Created` - [Signal](#signal)
+
+When the recipient captain is running (Working or Stalled) on a runtime that does not inject mail into a live
+process, the created signal includes `Delivery` `stored_until_next_launch` and a `DeliveryReason` that names the
+runtime. Every shipped runtime is in that class. Those fields are response-only and are not stored. The captain
+reads stored mail at the next launch. MCP `armada_send_signal` and WebSocket `send_signal` return the same notice.
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/signals \
@@ -3339,7 +3351,7 @@ Force purge a dock and its git worktree, even if a mission references it. **This
 
 #### `POST /api/v1/docks/{id}/repair`
 
-Runs git worktree repair on the dock. Non-destructive: no work is removed.
+Runs git worktree repair on the dock. Non-destructive: no work is removed. When the worktree directory is absent, repair recreates it from the dock's exact local branch under the managed dock root, and refuses when the branch is missing or the path is owned by another worktree.
 
 **Path Parameters:**
 
@@ -5267,6 +5279,8 @@ An atomic unit of work assigned to a captain.
 | `CompletedUtc` | datetime? | null | Completion timestamp (UTC) |
 | `TotalRuntimeMs` | long? | null | Total execution runtime in milliseconds |
 | `LastUpdateUtc` | datetime | now | Last update timestamp (UTC) |
+| `Delivery` | string? | omitted | Set on a description-update response when the mission is running on a runtime that does not apply a brief mid-mission; value `stored_until_next_launch`. Not stored. |
+| `DeliveryReason` | string? | omitted | Why `Delivery` has that value; names the runtime. Not stored. |
 
 ---
 
@@ -5335,10 +5349,13 @@ A message between the admiral and captains.
 | `Id` | string | auto-generated | Unique ID with `sig_` prefix |
 | `FromCaptainId` | string? | null | Sender captain ID (null = from Admiral) |
 | `ToCaptainId` | string? | null | Recipient captain ID (null = to Admiral) |
+| `MissionId` | string? | null | Mission the signal is addressed to; the signal follows the mission to its current captain |
 | `Type` | [SignalTypeEnum](#signaltypeenum) | `Nudge` | Signal type |
 | `Payload` | string? | null | Message payload |
 | `Read` | bool | false | Whether signal has been read |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
+| `Delivery` | string? | omitted | Set on a send response when the recipient captain is running on a runtime that does not inject mail mid-mission; value `stored_until_next_launch`. Not stored. |
+| `DeliveryReason` | string? | omitted | Why `Delivery` has that value; names the runtime. Not stored. |
 
 ---
 
@@ -5387,6 +5404,8 @@ A recorded event representing a state change in the system.
 - `captain.stall_cleared` - The stall evaluator found a signal inside the window, so a quiet captain is not stalled
 - `mission.work_snapshot_saved` - A captain's uncommitted dock work was saved before the final stall relaunch or before a dock removal (reclaim, unstick, delete, purge, or a re-provision over a previous attempt's checkout); the message names the `recover/<missionId>-<n>` branch
 - `mission.work_snapshot_failed` - A captain's uncommitted dock work could not be saved; the message names why. The dock is kept on disk and not removed; only a stall relaunch, which keeps the dock, continues
+- `mission.work_snapshot_applied` - A continued mission's saved dock work was applied to its new checkout as uncommitted changes; the message names the `recover/<missionId>-<n>` branch
+- `mission.work_snapshot_skipped` - A continued mission's saved dock work was not applied (the new checkout is on another commit, is not clean, or the apply conflicted); the message names the branch and the reason, and the checkout is unchanged
 - `mission.stopped_by_operator` - An operator stop from REST, MCP or WebSocket ended the captain's running mission Cancelled; the message carries the `operator_stopped:` reason (who, surface, UTC time, and the `recover/<missionId>-<n>` ref when one was written) and the payload repeats them
 - `mission.branch_verified` - At completion capture, the mission branch holds the captured commit
 - `mission.branch_unverified` - At completion capture, the mission branch does not hold the captured commit, or git could not answer; the payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch
@@ -5442,6 +5461,7 @@ An entry in the merge queue representing a branch to be tested and merged.
 | `LastUpdateUtc` | datetime | now | Last update timestamp (UTC) |
 | `TestStartedUtc` | datetime? | null | Test start timestamp (UTC) |
 | `CompletedUtc` | datetime? | null | Completion timestamp (UTC) |
+| `DeliveryEvidence` | object? | null | Proof (kind, commit, ref) that the entry's mission work is already on the target branch, stored by the landing sweep on a `Failed` entry |
 
 ---
 
@@ -5661,7 +5681,7 @@ A single actionable item in the operator's "needs you" inbox.
 
 | Field | Type | Description |
 |---|---|---|
-| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `landing_reconcile`, `failed`, `stalled_captain`, `ask_proposal`) |
+| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `landing_reconcile`, `merge_failed_delivered`, `failed`, `stalled_captain`, `ask_proposal`) |
 | `Severity` | [InboxSeverityEnum](#inboxseverityenum) | Severity of the item |
 | `Title` | string | Human-readable title |
 | `Detail` | string | Additional detail |

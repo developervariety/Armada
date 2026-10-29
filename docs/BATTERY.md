@@ -14,7 +14,11 @@ A run targets one captain and one pack. For each task the Admiral:
 Evaluation missions wait for their requested captain when it is busy or unavailable; they do not use another captain from the fallback tier. The normal eligibility and usage gates still apply. Captain wait time is included in `MissionDurationMs`, so use the mission's start and completion times when comparing execution time.
 
 The fixture vessel is named `battery-<pack id>` and is created on request. Fixture repositories live under the
-`battery` folder of the data directory.
+`battery` folder of the data directory. Creating or reusing that vessel also writes a vessel-scoped default
+workflow profile named `battery-<pack id> fixture` whose build and unit-test commands are the pack's
+`buildCommand` and `unitTestCommand`. A pack with neither command is refused before launch with reason
+`pack_missing_workflow_commands`. The shipped `csharp` pack uses `dotnet build Inventory.sln` and
+`dotnet run --project tests/Inventory.Tests`. The shipped `javascript` pack uses `npm test`.
 
 ## Pack format
 
@@ -30,6 +34,8 @@ cannot run.
 | `version` | Integer, 1 or more; raise it when a change makes old grades incomparable |
 | `fixture.path` | Folder, relative to the pack, that holds the fixture repository files |
 | `fixture.defaultBranch` | Branch of the fixture repository (default `main`) |
+| `buildCommand` | Optional build command copied onto the fixture vessel's workflow profile |
+| `unitTestCommand` | Optional unit-test command copied onto the fixture vessel's workflow profile |
 | `toolchain[]` | Tools the Admiral host needs: `name`, `executable`, `arguments` (a version probe), `hint` |
 | `tasks[]` | The tasks, described below |
 
