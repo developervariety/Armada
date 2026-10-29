@@ -3,6 +3,7 @@ namespace Armada.Tui.Screens.Build
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Client;
     using Armada.Client.Models;
@@ -10,6 +11,7 @@ namespace Armada.Tui.Screens.Build
     using Armada.Tui.Input;
     using Armada.Tui.Modals;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Screens.Operations;
     using Armada.Tui.Services;
     using Armada.Tui.Text;
@@ -55,6 +57,11 @@ namespace Armada.Tui.Screens.Build
         /// Workspace status.
         /// </summary>
         public WorkspaceStatusResult? Status { get; private set; } = null;
+
+        /// <summary>
+        /// Active missions on the vessel with their scoped files, read page by page (the status carries only a count).
+        /// </summary>
+        public List<WorkspaceActiveMission> ActiveMissions { get; private set; } = new List<WorkspaceActiveMission>();
 
         /// <summary>
         /// Readiness.
@@ -250,8 +257,8 @@ namespace Armada.Tui.Screens.Build
             {
                 WorkspaceLoad load = new WorkspaceLoad();
                 load.Status = await c.GetWorkspaceStatusAsync(vesselId, t).ConfigureAwait(false);
-                WorkspaceTreeResult? root = await c.GetWorkspaceTreeAsync(vesselId, null, t).ConfigureAwait(false);
-                load.Entries[""] = Normalize(root?.Entries);
+                load.ActiveMissions = await LoadActiveMissionsAsync(c, vesselId, t).ConfigureAwait(false);
+                load.Entries[""] = Normalize(await c.ListWorkspaceDirectoryAsync(vesselId, null, t).ConfigureAwait(false));
                 HashSet<string> expanded = new HashSet<string>(StringComparer.Ordinal) { "" };
                 foreach (string path in paths)
                 {
@@ -259,8 +266,7 @@ namespace Armada.Tui.Screens.Build
                     if (parent.Length > 0 && !expanded.Contains(parent)) continue;
                     try
                     {
-                        WorkspaceTreeResult? tree = await c.GetWorkspaceTreeAsync(vesselId, path, t).ConfigureAwait(false);
-                        load.Entries[path] = Normalize(tree?.Entries);
+                        load.Entries[path] = Normalize(await c.ListWorkspaceDirectoryAsync(vesselId, path, t).ConfigureAwait(false));
                         expanded.Add(path);
                     }
                     catch (ArmadaApiException)
@@ -275,6 +281,7 @@ namespace Armada.Tui.Screens.Build
             {
                 _Loading = false;
                 Status = load.Status;
+                ActiveMissions = load.ActiveMissions;
                 Tree.Entries.Clear();
                 foreach (KeyValuePair<string, List<WorkspaceTreeEntry>> kv in load.Entries) Tree.Entries[kv.Key] = kv.Value;
                 Tree.Expanded.Clear();
@@ -597,11 +604,38 @@ namespace Armada.Tui.Screens.Build
             return y;
         }
 
+        private static async Task<List<WorkspaceActiveMission>> LoadActiveMissionsAsync(ArmadaClient client, string vesselId, CancellationToken token)
+        {
+            List<WorkspaceActiveMission> all = new List<WorkspaceActiveMission>();
+            int page = 1;
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                EnumerationResult<WorkspaceActiveMission>? result;
+                try
+                {
+                    result = await client.ListWorkspaceActiveMissionsAsync(vesselId, new EnumerationQuery { PageNumber = page, PageSize = 1000 }, token).ConfigureAwait(false);
+                }
+                catch (ArmadaApiException)
+                {
+                    // Overlap hints are optional: a server without the active-missions page just shows none.
+                    break;
+                }
+
+                if (result == null || result.Objects == null || result.Objects.Count == 0) break;
+                all.AddRange(result.Objects);
+                if (page >= result.TotalPages) break;
+                page++;
+            }
+
+            return all;
+        }
+
         private List<WorkspaceActiveMission> Overlapping()
         {
             List<string> paths = ActionablePaths();
-            if (Status?.ActiveMissions == null || Status.ActiveMissions.Count == 0 || paths.Count == 0) return new List<WorkspaceActiveMission>();
-            return Status.ActiveMissions.Where(m => (m.ScopedFiles ?? new List<string>()).Any(f => paths.Contains(WorkspacePaths.Normalize(f)))).ToList();
+            if (ActiveMissions.Count == 0 || paths.Count == 0) return new List<WorkspaceActiveMission>();
+            return ActiveMissions.Where(m => (m.ScopedFiles ?? new List<string>()).Any(f => paths.Contains(WorkspacePaths.Normalize(f)))).ToList();
         }
 
         private void Activate(string path, bool focusEditor)
@@ -708,10 +742,10 @@ namespace Armada.Tui.Screens.Build
 
             if (Tree.Loading.Contains(p)) return;
             Tree.Loading.Add(p);
-            Call((c, t) => c.GetWorkspaceTreeAsync(VesselId, p.Length > 0 ? p : null, t), tree =>
+            Call((c, t) => c.ListWorkspaceDirectoryAsync(VesselId, p.Length > 0 ? p : null, t), entries =>
             {
                 Tree.Loading.Remove(p);
-                Tree.Entries[p] = Normalize(tree?.Entries);
+                Tree.Entries[p] = Normalize(entries);
                 Tree.Expanded.Add(p);
                 Error = null;
                 SavePrefs();
@@ -895,7 +929,7 @@ namespace Armada.Tui.Screens.Build
             string p = WorkspacePaths.Normalize(target);
             Confirm("Delete", Tr("Delete {{path}}?", LocalizationArgs.Of("path", p)), () =>
             {
-                Call((c, t) => c.DeleteWorkspaceEntryAsync(VesselId, p, t), r =>
+                DeleteProgress.Run(Context, "Deleting workspace entry", t => Context.Client.DeleteWorkspaceEntryAsync(VesselId, p, t), r =>
                 {
                     List<string> expanded = Tree.Expanded.Where(x => x.Length > 0 && !WorkspacePaths.InScope(x, p)).ToList();
                     OpenTabs.RemoveAll(x => WorkspacePaths.InScope(x, p));
@@ -913,7 +947,7 @@ namespace Armada.Tui.Screens.Build
                     Error = null;
                     Toast(NotificationSeverityEnum.Warning, Tr("Deleted {{path}}", LocalizationArgs.Of("path", p)));
                     RefreshWorkspace(expanded);
-                }, null, ex => Error = String.IsNullOrEmpty(ex.Message) ? Tr("Delete failed.") : ex.Message);
+                }, "Delete failed.");
             }, "Delete");
         }
 

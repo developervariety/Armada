@@ -17,6 +17,11 @@ type Metric = 'total' | 'byType';
 type Shape = 'bars' | 'lines';
 type CopyState = 'idle' | 'ok' | 'saved' | 'fail';
 
+/** Model name of the server's aggregate of the models beyond the model limit. */
+const OTHER_MODELS_KEY = '(other)';
+/** Models the page breaks out by name; the rest are drawn as one "(other)" series. */
+const MODEL_LIMIT = 20;
+
 const MODEL_COLORS = ['var(--accent)', 'var(--green)', 'var(--red)', '#a855f7', '#06b6d4', '#ec4899', 'var(--text-dim)', '#14b8a6'];
 const TYPE_COLORS = { input: 'var(--accent)', output: 'var(--green)', cached: 'var(--orange)' } as const;
 /** Stacked token-type parts, in drawing order; they add up to the total. */
@@ -100,13 +105,13 @@ export default function TokenUsage() {
     const end = new Date();
     const start = new Date(end.getTime() - range.hours * 3600000);
     setLoading(true);
-    getTokenUsage({ fromUtc: start.toISOString(), toUtc: end.toISOString(), bucketMinutes: range.stepMinutes, harborId: harborId || undefined, captainId: captainId || undefined, model: modelFilter || undefined }, { signal: controller.signal })
+    getTokenUsage({ fromUtc: start.toISOString(), toUtc: end.toISOString(), bucketMinutes: range.stepMinutes, modelLimit: MODEL_LIMIT, harborId: harborId || undefined, captainId: captainId || undefined, model: modelFilter || undefined }, { signal: controller.signal })
       .then((result) => {
         if (cancelled) return;
         setData(result);
         setLoadError(null);
         // Remember every model seen, so the picker still lists the others while one model is selected.
-        const seen = (result?.byModel ?? []).map(m => m.model).filter(Boolean);
+        const seen = (result?.byModel ?? []).map(m => m.model).filter(m => Boolean(m) && m !== OTHER_MODELS_KEY);
         setKnownModels(prev => (seen.every(m => prev.includes(m)) ? prev : [...new Set([...prev, ...seen])].sort()));
       })
       .catch(() => {
@@ -126,6 +131,12 @@ export default function TokenUsage() {
     [data],
   );
 
+  // The top models plus, when the window has more, the server's explicit "(other)" aggregate so totals add up.
+  const modelRows = useMemo(
+    () => [...(data?.byModel || []), ...(data?.otherModels ? [{ ...data.otherModels, model: OTHER_MODELS_KEY }] : [])],
+    [data],
+  );
+
   const typeSeries = useMemo<SeriesDef[]>(() => [
     { key: 'uncached', label: t('Uncached input'), color: PART_COLORS.uncached },
     { key: 'cached', label: t('Cached input'), color: PART_COLORS.cached },
@@ -134,13 +145,14 @@ export default function TokenUsage() {
 
   const series = useMemo<SeriesDef[]>(() => {
     if (metric === 'byType') return typeSeries;
-    return (data?.byModel || []).map((m, i) => ({ key: m.model, label: m.model, color: MODEL_COLORS[i % MODEL_COLORS.length] }));
-  }, [data, metric, typeSeries]);
+    return modelRows.map((m, i) => ({ key: m.model, label: m.model, color: MODEL_COLORS[i % MODEL_COLORS.length] }));
+  }, [modelRows, metric, typeSeries]);
 
   const bucketValues = useMemo<number[][]>(() => {
     const buckets = data?.buckets || [];
     if (metric === 'byType') return buckets.map(b => { const s = splitTokenTypes(b.inputTokens, b.outputTokens, b.cachedTokens); return TYPE_PARTS.map(p => s[p]); });
     return buckets.map(b => series.map(s => {
+      if (s.key === OTHER_MODELS_KEY && (data?.otherModels ?? null) !== null) return b.otherModels?.totalTokens ?? 0;
       const entry = b.models.find(m => m.model === s.key);
       return entry ? entry.totalTokens : 0;
     }));
@@ -162,7 +174,7 @@ export default function TokenUsage() {
   const plotH = CH - padTop - padBot;
   const plotW = 800 - padLeft - padRight;
 
-  const byModel = data?.byModel || [];
+  const byModel = modelRows;
   const maxModelTotal = Math.max(1, ...byModel.map(m => m.totalTokens));
 
   const totalInput = data?.inputTokens ?? 0;
