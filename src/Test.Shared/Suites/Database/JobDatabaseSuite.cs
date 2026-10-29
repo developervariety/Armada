@@ -87,9 +87,10 @@ namespace Test.Shared.Suites.Database
             cases.Add(Case("querystring_parsing", "JobQuery.TryFromQuerystring reads paging and filters and rejects bad values", TestTags.Positive, () =>
             {
                 Dictionary<string, string> none = new Dictionary<string, string>();
-                AssertFalse(JobQuery.TryFromQuerystring(k => none.GetValueOrDefault(k), out JobQuery? legacy, out string? noError), "no parameters keeps the legacy list");
-                AssertNull(legacy);
+                AssertTrue(JobQuery.TryFromQuerystring(k => none.GetValueOrDefault(k), out JobQuery? firstPage, out string? noError), "no parameters is the first page, never the whole list");
                 AssertNull(noError);
+                AssertEqual(1, firstPage!.PageNumber, "default page number");
+                AssertEqual(100, firstPage.PageSize, "default page size");
 
                 Dictionary<string, string> qs = new Dictionary<string, string> { { "status", "queued, RUNNING" }, { "pageSize", "5000" }, { "pageNumber", "0" }, { "kind", "report" } };
                 AssertTrue(JobQuery.TryFromQuerystring(k => qs.GetValueOrDefault(k), out JobQuery? parsed, out string? _));

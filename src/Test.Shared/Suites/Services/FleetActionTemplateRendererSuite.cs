@@ -143,6 +143,28 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(summary.Contains("uptodate"), "current package omitted");
             }));
 
+            cases.Add(Case("runtime_inputs_minimal_and_semver", "Minimal JSON models retain defaults and enforce input types and single-pass templates", TestTags.Positive, () =>
+            {
+                FleetAction action = System.Text.Json.JsonSerializer.Deserialize<FleetAction>("{}")!;
+                AssertEqual(0, action.Inputs.Count); AssertEqual(0, action.RequiredTools.Count); AssertFalse(action.RequiresNetwork, "offline not required by default");
+                FleetActionRunRequest request = System.Text.Json.JsonSerializer.Deserialize<FleetActionRunRequest>("{\"InputValues\":null}")!;
+                AssertEqual(0, request.InputValues.Count);
+                List<FleetActionInput> definitions = new() { new() { Name = "version", Type = "semver", Required = true } };
+                foreach (string version in new[] { "0.0.0", "1.2.3", "1.2.3-rc.1+build.4" }) AssertEqual(version, FleetActionInputValidator.Resolve(definitions, new() { ["version"] = version })["version"]);
+                foreach (string version in new[] { "v1.2.3", "1.2", "01.2.3", "1.2.3-01", "1.2.3+", "1.2.3\n" }) AssertThrows<ArgumentException>(() => FleetActionInputValidator.Resolve(definitions, new() { ["version"] = version }));
+                FleetActionTemplateRenderer.Validate("{{INPUT.version}} {{scan.summary}}", new[] { "version" });
+                FleetActionTemplateContext context = new() { InputValues = new() { ["version"] = "{{vessel.name}}" }, ScanSummary = "safe summary" };
+                AssertEqual("{{vessel.name}} safe summary", FleetActionTemplateRenderer.Render("{{INPUT.version}} {{scan.summary}}", context));
+            }));
+
+            cases.Add(Case("windows_command_override_and_fallback", "The target host selects the Windows override with a portable fallback", TestTags.Positive, () =>
+            {
+                AssertEqual("posix", FleetActionShellCommandBuilder.SelectCommand("posix", "windows", false));
+                AssertEqual("windows", FleetActionShellCommandBuilder.SelectCommand("posix", "windows", true));
+                AssertEqual("posix", FleetActionShellCommandBuilder.SelectCommand("posix", null, true));
+                AssertEqual("posix", FleetActionShellCommandBuilder.SelectCommand("posix", "  ", true));
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Fleet Action Template Renderer",

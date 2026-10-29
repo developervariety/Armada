@@ -4,11 +4,15 @@ namespace Test.Shared.Suites.E2E
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
+    using System.IO;
     using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
+    using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -38,7 +42,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "PR transition test", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "PR transition test", "WorkProduced");
 
                 // Transition to PullRequestOpen
                 HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "PullRequestOpen");
@@ -53,7 +57,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "PR to Complete", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "PR to Complete", "WorkProduced");
                 await TransitionAsync(authClient, missionId, "PullRequestOpen");
 
                 HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "Complete");
@@ -70,7 +74,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "PR to LandingFailed", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "PR to LandingFailed", "WorkProduced");
                 await TransitionAsync(authClient, missionId, "PullRequestOpen");
 
                 HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "LandingFailed");
@@ -85,7 +89,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "PR to Cancelled", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "PR to Cancelled", "WorkProduced");
                 await TransitionAsync(authClient, missionId, "PullRequestOpen");
 
                 HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "Cancelled");
@@ -100,7 +104,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "PR invalid transition", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "PR invalid transition", "WorkProduced");
                 await TransitionAsync(authClient, missionId, "PullRequestOpen");
 
                 HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "InProgress");
@@ -119,7 +123,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient authClient = fx.AuthClient;
 
                 // Create a mission and advance to WorkProduced (no dock since no vessel assignment)
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "Manual complete audit", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "Manual complete audit", "WorkProduced");
 
                 // Manually transition to Complete (no dock exists for this mission)
                 HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "Complete");
@@ -165,10 +169,13 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "Event emission test", "InProgress");
+                // A manual InProgress -> WorkProduced is refused, so the REST transition into WorkProduced is the
+                // LandingFailed retry.
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "Event emission test", "WorkProduced");
+                AssertStatusCode(HttpStatusCode.OK, await TransitionAsync(authClient, missionId, "LandingFailed"));
 
                 // Transition to WorkProduced
-                await TransitionAsync(authClient, missionId, "WorkProduced");
+                AssertStatusCode(HttpStatusCode.OK, await TransitionAsync(authClient, missionId, "WorkProduced"));
 
                 // Check that a status_changed event was emitted
                 EnumerationResult<ArmadaEvent> events = await GetTypedAsync<EnumerationResult<ArmadaEvent>>(authClient, "/api/v1/events?type=mission.status_changed&missionId=" + missionId);
@@ -179,7 +186,7 @@ namespace Test.Shared.Suites.E2E
                     .ToList();
                 MissionStatusChangedPayload? workProduced = payloads.FirstOrDefault(p => p.Status == MissionStatusEnum.WorkProduced);
                 AssertNotNull(workProduced, "Expected a mission.status_changed event with Status WorkProduced for mission " + missionId);
-                AssertEqual(MissionStatusEnum.InProgress, workProduced!.PreviousStatus, "previous status recorded");
+                AssertEqual(MissionStatusEnum.LandingFailed, workProduced!.PreviousStatus, "previous status recorded");
             }));
 
             cases.Add(CaseAsync("landing_failed_transitions_back_to_work_produced", "LandingFailed_TransitionsBackToWorkProduced", TestTags.Positive, async () =>
@@ -187,7 +194,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "LandingFailed retry", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "LandingFailed retry", "WorkProduced");
                 await TransitionAsync(authClient, missionId, "LandingFailed");
 
                 // LandingFailed -> WorkProduced (retry)
@@ -203,7 +210,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "LandingFailed to Failed", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "LandingFailed to Failed", "WorkProduced");
                 await TransitionAsync(authClient, missionId, "LandingFailed");
 
                 HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "Failed");
@@ -218,7 +225,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
 
-                string missionId = await CreateAndAdvanceMissionAsync(authClient, "LandingFailed to Cancelled", "WorkProduced");
+                string missionId = await CreateAndAdvanceMissionAsync(fx, "LandingFailed to Cancelled", "WorkProduced");
                 await TransitionAsync(authClient, missionId, "LandingFailed");
 
                 HttpResponseMessage resp = await TransitionAsync(authClient, missionId, "Cancelled");
@@ -247,26 +254,49 @@ namespace Test.Shared.Suites.E2E
         /// <summary>
         /// Create a mission (no vessel) and advance it through the status chain to the target status.
         /// Chain: Pending -> Assigned -> InProgress -> WorkProduced -> PullRequestOpen
+        /// The mission is read-only (Audit), so a manual Complete is a plain transition rather than a landing handoff,
+        /// which needs an active dock. The API refuses a manual InProgress -> WorkProduced (only the agent exit and its
+        /// stage check hand work off), so that step is seeded in the fixture database, as the agent exit would write it.
         /// </summary>
-        private static async Task<string> CreateAndAdvanceMissionAsync(HttpClient authClient, string title, string targetStatus)
+        private static async Task<string> CreateAndAdvanceMissionAsync(E2EServerFixture fx, string title, string targetStatus)
         {
+            HttpClient authClient = fx.AuthClient;
             Mission mission = await CreateMissionAsync(authClient, title);
             string missionId = mission.Id!;
 
             string[] chain = new[] { "Assigned", "InProgress", "WorkProduced", "PullRequestOpen" };
             foreach (string status in chain)
             {
-                HttpResponseMessage resp = await TransitionAsync(authClient, missionId, status);
-                resp.EnsureSuccessStatusCode();
+                if (status == "WorkProduced")
+                {
+                    await SeedWorkProducedAsync(fx, missionId);
+                }
+                else
+                {
+                    HttpResponseMessage resp = await TransitionAsync(authClient, missionId, status);
+                    resp.EnsureSuccessStatusCode();
+                }
                 if (status == targetStatus) break;
             }
 
             return missionId;
         }
 
+        private static async Task SeedWorkProducedAsync(E2EServerFixture fx, string missionId)
+        {
+            LoggingModule quiet = new LoggingModule();
+            quiet.Settings.EnableConsole = false;
+            using DatabaseDriver db = DatabaseDriverFactory.Create(new DatabaseSettings { Type = DatabaseTypeEnum.Sqlite, Filename = Path.Combine(fx.TempDir, "armada.db") }, quiet);
+            await db.InitializeAsync().ConfigureAwait(false);
+            Mission produced = (await db.Missions.ReadAsync(missionId).ConfigureAwait(false))!;
+            produced.Status = MissionStatusEnum.WorkProduced;
+            produced.LastUpdateUtc = DateTime.UtcNow;
+            await db.Missions.UpdateAsync(produced).ConfigureAwait(false);
+        }
+
         private static async Task<Mission> CreateMissionAsync(HttpClient authClient, string title)
         {
-            StringContent content = JsonHelper.ToJsonContent(new { Title = title });
+            StringContent content = JsonHelper.ToJsonContent(new { Title = title, Mode = MissionModeEnum.Audit });
             HttpResponseMessage resp = await authClient.PostAsync("/api/v1/missions", content).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);

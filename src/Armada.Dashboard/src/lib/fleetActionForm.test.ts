@@ -67,3 +67,22 @@ describe('fleet action run flow', () => {
     expect(runProgress({ targetCount: 0, succeededCount: 0, failedCount: 0, skippedCount: 0, cancelledCount: 0 }).percent).toBe(0);
   });
 });
+
+// Findings finish a target without inflating successful or failed counts.
+it('includes Findings in completed progress', () => {
+  expect(runProgress({ targetCount: 4, succeededCount: 1, failedCount: 0, skippedCount: 1, cancelledCount: 0, findingsCount: 2 })).toEqual({ total: 4, done: 4, percent: 100 });
+});
+
+it('retains scan, tool, platform and typed input snapshots through an ad hoc rerun', () => {
+  const run: FleetActionRun = {
+    id: 'far_scan', tenantId: null, userId: null, actionId: null, promptTemplate: null, pipelineId: null, persona: null,
+    concurrency: 1, status: 'Completed', targetCount: 1, succeededCount: 1, failedCount: 0, skippedCount: 0, cancelledCount: 0,
+    startedUtc: null, completedUtc: null, createdUtc: '2026-10-27T00:00:00Z', lastUpdateUtc: '2026-10-27T00:00:00Z',
+    actionName: 'Scan', kind: 'Command', commandText: 'scan {{input.version}}', commandWindows: 'scan.exe {{input.version}}',
+    outputParser: 'npm-audit-json', requiredTools: ['scan'], requiresNetwork: true, scanSourceActionKey: 'prior-scan',
+    inputs: [{ name: 'version', type: 'semver', required: true, default: '1.0.0', allowedValues: [], description: 'Release version' }],
+    inputValues: { version: '2.0.0' }, timeoutSeconds: 60, requiresCleanWorkingTree: false,
+  };
+  const rerun = buildAdHocDefinition(adHocFromDefinition(definitionFromRun(run)));
+  expect(rerun).toMatchObject({ CommandWindows: 'scan.exe {{input.version}}', OutputParser: 'npm-audit-json', RequiredTools: ['scan'], RequiresNetwork: true, ScanSourceActionKey: 'prior-scan', Inputs: [{ Name: 'version', Type: 'semver', Required: true, Default: '2.0.0' }] });
+});
