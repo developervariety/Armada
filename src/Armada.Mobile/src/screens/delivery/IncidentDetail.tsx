@@ -12,6 +12,7 @@ import { AppText } from '../../components/ui/AppText';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { useLocale } from '../../i18n/LocaleContext';
+import { planningHref } from '../../navigation/legacyRedirects';
 import { useNotifications } from '../../notifications/NotificationContext';
 import { param, prefillQuery } from '../../resource/links';
 import { ALL, useNameMap, useVessels } from '../../resource/lookups';
@@ -124,7 +125,7 @@ export function IncidentDetailView({ id, embedded, onDeleted, onChanged }: Incid
       <ActionBar>
         {hotfixVesselId ? (
           <>
-            <Button label={t('Plan Hotfix')} variant="secondary" style={resourceStyles.action} onPress={() => go(`/planning${prefillQuery({ fromIncident: '1', vesselId: hotfixVesselId, title: `Hotfix: ${i.title}`, initialPrompt: prompt })}`)} />
+            <Button label={t('Plan Hotfix')} variant="secondary" style={resourceStyles.action} onPress={() => go(planningHref(null, { fromIncident: '1', vesselId: hotfixVesselId, title: `Hotfix: ${i.title}`, initialPrompt: prompt }))} />
             <Button label={t('Dispatch Hotfix')} variant="secondary" style={resourceStyles.action} onPress={() => go(`/dispatch${prefillQuery({ fromIncident: '1', vesselId: hotfixVesselId, voyageTitle: `Hotfix: ${i.title}`, prompt })}`)} />
           </>
         ) : null}

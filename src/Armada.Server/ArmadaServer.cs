@@ -473,6 +473,7 @@ namespace Armada.Server
             _Admiral.OnCaptureDiff = _MissionLanding.HandleCaptureDiffAsync;
             _Admiral.OnIsProcessExitHandled = _AgentLifecycle.IsProcessExitHandled;
             admiralService.OnIsProcessTracked = _AgentLifecycle.IsProcessTracked;
+            admiralService.OnGetToolWaitStartedUtc = _AgentLifecycle.GetToolWaitStartedUtc;
             admiralService.OnIsRemoteProcessTracked = _HarborConnectionManager.IsProcessTracked;
             admiralService.OnIsProcessAwaitingReconnect = _HarborConnectionManager.IsProcessAwaitingReconnect;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
@@ -497,6 +498,7 @@ namespace Armada.Server
             missionService.DockHosts = dockHosts;
             missionService.ResolveDockPlacementAsync = _AgentLifecycle.ResolveDockPlacementAsync;
             _MissionLanding.DockHosts = dockHosts;
+            _LandingService.DockHosts = dockHosts;
 
             // Evaluate (probe-only model probes): each probe runs through the captain's own runtime as a Harbor job,
             // under the evaluation budget and concurrency limits. Nothing it records changes routing or captain settings.
@@ -729,6 +731,7 @@ namespace Armada.Server
             _AskTracker = new Armada.Server.Ask.AskWorkTracker(_Database, _AskThreads, _Settings, _Logging);
             _AskThreads.OnUserEvent = (tenantId, userId, eventType, payload) => _WebSocketHub.SendToUser(tenantId, userId, eventType, payload);
             _AskThreads.ActiveTurnResolver = _AskTurns.ActiveTurnId;
+            _AskThreads.ActiveTurnProgressResolver = _AskTurns.ActiveTurnProgress;
             _AskActions.OnWorkLinked = _AskTracker.OnWorkLinkedAsync;
             _AskActions.OnProposalApproved = _AskTurns.StartFollowUpAsync;
             _AskTracker.Narrate = _AskTurns.NarrateAsync;
@@ -1088,6 +1091,20 @@ namespace Armada.Server
         private async Task AuthorizeRegisteredRouteAsync(HttpContextBase ctx)
         {
             if (ctx.Request.Method == WatsonWebserver.Core.HttpMethod.OPTIONS) return;
+
+            // Retired whole-collection routes answer 410 Gone with the paged replacement, before a parameter route such as
+            // GET /api/v1/signals/{id} could take the request (DEPRECATION.md, Removed).
+            Armada.Core.ApiSurface.RetiredRouteMatch? retired = Armada.Core.ApiSurface.RetiredSurface.Match(ctx.Request.Method.ToString(), ctx.Request.Url.RawWithoutQuery);
+            if (retired != null)
+            {
+                ApplyCorsHeaders(ctx);
+                ctx.Response.StatusCode = 410;
+                ctx.Response.ContentType = "application/json";
+                ApiErrorResponse gone = new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = Armada.Core.ApiSurface.RetiredSurface.GoneMessage(retired) };
+                await ctx.Response.Send(_App.Serializer.SerializeJson(gone, false)).ConfigureAwait(false);
+                return;
+            }
+
             string? template = ResolveRegisteredRouteTemplate(ctx);
             if (template == null) return;
 
@@ -1421,6 +1438,10 @@ namespace Armada.Server
             new StageOutcomeRoutes(_StageOutcomeAccess, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Handoff artifacts (one per stage attempt, delivered to the next stage within a budget)
+            new HandoffArtifactRoutes(new HandoffArtifactAccessService(_Database))
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Evaluate (probe-only Quick model probes) and its runs
             new ModelProbeRoutes(_ModelProbeAccess, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -1534,6 +1555,10 @@ namespace Armada.Server
 
             // Vessel health
             new VesselHealthRoutes(_VesselHealthService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Vessel cleanup inventory and garbage collection
+            new VesselCleanupRoutes(_Database, new VesselCleanupService(_Database, _Settings, _Docks, new DockHostResolver(_Git, _Logging, _HarborConnectionManager), _Logging))
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Prompt templates

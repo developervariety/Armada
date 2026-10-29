@@ -25,7 +25,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
              runtime, model, model_provider, model_endpoint_id, harbor_id, context_tokens, temperature, top_p, tools_enabled,
              mcp_tools_enabled, reasoning_effort, runtime_version, model_digest, prompt_version, armada_version, exit_code,
              runtime_failure_kind, stage_check_status, stage_check_reason, disposition, failure_kind, failure_reason, judge_verdict,
-             reviewed_mission_id, next_captain_id, commit_hash, finished_by_outcome_id, finished_by_captain_id, prior_work_kept,
+             reviewed_mission_id, next_captain_id, commit_hash, finished_by_outcome_id, finished_by_captain_id, prior_work_kept, contract_repair_kind,
              suspected_cause, cause_source, cause_rule_id, cause_note, classified_by_user_id,
              classified_utc, is_evaluation, started_utc, ended_utc, duration_ms, created_utc, last_update_utc)
             VALUES
@@ -33,7 +33,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
              @runtime, @model, @model_provider, @model_endpoint_id, @harbor_id, @context_tokens, @temperature, @top_p, @tools_enabled,
              @mcp_tools_enabled, @reasoning_effort, @runtime_version, @model_digest, @prompt_version, @armada_version, @exit_code,
              @runtime_failure_kind, @stage_check_status, @stage_check_reason, @disposition, @failure_kind, @failure_reason, @judge_verdict,
-             @reviewed_mission_id, @next_captain_id, @commit_hash, @finished_by_outcome_id, @finished_by_captain_id, @prior_work_kept,
+             @reviewed_mission_id, @next_captain_id, @commit_hash, @finished_by_outcome_id, @finished_by_captain_id, @prior_work_kept, @contract_repair_kind,
              @suspected_cause, @cause_source, @cause_rule_id, @cause_note, @classified_by_user_id,
              @classified_utc, @is_evaluation, @started_utc, @ended_utc, @duration_ms, @created_utc, @last_update_utc);";
 
@@ -48,7 +48,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             disposition = @disposition, failure_kind = @failure_kind, failure_reason = @failure_reason, judge_verdict = @judge_verdict,
             reviewed_mission_id = @reviewed_mission_id, next_captain_id = @next_captain_id, commit_hash = @commit_hash,
             finished_by_outcome_id = @finished_by_outcome_id, finished_by_captain_id = @finished_by_captain_id,
-            prior_work_kept = @prior_work_kept, suspected_cause = @suspected_cause,
+            prior_work_kept = @prior_work_kept, contract_repair_kind = @contract_repair_kind, suspected_cause = @suspected_cause,
             cause_source = @cause_source, cause_rule_id = @cause_rule_id, cause_note = @cause_note,
             classified_by_user_id = @classified_by_user_id, classified_utc = @classified_utc, is_evaluation = @is_evaluation,
             started_utc = @started_utc, ended_utc = @ended_utc, duration_ms = @duration_ms, last_update_utc = @last_update_utc
@@ -265,6 +265,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             SqlServerCommandHelper.Add(cmd, "@finished_by_outcome_id", outcome.FinishedByOutcomeId);
             SqlServerCommandHelper.Add(cmd, "@finished_by_captain_id", outcome.FinishedByCaptainId);
             SqlServerCommandHelper.Add(cmd, "@prior_work_kept", outcome.PriorWorkKept);
+            SqlServerCommandHelper.Add(cmd, "@contract_repair_kind", EnumName(outcome.ContractRepairKind));
             SqlServerCommandHelper.Add(cmd, "@suspected_cause", outcome.SuspectedCause.ToString());
             SqlServerCommandHelper.Add(cmd, "@cause_source", outcome.CauseSource.ToString());
             SqlServerCommandHelper.Add(cmd, "@cause_rule_id", outcome.CauseRuleId);
@@ -321,6 +322,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             outcome.FinishedByOutcomeId = SqlServerCommandHelper.ReadString(reader["finished_by_outcome_id"]);
             outcome.FinishedByCaptainId = SqlServerCommandHelper.ReadString(reader["finished_by_captain_id"]);
             outcome.PriorWorkKept = SqlServerCommandHelper.ReadNullableBool(reader["prior_work_kept"]);
+            outcome.ContractRepairKind = ReadNullableEnum<ContractRepairKindEnum>(reader["contract_repair_kind"]);
             outcome.SuspectedCause = SqlServerCommandHelper.ReadEnum(reader["suspected_cause"], FailureCauseEnum.None);
             outcome.CauseSource = SqlServerCommandHelper.ReadEnum(reader["cause_source"], FailureCauseSourceEnum.None);
             outcome.CauseRuleId = SqlServerCommandHelper.ReadString(reader["cause_rule_id"]);

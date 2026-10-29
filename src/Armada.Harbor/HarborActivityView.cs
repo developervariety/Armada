@@ -128,7 +128,7 @@ namespace Armada.Harbor
                 rangeButtons.Children.Add(button);
             }
 
-            rangeButtons.Children.Add(HarborUi.Button("Refresh", () => _Refresher.RefreshNow(), "Ask the Admiral for the latest charts now"));
+            rangeButtons.Children.Add(HarborUi.RefreshButton(() => _Refresher.RefreshNow(), "Ask the Admiral for the latest charts now"));
 
             Grid header = HarborUi.DetailGrid(110);
             _HarborId = HarborUi.AddIdRow(header, "Harbor ID", _Session.Settings.HarborId);

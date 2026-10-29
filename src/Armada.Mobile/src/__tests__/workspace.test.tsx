@@ -30,7 +30,7 @@ const ROUTES = {
   '(work)/vessels/index': () => <WorkspaceTab />,
   '(work)/workspace/[vesselId]/index': WorkspaceRoute,
   '(work)/workspace/[vesselId]/[panel]': WorkspacePanelRoute,
-  '(work)/planning/index': () => <Text>Planning screen</Text>,
+  '(work)/dispatch': () => <Text>Planning screen</Text>,
 };
 
 describe('workspace', () => {
@@ -98,7 +98,8 @@ describe('workspace', () => {
   });
 
   it('warns about active mission overlap for selected files and plans the selection', async () => {
-    await renderRouter(ROUTES, { initialUrl: '/workspace/vsl_1' });
+    const result = renderRouter(ROUTES, { initialUrl: '/workspace/vsl_1' });
+    await result;
     await waitFor(() => expect(screen.getByTestId('workspace-open-README.md')).toBeTruthy());
     await act(async () => { await fireEvent(screen.getByTestId('workspace-open-README.md'), 'longPress'); });
     expect(screen.getByTestId('workspace-selection')).toBeTruthy();
@@ -106,6 +107,9 @@ describe('workspace', () => {
     expect(screen.getByText('Fix docs (InProgress)')).toBeTruthy();
     await act(async () => { await fireEvent.press(screen.getByText('Plan')); });
     await waitFor(() => expect(screen.getByText('Planning screen')).toBeTruthy());
+    // Planning is the Dispatch hub's Planning tab, prefilled from the selection.
+    expect(result.getPathname()).toBe('/dispatch');
+    expect(result.getSearchParams()).toEqual(expect.objectContaining({ tab: 'planning', from: 'workspace', vesselId: 'vsl_1' }));
   });
 
   it('opens on a panel: search, changes with a per-file diff, and terminal', async () => {
