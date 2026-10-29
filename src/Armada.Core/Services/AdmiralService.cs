@@ -1680,6 +1680,10 @@ namespace Armada.Core.Services
             // and the path that requested the stop decides the mission's next state. A clean exit is still the work's own.
             bool stopRequested = _IntentionalStops.TryTake(processId, captainId, missionId, IntentionalStopKindEnum.Requested, out string? stopReason);
 
+            // An exited process can no longer run or release a suite, so its lease ends with it. A superseded
+            // process is the exception: the admiral already moved the mission on, and its next run may hold the lease.
+            if (!superseded) CaptainSuiteLeaseRegistry.ReleaseForMission(missionId);
+
             // System-scoped: process exit handler receives only IDs with no tenant context;
             // tenant is unknown until the entity is read.
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);

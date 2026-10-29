@@ -16,6 +16,11 @@ namespace Armada.Core.Models
         public int SlotCount { get; set; } = 1;
 
         /// <summary>
+        /// How many of one vessel's suite commands may run at once. Defaults to 1.
+        /// </summary>
+        public int VesselSlotCount { get; set; } = 1;
+
+        /// <summary>
         /// Key of the earliest current holder, such as a check run ID, or null when every slot is free or that
         /// holder is unnamed. <see cref="Holders"/> lists every holder.
         /// </summary>
@@ -88,12 +93,22 @@ namespace Armada.Core.Models
             set => _Waiters = value ?? new List<HostSlotWaiter>();
         }
 
+        /// <summary>
+        /// Requests waiting for a vessel suite slot, first in each vessel's line first.
+        /// </summary>
+        public List<HostVesselWaiter> VesselWaiters
+        {
+            get => _VesselWaiters;
+            set => _VesselWaiters = value ?? new List<HostVesselWaiter>();
+        }
+
         #endregion
 
         #region Private-Members
 
         private List<HostSlotHolder> _Holders = new List<HostSlotHolder>();
         private List<HostSlotWaiter> _Waiters = new List<HostSlotWaiter>();
+        private List<HostVesselWaiter> _VesselWaiters = new List<HostVesselWaiter>();
 
         #endregion
 
@@ -126,6 +141,22 @@ namespace Armada.Core.Models
             foreach (HostSlotHolder holder in _Holders)
             {
                 if (String.Equals(holder.Key, key, StringComparison.Ordinal)) return holder;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The vessel-suite waiter with the given key, or null when that key is not waiting on a vessel slot.
+        /// </summary>
+        /// <param name="key">Requester key.</param>
+        /// <returns>The waiter, or null.</returns>
+        public HostVesselWaiter? FindVesselWaiter(string? key)
+        {
+            if (String.IsNullOrEmpty(key)) return null;
+            foreach (HostVesselWaiter waiter in _VesselWaiters)
+            {
+                if (String.Equals(waiter.Key, key, StringComparison.Ordinal)) return waiter;
             }
 
             return null;

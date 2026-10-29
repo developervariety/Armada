@@ -81,7 +81,11 @@ namespace Armada.Server.Mcp
             // the tenant administrator level the REST route requires.
             "armada_harbor_jobs",
             "armada_harbor_job",
-            "armada_harbor_job_stop"
+            "armada_harbor_job_stop",
+
+            // Captain suite lease: acquire and release the same host and per-vessel full-suite slots
+            // the definition-of-done gate and armed checks use. Scoped to the mission credential.
+            McpSuiteLeaseTools.ToolName
         };
 
         // Read-only voyage tools a mission caller may also reach, so a captain can reconstruct its own

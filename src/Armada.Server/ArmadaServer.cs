@@ -309,8 +309,10 @@ using WatsonWebserver.Core.Routing;
             // The host-wide command slots are process-global; they take the configured count before any
             // gate, check or merge-queue test can ask for one, and the reload path keeps them current.
             HostWideCommandLock.SetSlotCount(_Settings.DefinitionOfDone.HostCommandSlots);
+            HostWideCommandLock.SetVesselSlotCount(_Settings.DefinitionOfDone.VesselSuiteSlots);
             HostWideCommandLock.SetMemoryFloorMb(_Settings.DefinitionOfDone.HostCommandMemoryFloorMb);
             _Logging.Info(_Header + "host command slots: " + HostWideCommandLock.SlotCount
+                + ", vessel suite slots: " + HostWideCommandLock.VesselSlotCount
                 + ", memory floor: " + HostWideCommandLock.MemoryFloorMb + " MB");
 
             // Background jobs are journalled under the data directory, so an accepted job outlives

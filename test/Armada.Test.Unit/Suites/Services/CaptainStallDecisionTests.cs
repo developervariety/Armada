@@ -761,6 +761,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("SuiteLease_WaitingOrHolding_HoldsTheStallWindowOpen", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Scene scene = await CreateConfirmedStallSceneAsync(testDb, 88110024).ConfigureAwait(false);
+                    Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                    int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        await CaptainSuiteLeaseRegistry.AcquireAsync(scene.Mission.Id, scene.Vessel.Id, CancellationToken.None).ConfigureAwait(false);
+
+                        CaptainStallDecision decision = await CreateEvaluator(scene, TreeWithChildren()).EvaluateAsync(
+                            scene.Captain, scene.Mission, 10, DateTime.UtcNow, null, 45).ConfigureAwait(false);
+
+                        AssertFalse(decision.IsStalled, "a captain waiting on or holding the suite lease is not stalled: " + decision.DescribeEvidence());
+                        AssertEqual(CaptainStallEvaluator.SignalSuiteLease, decision.DecidingSignal, "the suite lease decides");
+                    }
+                    finally
+                    {
+                        CaptainSuiteLeaseRegistry.Release(scene.Mission.Id);
+                        HostWideCommandLock.SetMemoryFloorMb(previousFloor);
+                        HostWideCommandLock.SetMemoryReader(previousReader);
+                        HostWideCommandLock.SetSlotCount(1);
+                        HostWideCommandLock.SetVesselSlotCount(1);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ChildProcess_TestRunStartedAfterTheLastOutput_HoldsTheStallWindowOpen", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

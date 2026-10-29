@@ -82,6 +82,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Creating or reusing a battery fixture vessel writes a vessel-scoped default workflow profile named `battery-<pack id> fixture` with the pack's `buildCommand` and `unitTestCommand`. A pack with neither command is refused before launch with reason `pack_missing_workflow_commands`. The shipped `csharp` pack declares `dotnet build Inventory.sln` and `dotnet run --project tests/Inventory.Tests`; the shipped `javascript` pack declares `npm test`.
 
+### Definition-of-done host-fault re-run
+
+- When the definition-of-done gate fails as a host-fault Timeout (no failing tests) or as Infra with a signal or timeout, and the result is not a `HostLoadTimeout`, completion holds the produced work. The GateReruns sweep re-runs only the gate once, without relaunching the captain. A second host-fault records the existing failure.
+
+### Captain suite lease
+
+- Captains acquire `armada_suite_lease` around a full-suite run. The lease takes the same per-vessel and host-wide slots the definition-of-done gate and armed checks use. Defaults: one per vessel (`definitionOfDone.vesselSuiteSlots`), host-wide equal to `hostCommandSlots`. A wait records `captain.suite_lease_wait` and is not a stall. When the captain process exits or the mission ends, a held lease is released and a waiting acquire is cancelled, so the mission's own definition-of-done gate never waits on it.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

@@ -524,13 +524,20 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// How a captain takes the Armada suite lease around a full-suite run so the run counts against the
+        /// per-vessel and host-wide full-suite limits.
+        /// </summary>
+        internal const string SuiteLeaseInstruction =
+            "Before a full-suite run, acquire `armada_suite_lease`, then release it. A wait is not a stall.";
+
+        /// <summary>
         /// Keep an unchanged Linter review bounded without waiving explicit checks or the automatic gates.
         /// Shared by the embedded persona, fallback and code-owned output contract.
         /// </summary>
         internal const string LinterVerificationRule =
             "Run all checks explicitly required by the mission brief, acceptance criteria, and repository instructions. " +
             "If you change any tracked file, run the repository's full check script, such as `scripts/check.sh`; " +
-            "if none exists, run the build. If you leave the tracked tree unchanged, use static review and focused " +
+            "if none exists, run the build. " + SuiteLeaseInstruction + " If you leave the tracked tree unchanged, use static review and focused " +
             "checks appropriate to your findings. Do not run the whole suite solely because this is a Linter stage. " +
             "Report the commands you ran and their results. Automatic DoD gates and required structured Checks " +
             "remain required; this instruction does not waive them.";
@@ -604,13 +611,13 @@ namespace Armada.Core.Services
                 PersonaCatalog.UsabilityEngineer =>
                     "Before your result line, include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Worker =>
-                    "Stay within scope, make the requested changes, and end with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                    "Stay within scope, make the requested changes. " + SuiteLeaseInstruction + " End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.TestEngineer =>
                     "Before your result line, include short `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Linter =>
                     "Evaluate the changed code and documentation for style and correctness, staying strictly inside the files this mission changed. Fix clear in-scope violations and flag judgment calls. " + LinterVerificationRule + " Before your result line, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Judge =>
-                    "Your response must contain these exact section headings: " + JudgeReviewSections.Headings(false) + ". " + MissionService.AcceptanceCriteriaWalkInstruction + " A NOT MET line forbids PASS. When a fix you require cannot be made without breaking a stated acceptance criterion, write a standalone line `" + JudgeCriterionConflicts.LinePrefix + " <criterion>" + JudgeCriterionConflicts.Separator + "<conflict>` for it and end with NEEDS_REVISION, so an operator reviews the criterion. When the mission description contains [DOD:DOC-ONLY] and the diff is non-code, do not run the full suite. When the brief's `" + JudgeCheckEvidence.Heading + "` section names a passing independent UnitTest Check for the commit under review, cite that Check as your test evidence and run only focused tests for the changed code, giving each command and its result; run the full suite when no such Check exists for that commit or the diff changes test infrastructure or build configuration. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted, except for [DOD:DOC-ONLY] non-code diffs. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + BuildJudgeLensDirective(judgePrimaryLens),
+                    "Your response must contain these exact section headings: " + JudgeReviewSections.Headings(false) + ". " + MissionService.AcceptanceCriteriaWalkInstruction + " A NOT MET line forbids PASS. When a fix you require cannot be made without breaking a stated acceptance criterion, write a standalone line `" + JudgeCriterionConflicts.LinePrefix + " <criterion>" + JudgeCriterionConflicts.Separator + "<conflict>` for it and end with NEEDS_REVISION, so an operator reviews the criterion. When the mission description contains [DOD:DOC-ONLY] and the diff is non-code, do not run the full suite. When the brief's `" + JudgeCheckEvidence.Heading + "` section names a passing independent UnitTest Check for the commit under review, cite that Check as your test evidence and run only focused tests for the changed code, giving each command and its result; run the full suite under `armada_suite_lease` when no such Check exists for that commit or the diff changes test infrastructure or build configuration. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never background tests or exit before the verdict, except for [DOD:DOC-ONLY] non-code diffs. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + BuildJudgeLensDirective(judgePrimaryLens),
                 _ => String.Empty
             };
         }

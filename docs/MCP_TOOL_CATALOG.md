@@ -326,9 +326,12 @@ campaign quality and handle work outside the scheduler.
 | --- | --- |
 | Read | `get_check_run` |
 | Write | `resolve_check`, `armada_resolve_check` |
-| Execute | `run_check`, `retry_check_run` |
+| Execute | `run_check`, `retry_check_run`, `armada_suite_lease` |
 
 `armada_resolve_check` is a compatibility alias for `resolve_check`.
+`armada_suite_lease` is a mission-credential tool: acquire the same per-vessel
+and host-wide full-suite slots the gate and armed checks use before a captain
+full-suite run, then release them. See [MCP API](MCP_API.md).
 
 `run_check`, `retry_check_run`, `get_check_run`, and `resolve_check` (with its
 `armada_resolve_check` alias) return a BOUNDED view of a check run, not the

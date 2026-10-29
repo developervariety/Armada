@@ -36,6 +36,19 @@ namespace Armada.Core.Services
         public const string DefinitionOfDoneNotRunHoldPrefix = "definition_of_done_not_run: ";
 
         /// <summary>
+        /// Prefix of the operator-review hold reason placed on a produced mission whose definition-of-done gate
+        /// failed as a host fault (a Timeout with no failing test, or an Infra signal interruption) and has not
+        /// yet used its one gate-only re-run.
+        /// </summary>
+        public const string DefinitionOfDoneHostFaultHoldPrefix = "definition_of_done_host_fault: ";
+
+        /// <summary>
+        /// Event recorded when a produced mission is held for a gate-only re-run after a host-fault Timeout or Infra
+        /// interruption. The payload names the failure class and the load reading taken at the hold.
+        /// </summary>
+        public const string DefinitionOfDoneHostFaultHoldEventType = "mission.definition_of_done_host_fault_hold";
+
+        /// <summary>
         /// Opening of the refusal when an operator clears a hold while the mission's definition-of-done gate is
         /// re-running.
         /// </summary>
@@ -3102,6 +3115,10 @@ namespace Armada.Core.Services
             }
             if (mission == null) return;
 
+            // The captain's work is finished, so a suite lease it still holds is released before the
+            // definition-of-done gate queues for the same vessel slot.
+            CaptainSuiteLeaseRegistry.ReleaseForMission(mission.Id);
+
             // Idempotency guard: if the mission has already been processed (e.g. by a concurrent
             // health check or process exit handler), skip to avoid double-processing.
             if (mission.Status == MissionStatusEnum.WorkProduced ||
@@ -3495,16 +3512,24 @@ namespace Armada.Core.Services
                     }
                     else if (!dodResult.Passed)
                     {
-                        failedForDodGate = true;
-                        dodFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(dodResult.FailureClass);
-                        mission.Status = MissionStatusEnum.Failed;
-                        mission.CompletedUtc = DateTime.UtcNow;
-                        mission.LastUpdateUtc = DateTime.UtcNow;
-                        mission.FailureReason = BuildDodFailureReason(dodResult);
-                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                        await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
-                        _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate classification=" +
-                            dodResult.FailureClass);
+                        if (IsFirstHostFaultEligibleForGateRerun(dodResult))
+                        {
+                            await AppendMissionActivityAsync(mission.Id, "validation failed: " + BuildDodFailureReason(dodResult), token).ConfigureAwait(false);
+                            await HoldForHostFaultDefinitionOfDoneAsync(mission, dodResult, token).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            failedForDodGate = true;
+                            dodFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(dodResult.FailureClass);
+                            mission.Status = MissionStatusEnum.Failed;
+                            mission.CompletedUtc = DateTime.UtcNow;
+                            mission.LastUpdateUtc = DateTime.UtcNow;
+                            mission.FailureReason = BuildDodFailureReason(dodResult);
+                            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                            await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
+                            _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate classification=" +
+                                dodResult.FailureClass);
+                        }
                     }
                     else
                     {
@@ -3964,6 +3989,8 @@ namespace Armada.Core.Services
             Signal signal = new Signal(signalType, signalPayload);
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+
+            CaptainSuiteLeaseRegistry.ReleaseForMission(mission.Id);
 
             // Release the captain to idle only AFTER the handoff and dock reclaim are done,
             // and only if the captain is still assigned to this mission. Orphan recovery can
@@ -10615,7 +10642,7 @@ namespace Armada.Core.Services
             List<string> rerun = new List<string>();
             foreach (Mission mission in produced)
             {
-                if (!IsDefinitionOfDoneNotRunHold(mission)) continue;
+                if (!IsDefinitionOfDoneGateRerunHold(mission)) continue;
                 if (DefinitionOfDoneGateRuns.IsRunning(mission.Id)) continue;
                 if (_GateRerunsRefused.ContainsKey(mission.Id)) continue;
                 if (!_GateRerunsInFlight.TryAdd(mission.Id, 0)) continue;
@@ -10661,6 +10688,46 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// True when a produced mission is held for a definition-of-done gate re-run: either the gate never
+        /// recorded a result, or it failed once as a host fault (Timeout with no failing test, or Infra
+        /// signal interruption) and has not yet used its one re-run.
+        /// </summary>
+        /// <param name="mission">Mission to test.</param>
+        /// <returns>True for a gate re-run hold on a WorkProduced mission.</returns>
+        internal static bool IsDefinitionOfDoneGateRerunHold(Mission mission)
+        {
+            if (IsDefinitionOfDoneNotRunHold(mission)) return true;
+            return mission != null
+                && mission.Status == MissionStatusEnum.WorkProduced
+                && mission.HeldForOperatorReview
+                && !String.IsNullOrEmpty(mission.HeldForOperatorReviewReason)
+                && mission.HeldForOperatorReviewReason!.StartsWith(DefinitionOfDoneHostFaultHoldPrefix, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// True when a failed definition-of-done result is a host fault that has not yet used its one
+        /// gate-only re-run: a Timeout with no failing test, or an Infra interruption by signal, and not a
+        /// <see cref="DefinitionOfDoneResult.HostLoadTimeout"/> the gate already re-ran inline.
+        /// </summary>
+        /// <param name="result">Gate result.</param>
+        /// <returns>True when completion should hold the mission for one gate re-run.</returns>
+        internal static bool IsFirstHostFaultEligibleForGateRerun(DefinitionOfDoneResult result)
+        {
+            if (result == null || result.Passed) return false;
+            if (result.HostLoadTimeout) return false;
+            if (result.FailedTestNames != null && result.FailedTestNames.Count > 0) return false;
+            if (result.FailureClass == DefinitionOfDoneFailureClassEnum.Timeout) return true;
+            if (result.FailureClass == DefinitionOfDoneFailureClassEnum.Infra
+                && (result.TimedOut
+                    || DefinitionOfDoneFailureClassifier.WasSignalInterruption(result.ExitCode, result.GateCommandOutput ?? result.OutputTail)))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Run the definition-of-done gate again for a produced mission whose gate was interrupted (an admiral restart
         /// kills a running or queued gate), and act on the result the way completion would have: a passed or skipped
         /// gate releases the hold and runs the handoff or landing it stood in front of; a failed gate fails the mission
@@ -10675,7 +10742,7 @@ namespace Armada.Core.Services
             try
             {
                 Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
-                if (mission == null || !IsDefinitionOfDoneNotRunHold(mission)) return null;
+                if (mission == null || !IsDefinitionOfDoneGateRerunHold(mission)) return null;
 
                 Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
                 if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || (dock.HostCheckout == null && !Directory.Exists(dock.WorktreePath)))
@@ -10692,14 +10759,15 @@ namespace Armada.Core.Services
                     : await _Database.Captains.ReadAsync(mission.CaptainId!, token).ConfigureAwait(false);
 
                 DateTime startedUtc = DateTime.UtcNow;
-                await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate re-run after an interrupted run", token).ConfigureAwait(false);
+                string rerunKind = IsDefinitionOfDoneNotRunHold(mission) ? "after an interrupted run" : "after a host-fault Timeout";
+                await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate re-run " + rerunKind, token).ConfigureAwait(false);
                 DefinitionOfDoneResult result = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token, TryReadDockStartCommit(dock.Id)).ConfigureAwait(false);
                 DefinitionOfDoneEvaluationRecord record = DefinitionOfDoneEvaluationRecord.FromResult(result, startedUtc);
                 await PersistDefinitionOfDoneOutputCaptureAsync(mission, result, record, token).ConfigureAwait(false);
                 await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock, record, token).ConfigureAwait(false);
 
                 Mission? current = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
-                if (current == null || !IsDefinitionOfDoneNotRunHold(current))
+                if (current == null || !IsDefinitionOfDoneGateRerunHold(current))
                 {
                     _Logging.Info(_Header + "mission " + mission.Id + " changed while its definition-of-done gate re-ran; the result is recorded and nothing else is done");
                     return record.Outcome;
@@ -10763,6 +10831,64 @@ namespace Armada.Core.Services
                 }
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Hold a produced mission whose definition-of-done gate failed once as a host fault, so the dock stays and
+        /// the next stage is not cancelled until one gate-only re-run decides. The captain is not restarted. The
+        /// write is conditional on the mission still being WorkProduced.
+        /// </summary>
+        /// <param name="produced">Mission to hold; mutated on success.</param>
+        /// <param name="result">Failed host-fault gate result.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task HoldForHostFaultDefinitionOfDoneAsync(Mission produced, DefinitionOfDoneResult result, CancellationToken token)
+        {
+            if (produced.HeldForOperatorReview) return;
+
+            string className = result.FailureClass?.ToString() ?? "Timeout";
+            produced.HeldForOperatorReview = true;
+            produced.HeldForOperatorReviewReason = DefinitionOfDoneHostFaultHoldPrefix + className
+                + ". The gate failed as a host fault with no failing test. The dock is kept and the next stage is held."
+                + " The gate will re-run once; a second host-fault fails the mission.";
+            produced.LastUpdateUtc = DateTime.UtcNow;
+            bool written = await _Database.Missions.TryUpdateIfStatusAsync(produced, MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            if (!written)
+            {
+                ClearOperatorReviewHold(produced);
+                _Logging.Info(_Header + "mission " + produced.Id + " left WorkProduced before its host-fault definition-of-done result could be held");
+                return;
+            }
+
+            await AppendMissionActivityAsync(produced.Id, "held for operator review: " + produced.HeldForOperatorReviewReason, token).ConfigureAwait(false);
+            HostLoadReading load = new HostLoadMonitor().Read();
+            ArmadaEvent evt = new ArmadaEvent(DefinitionOfDoneHostFaultHoldEventType,
+                "Mission " + produced.Id + " held for a definition-of-done gate re-run after a host-fault " + className)
+            {
+                TenantId = produced.TenantId,
+                UserId = produced.UserId,
+                EntityType = "mission",
+                EntityId = produced.Id,
+                MissionId = produced.Id,
+                CaptainId = produced.CaptainId,
+                VesselId = produced.VesselId,
+                VoyageId = produced.VoyageId,
+                Payload = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    failureClass = className,
+                    timedOut = result.TimedOut,
+                    hostLoadTimeout = result.HostLoadTimeout,
+                    exitCode = result.ExitCode,
+                    commandLabel = result.CommandLabel,
+                    loadAverage1Min = load.LoadAverage1Min,
+                    loadAverage5Min = load.LoadAverage5Min,
+                    loadAverage15Min = load.LoadAverage15Min,
+                    logicalCores = load.LogicalCores,
+                    availableMemoryMb = load.AvailableMemoryMb
+                })
+            };
+            await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + produced.Id + " held for a gate-only re-run after host-fault "
+                + className + "; the captain is not restarted and dependents stay held");
         }
 
         /// <summary>

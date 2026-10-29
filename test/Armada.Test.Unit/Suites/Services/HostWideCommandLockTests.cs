@@ -252,6 +252,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("With two vessel suite slots two commands of one vessel hold at once and a third waits", async () =>
+            {
+                string vessel = "vsl_lane_two_slots_" + Guid.NewGuid().ToString("N");
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        HostWideCommandLock.SetSlotCount(3);
+                        HostWideCommandLock.SetVesselSlotCount(2);
+
+                        Task<IDisposable> first = HostWideCommandLock.AcquireAsync("vss_first", "vessel first", vessel, cancel.Token);
+                        Task<IDisposable> second = HostWideCommandLock.AcquireAsync("vss_second", "vessel second", vessel, cancel.Token);
+                        Task<IDisposable> third = HostWideCommandLock.AcquireAsync("vss_third", "vessel third", vessel, cancel.Token);
+                        requests.Add(first);
+                        requests.Add(second);
+                        requests.Add(third);
+
+                        AssertTrue(first.IsCompleted, "the first of the vessel takes a vessel slot at once");
+                        AssertTrue(second.IsCompleted, "the second of the vessel takes the other vessel slot at once");
+                        AssertFalse(third.IsCompleted, "the third of the vessel waits on the per-vessel limit");
+                        HostSlotSnapshot waiting = HostWideCommandLock.Snapshot();
+                        AssertEqual(2, waiting.VesselSlotCount);
+                        AssertEqual(2, waiting.Holders.Count, "two of the vessel hold host slots");
+                        AssertEqual(1, waiting.FindVesselWaiter("vss_third")!.Position, "the third names its vessel wait position");
+                        AssertNull(waiting.FindWaiter("vss_third"), "the third does not occupy a host slot while it waits on the vessel");
+
+                        (await first.ConfigureAwait(false)).Dispose();
+                        IDisposable thirdLease = await third.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                        leases.Add(thirdLease);
+                        AssertTrue(Holds("vss_third"), "the freed vessel slot goes to the waiting command");
+                        AssertNull(HostWideCommandLock.Snapshot().FindVesselWaiter("vss_third"));
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
             await RunTest("With two slots two requests hold the slot at once and a third waits", async () =>
             {
                 List<IDisposable> leases = new List<IDisposable>();
@@ -330,6 +376,11 @@ namespace Armada.Test.Unit.Suites.Services
                         HostSlotSnapshot blocked = HostWideCommandLock.Snapshot();
                         AssertEqual(1, blocked.Holders.Count, "the command blocked on its vessel suite lock holds no host slot");
                         AssertNull(blocked.FindWaiter("vlk_one_second"), "it does not even queue for a slot while its vessel lock is held");
+                        HostVesselWaiter? vesselWaiter = blocked.FindVesselWaiter("vlk_one_second");
+                        AssertNotNull(vesselWaiter, "the blocked command is reported as a vessel-suite waiter");
+                        AssertEqual(1, vesselWaiter!.Position, "the vessel wait names its place in that vessel's line");
+                        AssertEqual(vesselOne, vesselWaiter.VesselKey, "the vessel wait names the vessel");
+                        AssertEqual(1, blocked.VesselSlotCount, "the snapshot reports the per-vessel limit");
 
                         IDisposable otherVessel = await HostWideCommandLock.AcquireAsync("vlk_two_first", "vessel two gate", vesselTwo, cancel.Token).ConfigureAwait(false);
                         leases.Add(otherVessel);
@@ -487,10 +538,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(8, settings.HostCommandSlots, "the setting lowers twenty to eight");
                 settings.HostCommandSlots = 3;
                 AssertEqual(3, settings.HostCommandSlots, "the setting keeps a count in range");
+                AssertEqual(1, settings.VesselSuiteSlots, "the per-vessel suite setting defaults to one");
+                settings.VesselSuiteSlots = 0;
+                AssertEqual(1, settings.VesselSuiteSlots, "the per-vessel setting raises zero to one");
+                settings.VesselSuiteSlots = 20;
+                AssertEqual(8, settings.VesselSuiteSlots, "the per-vessel setting lowers twenty to eight");
+                settings.VesselSuiteSlots = 2;
+                AssertEqual(2, settings.VesselSuiteSlots, "the per-vessel setting keeps a count in range");
 
                 DefinitionOfDoneSettings copy = new DefinitionOfDoneSettings();
                 copy.CopyFrom(settings);
                 AssertEqual(3, copy.HostCommandSlots, "an in-place settings copy carries the slot count");
+                AssertEqual(2, copy.VesselSuiteSlots, "an in-place settings copy carries the per-vessel suite count");
                 return Task.CompletedTask;
             });
 
@@ -862,6 +921,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             HostWideCommandLock.SetSlotCount(1);
+            HostWideCommandLock.SetVesselSlotCount(1);
         }
     }
 }

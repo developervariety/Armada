@@ -55,11 +55,12 @@ namespace Armada.Core.Services
     /// A request may name a vessel. A vessel's full suite is serialized outside Armada by a file lock the vessel's
     /// own command takes (a <c>flock</c> around the suite), so two of one vessel's suite commands cannot run at
     /// once however many host slots are free: the second blocks inside its command on that file lock. A request
-    /// that named its vessel first takes an in-process per-vessel lock and only then queues for a host slot, so a
+    /// that named its vessel first takes an in-process per-vessel suite slot and only then queues for a host slot, so a
     /// command that would just block on its vessel's suite lock never occupies a host slot another vessel's command
-    /// could use. The per-vessel lock is always taken before the host slot and released after it, and a request
+    /// could use. The host grants at most <see cref="VesselSlotCount"/> of one vessel's suite commands at once, one
+    /// by default. The per-vessel slot is always taken before the host slot and released after it, and a request
     /// holds at most one, so the order never cycles into a deadlock. A request that names no vessel queues for a
-    /// slot directly.
+    /// slot directly. A captain that runs a full suite takes the same slots through the suite lease.
     /// </remarks>
     public static class HostWideCommandLock
     {
@@ -106,6 +107,20 @@ namespace Armada.Core.Services
                 lock (_Sync)
                 {
                     return _SlotCount;
+                }
+            }
+        }
+
+        /// <summary>
+        /// How many of one vessel's suite commands may run at once. Defaults to 1.
+        /// </summary>
+        public static int VesselSlotCount
+        {
+            get
+            {
+                lock (_Sync)
+                {
+                    return _VesselSlotCount;
                 }
             }
         }
@@ -158,8 +173,9 @@ namespace Armada.Core.Services
         private static long _UnderFloorGrants = 0;
         private static Timer? _RecheckTimer = null;
         private static bool _RecheckArmed = false;
-        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _VesselSuiteLocks =
-            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
+        private static int _VesselSlotCount = MinimumSlots;
+        private static readonly ConcurrentDictionary<string, VesselQueue> _VesselQueues =
+            new ConcurrentDictionary<string, VesselQueue>(StringComparer.Ordinal);
 
         #endregion
 
@@ -188,6 +204,27 @@ namespace Armada.Core.Services
             {
                 _SlotCount = ClampSlotCount(slots);
                 GrantWaiting(granted);
+            }
+
+            Complete(granted);
+        }
+
+        /// <summary>
+        /// Set how many of one vessel's suite commands may run at once. The count is clamped to
+        /// [<see cref="MinimumSlots"/>, <see cref="MaximumSlots"/>]. A raised count grants waiting
+        /// vessel requests at once, in request order; a lowered count takes no slot from a current holder.
+        /// </summary>
+        /// <param name="slots">Requested per-vessel slot count.</param>
+        public static void SetVesselSlotCount(int slots)
+        {
+            List<Request> granted = new List<Request>();
+            lock (_Sync)
+            {
+                _VesselSlotCount = ClampSlotCount(slots);
+                foreach (VesselQueue queue in _VesselQueues.Values)
+                {
+                    GrantVessel(queue, granted);
+                }
             }
 
             Complete(granted);
@@ -363,17 +400,18 @@ namespace Armada.Core.Services
             token.ThrowIfCancellationRequested();
             Stopwatch wait = Stopwatch.StartNew();
 
-            // A command that runs a vessel's suite takes that vessel's in-process lock before it queues for a slot.
-            // A command that would then only block inside itself on the vessel's own suite file lock never occupies
-            // a host slot in the meantime. The lock is always taken here, before the slot, and released when the
-            // lease is disposed, after the slot: one per request, so the order cannot cycle into a deadlock.
+            // A command that runs a vessel's suite takes that vessel's in-process suite slot before it queues for a
+            // host slot. A command that would then only block inside itself on the vessel's own suite file lock never
+            // occupies a host slot in the meantime. The vessel slot is always taken here, before the host slot, and
+            // released when the lease is disposed, after the host slot: one per request, so the order cannot cycle
+            // into a deadlock.
             string? vessel = String.IsNullOrWhiteSpace(vesselKey) ? null : vesselKey.Trim();
-            SemaphoreSlim? vesselLock = vessel == null ? null : _VesselSuiteLocks.GetOrAdd(vessel, _ => new SemaphoreSlim(1, 1));
-            if (vesselLock != null)
+            IDisposable? vesselLease = null;
+            if (vessel != null)
             {
                 try
                 {
-                    await vesselLock.WaitAsync(token).ConfigureAwait(false);
+                    vesselLease = await AcquireVesselAsync(vessel, ownerKey, ownerDescription, token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -397,7 +435,7 @@ namespace Armada.Core.Services
             if (granted.Contains(request))
             {
                 ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, true);
-                return new Lease(request, vesselLock);
+                return new Lease(request, vesselLease);
             }
 
             try
@@ -409,13 +447,13 @@ namespace Armada.Core.Services
             }
             catch (OperationCanceledException)
             {
-                vesselLock?.Release();
+                vesselLease?.Dispose();
                 ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, false);
                 throw;
             }
 
             ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, true);
-            return new Lease(request, vesselLock);
+            return new Lease(request, vesselLease);
         }
 
         /// <summary>
@@ -461,6 +499,7 @@ namespace Armada.Core.Services
             {
                 HostSlotSnapshot snapshot = new HostSlotSnapshot();
                 snapshot.SlotCount = _SlotCount;
+                snapshot.VesselSlotCount = _VesselSlotCount;
                 snapshot.MemoryFloorMb = _MemoryFloorMb;
                 snapshot.AvailableMemoryMb = _LastAvailableMemoryMb;
                 snapshot.AvailableMemoryReadUtc = _LastMemoryReadUtc;
@@ -503,6 +542,22 @@ namespace Armada.Core.Services
                     });
                 }
 
+                foreach (KeyValuePair<string, VesselQueue> pair in _VesselQueues)
+                {
+                    int vesselPosition = 1;
+                    foreach (Request waiter in pair.Value.Waiters)
+                    {
+                        snapshot.VesselWaiters.Add(new HostVesselWaiter
+                        {
+                            VesselKey = pair.Key,
+                            Position = vesselPosition++,
+                            Key = waiter.OwnerKey,
+                            Description = waiter.OwnerDescription,
+                            RequestedUtc = waiter.RequestedUtc
+                        });
+                    }
+                }
+
                 return snapshot;
             }
         }
@@ -510,6 +565,83 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static async Task<IDisposable> AcquireVesselAsync(
+            string vesselKey,
+            string? ownerKey,
+            string? ownerDescription,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            LinkedListNode<Request>? node;
+            Request request;
+            List<Request> granted = new List<Request>();
+            lock (_Sync)
+            {
+                VesselQueue queue = _VesselQueues.GetOrAdd(vesselKey, _ => new VesselQueue());
+                request = new Request(ownerKey, ownerDescription, _Clock());
+                node = queue.Waiters.AddLast(request);
+                GrantVessel(queue, granted);
+            }
+
+            Complete(granted);
+            if (granted.Contains(request)) return new VesselLease(vesselKey, request);
+
+            try
+            {
+                using (token.Register(() => CancelVesselWaiting(vesselKey, node)))
+                {
+                    await request.Granted.Task.ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+
+            return new VesselLease(vesselKey, request);
+        }
+
+        private static void GrantVessel(VesselQueue queue, List<Request> granted)
+        {
+            while (queue.Holders.Count < _VesselSlotCount && queue.Waiters.First != null)
+            {
+                Request next = queue.Waiters.First.Value;
+                queue.Waiters.RemoveFirst();
+                queue.Holders.Add(next);
+                next.GrantedUtc = _Clock();
+                granted.Add(next);
+            }
+        }
+
+        private static void CancelVesselWaiting(string vesselKey, LinkedListNode<Request>? node)
+        {
+            if (node == null) return;
+            List<Request> granted = new List<Request>();
+            lock (_Sync)
+            {
+                if (node.List == null) return;
+                VesselQueue queue = _VesselQueues.GetOrAdd(vesselKey, _ => new VesselQueue());
+                queue.Waiters.Remove(node);
+                GrantVessel(queue, granted);
+            }
+
+            node.Value.Granted.TrySetCanceled();
+            Complete(granted);
+        }
+
+        private static void ReleaseVessel(string vesselKey, Request request)
+        {
+            List<Request> granted = new List<Request>();
+            lock (_Sync)
+            {
+                if (!_VesselQueues.TryGetValue(vesselKey, out VesselQueue? queue)) return;
+                if (!queue.Holders.Remove(request)) return;
+                GrantVessel(queue, granted);
+            }
+
+            Complete(granted);
+        }
 
         private static void CancelWaiting(LinkedListNode<Request>? node)
         {
@@ -726,13 +858,13 @@ namespace Armada.Core.Services
         private sealed class Lease : IDisposable
         {
             private readonly Request _Request;
-            private readonly SemaphoreSlim? _VesselLock;
+            private readonly IDisposable? _VesselLease;
             private int _Released = 0;
 
-            public Lease(Request request, SemaphoreSlim? vesselLock = null)
+            public Lease(Request request, IDisposable? vesselLease = null)
             {
                 _Request = request ?? throw new ArgumentNullException(nameof(request));
-                _VesselLock = vesselLock;
+                _VesselLease = vesselLease;
             }
 
             public Request Request
@@ -744,10 +876,39 @@ namespace Armada.Core.Services
             {
                 if (Interlocked.Exchange(ref _Released, 1) == 0)
                 {
-                    // The slot is released first and the vessel lock after it, the reverse of how they were taken,
-                    // so the next of this vessel's suite commands enters the slot queue only once this one is clear.
+                    // The host slot is released first and the vessel slot after it, the reverse of how they were
+                    // taken, so the next of this vessel's suite commands enters the host queue only once this one
+                    // is clear.
                     Release(_Request);
-                    _VesselLock?.Release();
+                    _VesselLease?.Dispose();
+                }
+            }
+        }
+
+        private sealed class VesselQueue
+        {
+            public LinkedList<Request> Waiters { get; } = new LinkedList<Request>();
+
+            public List<Request> Holders { get; } = new List<Request>();
+        }
+
+        private sealed class VesselLease : IDisposable
+        {
+            private readonly string _VesselKey;
+            private readonly Request _Request;
+            private int _Released = 0;
+
+            public VesselLease(string vesselKey, Request request)
+            {
+                _VesselKey = vesselKey;
+                _Request = request;
+            }
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _Released, 1) == 0)
+                {
+                    ReleaseVessel(_VesselKey, _Request);
                 }
             }
         }

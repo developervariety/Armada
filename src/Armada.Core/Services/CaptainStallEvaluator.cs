@@ -38,6 +38,11 @@ namespace Armada.Core.Services
         /// <summary>Event recorded when every signal confirms a stall.</summary>
         public const string ConfirmedEventType = "captain.stall_confirmed";
 
+        /// <summary>
+        /// Deciding signal: the captain is waiting for or holding the suite lease used around a full-suite run.
+        /// </summary>
+        public const string SignalSuiteLease = "suite_lease";
+
         /// <summary>Deciding signal: the captain's output is inside the window.</summary>
         public const string SignalOutput = "output";
 
@@ -204,6 +209,12 @@ namespace Armada.Core.Services
             if (ReadChildProcessSignal(captain, mission, decision, childProcessCeilingMinutes, nowUtc, lastProviderProgressUtc))
             {
                 decision.DecidingSignal = SignalChildProcess;
+                return decision;
+            }
+
+            if (CaptainSuiteLeaseRegistry.IsActive(mission?.Id))
+            {
+                decision.DecidingSignal = SignalSuiteLease;
                 return decision;
             }
 
