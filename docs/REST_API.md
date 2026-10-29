@@ -249,7 +249,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/*/enumerate` | POST | Authenticated | Scoped exactly like the matching `GET` list |
 | `/api/v1/status/health` | GET | NoAuthRequired | |
 | `/api/v1/authenticate` | POST | NoAuthRequired | |
-| `/api/v1/tenants/lookup` | POST | NoAuthRequired | Input: email, returns matching tenants |
+| `/api/v1/tenants/lookup` | POST | NoAuthRequired | Input: email and paging, returns one page of matching tenants with totals |
 | `/api/v1/onboarding` | POST | NoAuthRequired | Gated by `AllowSelfRegistration` setting (default `false`) |
 | `/api/v1/whoami` | GET | Authenticated | |
 | `/api/v1/status` | GET | Authenticated | Server-wide aggregate counts and recent signals, not tenant-scoped (open item O-03 in [SECURITY_REVIEW.md](SECURITY_REVIEW.md)) |
@@ -269,6 +269,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/vessel-health/summary` | GET | Authenticated | Tenant-scoped KPI counts |
 | `/api/v1/vessel-health/evaluate` | POST | TenantAdmin | Starts an evaluation job (409 when one is running) |
 | `/api/v1/vessels/{id}/health` | GET | Authenticated | Tenant-scoped; 404 for another tenant's vessel |
+| `/api/v1/vessels/{id}/health/dependencies` | GET, POST `.../enumerate` | Authenticated | Tenant-scoped page of dependency rows; 404 for another tenant's vessel |
 | `/api/v1/vessels/{id}/health/overrides/{criterion}` | PUT, DELETE | TenantAdmin | Manual overrides |
 | `/api/v1/captains` | GET, POST `.../enumerate` | Authenticated | Tenant-scoped reads. Every create, update, delete, and action route under the prefix is TenantAdmin |
 | `/api/v1/captains/{id}/cli-permission-policy` | PUT | TenantAdmin | Global admin, or a tenant admin of the captain's tenant |
@@ -284,8 +285,9 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/model-probe-runs` | GET, POST `.../enumerate`; `GET .../{id}` | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
 | `/api/v1/battery/packs` | GET, POST `.../enumerate` | Authenticated | Any signed-in person. Captain sessions get `403` |
 | `/api/v1/battery/runs` | POST | TenantAdmin | Global admin, or a tenant admin of the captain's tenant (`404` for another tenant's captain). Captain sessions get `403` |
-| `/api/v1/battery/runs/{id}` | GET | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
+| `/api/v1/battery/runs/{id}`, `/api/v1/battery/runs/{id}/results`, POST `/api/v1/battery/runs/{id}/results/enumerate` | GET | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
 | `/api/v1/ask/threads/{id}/cli-permission-policy` | PUT | Authenticated | Thread owner only (`404` otherwise); `Bypass` requires a global or tenant admin (`403`) |
+| `/api/v1/ask/threads/{id}/work/enumerate`, `.../work/{workId}/missions/enumerate`, `.../work/{workId}/targets/enumerate`, `.../proposals/enumerate`, `.../messages/{messageId}/tool-calls/enumerate`, `.../turn/tool-calls/enumerate` | POST | Authenticated | Thread owner only (`404` otherwise) |
 | `/api/v1/push/devices`, `/api/v1/push/devices/enumerate` | POST | Authenticated | Register for yourself (captain sessions get `403`); enumerate your own devices, or (`userId`) another user's as a tenant admin of their tenant or a global admin (`403` otherwise) |
 | `/api/v1/push/devices/{id}` | PUT, DELETE | Authenticated | Owner, tenant admins of the device's tenant, global admins; `404` otherwise (also `POST .../test`) |
 | `/api/v1/missions` | GET, POST `.../enumerate` | Authenticated | Tenant-scoped reads. Every create, update, delete, and action route under the prefix is TenantAdmin |
@@ -295,6 +297,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/planning-sessions/enumerate` | POST | Authenticated | One page of planning sessions in caller scope |
 | `/api/v1/planning-sessions` | POST | TenantAdmin | Create one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}` | GET | Authenticated | Read one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}/messages/enumerate` | POST | Authenticated | One page of one planning session's transcript in caller scope |
 | `/api/v1/planning-sessions/{id}` | DELETE | TenantAdmin | Delete one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}/messages` | POST | TenantAdmin | Send one planning turn |
 | `/api/v1/planning-sessions/{id}/summarize` | POST | TenantAdmin | Generate a dispatch draft without launching |
@@ -317,7 +320,8 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/objectives/{id}/refinement-sessions` | POST | TenantAdmin | Create one refinement session for one objective |
 | `/api/v1/backlog/{id}/refinement-sessions/enumerate` | POST | Authenticated | One page of the refinement sessions linked to one backlog item (`EnumerationResult<ObjectiveRefinementSession>`) |
 | `/api/v1/backlog/{id}/refinement-sessions` | POST | TenantAdmin | Create one refinement session for one backlog item |
-| `/api/v1/objective-refinement-sessions/{id}` | GET | Authenticated | Read one refinement session with transcript detail |
+| `/api/v1/objective-refinement-sessions/{id}` | GET | Authenticated | Read one refinement session with its transcript's message count |
+| `/api/v1/objective-refinement-sessions/{id}/messages/enumerate` | POST | Authenticated | One page of one refinement session's transcript |
 | `/api/v1/objective-refinement-sessions/{id}/messages` | POST | TenantAdmin | Append one refinement transcript message |
 | `/api/v1/objective-refinement-sessions/{id}/summarize` | POST | TenantAdmin | Generate a structured refinement summary |
 | `/api/v1/objective-refinement-sessions/{id}/apply` | POST | TenantAdmin | Apply a refinement summary back to the linked backlog item |
@@ -395,7 +399,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/token-usage/delete/by-filter` | POST | Authenticated | Deletes matching records within the caller's scope |
 | `/api/v1/missions/{id}/github/pull-request` | GET | Authenticated | Read GitHub PR review, comment, and required-check evidence for one mission |
 | `/api/v1/missions/{id}/evaluate-autoland` | GET | Authenticated | Dry-run the vessel's auto-land predicate against the mission diff |
-| `/api/v1/runtimes/mux/endpoints` | GET | Authenticated | List saved Mux endpoints, optionally from `configDirectory` |
+| `/api/v1/runtimes/mux/endpoints`, `/api/v1/runtimes/mux/endpoints/enumerate` (POST) | GET/POST | Authenticated | One page of the saved Mux endpoints (`MuxEndpointPage`), optionally from `configDirectory` |
 | `/api/v1/runtimes/mux/endpoints/{name}` | GET | Authenticated | Show one saved Mux endpoint |
 | `/api/v1/playbooks`, `/api/v1/playbooks/{id}` | GET | Authenticated | Category B (`scope`). Reads return tenant-wide + own. |
 | `/api/v1/playbooks` (POST), `/api/v1/playbooks/{id}` (PUT/DELETE) | POST/PUT/DELETE | TenantAdmin | Writes require a tenant admin |
@@ -504,9 +508,10 @@ purpose-built wrapper. They are listed here so clients do not expect `Enumeratio
 
 | Route | Shape |
 |---|---|
-| Bounded: `GET /api/v1/ask/quick-actions` (fixed catalog), `GET /api/v1/runtimes/mux/endpoints` (one Mux configuration file), `GET /api/v1/doctor` | JSON array |
+| Bounded: `GET /api/v1/ask/quick-actions` (fixed catalog), `GET /api/v1/doctor` | JSON array |
 | `POST /api/v1/ask/threads/{id}/messages/enumerate` | `AskMessagePage { Messages, HasMore }` (cursor style) |
 | `GET /api/v1/workspace/vessels/{id}/search` | `WorkspaceSearchResult { Query, TotalMatches, Truncated, Matches }` |
+| `GET /api/v1/workspace/vessels/{id}/tree`, `GET /api/v1/workspace/vessels/{id}/changes`, `GET /api/v1/vessels/import/browse` | One page plus `PageNumber`, `PageSize`, `TotalPages`, `TotalRecords` next to the directory or branch fields (`Entries` / `Changes` is the page) |
 | `GET /api/v1/captains/{id}/log`, `GET /api/v1/missions/{id}/log` | `{ Log, Lines, TotalLines, ... }` (line offsets, not pages) |
 
 ### Breaking changes: whole-list routes retired
@@ -744,7 +749,7 @@ password of the default admin also deactivates the seeded `default` bearer token
 
 #### POST /api/v1/tenants/lookup
 
-Look up which tenants a given email address belongs to. Used by the dashboard login flow to determine the tenant before authentication.
+Look up which tenants a given email address belongs to. Used by the login flows (dashboard, mobile, TUI) to determine the tenant before authentication. Returns one page of the active tenants in which a user with the email exists, ordered by tenant name then id, paged and counted in the database. `PageNumber` and `PageSize` (1 to 1000, default 10) come from the body; querystring `pageNumber` and `pageSize` override them. A login picker that needs every tenant reads the pages until `TotalPages`.
 
 **Permission:** NoAuthRequired
 
@@ -752,7 +757,9 @@ Look up which tenants a given email address belongs to. Used by the dashboard lo
 
 ```json
 {
-  "Email": "admin@armada"
+  "Email": "admin@armada",
+  "PageNumber": 1,
+  "PageSize": 100
 }
 ```
 
@@ -765,7 +772,11 @@ Look up which tenants a given email address belongs to. Used by the dashboard lo
       "Id": "default",
       "Name": "Default Tenant"
     }
-  ]
+  ],
+  "PageNumber": 1,
+  "PageSize": 100,
+  "TotalPages": 1,
+  "TotalRecords": 1
 }
 ```
 
@@ -1133,7 +1144,9 @@ If the credential is protected, the server returns `403 Forbidden`.
 
 #### GET /api/v1/status
 
-Returns aggregate status including captain counts, mission breakdown, active voyages, and recent signals. A global
+Returns aggregate status including captain counts, mission breakdown, active voyage counts (`ActiveVoyages`,
+`InProgressVoyages`, `OpenVoyages`), and the 10 most recent signals. The snapshot embeds no voyage list: page the active
+voyages with progress through [POST /api/v1/voyages/progress/enumerate](#post-apiv1voyagesprogressenumerate). A global
 administrator sees every tenant; any other caller (tenant admin or user) sees only its own tenant's captains, missions,
 voyages, and signals. The same scoping applies to the MCP `status` tool and the WebSocket `status.snapshot`.
 
@@ -1148,12 +1161,13 @@ voyages, and signals. The same scoping applies to the MCP `status` tool and the 
   "WorkingCaptains": 3,
   "StalledCaptains": 0,
   "ActiveVoyages": 1,
+  "InProgressVoyages": 1,
+  "OpenVoyages": 0,
   "MissionsByStatus": {
     "Pending": 3,
     "InProgress": 2,
     "Complete": 10
   },
-  "Voyages": [],
   "RecentSignals": [],
   "RemoteTunnel": {
     "Enabled": false,
@@ -1332,6 +1346,8 @@ refresh the output heartbeat. A failed stall recovery retains the mission's dock
 reclaiming it. `MaxMissionRuntimeMinutes`, when enabled, remains an independent cap.
 
 Accepts partial updates to editable server settings and saves them to `settings.json`. Editable top-level fields: `DataRetentionDays`, `RequestHistoryRetentionDays`, `AdmiralPort`, `McpPort`, `MaxCaptains`, `HeartbeatIntervalSeconds`, `StallThresholdMinutes`, `StageCheckTimeoutMinutes` (1 to 240), `BlockDependentsOfFailedStages`, `IdleCaptainTimeoutSeconds`, `PlanningSessionInactivityTimeoutMinutes`, `PlanningSessionAbandonmentTimeoutMinutes`, `PlanningSessionRetentionDays`, `LandingMode` (the global landing mode: `LocalMerge`, `MergeAndPush`, `PullRequest`, `MergeQueue`, or `None`), `SelfVesselId`, `RebuildSlotRetentionCount`, `RemoteControl`, `Import`, `FleetActions`, `RepositoryHealth`, `Retention`, `Permissions`, `Ask`, and `Push`; omitted fields are unchanged. When `RemoteControl` is supplied, it replaces the full `RemoteControl` settings object (send `Password` or `EnrollmentToken` as `********` to keep the stored value). When `Import` is supplied, it replaces the full `Import` (vessel import) settings object; see [Vessel Import](#vessel-import) for the fields and their ranges. When `FleetActions` is supplied, it replaces the full `FleetActions` object (omitted fields take their defaults; values are clamped: `MaxConcurrency` 1-32, `DefaultTimeoutSeconds` 5-7200, `MaxOutputBytes` 1024-1048576, `RunRetentionDays` 1-3650) and applies immediately.
+
+Lists in settings are bounded (see [ENUMERATION.md](ENUMERATION.md)): `Import.AllowedRoots`, `Import.ExcludedDirectoryNames`, and `FleetActions.OfflineHarborIds` hold at most 256 entries each, and an update with more is rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` naming the list) before anything is applied. `RepositoryHealth.ScoredCriteria` and `Push.Categories` keep one entry per defined value (duplicates and unknown values are dropped).
 
 **Permission:** AdminOnly
 
@@ -1605,7 +1621,8 @@ curl -X POST http://localhost:7890/api/v1/fleets \
 
 #### GET /api/v1/fleets/{id}
 
-Get a single fleet by ID, including all its vessels.
+Get a single fleet by ID with the number of vessels it holds in the caller's scope. The vessels are not embedded: page
+them with `POST /api/v1/vessels/enumerate` (or `GET /api/v1/vessels`) and `fleetId`.
 
 **Permission:** Authenticated
 
@@ -1614,7 +1631,7 @@ Get a single fleet by ID, including all its vessels.
 |---|---|
 | `id` | Fleet ID (`flt_` prefix) |
 
-**Response:** `200 OK` - `{ Fleet: Fleet, Vessels: Vessel[] }`
+**Response:** `200 OK` - `FleetDetailResponse`: `{ Fleet: Fleet, VesselCount: number }`
 **Error:** `404` - Fleet not found
 
 ```bash
@@ -1675,6 +1692,10 @@ Batch delete multiple fleets from the database by ID. Returns a summary of delet
 
 **Permission:** TenantAdmin
 
+`Ids` holds at most 1000 entries (`CollectionLimits.MaxRequestItems`); a longer list is rejected with `400` and
+`Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit`, `Actual`) and nothing is deleted. `Skipped` is bounded by
+the request.
+
 **Request Body:**
 
 ```json
@@ -1700,6 +1721,13 @@ Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empt
 ### Vessels
 
 A vessel is a git repository registered with Armada.
+
+The configuration lists stored on a vessel (`ProtectedBranchPatterns`, `ProtectedPathPatterns`,
+`PrivateIdentifierDenylist`, `AutoLandPathAllowGlobs`, `AutoLandPathDenyGlobs`) hold at most 256 entries each
+(`CollectionLimits.MaxConfigItems`). Every write path (REST create, update, and context patch, MCP `add_vessel`,
+`update_vessel`, and `update_vessel_context`, WebSocket `create_vessel`/`update_vessel`, import) rejects a longer list:
+REST `400` with `Data.Code` `CollectionLimitExceeded`, MCP `InvalidArgument` with `Code` `CollectionLimitExceeded`,
+WebSocket `command.error` with `InvalidArgument`. Lists are never truncated.
 
 `AutoApprove` (boolean or null, default null) is a per-vessel override of the captain auto-approve setting for missions
 on the vessel: null uses each captain's own setting; true or false wins over it (see
@@ -1829,6 +1857,10 @@ Batch delete multiple vessels from the database by ID. Returns a summary of dele
 
 **Permission:** TenantAdmin
 
+`Ids` holds at most 1000 entries (`CollectionLimits.MaxRequestItems`); a longer list is rejected with `400` and
+`Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit`, `Actual`) and nothing is deleted. `Skipped` is bounded by
+the request.
+
 **Request Body:**
 
 ```json
@@ -1910,7 +1942,7 @@ When no working directory is configured or a git error occurs, `CommitsAhead` an
 
 #### POST /api/v1/vessels/{id}/branches/enumerate
 
-One page of a vessel's branches as a `BranchEnumerationResult`: the page plus `VesselId`, `DefaultBranch`, and `Error` (set, with an empty page, when git could not list them; `404` for a vessel that is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters. `Ahead` and `Behind` are measured (one `git rev-list` each) only for the branches on the returned page, so a one-branch page is a cheap way to read the count (`TotalRecords`).
+One page of a vessel's branches as a `BranchEnumerationResult`: the page plus `VesselId`, `DefaultBranch`, and `Error` (set, with an empty page, when git could not list them; `404` for a vessel that is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters. `Ahead` and `Behind` are measured (one `git rev-list` each) only for the branches on the returned page, so a one-branch page is a cheap way to read the count (`TotalRecords`). git has no offset paging for refs, so the ref list (one line per branch, no per-branch work) is read with one command and cut to the page with an exact total. A malformed body is `400`.
 
 **Permission:** Authenticated (tenant-scoped; this replaces the removed `GET /api/v1/vessels/{id}/branches`)
 
@@ -1984,7 +2016,8 @@ appears after its parents). Each commit carries its full and short SHA, subject 
 dates (UTC), parent SHAs, `IsMerge`, and its changed files (`GitChangedFile`: `Kind`, `Path`, `OldPath` for a rename
 or copy, `AddedLines`, `DeletedLines`, `IsBinary`) with totals. Merge commits are measured against their first parent;
 binary files count zero lines. `Files` lists at most 200 files; `FilesChanged` and the line totals always count every
-file, and `FilesTruncated` is `true` when more were changed.
+file, and `FilesTruncated` is `true` when more were changed. `ParentShas` lists at most 64 parents (the first in git
+order); `ParentCount` is the full count.
 
 **Permission:** Authenticated
 
@@ -2025,6 +2058,7 @@ cursor to see them. A cursor that is not one the server issued is a `400`.
       "CommitterEmail": "ada@example.com",
       "CommittedUtc": "2026-10-06T21:15:42Z",
       "ParentShas": [ "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b" ],
+      "ParentCount": 1,
       "IsMerge": false,
       "FilesChanged": 2,
       "AddedLines": 14,
@@ -2147,7 +2181,9 @@ Return readiness warnings and blocking issues for a vessel, optionally scoped to
 | `environmentName` | string | Optional environment name for deploy, rollback, smoke-test, or health-check readiness |
 | `includeWorkflowRequirements` | bool | When `false`, only vessel and repository basics are evaluated (default: `true`) |
 
-**Response:** `200 OK` - `VesselReadinessResult`. When the vessel has no working directory on the Admiral host and a connected Harbor has a checkout of it, `HasWorkingDirectory` is true, `HarborId`, `HarborName` (the Harbor's name alone), and `CheckoutPath` name the Harbor and its path, an Info issue `working_directory_on_harbor` says so, and git state, toolchains, and command dependencies are probed on the Harbor. When neither exists, the `working_directory_missing` issue carries the reason and what to set, and `CheckoutErrorCode` is `NoHarborConnected` or `NoHarborCheckout`.
+**Response:** `200 OK` - `VesselReadinessResult`. `Issues` lists at most 200 issues (errors first when there are more);
+`IssueCount`, `ErrorCount`, and `WarningCount` count every issue. `DeploymentEnvironments` holds the distinct names of the
+workflow profile's environments (at most 256). When the vessel has no working directory on the Admiral host and a connected Harbor has a checkout of it, `HasWorkingDirectory` is true, `HarborId`, `HarborName` (the Harbor's name alone), and `CheckoutPath` name the Harbor and its path, an Info issue `working_directory_on_harbor` says so, and git state, toolchains, and command dependencies are probed on the Harbor. When neither exists, the `working_directory_missing` issue carries the reason and what to set, and `CheckoutErrorCode` is `NoHarborConnected` or `NoHarborCheckout`.
 **Error:** `400` - Invalid `checkType`
 **Error:** `404` - Vessel not found
 
@@ -2201,6 +2237,41 @@ Launch the chosen captain in a worktree of the vessel repository to analyze it a
 
 ---
 
+#### GET /api/v1/vessels/{id}/cleanup
+
+Read-only inventory summary of the vessel's docks, orphaned worktrees, and Armada-managed local branches (`armada/`
+prefix): `VesselId`, `VesselName`, `ScannedUtc`, `ResourceCount`, `SafeCount`, `InUseCount`, `UnknownCount`,
+`SafeMeasuredBytes`, and `SafeUnmeasuredCount`. The resources are not embedded: page them with
+`GET /api/v1/vessels/{id}/cleanup/resources`. Nothing is deleted.
+
+**Permission:** Authenticated (tenant/user-scoped; `404` when the vessel is not visible)
+
+#### GET /api/v1/vessels/{id}/cleanup/resources
+
+One page of the cleanup inventory: docks (oldest first, read from the database in bounded pages), then each
+repository's orphaned worktrees and managed branches, each classified `Safe`, `InUse`, or `Unknown` with a reason, the
+owning mission, voyage, and dock, and a measured size when available. The inventory comes from git and the file system on
+the owning host (the Admiral or a Harbor), which have no paging of their own, so it is classified as a whole on every
+request and the page is cut from it; `TotalRecords` is exact. `POST /api/v1/vessels/{id}/cleanup/resources/enumerate`
+takes the `EnumerationQuery` in the body (querystring values override it).
+
+**Permission:** Authenticated
+
+- Query: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10), `status` (`Safe`, `InUse`, or `Unknown`; any other
+  value is `400`)
+- Response: `200 OK` - `EnumerationResult<VesselCleanupResource>`
+
+#### POST /api/v1/vessels/{id}/cleanup
+
+Remove the selected resources (`Keys` from the resources page). Each key is re-inventoried immediately before removal
+and removed only if it is still `Safe`. `Keys` holds at most 1000 entries; more is `400` with `Data.Code`
+`CollectionLimitExceeded` and nothing is removed. Returns per-item `Results` (one per distinct key), `Deleted`, `Skipped`,
+`Failed`, and the refreshed `Inventory` summary.
+
+**Permission:** TenantAdmin
+
+---
+
 ### Vessel Import
 
 Bulk onboarding of existing local repositories happens in two steps. **Discover** scans directories on the Admiral host and saves the result as an import batch (status `Discovered`); it creates no vessels. **Import** then creates vessels for the candidates the operator kept. Batches persist, so a review screen survives a reload, and they form the import history.
@@ -2227,7 +2298,7 @@ Every vessel created by an import gets `RepoUrl` set to the repository's `origin
 - A directory whose `.git` entry is a **file** is a worktree or submodule and is reported with status `Worktree` (not preselected).
 - Armada's own `ReposDirectory`, `DocksDirectory`, and `DataDirectory` are reported as `ArmadaManaged` and never scanned.
 - Symbolic links are not followed. Duplicate paths are removed case-insensitively on Windows and macOS and case-sensitively on Linux, and paths are reported with their on-disk casing.
-- Discovery stops at 5,000 candidates and reports `Truncated: true` with a `CandidateLimitReached` hint.
+- Discovery stops at 1,000 candidates (the request limit, so a batch's items and every import built from them stay bounded) and reports `Truncated: true` with a `CandidateLimitReached` hint. One request holds at most 1,000 `Directories` and `Roots` together; more is `400` with `Data.Code` `CollectionLimitExceeded` (`Field` `Paths`). An import request's `Paths` and a fleet-recommendations apply request's `Fleets` and each fleet's `VesselIds` hold at most 1,000 entries (same error).
 - The remote is `git remote get-url origin`. The default branch is `git symbolic-ref --short refs/remotes/origin/HEAD` (without `origin/`), then the current branch, then `main`.
 - A candidate whose path matches an existing vessel's `WorkingDirectory`, or whose normalized remote matches an existing vessel's `RepoUrl` (scheme, credentials, port, host case, trailing `/` and `.git` ignored, so HTTPS and SSH forms match), gets status `AlreadyOnboarded` and `ExistingVesselId`.
 - `ProposedName` is the folder name, made unique within the tenant (and the batch) with `-2`, `-3`, ... suffixes. An `AlreadyOnboarded` candidate shows the existing vessel's name.
@@ -2267,7 +2338,7 @@ The run is limited by `Import.CategorizationTimeoutMinutes` and honors job cance
 
 #### GET /api/v1/vessels/import/browse
 
-List the browsable subdirectories of a directory on the Admiral host, for building a folder picker. Excluded names, names starting with `.`, and symbolic links are skipped. Without `path`, lists the allowed roots.
+List one page of the browsable subdirectories of a directory on the Admiral host by name, for building a folder picker. Excluded names, names starting with `.`, and symbolic links are skipped. Without `path`, lists the allowed roots. Only the entries on the page are inspected for git state. `PageNumber`, `PageSize`, `TotalPages`, and `TotalRecords` describe the whole directory; `Truncated` is `true` when the directory has more entries than the browse examines (5,000 by default), and `TotalRecords` then counts the examined ones.
 
 **Permission:** TenantAdmin
 
@@ -2276,6 +2347,8 @@ List the browsable subdirectories of a directory on the Admiral host, for buildi
 | Parameter | Description |
 |---|---|
 | `path` | Optional. Directory to list, **base64url-encoded UTF-8** (`+` to `-`, `/` to `_`, padding optional). A plain, percent-encoded absolute path is also accepted. Omit to list the allowed roots. |
+| `pageNumber` | Optional. Page number (default 1). |
+| `pageSize` | Optional. Page size, 1 to 1000 (default 10). |
 
 **Response:** `200 OK` - `VesselBrowseResult`
 
@@ -2283,6 +2356,11 @@ List the browsable subdirectories of a directory on the Admiral host, for buildi
 {
   "Path": "/Users/alex/Code",
   "Parent": "/Users/alex",
+  "PageNumber": 1,
+  "PageSize": 10,
+  "TotalPages": 1,
+  "TotalRecords": 2,
+  "Truncated": false,
   "Entries": [
     { "Name": "api", "Path": "/Users/alex/Code/api", "IsGitRepository": true, "IsWorktree": false, "HasSubdirectories": true },
     { "Name": "experiments", "Path": "/Users/alex/Code/experiments", "IsGitRepository": false, "IsWorktree": false, "HasSubdirectories": true }
@@ -2748,7 +2826,7 @@ KPI counts for the caller's tenant, based on effective statuses, over active ves
 
 #### GET /api/v1/vessels/{id}/health
 
-The vessel's row, raw findings, outdated or vulnerable dependencies, and overrides. Permission: Authenticated. Returns `404` when the vessel does not exist in the caller's tenant. For a vessel that has never been evaluated, `Health` has no `Id`, carries `VesselName`, `FleetId`, and `FleetName`, and the three lists are empty.
+The vessel's row, raw findings, the number of outdated or vulnerable dependencies (`DependencyCount`), and overrides. Permission: Authenticated. Returns `404` when the vessel does not exist in the caller's tenant. For a vessel that has never been evaluated, `Health` has no `Id`, carries `VesselName`, `FleetId`, and `FleetName`, and the lists are empty. The dependency rows are not embedded: page them with [`GET /api/v1/vessels/{id}/health/dependencies`](#get-apiv1vesselsidhealthdependencies). The override `PUT` and `DELETE` routes return the same shape.
 
 ```json
 {
@@ -2768,24 +2846,7 @@ The vessel's row, raw findings, outdated or vulnerable dependencies, and overrid
       "LastUpdateUtc": "2026-10-04T04:31:02.83Z"
     }
   ],
-  "Dependencies": [
-    {
-      "Id": "vdp_...",
-      "TenantId": "ten_system",
-      "VesselId": "vsl_...",
-      "Ecosystem": "NuGet",
-      "ProjectPath": "src/App/App.csproj",
-      "PackageName": "Newtonsoft.Json",
-      "CurrentVersion": "12.0.1",
-      "LatestVersion": "13.0.4",
-      "Drift": "Major",
-      "IsVulnerable": true,
-      "Severity": "High",
-      "AdvisoryUrl": "https://github.com/advisories/GHSA-5crp-9r3c-p9vr",
-      "CreatedUtc": "...",
-      "LastUpdateUtc": "..."
-    }
-  ],
+  "DependencyCount": 1,
   "Overrides": [
     {
       "Id": "vho_...",
@@ -2803,6 +2864,37 @@ The vessel's row, raw findings, outdated or vulnerable dependencies, and overrid
 ```
 
 `Findings` hold one entry per criterion (`GitDivergence`, `WorkingTree`, `Branches`, `CommitRecency`, `Dependencies`, `Vulnerabilities`, `TestInfrastructure`, `ContinuousIntegration`, `ArmadaReadiness`, `MissionOutcomes`); there is no `Overall` finding. `Ecosystem` is `NuGet` or `npm`; `ProjectPath` is repository-relative (the project file for NuGet, the `package.json` for npm). `Drift` is `None`, `Patch`, `Minor`, or `Major`; `Severity` is `None`, `Low`, `Moderate`, `High`, or `Critical`. A dependency that is both outdated and vulnerable appears once with both sets of fields. For npm vulnerabilities, `CurrentVersion` holds the vulnerable range reported by `npm audit` and `AdvisoryUrl` is absent.
+
+#### GET /api/v1/vessels/{id}/health/dependencies
+
+One page of the vessel's outdated or vulnerable dependency rows from its last evaluation, cut in the database and ordered by ecosystem, package name, project path, then id (the query's `order` is not used). Permission: Authenticated (tenant-scoped; `404` when the vessel is not visible). Querystring: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10; out-of-range values are normalized). `POST /api/v1/vessels/{id}/health/dependencies/enumerate` takes the same `EnumerationQuery` in the body (querystring values override it; a malformed body is `400`). MCP twin: `list_vessel_dependencies`.
+
+```json
+{
+  "PageNumber": 1,
+  "PageSize": 10,
+  "TotalPages": 1,
+  "TotalRecords": 1,
+  "Objects": [
+    {
+      "Id": "vdp_...",
+      "TenantId": "ten_system",
+      "VesselId": "vsl_...",
+      "Ecosystem": "NuGet",
+      "ProjectPath": "src/App/App.csproj",
+      "PackageName": "Newtonsoft.Json",
+      "CurrentVersion": "12.0.1",
+      "LatestVersion": "13.0.4",
+      "Drift": "Major",
+      "IsVulnerable": true,
+      "Severity": "High",
+      "AdvisoryUrl": "https://github.com/advisories/GHSA-5crp-9r3c-p9vr",
+      "CreatedUtc": "...",
+      "LastUpdateUtc": "..."
+    }
+  ]
+}
+```
 
 #### POST /api/v1/vessel-health/evaluate
 
@@ -2972,6 +3064,24 @@ Paginated enumeration of voyages with optional filtering and sorting.
 
 ---
 
+#### POST /api/v1/voyages/progress/enumerate
+
+One page of voyages with mission counts ([VoyageProgress](#voyageprogress)), paged in the database. With no `Status`
+filter the view is the active voyages (the ones `GET /api/v1/status` counts in `ActiveVoyages`): InProgress first, then
+Open, newest first within each (`Order` CreatedAscending reverses the time order). A `Status` filter selects one voyage
+status. The caller's tenant and user scope applies before counting, as for `POST /api/v1/voyages/enumerate`.
+
+**Permission:** Authenticated
+
+**Request Body:** [EnumerationQuery](#enumerationquery) (optional; `pageNumber`, `pageSize` 1 to 1000 default 10,
+`status`, `order`, `createdAfter`, `createdBefore`; querystring values override the body)
+
+**Response:** `200 OK` - [EnumerationResult](#enumerationresultt)\<[VoyageProgress](#voyageprogress)\>
+
+**Error:** `400` - Unknown status or malformed body
+
+---
+
 #### POST /api/v1/voyages
 
 Create a new voyage with optional missions. Missions are automatically dispatched to the target vessel.
@@ -2995,7 +3105,8 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 **Response:** `201 Created` - [Voyage](#voyage)
 
 **Errors:** `404` when `ObjectiveId`, `PipelineId`, or `Pipeline` names something that does not exist (an unknown
-pipeline is not replaced by the vessel or fleet default); `400` for other validation failures.
+pipeline is not replaced by the vessel or fleet default); `400` for other validation failures, including more than 1000
+`Missions` or more than 256 `SelectedPlaybooks` (`Data.Code` `CollectionLimitExceeded`).
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/voyages \
@@ -3018,7 +3129,9 @@ curl -X POST http://localhost:7890/api/v1/voyages \
 
 #### GET /api/v1/voyages/{id}
 
-Get a voyage and all its associated missions.
+Get a voyage with counts of its missions. The missions are not embedded: page them with `GET /api/v1/missions?voyageId=`
+or `POST /api/v1/missions/enumerate` with `VoyageId`; a Pending mission's `AssignmentBlocker` comes from
+`GET /api/v1/missions/{id}`.
 
 **Permission:** Authenticated
 
@@ -3027,16 +3140,22 @@ Get a voyage and all its associated missions.
 |---|---|
 | `id` | Voyage ID (`vyg_` prefix) |
 
-**Response:** `200 OK` - [VoyageDetail](#voyagedetail)
+**Response:** `200 OK` - [VoyageProgress](#voyageprogress)
 
 ```json
 {
-  "Voyage": { ... },
-  "Missions": [ ... ]
+  "Voyage": { "Id": "vyg_abc123", "Status": "InProgress", "SelectedPlaybooks": [], "..." : "..." },
+  "TotalMissions": 3,
+  "CompletedMissions": 1,
+  "FailedMissions": 0,
+  "InProgressMissions": 1,
+  "MissionCountsByStatus": { "Complete": 1, "InProgress": 1, "Pending": 1 },
+  "VesselId": "vsl_abc123",
+  "VesselCount": 1
 }
 ```
 
-`Pending` missions in `Missions` carry `AssignmentBlocker` (see `GET /api/v1/missions/{id}`). A voyage stays `InProgress`
+A voyage stays `InProgress`
 while any of its `WorkProduced` missions still has a merge-queue entry that is `Queued`, `Testing`, or `Passed`; it
 completes once the entry lands (or fails, or is cancelled).
 
@@ -3046,7 +3165,7 @@ completes once the entry lands (or fails, or is cancelled).
 
 #### DELETE /api/v1/voyages/{id}
 
-Cancel a voyage. Sets the voyage status to `Cancelled` and cancels its `Pending`, `Assigned`, and `Blocked` missions the same way `DELETE /api/v1/missions/{id}` does (a running agent is stopped first). In-progress missions are not affected. A mission whose agent did not confirm it stopped is left unchanged and listed in `NotCancelled`.
+Cancel a voyage. Sets the voyage status to `Cancelled` and cancels its `Pending`, `Assigned`, and `Blocked` missions the same way `DELETE /api/v1/missions/{id}` does (a running agent is stopped first). In-progress missions are not affected. A mission whose agent did not confirm it stopped is left unchanged and counted in `NotCancelledMissions` (the first reason is in `FirstNotCancelledReason`); read which missions remain with the missions enumeration filtered by `voyageId` and `status`.
 
 **Permission:** TenantAdmin
 
@@ -3055,13 +3174,14 @@ Cancel a voyage. Sets the voyage status to `Cancelled` and cancels its `Pending`
 |---|---|
 | `id` | Voyage ID (`vyg_` prefix) |
 
-**Response:** `200 OK`
+**Response:** `200 OK` - `VoyageCancelResult`
 
 ```json
 {
   "Voyage": { "Id": "vyg_abc123", "Status": "Cancelled", "..." : "..." },
   "CancelledMissions": 3,
-  "NotCancelled": [ { "MissionId": "msn_def456", "Reason": "The mission was not cancelled because its agent process ..." } ]
+  "NotCancelledMissions": 1,
+  "FirstNotCancelledReason": "msn_def456: The mission was not cancelled because its agent process ..."
 }
 ```
 
@@ -3097,6 +3217,8 @@ Permanently delete a voyage and all its associated missions from the database. *
 #### `POST /api/v1/voyages/delete/multiple`
 
 Batch delete multiple voyages and their associated missions from the database by ID. Voyages that are Open/InProgress or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+
+`Ids` holds at most 1000 ids; more is rejected with `400` and `Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit` 1000, `Actual`), and nothing is deleted. `Skipped` therefore holds at most 1000 entries.
 
 **Permission:** TenantAdmin
 
@@ -3195,7 +3317,11 @@ Paginated enumeration of lightweight mission summaries with optional filtering a
 
 #### GET /api/v1/missions/history
 
-Return aggregated mission counts by time bucket for dashboard history charts.
+Return aggregated mission counts by time bucket for dashboard history charts. Missions are counted per bucket and
+status in the database (vessel and fleet filters included), never loaded one row each. The window divided by
+`bucketMinutes` may produce at most 1000 buckets; a request that would produce more is rejected with `400` and
+`Data.Code` `CollectionLimitExceeded` (use a larger bucket or a shorter window). Default: the last 7 days in 60-minute
+buckets (169 buckets at most).
 
 **Permission:** Authenticated
 
@@ -3262,9 +3388,11 @@ yet. `Reason` is one of `AwaitingDispatch`, `VesselMissing`, `VesselMisconfigure
 `DependencyHandoffPending`, `WaitingForVoyageWorkers`, `VesselBroadScopeMissionActive`, `BroadScopeWaitingForVessel`,
 `VesselConcurrencyLimit`, `NoCaptains`, `NoIdleCaptain`, or `NoEligibleCaptain`; `Summary` is an English sentence;
 `UntilUtc` is when it clears on its own (for example when the only captain's quarantine ends); `DependsOnMissionId` and
-`BlockingMissionIds` name the missions it waits for; and `Captains` lists what each captain in the tenant is doing
-(`State`, `Detail`, and the `MissionId`, `PlanningSessionId`, `RefinementSessionId`, `ObjectiveId`, or
+`BlockingMissionIds` name the missions it waits for (the first 25; `BlockingMissionCount` is the full count); and
+`Captains` lists what each captain in the tenant is doing (the first 25 by name; `CaptainCount` is the full count:
+`State`, `Detail`, and the `MissionId`, `PlanningSessionId`, `RefinementSessionId`, `ObjectiveId`, or
 `QuarantineUntilUtc` and `QuarantineReason` that hold it). The field is absent for other statuses and in list responses.
+`PlaybookSnapshots` holds one snapshot per selected playbook (at most 256, the dispatch limit on `SelectedPlaybooks`).
 
 A mission whose captain is running also carries `Activity` when its runtime streams structured output (Claude Code and
 Codex missions; see [Mission progress streaming](CAPTAINS.md#mission-progress-streaming)): the captain's latest tool
@@ -3280,6 +3408,8 @@ when the captain is not running and in list responses; the `mission.activity` We
   "UntilUtc": null,
   "DependsOnMissionId": null,
   "BlockingMissionIds": [],
+  "BlockingMissionCount": 0,
+  "CaptainCount": 1,
   "Captains": [
     { "CaptainId": "cpt_abc", "CaptainName": "Setup Captain", "State": "Refining", "Detail": "refining backlog item 'Add retries' (stop the refinement session to free it)", "RefinementSessionId": "ors_abc", "ObjectiveId": "obj_abc" }
   ],
@@ -3304,7 +3434,24 @@ Read normalized GitHub pull-request evidence for one mission when that mission h
 **Error:** `400` - Mission is missing a PR URL or GitHub repository context
 **Error:** `404` - Mission not found
 
-> **Note:** The response includes PR state, requested reviewers, reviews, issue comments, and commit check-run evidence. Token resolution follows `GitHubTokenOverride` first, then the global `GitHubToken`.
+> **Note:** The response includes PR state, review status, the first 100 requested reviewers and labels with their full counts (`RequestedReviewerCount`, `LabelCount`), and `ReviewCount`, `CommentCount`, and `CheckCount`. It embeds no review, comment, or check list. `ReviewStatus` is computed over every review (read from GitHub in pages of 100, up to 1000; `ReviewStatusComplete` is false beyond that). Token resolution follows `GitHubTokenOverride` first, then the global `GitHubToken`.
+
+#### POST /api/v1/missions/{id}/github/pull-request/reviews/enumerate
+
+One page of the reviews on the mission's pull request, paged by GitHub (`per_page`/`page`), with an exact `TotalRecords`.
+The same shape is served by `.../comments/enumerate` (issue comments, `GitHubPullRequestComment`) and
+`.../checks/enumerate` (provider checks on the head commit, `GitHubPullRequestCheck`; an empty page when there is no
+head commit).
+
+**Permission:** Authenticated (same scope as `GET /api/v1/missions/{id}`)
+
+**Request Body:** [EnumerationQuery](#enumerationquery) (optional): `PageNumber`, `PageSize` 1 to 100 (GitHub's largest
+page; a larger value is normalized to 100), default 10, and `Order` (`CreatedAscending` is GitHub's order, oldest first;
+`CreatedDescending`, the default, is newest first). Querystring values override the body.
+
+**Response:** `200 OK` - [EnumerationResult](#enumerationresultt)\<`GitHubPullRequestReview`\>
+**Error:** `400` - Mission is missing a PR URL or GitHub fails
+**Error:** `404` - Mission not found
 
 ---
 
@@ -3496,6 +3643,8 @@ Permanently delete a mission from the database, removing telemetry events that r
 #### `POST /api/v1/missions/delete/multiple`
 
 Batch delete multiple missions from the database by ID. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+
+`Ids` holds at most 1000 ids; more is rejected with `400` and `Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit` 1000, `Actual`), and nothing is deleted. `Skipped` therefore holds at most 1000 entries.
 
 **Permission:** TenantAdmin
 
@@ -3786,7 +3935,13 @@ Get a single captain by ID.
 
 #### GET /api/v1/captains/{id}/tools
 
-Describe the Armada MCP tools available through a specific captain, including runtime-specific availability notes.
+Describe the tool sources and tools available through a specific captain, including runtime-specific availability notes.
+`Servers` lists the tool sources (at most 256; a runtime configuration with more is a `400` with `Data.Code`
+`CollectionLimitExceeded`, never a silent cut). `Tools` is one page (`EnumerationResult<CaptainToolSummary>`) ordered by
+source kind, source, and name; `ToolCount`, `McpToolCount`, and `RuntimeBuiltInToolCount` count the whole inventory. The
+runtime is probed once and the snapshot (`SnapshotUtc`) is reused for 60 seconds so reading further pages does not
+probe again; `refresh=true` probes again. `POST /api/v1/captains/{id}/tools/enumerate` takes the same query
+(`CaptainToolsQuery`: `PageNumber`, `PageSize`, `SourceKind`, `Refresh`) in the JSON body.
 
 **Permission:** Authenticated
 
@@ -3794,6 +3949,9 @@ Describe the Armada MCP tools available through a specific captain, including ru
 | Parameter | Description |
 |---|---|
 | `id` | Captain ID (`cpt_` prefix) |
+
+**Query Parameters:** `pageNumber` (default 1), `pageSize` (1 to 1000, default 10), `sourceKind` (`McpServer`,
+`RuntimeBuiltIn`, or `Internal`; filters `Tools` before counting), `refresh` (`true` to probe again).
 
 **Response:** `200 OK`
 
@@ -3811,16 +3969,30 @@ Describe the Armada MCP tools available through a specific captain, including ru
   "effectiveToolCount": 42,
   "armadaToolCount": 37,
   "askApprovalGated": true,
-  "tools": [
-    {
-      "name": "get_status",
-      "description": "Get current Admiral status snapshot",
-      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{}}"
-    }
-  ]
+  "servers": [],
+  "toolCount": 37,
+  "mcpToolCount": 37,
+  "runtimeBuiltInToolCount": 0,
+  "snapshotUtc": "2026-10-28T12:00:00Z",
+  "tools": {
+    "pageNumber": 1,
+    "pageSize": 10,
+    "totalPages": 4,
+    "totalRecords": 37,
+    "objects": [
+      {
+        "name": "get_status",
+        "description": "Get current Admiral status snapshot",
+        "inputSchemaJson": "{\"type\":\"object\",\"properties\":{}}",
+        "registrationSource": "armada",
+        "sourceKind": "McpServer"
+      }
+    ]
+  }
 }
 ```
 
+**Error:** `400` - Unknown `sourceKind`, a malformed body (POST), or more than 256 tool sources (`CollectionLimitExceeded`)
 **Error:** `404` - Captain not found
 
 ---
@@ -4024,7 +4196,7 @@ Delete a captain. Blocked if the captain is currently working or has active miss
 
 #### `POST /api/v1/captains/delete/multiple`
 
-Batch delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+Batch delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. `Ids` may hold at most 1000 entries; more is a `400` with `Data.Code` `CollectionLimitExceeded` and nothing is deleted, which also bounds `Skipped`. **This cannot be undone.**
 
 **Permission:** TenantAdmin
 
@@ -4118,7 +4290,7 @@ WEBSOCKET_API.md). Retention: threads are kept until deleted; there is no automa
 | GET | `/api/v1/ask/threads/{id}` | | `200` `AskThreadDetail` |
 | PUT | `/api/v1/ask/threads/{id}` | `AskThreadUpdateRequest` | `200` `AskThread` |
 | DELETE | `/api/v1/ask/threads/{id}` | | `204` (stops a running turn; deletes messages, tool calls, proposals, tracked-work rows; the work itself is untouched) |
-| POST | `/api/v1/ask/threads/delete/multiple` | `DeleteMultipleRequest` | `200` `AskThreadDeleteMultipleResult` (`Status`, `Deleted`, `DeletedIds`, `Skipped` with `Id` and `Reason`); `400` when `Ids` is missing or empty. Another user's or an unknown ID is skipped, never deleted |
+| POST | `/api/v1/ask/threads/delete/multiple` | `DeleteMultipleRequest` | `200` `AskThreadDeleteMultipleResult` (`Status`, `Deleted`, `DeletedIds`, `Skipped` with `Id` and `Reason`); `400` when `Ids` is missing or empty, and `400` `CollectionLimitExceeded` (nothing deleted) when it holds more than 1000 IDs. Another user's or an unknown ID is skipped, never deleted |
 | POST | `/api/v1/ask/threads/{id}/messages/enumerate` | `AskMessageEnumerateRequest` | `200` `AskMessagePage` |
 | POST | `/api/v1/ask/threads/{id}/messages` | `AskMessageSendRequest` | `202` `AskMessageSendResponse`; `409` while a turn runs |
 | POST | `/api/v1/ask/threads/{id}/cancel` | | `200` `{ "Cancelled": true }`; `409` when no turn runs |
@@ -4128,7 +4300,13 @@ WEBSOCKET_API.md). Retention: threads are kept until deleted; there is no automa
 | POST | `/api/v1/ask/threads/{id}/actions` | `AskActionRequest` | `200` `AskActionProposal` (executed or failed); `400` unknown tool |
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/approve` | | `200` `AskActionProposal` (`Executed` or `Failed`); `409` when not pending or expired |
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/reject` | | `200` `AskActionProposal` (`Rejected`); `409` when not pending |
-| GET | `/api/v1/ask/threads/{id}/work/{workId}` | | `200` `AskWorkSnapshot` |
+| GET | `/api/v1/ask/threads/{id}/work/{workId}` | | `200` `AskWorkSnapshot` (counts; rows are paged below) |
+| POST | `/api/v1/ask/threads/{id}/work/enumerate` | `EnumerationQuery` (`Status`: `Active`, `Succeeded`, `Failed`, `Cancelled`) | `200` `EnumerationResult<AskTrackedWork>`, newest first by default; `400` for an unknown `Status` |
+| POST | `/api/v1/ask/threads/{id}/work/{workId}/missions/enumerate` | `EnumerationQuery` | `200` `EnumerationResult<AskWorkMissionSnapshot>`: a voyage's missions paged in the database, or the one row of tracked Mission work; `400` for other work types (fleet action runs use `targets`) |
+| POST | `/api/v1/ask/threads/{id}/work/{workId}/targets/enumerate` | `EnumerationQuery` | `200` `EnumerationResult<AskWorkTargetSnapshot>` for tracked FleetActionRun work; `400` for other work types |
+| POST | `/api/v1/ask/threads/{id}/proposals/enumerate` | `EnumerationQuery` (`Status`: `Pending`, `Approved`, `Rejected`, `Expired`, `Executed`, `Failed`) | `200` `EnumerationResult<AskActionProposal>`; `400` for an unknown `Status` |
+| POST | `/api/v1/ask/threads/{id}/messages/{messageId}/tool-calls/enumerate` | `EnumerationQuery` | `200` `EnumerationResult<AskMessageToolCall>`: one message's tool calls; `404` when the message is not in the thread |
+| POST | `/api/v1/ask/threads/{id}/turn/tool-calls/enumerate` | `EnumerationQuery` | `200` `EnumerationResult<AskMessageToolCall>`: the calls the running turn has made so far (empty when no turn runs) |
 | PUT | `/api/v1/ask/threads/{id}/cli-permission-policy` | `CliPermissionPolicyUpdateRequest` | `200` `AskThread` (with `CliPermission`); `403` when a non-admin sets `Bypass` |
 | GET | `/api/v1/ask/quick-actions` | | `200` `AskQuickAction[]` |
 
@@ -4188,11 +4366,13 @@ for the next turn, or null without a captain), `SummaryText`, `SummaryUtc`, `Pin
 `MessageCount`, `UnreadCount`, `ActiveWorkCount` (computed), `ActiveTurnId` (computed; set while a turn runs),
 `CreatedUtc`, `LastUpdateUtc`.
 
-`AskThreadDetail`: `{ Thread, TrackedWork: AskTrackedWork[] (each with Snapshot), PendingProposals: AskActionProposal[],
-PendingCliPermissions: CliPermissionRequest[] (pending requests of the thread's captain, newest first),
-ActiveTurn: AskTurnProgress | null }`. `ActiveTurn` is set only while a captain turn runs (its `TurnId` equals the thread's
-`ActiveTurnId`): `{ TurnId, MessageId (the reserved reply), Text, ThinkingText, ToolCalls: AskMessageToolCall[], StartedUtc }`
-with what the turn has streamed so far (a call still running has a null `Ok` and no `ResultText`). The reply and its tool
+`AskThreadDetail`: `{ Thread, TrackedWorkCount, PendingProposalCount, PendingCliPermissionCount, ActiveTurn: AskTurnProgress | null }`.
+The collections are read page by page: tracked work with `POST .../work/enumerate`, pending proposals with
+`POST .../proposals/enumerate` (`Status: Pending`), and the thread's pending CLI requests with
+`POST /api/v1/cli-permissions/requests/enumerate` (`ThreadId`, `Status: Pending`). `ActiveTurn` is set only while a captain turn runs (its `TurnId` equals the thread's
+`ActiveTurnId`): `{ TurnId, MessageId (the reserved reply), Text, ThinkingText, ToolCallCount, StartedUtc }` with what
+the turn has streamed so far; its calls are read with `POST .../turn/tool-calls/enumerate` (a call still running has a
+null `Ok` and no `ResultText`). The reply and its tool
 calls are persisted only when the turn ends, so a client that opens the thread mid-turn restores the live reply from it.
 A turn that is stopped or fails keeps the tool calls it already made on its `Error` message.
 
@@ -4200,9 +4380,10 @@ A turn that is stopped or fails keeps the tool calls it already made on its `Err
 `System`), `Kind` (`Text`, `ActionProposal`, `ActionResult`, `WorkUpdate`, `Summary`, `Error`, `CliPermission`,
 `WorkReport` (the captain's automatic report of finished work; clients that do not know it render it as assistant text)),
 `ContentText`, `ThinkingText`, `ProposalId`, `TrackedWorkId`, `CaptainId`, `DurationMs`, `Metrics`, `CreatedUtc`,
-`LastUpdateUtc`, plus embedded `ToolCalls` (`AskMessageToolCall`: `Id` atc_, `CallId`, `ToolName`, `ArgumentsText`, `ResultText`, `Ok`,
+`LastUpdateUtc`, `ToolCallCount` (the calls themselves are read with `POST .../messages/{messageId}/tool-calls/enumerate`;
+`AskMessageToolCall`: `Id` atc_, `CallId`, `ToolName`, `ArgumentsText`, `ResultText`, `Ok`,
 `ElapsedMs`, `PermissionDenied` (true when the CLI refused the call because the turn's CLI tool permission policy did not
-grant it; null when unknown)), `Proposal`, `TrackedWork` (with `Snapshot`), and `CliPermissionRequest` (on a
+grant it; null when unknown)), plus embedded `Proposal`, `TrackedWork` (with `Snapshot`), and `CliPermissionRequest` (on a
 `CliPermission` card, a `System` message whose `ContentText` is `<Tool>: <summary>`; refreshed through `ask.message` when
 the request is decided).
 
@@ -4232,11 +4413,12 @@ only), `CreatedUtc`, `LastUpdateUtc`.
 
 `AskWorkSnapshot` (flat): `TrackedWorkId`, `ThreadId`, `EntityType`, `EntityId`, `Title`, `Status`, `State`, `Found`,
 `TotalCount`, `CompletedCount`, `FailedCount`, `ActiveCount`, `Progress` (0-100), `Counts` (status -> count),
-`Missions[]` (`Id`, `Title`, `Status`, `VoyageId`, `VesselId`, `Persona`, `PipelineStage`, `CaptainId`, `CaptainName`,
+`MissionCount`, `TargetCount`. The rows are paged: mission rows (`AskWorkMissionSnapshot`: `Id`, `Title`, `Status`, `VoyageId`, `VesselId`, `Persona`, `PipelineStage`, `CaptainId`, `CaptainName`,
 `BranchName`, `CheckRunId`, `CheckRunStatus`, `MergeEntryId`, `MergeQueueStatus` (alias `MergeStatus`), `PrUrl`,
 `LandingOutcome` (`Landed`, `PullRequestOpen`, `PullRequestMerged`, `LandingFailed`), `FailureReason`, `StartedUtc`,
-`CompletedUtc`), `Targets[]` for fleet action runs (`Id`, `VesselId`, `VesselName`, `Status`, `Reason`, `VoyageId`,
-`MissionId`, `ExitCode`), `ErrorText`, `StartedUtc`, `CompletedUtc`, `CapturedUtc`.
+`CompletedUtc`) with `POST .../work/{workId}/missions/enumerate`, and fleet action run targets (`AskWorkTargetSnapshot`:
+`Id`, `VesselId`, `VesselName`, `Status`, `Reason`, `VoyageId`, `MissionId`, `ExitCode`) with
+`POST .../work/{workId}/targets/enumerate`. Remaining fields: `ErrorText`, `StartedUtc`, `CompletedUtc`, `CapturedUtc`.
 
 `AskQuickAction`: `Name`, `Command`, `Title`, `Description`, `ToolName`, `ReadOnly`, `RequiresTenantAdmin`,
 `Arguments[]` (`Name`, `Label`, `Type`, `Required`, `Description`, `DefaultValue`), `ArgumentsSchema` (JSON schema). The
@@ -4374,9 +4556,9 @@ Captain sessions (mission- and thread-scoped tokens) are refused (`403`).
 | PUT | `/api/v1/stage-outcomes/{id}/cause` | `StageOutcomeClassifyRequest` (`Cause`, `Note`) | `200` `StageOutcome` with `CauseSource` `Manual`, `ClassifiedByUserId` the caller, `ClassifiedUtc` now; rules never overwrite a manual cause. A null `Cause` clears the manual cause and re-applies the rules. `400` for `Cause` `None`; `404` |
 | POST | `/api/v1/stage-outcomes/{id}/rule` | | `200` an **unsaved** `FailureCauseRule` drafted from the outcome: its `Cause` and `TenantId`, `Priority` 5 (ahead of the built-ins), and a `Match` on its failure kind, runtime failure kind, stage-check status and reason, disposition, and persona. Nothing is stored: edit the draft and `POST` it to `/api/v1/failure-cause-rules`. `404`; `409` when the outcome's cause is `None` |
 | POST | `/api/v1/stage-outcomes/reclassify` | `StageOutcomeQuery` (optional; paging ignored) | `200` `StageOutcomeReclassifyResult` (`Examined`, `Changed`, `SkippedManual`); `400`; `403` not an admin |
-| GET | `/api/v1/failure-cause-rules` | | `200` `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name). Query: `pageNumber`, `pageSize` (1-1000, default 10) |
+| GET | `/api/v1/failure-cause-rules` | | `200` `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name, then id), paged in the database. Query: `pageNumber`, `pageSize` (1-1000, default 10) |
 | POST | `/api/v1/failure-cause-rules/enumerate` | `EnumerationQuery` (optional): `PageNumber`, `PageSize` (1-1000, default 10) | `200` `EnumerationResult<FailureCauseRule>` in evaluation order, the same page as the GET; querystring paging overrides the body |
-| POST | `/api/v1/failure-cause-rules` | `FailureCauseRule` (`Name`, `Description`, `Priority`, `Enabled`, `Match`, `Cause`; `TenantId` for global admins) | `201` `FailureCauseRule` (`IsBuiltIn` false, `CreatedByUserId` the caller); `400` invalid; `409` duplicate name |
+| POST | `/api/v1/failure-cause-rules` | `FailureCauseRule` (`Name`, `Description`, `Priority`, `Enabled`, `Match`, `Cause`; `TenantId` for global admins). Each `Match` list holds at most 256 entries | `201` `FailureCauseRule` (`IsBuiltIn` false, `CreatedByUserId` the caller); `400` invalid (a `Match` list over 256 is `400` with `Data.Code` `CollectionLimitExceeded`, also on update); `409` duplicate name |
 | GET | `/api/v1/failure-cause-rules/{id}` | | `200` `FailureCauseRule`; `404` when missing or another tenant's |
 | PUT | `/api/v1/failure-cause-rules/{id}` | `FailureCauseRule` | `200` `FailureCauseRule`: replaces `Name`, `Description`, `Priority`, `Enabled`, `Match`, `Cause` (`TenantId` and `IsBuiltIn` are fixed); `400`; `403`; `404`; `409` |
 | DELETE | `/api/v1/failure-cause-rules/{id}` | | `204`; `403`; `404` |
@@ -4413,7 +4595,12 @@ attempt's exit has been handled, linked to its stage outcome (`StageOutcomeId`),
 `RequiredActions`, `CheckResults` (`StageCheckResult`: passed, failed, skipped with a reason, could not run),
 `CommitReferences` (the produced commit first), `CompletionLines` (the `[ARMADA:...]` protocol lines), the full `Output`
 and `Diff` (up to 1,000,000 characters each; a longer one is not stored, `OutputComplete`/`DiffComplete` are false and
-`OutputLength`/`DiffLength` keep the size) and `DiffPointer` (where to regenerate the diff).
+`OutputLength`/`DiffLength` keep the size) and `DiffPointer` (where to regenerate the diff). `Findings`,
+`AcceptanceCriteria` and `CompletionLines` come from agent output and the task description, so they are bounded when
+the artifact is built: each holds at most 256 entries, and a longer list keeps its first 255 and ends with one marker
+entry that names how many more there were (a `CompletionLines` marker starts with `[ARMADA:TRUNCATED]`). The verdict
+and `RequiredActions` (at most 8) are decided from the full lists; `CheckResults` holds at most 1 and
+`CommitReferences` at most 20.
 
 When the next stage launches, Armada renders the prior stage's artifact for that captain within a token budget: one
 eighth of the captain's served context when its model endpoint sets a context length, otherwise the `handoffBudgetTokens`
@@ -4501,13 +4688,16 @@ and `Evaluation.BatteryTaskTimeoutMinutes` (default 60) bounds each task's missi
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/api/v1/battery/packs` | | `200` `EnumerationResult<BatteryPackInfo>` ordered by id: `Id`, `Version`, `Valid`, `Errors` (validation errors of a malformed manifest), `Toolchain`, `Tasks` (`Id`, `Persona`, `Grader`, `Toolchain`), `ManifestHash`. Query: `pageNumber`, `pageSize` (default 100) |
-| POST | `/api/v1/battery/packs/enumerate` | `EnumerationQuery` (optional): `PageNumber`, `PageSize` (1-1000, default 10) | `200` `EnumerationResult<BatteryPackInfo>` ordered by id, the same page as the GET; querystring paging overrides the body |
-| POST | `/api/v1/battery/runs` | `BatteryRunRequest`: `Packs` (required), `CaptainId` (required), `RunCount` (1-10, default 3), `Seed` (optional), `CreateFixtureVessel` (default false) | `201` `BatteryRun` (queued; the tasks run in the background); `400` for no packs, an unknown or malformed pack, a bad run count, or a missing fixture vessel without `CreateFixtureVessel`; `403` not an admin; `404` unknown captain |
-| GET | `/api/v1/battery/runs/{id}` | | `200` `BatteryRun` with `Results`, one per task attempt: `PackId`, `TaskId`, `Persona`, `Grader`, `Attempt`, `Outcome` (`Passed`/`Failed`/`CouldNotRun`/`PendingEvaluation`), `Score`, `Summary`, `Reason`, `Details` (commands, files, mutants, matched/missed seeded items, false positives, verdict, schema error, rubric), `Output`, `VoyageId`, `MissionId`, `FixtureCommit`; `404` |
+| GET | `/api/v1/battery/packs` | | `200` `EnumerationResult<BatteryPackInfo>` ordered by pack directory name (only the page's manifests are read): `Id`, `Version`, `Valid`, `Errors` (validation errors of a malformed manifest, at most 256), `Toolchain`, `ToolchainCount`, `Tasks` (`Id`, `Persona`, `Grader`, `Toolchain`), `TaskCount`, `ManifestHash`. Every list in a manifest holds at most 256 entries; a manifest with more is malformed, and its info lists the first 256 with the true count. Query: `pageNumber`, `pageSize` (default 100) |
+| POST | `/api/v1/battery/packs/enumerate` | `EnumerationQuery` (optional): `PageNumber`, `PageSize` (1-1000, default 10) | `200` `EnumerationResult<BatteryPackInfo>`, the same page as the GET; querystring paging overrides the body |
+| POST | `/api/v1/battery/runs` | `BatteryRunRequest`: `Packs` (required, at most 256), `CaptainId` (required), `RunCount` (1-10, default 3), `Seed` (optional), `CreateFixtureVessel` (default false) | `201` `BatteryRun` (queued; the tasks run in the background); `400` for no packs, an unknown or malformed pack, a bad run count, or a missing fixture vessel without `CreateFixtureVessel`; `403` not an admin; `404` unknown captain |
+| GET | `/api/v1/battery/runs/{id}` | | `200` `BatteryRun` with its outcome counts (`TotalTasks`, `PassedCount`, `FailedCount`, `CouldNotRunCount`, `PendingEvaluationCount`). The per-task results are not embedded; page them with the routes below. `404` |
+| GET | `/api/v1/battery/runs/{id}/results` | | `200` `EnumerationResult<BatteryTaskResult>` paged in the database, one per task attempt: `PackId`, `TaskId`, `Persona`, `Grader`, `Attempt`, `Outcome` (`Passed`/`Failed`/`CouldNotRun`/`PendingEvaluation`), `Score`, `Summary`, `Reason`, `Details` (commands, files, mutants, matched/missed seeded items, the first 256 false positives with `FalsePositiveCount`, verdict, schema error, rubric), `Output`, `VoyageId`, `MissionId`, `FixtureCommit`. Query: `pageNumber`, `pageSize` (1-1000, default 10), `status` (outcome filter), `order` (`CreatedDescending` default, `CreatedAscending`); `400` unknown outcome; `404` |
+| POST | `/api/v1/battery/runs/{id}/results/enumerate` | `EnumerationQuery` (optional): `PageNumber`, `PageSize`, `Order`, `Status` (outcome) | `200` the same page as the GET; querystring values override the body |
 
 A run is `Failed` only when the run itself could not finish (for example the Admiral restarted while it ran). Poll
-`GET /api/v1/battery/runs/{id}` until `Status` is `Completed` or `Failed`.
+`GET /api/v1/battery/runs/{id}` until `Status` is `Completed` or `Failed`, then page
+`GET /api/v1/battery/runs/{id}/results`.
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/battery/runs \
@@ -4722,6 +4912,8 @@ Permanently delete a signal by ID.
 
 Batch soft-delete multiple signals by marking them as read. Returns a summary of deleted and skipped entries.
 
+`Ids` holds at most 1000 ids; more is rejected with `400` and `Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit` 1000, `Actual`), and nothing is deleted. `Skipped` therefore holds at most 1000 entries.
+
 **Permission:** TenantAdmin
 
 **Request Body:**
@@ -4827,6 +5019,8 @@ Delete a single event by ID.
 #### `POST /api/v1/events/delete/multiple`
 
 Batch delete multiple events by ID. Returns a summary of deleted and skipped entries.
+
+`Ids` holds at most 1000 ids; more is rejected with `400` and `Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit` 1000, `Actual`), and nothing is deleted. `Skipped` therefore holds at most 1000 entries.
 
 **Permission:** TenantAdmin
 
@@ -5025,6 +5219,10 @@ Batch delete multiple docks and their git worktrees from the database by ID. Ret
 
 **Permission:** TenantAdmin
 
+`Ids` holds at most 1000 entries (`CollectionLimits.MaxRequestItems`); a longer list is rejected with `400` and
+`Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit`, `Actual`) and nothing is deleted. `Skipped` is bounded by
+the request.
+
 **Request Body:**
 
 ```json
@@ -5197,7 +5395,7 @@ Permanently delete a single terminal merge queue entry from the database. Only e
 
 #### `POST /api/v1/merge-queue/purge`
 
-Batch purge multiple terminal merge queue entries from the database by ID. Returns a summary of purged and skipped entries. **This cannot be undone.**
+Batch purge multiple terminal merge queue entries from the database by ID. Returns a summary of purged and skipped entries. **This cannot be undone.** `EntryIds` holds at most 1000 ids; more is `400` with `Data.Code` `CollectionLimitExceeded` and nothing is purged, so `Skipped` holds at most 1000 entries.
 
 **Permission:** TenantAdmin
 
@@ -5229,7 +5427,7 @@ Harbor records register host-side runners that let the Admiral run detached (in 
 
 #### POST /api/v1/harbors/enumerate
 
-One page of the Harbors visible to the caller. Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of the Harbors visible to the caller, counted and cut in the database (`TotalRecords` is exact for the caller), newest first (`Order` `CreatedAscending` for oldest first; ties break by id). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10, `CreatedAfter`, `CreatedBefore`) or the matching querystring parameters. Each Harbor's `Capabilities` holds at most 256 entries: a create (`POST /api/v1/harbors`) or a Harbor link handshake advertising more is rejected (`CollectionLimitExceeded`; the handshake is refused with the reason).
 
 **Permission:** Authenticated (tenant-scoped; this replaces the removed `GET /api/v1/harbors`)
 
@@ -5278,6 +5476,12 @@ Harbor in the tenant; another user only their own.
 
 - Query: `range` = `1h` (60 one-minute buckets), `24h` (48 thirty-minute buckets, the default), or `7d` (56 three-hour buckets)
 - Response: `200 OK` - `HarborMetrics`
+- Bounds: every per-bucket series has at most 60 entries. `LaunchSpeed` lists at most 16 runtimes: the 15 busiest one by
+  one and the rest in one entry with `IsOther` (`Runtime` "Other", `RuntimeCount`). Token `Series` (overall and in each
+  bucket) list at most 20 runtime and model pairs: the window's top 19 and one `IsOther` aggregate (`SeriesCount`).
+  `Link.Segments` holds at most 1000 stretches; a window with more is shown at bucket resolution with
+  `SegmentsCoalesced` true and `RawSegmentCount` (ConnectedPercent still uses every stretch). Aggregates carry the
+  totals, so nothing is dropped.
 - Errors: `400 Bad Request` (unknown range), `404 Not Found` (no such Harbor, or not visible to the caller)
 
 ```json
@@ -5394,7 +5598,7 @@ Run a one-off host command on a connected Harbor over its link and return the re
 
 #### GET /api/v1/harbors/{id}/jobs
 
-One page of the captain launches the Admiral recorded on a Harbor, newest launch first. Use it with the stop route below to find and stop an agent no mission or captain still points at.
+One page of the captain launches the Admiral recorded on a Harbor, newest launch first (`order=CreatedAscending` for oldest first; ties break by id), counted and cut in the database. Use it with the stop route below to find and stop an agent no mission or captain still points at.
 
 **Permission:** Authenticated (the Harbor must be visible to the caller)
 
@@ -5566,9 +5770,11 @@ Create an action. Command kind requires tenant admin.
 | `TimeoutSeconds` | int | Default `FleetActions.DefaultTimeoutSeconds`; clamped 5-7200 |
 | `DefaultConcurrency` | int | Default 4; clamped 1-32 |
 | `RequiresCleanWorkingTree` | bool | Default `true` for Command, `false` for Mission |
+| `RequiredTools` | string[] | Executable names; at most 256 |
+| `Inputs` | `FleetActionInput[]` | Typed runtime inputs; at most 256, each `AllowedValues` at most 256 |
 
 - Response: `201 Created` - `FleetAction`
-- Errors: `400`, `403`. A command or prompt template that uses an unknown template variable is `400` with `Data: {"Code": "UnknownTemplateVariable", "VariableName": "<name>"}` (also on update and ad-hoc runs; MCP returns `Code` `UnknownTemplateVariable`).
+- Errors: `400`, `403`. A list over its limit (on create, update and ad hoc runs) is `400` with `Data: {"Code": "CollectionLimitExceeded", "Field", "Limit", "Actual"}` (MCP `InvalidArgument`, `Code` `CollectionLimitExceeded`). A command or prompt template that uses an unknown template variable is `400` with `Data: {"Code": "UnknownTemplateVariable", "VariableName": "<name>"}` (also on update and ad-hoc runs; MCP returns `Code` `UnknownTemplateVariable`).
 
 #### GET /api/v1/fleet-actions/{id}
 
@@ -5614,7 +5820,8 @@ Start a run of a saved action. Every vessel is re-read with the tenant-scoped re
 
 | Field | Type | Notes |
 |---|---|---|
-| `VesselIds` | string[] | Required; 1-500 after de-duplication |
+| `VesselIds` | string[] | Required; 1-500 after de-duplication; more than 1000 entries is `400` `CollectionLimitExceeded` |
+| `InputValues` | object | Values for the action's `Inputs`; at most 256 entries |
 | `Concurrency` | int | Optional; defaults to the action's `DefaultConcurrency`; clamped 1-32 |
 | `Overrides.TimeoutSeconds` | int | Optional; clamped 5-7200 |
 | `Overrides.RequiresCleanWorkingTree` | bool | Optional; Command only |
@@ -5665,22 +5872,14 @@ Paged runs, newest first. `Status` filters by run status (`Pending`, `Running`, 
 
 #### GET /api/v1/fleet-action-runs/{id}
 
-Run plus summaries of every target, ordered by creation. No output text.
+The run with its target counts. Targets are not embedded (see [ENUMERATION.md](ENUMERATION.md)): page them with
+`POST /api/v1/fleet-action-runs/{id}/targets/enumerate`.
 
 **Permission:** Authenticated
 
 ```json
 {
-  "Run": { "Id": "far_...", "ActionName": "Build", "Kind": "Command", "Status": "Running", "TargetCount": 3, "SucceededCount": 1, "FailedCount": 0, "SkippedCount": 1, "CancelledCount": 0, "...": "..." },
-  "Targets": [
-    {
-      "Id": "fat_...", "RunId": "far_...", "VesselId": "vsl_...", "VesselName": "api",
-      "Status": "Succeeded", "SkipReason": null, "FailureReason": null, "ExitCode": 0,
-      "OutputTruncated": false, "OutputLength": 1834, "ErrorLength": 0, "RenderedLength": 18,
-      "VoyageId": null, "StartedUtc": "2026-10-03T20:00:00Z", "CompletedUtc": "2026-10-03T20:00:04Z",
-      "DurationMs": 4021, "CreatedUtc": "...", "LastUpdateUtc": "..."
-    }
-  ]
+  "Run": { "Id": "far_...", "ActionName": "Build", "Kind": "Command", "Status": "Running", "TargetCount": 3, "SucceededCount": 1, "FailedCount": 0, "SkippedCount": 1, "CancelledCount": 0, "...": "..." }
 }
 ```
 
@@ -5688,7 +5887,17 @@ Run plus summaries of every target, ordered by creation. No output text.
 
 #### POST /api/v1/fleet-action-runs/{id}/targets/enumerate
 
-Paged target summaries (same shape as `Targets` above).
+Paged target summaries, ordered by creation. No output text.
+
+```json
+{
+  "Id": "fat_...", "RunId": "far_...", "VesselId": "vsl_...", "VesselName": "api",
+  "Status": "Succeeded", "SkipReason": null, "FailureReason": null, "ExitCode": 0,
+  "OutputTruncated": false, "OutputLength": 1834, "ErrorLength": 0, "RenderedLength": 18,
+  "VoyageId": null, "StartedUtc": "2026-10-03T20:00:00Z", "CompletedUtc": "2026-10-03T20:00:04Z",
+  "DurationMs": 4021, "CreatedUtc": "...", "LastUpdateUtc": "..."
+}
+```
 
 **Permission:** Authenticated
 
@@ -5755,7 +5964,7 @@ decide only when `Permissions.AllowOwnerApproval` is on, otherwise `Detail` ends
 
 #### POST /api/v1/inbox/enumerate
 
-One page of the needs-you inbox items, most urgent first (`TotalRecords` is the whole count). Paging comes from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of the needs-you inbox items (`TotalRecords` is the exact count). Each kind is read from its own source one page at a time (missions, merge entries, and deployments are paged and counted in the database under the caller's scope), and kinds follow a fixed urgency order: `review`, `landing_failed`, `merge_failed`, `deployment_failed`, `deployment_approval`, `ask_proposal`, `cli_permission`, `failed`, `stalled_captain`, newest first within a kind. Paging comes from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
 
 **Permission:** Authenticated (scoped as described above; this replaces the removed `GET /api/v1/inbox`)
 
@@ -5806,9 +6015,13 @@ expiry); both are null for other kinds. Their `EntityName` is the tool name.
 
 Skills are Category B shared configuration entities (`scope`: `TenantWide` or `UserSpecific`). Reads return tenant-wide plus the caller's own user-specific skills; a regular user creates/edits/deletes only their own user-specific skills, and a tenant-wide skill requires a tenant admin.
 
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap.
+
 #### GET /api/v1/skills
 
-List skills scoped to the authenticated tenant.
+One page of the skills visible to the caller (admins see all; tenant admins their tenant; others their tenant's
+tenant-wide skills plus their own), ordered by name with ties broken by id. Visibility applies in the database before
+counting, so `TotalRecords` is exact for the caller.
 
 **Permission:** Authenticated
 
@@ -5893,6 +6106,9 @@ Delete a skill.
 ### Project Profiles
 
 Project profiles are Category B shared configuration entities that bundle a project's pipeline, workflow profile, persona overrides, and skills. Ownership is expressed via `ownershipScope` (`TenantWide` or `UserSpecific`), while `scope` carries the application scope (`Global`, `Fleet`, or `Vessel`). Reads return tenant-wide plus the caller's own user-specific profiles.
+
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap. `PersonaOverrides` and `Skills` hold at most 256 entries each (`CollectionLimits.MaxConfigItems`): create, update and
+validate reject more with `400 Bad Request`, `Data.Code` `CollectionLimitExceeded` (`Field`, `Limit`, `Actual`).
 
 #### GET /api/v1/project-profiles
 
@@ -6028,6 +6244,8 @@ Delete a project profile.
 
 Playbooks are tenant-scoped markdown documents that can be attached to voyages or standalone missions. Each selection carries its own delivery mode so the model receives either the full content inline or a file path it should read.
 
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap.
+
 #### GET /api/v1/playbooks
 
 List playbooks with pagination.
@@ -6087,6 +6305,8 @@ Delete a playbook. Existing mission snapshots remain immutable.
 ### Prompt Templates
 
 Prompt templates define the instruction text used when generating captain mission briefs. Armada ships with built-in templates that can be customized. Custom templates can also be created per tenant.
+
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap.
 
 The built-in **`ask.system`** template (category `ask`) is the system prompt prepended to every **Ask Armada** dashboard chat turn. It is seeded automatically on first run and is editable exactly like any other template - through **Configuration > Prompts** in the dashboard, through these REST endpoints (`GET`/`PUT /api/v1/prompt-templates/ask.system`, `POST /api/v1/prompt-templates/ask.system/reset`), or through the MCP tools (`get_prompt_template`, `update_prompt_template`, `reset_prompt_template` with `name = "ask.system"`).
 
@@ -6226,7 +6446,9 @@ A persona associates a name and description with a prompt template. Personas are
 
 #### GET /api/v1/personas
 
-List all personas with pagination.
+One page of the personas visible to the caller (admins see all; tenant admins their tenant; others their tenant's
+tenant-wide personas plus their own), counted and cut in the database so `TotalRecords` is exact for the caller, newest
+first with ties broken by id. `POST /api/v1/personas/enumerate` is the POST twin.
 
 **Permission:** Authenticated
 
@@ -6293,7 +6515,7 @@ Create a new persona.
 | `PromptTemplateName` | string | yes | Name of the prompt template to use |
 | `DefaultCaptainId` | string? | no | Legacy preferred captain (must be visible to the caller); superseded by a nonempty hierarchy |
 | `Scope` | enum? | no | TenantWide or UserSpecific; a regular user always gets UserSpecific, an administrator defaults to TenantWide |
-| `CaptainPriorities` | object[] | no | Ordered matching classes; defaults empty |
+| `CaptainPriorities` | object[] | no | Ordered matching classes (at most 256; more is a 400 with `Data.Code` `CollectionLimitExceeded`); defaults empty |
 | `PriorityAvailability` | enum | no | FallThrough (default) or WaitForFirstPriority |
 | `PriorityExhaustion` | enum | no | Wait (default) or UseEligibleCaptain; ignored by first-priority wait |
 
@@ -6334,7 +6556,7 @@ Update an existing persona. Omitted routing fields preserve their stored values;
 | `Description` | string | no | Updated description |
 | `PromptTemplateName` | string | no | Updated prompt template name |
 | `DefaultCaptainId` | string? | no | Legacy preferred captain (must be visible to the caller); omitted keeps it, explicit null or empty clears it |
-| `CaptainPriorities` | object[]? | no | Ordered matching classes described under POST; omitted/null preserves, empty clears |
+| `CaptainPriorities` | object[]? | no | Ordered matching classes described under POST (at most 256); omitted/null preserves, empty clears |
 | `PriorityAvailability` | enum? | no | FallThrough or WaitForFirstPriority; omitted/null preserves |
 | `PriorityExhaustion` | enum? | no | Wait or UseEligibleCaptain; omitted/null preserves |
 | `Scope` | enum? | no | TenantWide or UserSpecific; administrator-only change |
@@ -6373,6 +6595,9 @@ curl -X DELETE http://localhost:7890/api/v1/personas/reviewer
 ### Pipelines
 
 A pipeline defines an ordered sequence of stages, each associated with a persona. Pipelines control the multi-stage workflow that missions progress through. Armada ships with built-in pipelines that cannot be deleted.
+
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap. `Stages` holds at most 256 entries (`CollectionLimits.MaxConfigItems`): `POST` and `PUT` (and the MCP and WebSocket
+create/update forms) reject more with `400 Bad Request`, `Data.Code` `CollectionLimitExceeded`, and store nothing.
 
 #### GET /api/v1/pipelines
 
@@ -6574,7 +6799,7 @@ Duplication is deliberately absent from observed or historical tables: voyages (
 
 #### POST /api/v1/model-endpoints/enumerate
 
-One page of the model endpoints visible to the caller (API keys are never returned). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of the model endpoints visible to the caller (API keys are never returned), counted and cut in the database with the caller's visibility applied before counting, newest first with ties broken by id. Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10, `Order`, `CreatedAfter`, `CreatedBefore`) or the matching querystring parameters. Each endpoint embeds at most 500 `HealthHistory` records.
 
 **Permission:** Authenticated (tenant-wide endpoints plus the caller's own; this replaces the removed `GET /api/v1/model-endpoints`)
 
@@ -6817,8 +7042,9 @@ deletes follow the same ownership rules (see [Data Scoping](#data-scoping-who-se
 (`Episodic`\|`Semantic`\|`Procedural`, default `Semantic`), `Topic`, `Key` (stable idempotency slug), `Summary`
 (one-line recall hook), `Content`, `Salience` (0.0-1.0, default 0.5, orders recall), `Version` (starts at 1),
 `SourceKind` (`Voyage`\|`Mission`\|`Vessel`\|`Conversation`\|`Manual`\|`Other`, default `Manual`), `SourceVoyageId`,
-`SourceMissionId`, `SourceVesselId`, `SourceDetail`, `VesselId`, `Tags`, `CreatedUtc`, `LastUpdateUtc`. Only tenant
-and global admins can change `Scope` on update.
+`SourceMissionId`, `SourceVesselId`, `SourceDetail`, `VesselId`, `Tags` (at most 256 on create and update; more is
+`400` `CollectionLimitExceeded`), `CreatedUtc`, `LastUpdateUtc`. Only tenant and global admins can change `Scope` on
+update.
 
 #### Memory enumeration
 
@@ -6991,12 +7217,15 @@ The checkout is the vessel `workingDirectory` when it exists on the Admiral host
 
 #### GET /api/v1/workspace/vessels/{vesselId}/tree
 
-List one directory in the vessel workspace.
+List one page of one directory in the vessel workspace: folders first, then files, each by name. The page is cut on the
+host that has the checkout (the Admiral, or a Harbor in split mode, whose file listing request carries the page), so
+the reply over the Harbor link is bounded too.
 
 **Permission:** Authenticated
 
-- Query: optional `path`
-- Response: `200 OK` - `WorkspaceTreeResult`
+- Query: optional `path`, `pageNumber` (default 1), `pageSize` (1 to 1000, default 10)
+- Response: `200 OK` - `WorkspaceTreeResult`: `RootPath`, `CurrentPath`, `ParentPath`, `PageNumber`, `PageSize`,
+  `TotalPages`, `TotalRecords` (every direct child), and `Entries` (one page)
 
 #### GET /api/v1/workspace/vessels/{vesselId}/diff
 
@@ -7130,19 +7359,39 @@ Search text files in the vessel workspace.
 
 #### GET /api/v1/workspace/vessels/{vesselId}/changes
 
-Return branch state and changed files.
+Return branch state and one page of changed files in `git status` order. git status has no paging, so the whole status
+is read and the page is cut from it; `IsDirty`, `CommitsAhead`, and `CommitsBehind` cover the whole tree.
 
 **Permission:** Authenticated
 
-- Response: `200 OK` - `WorkspaceChangesResult`
+- Query: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10)
+- Response: `200 OK` - `WorkspaceChangesResult`: `BranchName`, `IsDirty`, `CommitsAhead`, `CommitsBehind`, `Error`,
+  `PageNumber`, `PageSize`, `TotalPages`, `TotalRecords` (every changed file), and `Changes` (one page)
 
 #### GET /api/v1/workspace/vessels/{vesselId}/status
 
-Return high-level workspace health, git state, and active-mission overlap context.
+Return high-level workspace health, git state, and the number of active missions (`ActiveMissionCount`). The active
+missions are not embedded; page them with `GET /api/v1/workspace/vessels/{vesselId}/active-missions`.
 
 **Permission:** Authenticated
 
 - Response: `200 OK` - `WorkspaceStatusResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/active-missions
+
+One page of the vessel's active missions (`Pending`, `Assigned`, `InProgress`, `Review`, `Testing`), newest first with an
+id tie-break, each with the repository-relative files its description scopes it to ("Touch only ...", "Edit only ...",
+"Modify only ...": `ScopedFiles` lists at most 256, `ScopedFileCount` is the full count). Read from the database one
+bounded LIMIT/OFFSET page per status (tenant-scoped for non-admins), merged in order, with an exact total.
+`POST /api/v1/workspace/vessels/{vesselId}/active-missions/enumerate` takes the `EnumerationQuery` in the body
+(querystring values override it; a malformed body is `400`).
+
+**Permission:** Authenticated
+
+- Query: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10)
+- Response: `200 OK` - `EnumerationResult<WorkspaceActiveMission>` (`MissionId`, `Title`, `Status`, `ScopedFiles`,
+  `ScopedFileCount`)
+- Error: `404` vessel not visible
 
 ---
 
@@ -7182,25 +7431,40 @@ Create a planning session, reserve the selected captain, and provision a plannin
 }
 ```
 
+`SelectedPlaybooks` holds at most 256 entries (`400` `CollectionLimitExceeded` otherwise).
+
 - Response: `201 Created`
-- Response shape:
+- Response shape (`PlanningSessionDetail`):
 
 ```json
 {
   "Session": { "...": "PlanningSession" },
-  "Messages": [],
+  "MessageCount": 0,
   "Captain": { "...": "Captain" },
-  "Vessel": { "...": "Vessel" }
+  "Vessel": { "...": "Vessel" },
+  "LinkedObjectiveCount": 0
 }
 ```
 
 #### GET /api/v1/planning-sessions/{id}
 
-Read one planning session with transcript, captain, and vessel context.
+Read one planning session with its captain and vessel, the transcript's `MessageCount`, and `LinkedObjectiveCount`. The
+detail no longer embeds `Messages`; read the transcript with `POST /api/v1/planning-sessions/{id}/messages/enumerate`.
 
 **Permission:** Authenticated
 
-- Response: `200 OK`
+- Response: `200 OK` - `PlanningSessionDetail`
+- Errors: `404 Not Found`
+
+#### POST /api/v1/planning-sessions/{id}/messages/enumerate
+
+One page of the session's transcript, paged in the database: newest first (`CreatedDescending`, the default) or oldest
+first (`CreatedAscending`), by sequence with the id as the tie-break. `TotalRecords` is the transcript length. Paging
+comes from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000) or the matching querystring parameters.
+
+**Permission:** Authenticated (caller scope)
+
+- Response: `200 OK` - `EnumerationResult<PlanningSessionMessage>`
 - Errors: `404 Not Found`
 
 #### POST /api/v1/planning-sessions/{id}/messages
@@ -7247,6 +7511,8 @@ Create a voyage directly from planning output.
 ```
 
 - Response: `200 OK` - `Voyage`
+- The voyage is linked to every objective linked to the session. When that would push an objective's id lists over 1000
+  the call fails with `400` `CollectionLimitExceeded`, naming the voyage that was dispatched.
 
 #### POST /api/v1/planning-sessions/{id}/stop
 
@@ -7340,6 +7606,11 @@ Create one scoped objective or backlog item.
 - Request body: `ObjectiveUpsertRequest`
 - Response: `201 Created` - `Objective`
 - Notes: `POST /api/v1/backlog` is the preferred user-facing alias; both routes persist the same underlying `Objective`
+- Limits: `Tags`, `AcceptanceCriteria`, `NonGoals`, `RolloutConstraints`, `EvidenceLinks`, and `SuggestedPlaybooks` hold
+  at most 256 entries each, and every id list (`FleetIds`, `VesselIds`, `PlanningSessionIds`, `RefinementSessionIds`,
+  `VoyageIds`, `MissionIds`, `CheckRunIds`, `ReleaseIds`, `DeploymentIds`, `IncidentIds`, `BlockedByObjectiveIds`) at
+  most 1000. A larger list is `400` with `Data.Code` `CollectionLimitExceeded` naming the field; nothing is stored. The
+  same limits apply to updates and to refinement summaries applied to the item.
 
 #### POST /api/v1/objectives/reorder and POST /api/v1/backlog/reorder
 
@@ -7356,8 +7627,9 @@ Apply one or more explicit backlog rank updates.
 }
 ```
 
-- Request body: `ObjectiveReorderRequest`
-- Response: `200 OK` - `List<Objective>`
+- Request body: `ObjectiveReorderRequest` (at most 1000 `Items`; more is `400` `CollectionLimitExceeded`)
+- Response: `200 OK` - `ObjectiveReorderResult`: `{ Updated, Items: [{ ObjectiveId, Rank }] }`, the ranks that were
+  applied (it no longer returns the reordered objectives; read them with `POST /api/v1/backlog/enumerate`)
 
 #### POST /api/v1/objectives/import/github
 
@@ -7450,11 +7722,24 @@ Create one captain-backed refinement session for an objective or backlog item.
 
 #### GET /api/v1/objective-refinement-sessions/{id}
 
-Read one refinement session with transcript, captain, vessel, and linked objective/backlog detail.
+Read one refinement session with its captain, vessel, and linked objective/backlog item, and the transcript's
+`MessageCount`. The detail no longer embeds `Messages`; read the transcript with
+`POST /api/v1/objective-refinement-sessions/{id}/messages/enumerate`.
 
 **Permission:** Authenticated
 
-- Response: `200 OK` - `ObjectiveRefinementSessionDetail`
+- Response: `200 OK` - `ObjectiveRefinementSessionDetail` (`Session`, `MessageCount`, `Captain`, `Vessel`, `Objective`)
+- Errors: `404 Not Found`, `501 Not Implemented`
+
+#### POST /api/v1/objective-refinement-sessions/{id}/messages/enumerate
+
+One page of the session's transcript, paged in the database: newest first (`CreatedDescending`, the default) or oldest
+first (`CreatedAscending`), by sequence with the id as the tie-break. Paging comes from the JSON body
+(`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000) or the matching querystring parameters.
+
+**Permission:** Authenticated
+
+- Response: `200 OK` - `EnumerationResult<ObjectiveRefinementMessage>`
 - Errors: `404 Not Found`, `501 Not Implemented`
 
 #### POST /api/v1/objective-refinement-sessions/{id}/messages
@@ -7554,6 +7839,11 @@ Workflow profiles define how a vessel or fleet builds, tests, versions, deploys,
 
 A `generic` profile is replaced with the matching template once the toolchain can be recognized. A profile a person created is never touched, and editing a default profile (`PUT`) clears its `SourceTemplate`, so Armada leaves it alone from then on.
 
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap. `LanguageHints`, `RequiredInputs`, `ExpectedArtifacts` and `Environments` hold at most 256 entries each
+(`CollectionLimits.MaxConfigItems`); create, update and validate (REST and MCP) reject more with `400 Bad Request` /
+MCP `InvalidArgument`, `Code` `CollectionLimitExceeded`. `CommandPreviews` therefore holds at most 15 + 6 x 256 = 1551
+entries, and `Errors`, `Warnings` and `AvailableCheckTypes` are fixed by the validation rules and check types.
+
 #### GET /api/v1/workflow-profiles
 
 List workflow profiles in the caller scope.
@@ -7649,7 +7939,8 @@ the caller are skipped with a reason (`Empty ID`, `Not found`, `Not permitted`) 
 
 - Request body: `DeleteMultipleRequest` - `{ "Ids": ["wfp_abc123", "wfp_def456"] }`
 - Response: `200 OK` - `DeleteMultipleResult` (`Status`, `Deleted`, `Skipped[{Id, Reason}]`)
-- Errors: `400 Bad Request` when `Ids` is missing or empty
+- Errors: `400 Bad Request` when `Ids` is missing or empty, or holds more than 1000 ids (`Data.Code`
+  `CollectionLimitExceeded`; nothing is deleted). `Skipped` therefore holds at most 1000 entries.
 
 The same create, update, delete, validate, resolve, and preview rules are available over MCP (`create_workflow_profile`,
 `update_workflow_profile`, `delete_workflow_profile`, `delete_workflow_profiles`, `validate_workflow_profile`,
@@ -7719,8 +8010,9 @@ Import an externally executed or provider-hosted check run into Armada history.
 }
 ```
 
-- Request body: `CheckRunImportRequest`: `VesselId` (required), `WorkflowProfileId`, `MissionId`, `VoyageId`, `DeploymentId`, `Type`, `Status`, `ProviderName`, `ExternalId`, `ExternalUrl`, `EnvironmentName`, `Label`, `BranchName`, `CommitHash`, `Command`, `Summary`, `Output`, `ExitCode`, `TestSummary`, `CoverageSummary`, `Artifacts`, `DurationMs`, `StartedUtc`, `CompletedUtc`
+- Request body: `CheckRunImportRequest`: `VesselId` (required), `WorkflowProfileId`, `MissionId`, `VoyageId`, `DeploymentId`, `Type`, `Status`, `ProviderName`, `ExternalId`, `ExternalUrl`, `EnvironmentName`, `Label`, `BranchName`, `CommitHash`, `Command`, `Summary`, `Output`, `ExitCode`, `TestSummary`, `CoverageSummary`, `Artifacts` (at most 256), `DurationMs`, `StartedUtc`, `CompletedUtc`
 - Response: `201 Created` - `CheckRun`
+- Errors: `400` with `Data.Code` `CollectionLimitExceeded` when `Artifacts` holds more than 256 entries. A run started by Armada collects one artifact per workflow profile `ExpectedArtifacts` entry; a profile with more than 256 is rejected before the check runs.
 
 #### POST /api/v1/check-runs/sync/github-actions
 
@@ -7740,12 +8032,13 @@ Credential resolution order:
   "DeploymentId": "dep_ghi789",
   "EnvironmentName": "staging",
   "BranchName": "main",
-  "RunCount": 10
+  "RunCount": 10,
+  "PageNumber": 1
 }
 ```
 
-- Request body: `GitHubActionsSyncRequest`
-- Response: `200 OK` - `GitHubActionsSyncResult`
+- Request body: `GitHubActionsSyncRequest`. `RunCount` is the GitHub page size (normalized to 1-100) and `PageNumber` the GitHub page (newest first, default 1); one call imports one page.
+- Response: `200 OK` - `GitHubActionsSyncResult`: `ProviderName`, `VesselId`, `DeploymentId`, `CreatedCount`, `UpdatedCount`, `PageNumber`, `PageSize`, `SourceTotalCount` (GitHub's `total_count` for the branch, status and commit filters), `SourceTotalPages`, `FetchedCount` (runs on the page), `FilteredOutCount` (runs on the page that did not match `WorkflowName` or `CommitHash`), and `CheckRunIds` (the imported runs, at most 100; read them with `GET /api/v1/check-runs/{id}`). The result no longer embeds the check runs.
 - Notes:
   - Imported runs are normalized into `CheckRun` records with `Source = External` and `ProviderName = GitHubActions`
   - When `DeploymentId` is supplied, synced runs are linked back to that deployment
@@ -7804,7 +8097,7 @@ Enumerate environments using a JSON body and optional querystring overrides.
 
 #### POST /api/v1/environments
 
-Create one environment.
+Create one environment. `VerificationDefinitions` holds at most 256 definitions and each definition's `Headers` at most 256 entries; create and update (`PUT /api/v1/environments/{id}`) reject more with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` such as `VerificationDefinitions.Headers`).
 
 **Permission:** TenantAdmin
 
@@ -7934,7 +8227,7 @@ Deny one pending deployment without executing it.
 
 #### POST /api/v1/deployments/{id}/verify
 
-Re-run the configured post-deploy verification for an existing deployment.
+Re-run the configured post-deploy verification for an existing deployment. Every verification run is linked in `CheckRunIds`, which holds at most 1000 ids: a verify, rollback, or link that would push it past the limit is rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` `CheckRunIds`) before any check runs, and rollout monitoring stops for that deployment. Every check run also carries its `DeploymentId`, so `POST /api/v1/check-runs/enumerate` with `deploymentId` reads them all.
 
 **Permission:** TenantAdmin
 
@@ -7985,7 +8278,7 @@ Enumerate releases using a JSON body and optional querystring overrides.
 
 #### POST /api/v1/releases
 
-Create a release from linked voyages, missions, and check runs.
+Create a release from linked voyages, missions, and check runs. `VoyageIds`, `MissionIds`, `CheckRunIds`, and `ObjectiveIds` hold at most 1000 ids each. Linked voyages expand to every one of their missions, and a release may link at most 1000 missions and 1000 derived artifacts in all; a create, update, or refresh past any of these limits is rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` naming the list) rather than cut short.
 
 **Permission:** TenantAdmin
 
@@ -8015,7 +8308,7 @@ Read one release.
 
 #### POST /api/v1/releases/{id}/github/pull-requests/enumerate
 
-One page of the GitHub pull requests linked to one release's missions (`404` when the release is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of the GitHub pull requests linked to one release's missions (`404` when the release is not visible). The distinct pull requests are resolved from the release's mission links (at most 1000), ordered by pull request number (newest first) then repository, and only the requested page is read from GitHub, so `TotalRecords` is exact and each page costs at most `PageSize` GitHub reads. Paging comes from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
 
 **Permission:** Authenticated (release scope; this replaces the removed `GET /api/v1/releases/{id}/github/pull-requests`)
 
@@ -8075,7 +8368,7 @@ List incidents in the caller scope.
 
 #### POST /api/v1/incidents/enumerate
 
-Enumerate incidents using a JSON body and optional querystring overrides.
+Enumerate incidents using a JSON body and optional querystring overrides. Incidents are stored one row each (their `incident.snapshot` events remain as history), so the filters (`VesselId`, `EnvironmentId`, `DeploymentId`, `ReleaseId`, `MissionId`, `VoyageId`, `Status`, `Severity`, `Search`) apply, the page is cut, and `TotalRecords` is counted in the database inside the caller's scope. Ordered by last update (newest first) then id. `PageSize` 1 to 1000 (default 50).
 
 **Permission:** Authenticated
 
@@ -8084,7 +8377,7 @@ Enumerate incidents using a JSON body and optional querystring overrides.
 
 #### POST /api/v1/incidents
 
-Create one incident.
+Create one incident. `RescueMissionIds` and `ObjectiveIds` hold at most 1000 ids (create and update reject more with `400`, `Data.Code` `CollectionLimitExceeded`); autonomous mission recovery appends at most `MaxMissionRecoveryAttempts` (5) rescues and never past the limit.
 
 **Permission:** TenantAdmin
 
@@ -8137,7 +8430,7 @@ List runbooks in the caller scope.
 
 #### POST /api/v1/runbooks/enumerate
 
-Enumerate runbooks using a JSON body and optional querystring overrides.
+Enumerate runbooks using a JSON body and optional querystring overrides. A runbook is a playbook row, so the list is filtered, paged, and counted in the playbooks table inside the caller's scope: `WorkflowProfileId`, `EnvironmentId`, and `DefaultCheckType` match the runbook metadata block, `Active` the playbook flag, and `Search` the file name, description, and content (title, steps, overview), ignoring case. Ordered by file name then id. `PageSize` 1 to 1000 (default 50). `Parameters` and `Steps` hold at most 256 entries; a playbook written outside the runbook API with more reports the rest in `OmittedParameterCount` and `OmittedStepCount` (the text stays in `OverviewMarkdown`).
 
 **Permission:** Authenticated
 
@@ -8146,7 +8439,7 @@ Enumerate runbooks using a JSON body and optional querystring overrides.
 
 #### POST /api/v1/runbooks
 
-Create one runbook backed by a playbook and optional explicit steps/parameters.
+Create one runbook backed by a playbook and optional explicit steps/parameters. `Steps` and `Parameters` hold at most 256 entries; create and update reject more with `400` (`Data.Code` `CollectionLimitExceeded`).
 
 **Permission:** TenantAdmin
 
@@ -8193,7 +8486,7 @@ List runbook executions in the caller scope.
 
 #### POST /api/v1/runbook-executions/enumerate
 
-Enumerate runbook executions using a JSON body and optional querystring overrides.
+Enumerate runbook executions using a JSON body and optional querystring overrides. Executions are stored one row each (their `runbook-execution.snapshot` events remain as history), so `RunbookId`, `DeploymentId`, `IncidentId`, `Status`, and `Search` filter, page, and count in the database inside the caller's scope. Ordered by last update (newest first) then id. `PageSize` 1 to 1000 (default 50).
 
 **Permission:** Authenticated
 
@@ -8202,7 +8495,7 @@ Enumerate runbook executions using a JSON body and optional querystring override
 
 #### POST /api/v1/runbooks/{id}/executions
 
-Start one runbook execution.
+Start one runbook execution. `ParameterValues` (the supplied values plus the runbook's defaults) holds at most 256 entries; more is rejected with `400` (`Data.Code` `CollectionLimitExceeded`).
 
 **Permission:** TenantAdmin
 
@@ -8221,7 +8514,7 @@ Read one runbook execution.
 
 #### PUT /api/v1/runbook-executions/{id}
 
-Update one runbook execution, including step completion and notes.
+Update one runbook execution, including step completion and notes. `CompletedStepIds` and `StepNotes` hold at most 256 entries; more is rejected with `400` (`Data.Code` `CollectionLimitExceeded`).
 
 **Permission:** TenantAdmin
 
@@ -8281,14 +8574,17 @@ These helper routes support runtime-specific UX and validation: Mux endpoint dis
 
 #### GET /api/v1/runtimes/mux/endpoints
 
-List saved Mux endpoints, optionally from an explicit config directory.
+One page of the saved Mux endpoints, ordered by name, optionally from an explicit config directory. `mux` reads its
+whole configuration file and cannot page, so the Admiral pages its answer: `Objects` is one page and `TotalRecords`
+counts every saved endpoint. `POST /api/v1/runtimes/mux/endpoints/enumerate` is the POST twin (paging in the JSON body,
+`configDirectory` and `harborId` in the querystring).
 
 Mux runs where Mux captains run: on the caller's own connected Harbor, otherwise on another Harbor the tenant may use (unless `requireHarborForLaunch` restricts launches to the caller's own Harbors). Only an Admiral with no eligible Harbor runs `mux` itself. `configDirectory` is a path on that machine.
 
 **Permission:** Authenticated
 
-- Query: optional `configDirectory`; optional `harborId` to ask a specific connected Harbor
-- Response: `200 OK` - `MuxEndpointListResult`, with `HarborId` set to the Harbor that answered (null when the Admiral ran mux)
+- Query: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10); optional `configDirectory`; optional `harborId` to ask a specific connected Harbor
+- Response: `200 OK` - `MuxEndpointPage` (`EnumerationResult<MuxEndpointInfo>` plus `ContractVersion`, `ConfigDirectory`, `ErrorCode`, `ErrorMessage`), with `HarborId` set to the Harbor that answered (null when the Admiral ran mux). Each endpoint's `HeaderNames` and `Headers` hold at most 256 entries; mux reporting more is a `400` (`CollectionLimitExceeded`).
 - Errors: `503 Service Unavailable` with `ErrorCode` `harbor_unavailable` when Harbors are required and none of the caller's is connected; `400 Bad Request` when mux cannot be started on the chosen machine
 
 #### GET /api/v1/runtimes/mux/endpoints/{name}
@@ -8331,8 +8627,9 @@ Return aggregate counts and time buckets for matching request-history entries.
 
 **Permission:** Authenticated
 
-- Query: `bucketMinutes`, `fromUtc`, `toUtc`, `method`, `route`, `statusCode`, `principal`
+- Query: `bucketMinutes` (1 to 527040), `fromUtc`, `toUtc`, `method`, `route`, `statusCode`, `principal`
 - Defaults: last 24 hours, 15-minute buckets
+- At most 1000 buckets: a window and `bucketMinutes` that would produce more are rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` `Buckets`) before any entry is read
 - Response: `200 OK` - `RequestHistorySummaryResult`
 
 #### GET /api/v1/request-history/{id}
@@ -8364,6 +8661,7 @@ Delete multiple request-history entries by identifier.
 }
 ```
 
+- At most 1000 ids; more is rejected with `400` (`Data.Code` `CollectionLimitExceeded`) and nothing is deleted. `Skipped` has one entry per id that was not deleted, so it is bounded by the request.
 - Response: `200 OK` - `DeleteMultipleResult`
 
 #### POST /api/v1/request-history/delete/by-filter
@@ -8395,12 +8693,14 @@ Return token usage aggregated into time buckets (each with a per-model breakdown
 
 **Permission:** Authenticated
 
-- Query: `fromUtc`, `toUtc`, `bucketMinutes`, `model`, `runtime`, `source`, `sourceId`, `vesselId`, `captainId`, `harborId`, `tenantId`, `userId`
+- Query: `fromUtc`, `toUtc`, `bucketMinutes` (fractional allowed, at most 527040), `modelLimit` (1 to 100, default 10), `model`, `runtime`, `source`, `sourceId`, `vesselId`, `captainId`, `harborId`, `tenantId`, `userId`
 - `harborId` keeps the usage of work that ran on that Harbor (mission runs, chat and Ask turns, and planning turns
   launched there)
 - Defaults: last 24 hours, 15-minute buckets
 - `source` is one of `mission`, `chat`, `planning`, `synthetic`
-- Response: `200 OK` - `TokenUsageSummaryResult` (fields: `fromUtc`, `toUtc`, `bucketMinutes`, `recordCount`, `estimatedCount`, `syntheticCount`, `inputTokens`, `outputTokens`, `cachedTokens`, `totalTokens`, `buckets[]`, `byModel[]`)
+- At most 1000 buckets: a window and `bucketMinutes` that would produce more are rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` `Buckets`) before any record is read
+- `byModel` lists the `modelLimit` most-used models (total tokens, then name); the remaining models are summed into `otherModels` (model `(other)`), and `otherModelCount` says how many. Each bucket's `models` lists only those top models, with its own `otherModels`/`otherModelCount`, so `byModel` plus `otherModels` always adds up to the totals
+- Response: `200 OK` - `TokenUsageSummaryResult` (fields: `fromUtc`, `toUtc`, `bucketMinutes`, `recordCount`, `estimatedCount`, `syntheticCount`, `inputTokens`, `outputTokens`, `cachedTokens`, `totalTokens`, `modelLimit`, `modelCount`, `otherModelCount`, `otherModels`, `buckets[]`, `byModel[]`)
 
 #### POST /api/v1/token-usage/synthetic
 
@@ -8669,16 +8969,22 @@ Request body for `POST /api/v1/tenants/lookup`.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `Email` | string | Yes | Email address to look up |
+| `PageNumber` | int | No | One-based page (default 1) |
+| `PageSize` | int | No | Tenants per page, 1 to 1000 (default 10) |
 
 ---
 
 #### TenantLookupResult
 
-Result of `POST /api/v1/tenants/lookup`.
+Result of `POST /api/v1/tenants/lookup`: one page of the tenants matching the email.
 
 | Field | Type | Description |
 |---|---|---|
-| `Tenants` | array | List of `{ TenantId, TenantName }` entries matching the email |
+| `Tenants` | array | One page of `{ Id, Name }` entries matching the email (at most `PageSize`) |
+| `PageNumber` | int | Page returned |
+| `PageSize` | int | Page size used |
+| `TotalPages` | int | Number of pages |
+| `TotalRecords` | long | Matching tenants across every page |
 
 ---
 
@@ -8945,7 +9251,7 @@ An atomic unit of work assigned to a captain.
 | `ReviewDeadlineUtc` | datetime? | null | When a mission parked in `Review` is escalated and its dock and captain freed |
 | `ReviewedUtc` | datetime? | null | When the latest review decision was made |
 | `AgentOutput` | string? | null | Accumulated agent stdout (architect marker parsing and pipeline handoff) |
-| `AssignmentBlocker` | object? | null | Why a `Pending` mission is still waiting for a captain; computed on single-mission and voyage reads, absent otherwise (see [GET /api/v1/missions/{id}](#get-apiv1missionsid)) |
+| `AssignmentBlocker` | object? | null | Why a `Pending` mission is still waiting for a captain; computed on single-mission reads, absent otherwise (see [GET /api/v1/missions/{id}](#get-apiv1missionsid)) |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
 | `StartedUtc` | datetime? | null | Work start timestamp (UTC) |
 | `CompletedUtc` | datetime? | null | Completion timestamp (UTC) |
@@ -9205,20 +9511,13 @@ Aggregate status summary returned by the status endpoint.
   "WorkingCaptains": 3,
   "StalledCaptains": 0,
   "ActiveVoyages": 1,
+  "InProgressVoyages": 1,
+  "OpenVoyages": 0,
   "MissionsByStatus": {
     "Pending": 3,
     "InProgress": 2,
     "Complete": 10
   },
-  "Voyages": [
-    {
-      "Voyage": { ... },
-      "TotalMissions": 5,
-      "CompletedMissions": 3,
-      "FailedMissions": 0,
-      "InProgressMissions": 2
-    }
-  ],
   "RecentSignals": [],
   "RemoteTunnel": {
     "Enabled": false,
@@ -9250,10 +9549,11 @@ Aggregate status summary returned by the status endpoint.
 | `IdleCaptains` | int | Number of idle captains |
 | `WorkingCaptains` | int | Number of working captains |
 | `StalledCaptains` | int | Number of stalled captains |
-| `ActiveVoyages` | int | Total active voyages |
-| `MissionsByStatus` | dict\<string, int\> | Mission counts grouped by status |
-| `Voyages` | array | Active [VoyageProgress](#voyageprogress) objects |
-| `RecentSignals` | array | Recent [Signal](#signal) objects |
+| `ActiveVoyages` | int | Total active (Open or InProgress) voyages; page them with `POST /api/v1/voyages/progress/enumerate` |
+| `InProgressVoyages` | int | InProgress voyages |
+| `OpenVoyages` | int | Open voyages |
+| `MissionsByStatus` | dict\<string, int\> | Mission counts grouped by status (at most one entry per status) |
+| `RecentSignals` | array | The 10 most recent [Signal](#signal) objects |
 | `RemoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `TimestampUtc` | datetime | Snapshot timestamp (UTC) |
 | `MemoryPressureDeferrals` | long | 0 | Dispatch attempts deferred because the host was under memory pressure |
@@ -9282,12 +9582,7 @@ Current outbound remote tunnel status and telemetry.
 
 ---
 
-#### VoyageProgress
-
-Progress information for an active voyage, nested in ArmadaStatus.
-
-| Field | Type | Description |
-|---|---|---|
+---|---|---|
 | `Voyage` | [Voyage](#voyage) | Voyage details |
 | `TotalMissions` | int | Total missions in voyage |
 | `CompletedMissions` | int | Number of completed missions |
@@ -9483,7 +9778,7 @@ A managed reference to an external embedding or inference model behind a provide
 | `LastHealthCheckUtc` | datetime? | null | Timestamp of the last probe (UTC) |
 | `LastHealthError` | string? | null | Error text from the last failed probe |
 | `LastLatencyMs` | int? | null | Latency of the last probe in milliseconds |
-| `HealthHistory` | array | [] | Rolling series of recent probes (oldest first), each `{ TimestampUtc, Success }`, capped at 500 records. Drives the dashboard health-history bar. |
+| `HealthHistory` | array | [] | Rolling series of recent probes (oldest first), each `{ TimestampUtc, Success }`, at most 500 records (the health check drops the oldest). Server-owned: a create or duplicate ignores a supplied history and an update leaves it unchanged. Drives the dashboard health-history bar. `Headers` and `InferenceOptions.AllowedTools` hold at most 256 entries each (400 `CollectionLimitExceeded`). |
 | `UptimePercentage` | double | 0 | Read-only. Percentage of retained probes that succeeded (0-100), derived from `HealthHistory`. |
 | `ConsecutiveSuccesses` | int | 0 | Read-only. Trailing run of successful probes, derived from `HealthHistory`. |
 | `ConsecutiveFailures` | int | 0 | Read-only. Trailing run of failed probes, derived from `HealthHistory`. |
@@ -10070,21 +10365,21 @@ Paginated result wrapper returned by all list and enumerate endpoints.
 
 ---
 
-#### VoyageDetail
+#### VoyageProgress
 
-Response from `GET /api/v1/voyages/{id}`.
-
-```json
-{
-  "Voyage": { ... },
-  "Missions": [ ... ]
-}
-```
+Response from `GET /api/v1/voyages/{id}` and each row of `POST /api/v1/voyages/progress/enumerate`: a voyage with counts
+of its missions (missions are never embedded).
 
 | Field | Type | Description |
 |---|---|---|
 | `Voyage` | [Voyage](#voyage) | Voyage details |
-| `Missions` | array\<[Mission](#mission)\> | All missions in this voyage |
+| `TotalMissions` | int | Missions in the voyage |
+| `CompletedMissions` | int | Complete or WorkProduced missions |
+| `FailedMissions` | int | Failed or LandingFailed missions |
+| `InProgressMissions` | int | Assigned, InProgress, Verifying, Testing, Review, or PullRequestOpen missions |
+| `MissionCountsByStatus` | object | Count per mission status (only statuses with missions; at most one entry per status) |
+| `VesselId` | string | Vessel of the earliest mission, or null |
+| `VesselCount` | int | Distinct vessels the missions target |
 
 ---
 
@@ -10637,7 +10932,7 @@ Storage endpoints are global system administrator operations. Tenant administrat
 
 ### GET /api/v1/storage
 
-Returns `200` with the latest cached `StorageSnapshot`. There are no path or query parameters and no request body. Reading this endpoint does not start scans or exact counts. Before the initial sample, `MeasuredUtc` is absent, `Hosts` and `History` are empty, and the collection may already be running.
+Returns `200` with the latest cached `StorageSnapshot`. There are no path or query parameters and no request body. Reading this endpoint does not start scans or exact counts. Before the initial sample, `MeasuredUtc` is absent, `History` is empty, `HostCount` is 0, and the collection may already be running. Host reports are not embedded: page them with [`GET /api/v1/storage/hosts`](#get-apiv1storagehosts).
 
 ```bash
 curl -H "Authorization: Bearer $ARMADA_TOKEN" "$ARMADA_URL/api/v1/storage"
@@ -10649,10 +10944,13 @@ curl -H "Authorization: Bearer $ARMADA_TOKEN" "$ARMADA_URL/api/v1/storage"
 | `Collecting` | boolean | A scan is running; concurrent refresh requests coalesce |
 | `LastError` | string, optional | `CollectionTimedOut` or `CollectionFailed`; previous measurements remain |
 | `Database` | object | Provider, measurement time, `AllocatedBytes`, `UnusedBytes`, `Status`, `Warnings`, `Tables` |
-| `Hosts` | object array | Admiral and registered Harbors with `HostId`, `Name`, `MeasuredUtc`, `Stale`, `Status`, `Warnings`, `Locations`, `Volumes` |
-| `History` | object array | Bounded process-local samples with timestamp, observed file bytes, database bytes, and numeric `Categories`, `Hosts`, `Tables` maps |
+| `HostCount`, `FreshHostCount` | integers | Hosts with a report (the Admiral plus one per registered Harbor), and those whose report is current and `Complete` |
+| `ObservedFileBytes` | integer | Observed file bytes across every host's measured locations |
+| `History` | object array | Process-local samples (at most `HistoryCapacity`, which is at most 1000) with timestamp, observed file bytes, database bytes, and numeric `Categories`, `Hosts`, `Tables` maps. Each map keeps its 24 largest keys and folds the rest into one `(other)` key, so the totals still add up |
 | `Retention` | integer map | Current settings: `DataDays`, `RequestHistoryDays`, `PlanningSessionDays`, `AskArchiveDays`, `AskDeleteDays`, `JobDays`, `ImportDays`, `CliPermissionDays`, `FleetActionDays`, `BuildSlots` |
 | `IntervalSeconds`, `HistoryCapacity` | integers | Active collection cadence and recent-history limit |
+
+`Database.Tables` lists at most 1000 tables (`TableLimit` warning when there are more).
 
 Database table entries contain `Schema`, `Name`, optional `Rows`, `CountKind` (`Exact`, `Estimated`, `Unavailable`), optional `DataBytes`, `IndexBytes`, and `LogicalBytes`, and an optional warning code. SQLite uses page allocation and free pages; optional dbstat support supplies table allocation. Bounded background SQLite queries also supply exact row counts and logical visible-column value bytes independently of dbstat. Logical bytes count numeric values as eight bytes, text/blob byte lengths, and NULL as zero; they exclude record/page/index overhead and are not allocation. PostgreSQL uses database/table/index sizes and estimated live rows. MySQL reports catalog allocation and estimated rows. SQL Server reports database file allocation and catalog table/index pages with estimated counts. Missing metrics remain absent rather than becoming zero.
 
@@ -10661,6 +10959,18 @@ Location entries contain `Category`, `Path`, optional `EntityId` and `Activity`,
 Volume entries contain `Path`, optional `TotalBytes`, optional `AvailableBytes`, and `Status`. Capacity includes unrelated files and describes the process/container-visible mount. Remote database host capacity is not inferred. Volume capacity, logical file lengths and database allocation must not be summed together.
 
 Statuses distinguish `Pending`, `Complete`, `Partial`, `Missing`, `Unavailable` and `Skipped`. Missing optional directories do not make the whole host incomplete. Warnings are stable codes translated by the dashboard: `BudgetExceeded`, `LinkSkipped`, `AccessDenied`, `FileChangedOrUnreadable`, `Unreadable`, `InvalidPath`, `LocationLimit`, `VolumesUnavailable`, `TableLimit`, `TableAllocationUnavailable`, `DatabaseAllocationUnavailable`, `DatabaseStatisticsUnavailable`, `ExactCountUnavailable`, `CollectionTimedOut`, and `HarborReportUnavailable`.
+
+### GET /api/v1/storage/hosts
+
+Returns `200` with one page (`EnumerationResult<StorageHostReport>`) of the cached host reports: the Admiral first, then
+each Harbor by name and id. Each report has `HostId`, `Name`, `MeasuredUtc`, `Stale`, `Status`, `Warnings` (at most 20),
+`Locations` (at most `MaxLocations`, 10 to 5000), and `Volumes` (at most 256). Querystring: `pageNumber` (default 1),
+`pageSize` (1 to 1000, default 10). `POST /api/v1/storage/hosts/enumerate` takes the `EnumerationQuery` in the body
+(querystring values override it; a malformed body is `400`). Global administrators only; reading does not start scans.
+
+```bash
+curl -H "Authorization: Bearer $ARMADA_TOKEN" "$ARMADA_URL/api/v1/storage/hosts?pageSize=25"
+```
 
 ### POST /api/v1/storage/refresh
 
@@ -10691,7 +11001,7 @@ curl -X POST -H "Authorization: Bearer $ARMADA_TOKEN" \
 | `MaxEntries` | 250000 | 100..2000000 examined filesystem entries per host |
 | `LargestFileLimit` | 20 | 1..100 per location |
 | `MaxLocations` | 1000 | 10..5000 per host |
-| `HistoryCapacity` | 288 | 2..2016 process-local samples |
+| `HistoryCapacity` | 288 | 2..1000 process-local samples (larger values are normalized to 1000) |
 
 Local collection starts in the background. Harbors report asynchronously on their own five-minute cadence through an additive optional heartbeat field. A disconnected Harbor retains its last report and is marked stale; an old Harbor, one with heartbeats disabled, or a freshly restarted Admiral without a report shows unavailable coverage. Reports older than twice the greater of the source cadence and the configured Admiral interval are stale. Host reports include `IntervalSeconds` (300 on the Harbor app). An administrator-triggered local refresh does not force Harbor collection. The page identifies host coverage and timestamps beside observed totals.
 

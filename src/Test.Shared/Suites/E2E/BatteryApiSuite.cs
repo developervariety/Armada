@@ -91,11 +91,41 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual((int?)99, run.Seed);
                 AssertTrue(run.IsEvaluation, "evaluation");
                 AssertEqual(16, run.ConfigurationRevision!.Length, "configuration revision recorded");
-                AssertEqual(10, run.Results.Count, "one result per task");
                 AssertEqual(3, run.PassedCount, "both Judge controls and the linter pass");
                 AssertEqual(2, run.PendingEvaluationCount, "plan and summary wait for the evaluator");
                 AssertEqual(5, run.FailedCount, "cancelled worktree tasks fail");
-                AssertTrue(run.Results.All(r => r.FixtureCommit != null && r.VesselId != null), "fixture reset and vessel recorded");
+
+                // The run read does not embed results; they are a paged enumeration (GET and POST twins).
+                HttpResponseMessage rawRun = await a.GetAsync("/api/v1/battery/runs/" + run.Id).ConfigureAwait(false);
+                string rawRunBody = await rawRun.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertFalse(rawRunBody.Contains("\"Results\"", StringComparison.Ordinal), "no embedded Results");
+                HttpResponseMessage page1 = await a.GetAsync("/api/v1/battery/runs/" + run.Id + "/results?pageNumber=1&pageSize=4&order=CreatedAscending").ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.OK, page1, "results page 1");
+                EnumerationResult<BatteryTaskResult> first = await JsonHelper.DeserializeAsync<EnumerationResult<BatteryTaskResult>>(page1).ConfigureAwait(false);
+                AssertEqual(10L, first.TotalRecords, "one result per task");
+                AssertEqual(3, first.TotalPages);
+                AssertEqual(4, first.Objects.Count);
+                List<BatteryTaskResult> all = new List<BatteryTaskResult>(first.Objects);
+                for (int pageNumber = 2; pageNumber <= first.TotalPages; pageNumber++)
+                {
+                    HttpResponseMessage next = await a.PostAsync("/api/v1/battery/runs/" + run.Id + "/results/enumerate",
+                        JsonHelper.ToJsonContent(new { pageNumber, pageSize = 4, order = "CreatedAscending" })).ConfigureAwait(false);
+                    AssertStatusCode(HttpStatusCode.OK, next, "results page " + pageNumber);
+                    all.AddRange((await JsonHelper.DeserializeAsync<EnumerationResult<BatteryTaskResult>>(next).ConfigureAwait(false)).Objects);
+                }
+
+                AssertEqual(10, all.Select(r => r.Id).Distinct().Count(), "pages neither overlap nor skip");
+                AssertTrue(all.All(r => r.FixtureCommit != null && r.VesselId != null), "fixture reset and vessel recorded");
+                HttpResponseMessage past = await a.GetAsync("/api/v1/battery/runs/" + run.Id + "/results?pageNumber=9&pageSize=4").ConfigureAwait(false);
+                EnumerationResult<BatteryTaskResult> empty = await JsonHelper.DeserializeAsync<EnumerationResult<BatteryTaskResult>>(past).ConfigureAwait(false);
+                AssertEqual(0, empty.Objects.Count, "page past the end is empty");
+                AssertEqual(10L, empty.TotalRecords, "with an accurate total");
+                HttpResponseMessage passed = await a.GetAsync("/api/v1/battery/runs/" + run.Id + "/results?status=Passed&pageSize=1000").ConfigureAwait(false);
+                AssertEqual(3L, (await JsonHelper.DeserializeAsync<EnumerationResult<BatteryTaskResult>>(passed).ConfigureAwait(false)).TotalRecords, "outcome filter counts in the database");
+                AssertStatusCode(HttpStatusCode.BadRequest, await a.GetAsync("/api/v1/battery/runs/" + run.Id + "/results?status=Bogus").ConfigureAwait(false), "unknown outcome");
+                HttpResponseMessage oversized = await a.GetAsync("/api/v1/battery/runs/" + run.Id + "/results?pageSize=5000").ConfigureAwait(false);
+                AssertEqual(1000, (await JsonHelper.DeserializeAsync<EnumerationResult<BatteryTaskResult>>(oversized).ConfigureAwait(false)).PageSize, "oversized page size normalized");
+                AssertStatusCode(HttpStatusCode.NotFound, await b.GetAsync("/api/v1/battery/runs/" + run.Id + "/results").ConfigureAwait(false), "other tenant cannot page results");
 
                 AssertStatusCode(HttpStatusCode.OK, await ua.GetAsync("/api/v1/battery/runs/" + run.Id).ConfigureAwait(false), "same-tenant user reads");
                 AssertStatusCode(HttpStatusCode.NotFound, await b.GetAsync("/api/v1/battery/runs/" + run.Id).ConfigureAwait(false), "other tenant");
@@ -146,10 +176,16 @@ namespace Test.Shared.Suites.E2E
 
                     BatteryRun read = await OkAsync<BatteryRun>(user, "get_battery_run", new { id = queued.Id }).ConfigureAwait(false);
                     AssertEqual(BatteryRunStatusEnum.Completed, read.Status);
-                    AssertEqual(10, read.Results.Count);
-                    BatteryTaskResult judge = read.Results.Single(r => r.TaskId == "judge-negative");
+                    EnumerationResult<BatteryTaskResult> results = await OkAsync<EnumerationResult<BatteryTaskResult>>(user, "list_battery_results", new { runId = queued.Id, pageSize = 1000 }).ConfigureAwait(false);
+                    AssertEqual(10L, results.TotalRecords);
+                    AssertEqual(10, results.Objects.Count);
+                    BatteryTaskResult judge = results.Objects.Single(r => r.TaskId == "judge-negative");
                     AssertEqual(3, judge.Details.Matched.Count, "seeded set evidence over MCP");
-                    AssertNotNull(read.Results.Single(r => r.TaskId == "architect-plan").Output, "raw output stored for the evaluator");
+                    AssertNotNull(results.Objects.Single(r => r.TaskId == "architect-plan").Output, "raw output stored for the evaluator");
+                    EnumerationResult<BatteryTaskResult> small = await OkAsync<EnumerationResult<BatteryTaskResult>>(user, "list_battery_results", new { runId = queued.Id, pageNumber = 2, pageSize = 3 }).ConfigureAwait(false);
+                    AssertEqual(3, small.Objects.Count, "MCP pages");
+                    AssertEqual(4, small.TotalPages);
+                    await ErrorAsync(b, "list_battery_results", new { runId = queued.Id }, McpToolErrorCodeEnum.NotFound).ConfigureAwait(false);
                     await ErrorAsync(b, "get_battery_run", new { id = queued.Id }, McpToolErrorCodeEnum.NotFound).ConfigureAwait(false);
                     await ErrorAsync(admin, "get_battery_run", new { id = "bat_missing" }, McpToolErrorCodeEnum.NotFound).ConfigureAwait(false);
                 }

@@ -88,6 +88,9 @@ namespace Armada.Core.Database.SqlServer
             BatteryRuns = new BatteryRunMethods(this, _Settings, _Logging);
             BatteryTaskResults = new BatteryTaskResultMethods(this, _Settings, _Logging);
             PushDevices = new PushDeviceMethods(this, _Settings, _Logging);
+            Incidents = new IncidentMethods(this, _Settings, _Logging);
+            RunbookExecutions = new RunbookExecutionMethods(this, _Settings, _Logging);
+            Runbooks = new RunbookMethods(this, _Settings, _Logging);
             HarborJobs = new HarborJobMethods(this, _Settings, _Logging);
             HarborLinkSamples = new HarborLinkSampleMethods(this, _Settings, _Logging);
             HarborLinkEvents = new HarborLinkEventMethods(this, _Settings, _Logging);
@@ -572,7 +575,7 @@ namespace Armada.Core.Database.SqlServer
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);
             captain.ProcessId = NullableInt(reader["process_id"]);
-            try { captain.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]); } catch { }
+            captain.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
             try { captain.LastProcessAliveUtc = NullableDateTime(reader["last_process_alive_utc"]); } catch { }
@@ -651,7 +654,7 @@ namespace Armada.Core.Database.SqlServer
             mission.BranchName = NullableString(reader["branch_name"]);
             mission.DockId = NullableString(reader["dock_id"]);
             mission.ProcessId = NullableInt(reader["process_id"]);
-            try { mission.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]); } catch { }
+            mission.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]);
             mission.PrUrl = NullableString(reader["pr_url"]);
             mission.CommitHash = NullableString(reader["commit_hash"]);
             mission.DiffSnapshot = NullableString(reader["diff_snapshot"]);

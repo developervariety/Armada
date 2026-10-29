@@ -301,8 +301,10 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Generate a structured objective summary from a refinement session.
+        /// Generate a structured objective summary from a refinement session. AcceptanceCriteria, NonGoals, and
+        /// RolloutConstraints each hold at most <see cref="CollectionLimits.MaxConfigItems"/> items.
         /// </summary>
+        /// <exception cref="CollectionLimitExceededException">Thrown when the generated summary has a list over MaxConfigItems.</exception>
         public async Task<ObjectiveRefinementSummaryResponse> SummarizeAsync(
             ObjectiveRefinementSession session,
             ObjectiveRefinementSummaryRequest request,
@@ -366,6 +368,10 @@ namespace Armada.Server
                 {
                     _Logging.Warn(_Header + "objective refinement summary fallback for session " + session.Id + ": " + ex.ToString());
                 }
+
+                // The lists come from model output; a summary with more items than an objective may store is rejected
+                // (CollectionLimitExceeded) rather than cut short.
+                CollectionBounds.Validate(draft);
 
                 _WebSocketHub?.BroadcastToTenant(
                     session.TenantId,

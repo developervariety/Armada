@@ -123,6 +123,48 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>enumerateMissionPullRequestReviews</c>: POST `/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/reviews/enumerate`.
+        /// One page of the pull request's reviews, paged by GitHub (page size 1 to 100).
+        /// </summary>
+        /// <param name="id">Mission id.</param>
+        /// <param name="query">Paging (page number, size, order), or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<GitHubPullRequestReview>?> EnumerateMissionPullRequestReviewsAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<GitHubPullRequestReview>>($"/api/v1/missions/{E(id)}/github/pull-request/reviews/enumerate", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
+        /// Dashboard <c>enumerateMissionPullRequestComments</c>: POST `/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/comments/enumerate`.
+        /// One page of the pull request's comments, paged by GitHub (page size 1 to 100).
+        /// </summary>
+        /// <param name="id">Mission id.</param>
+        /// <param name="query">Paging (page number, size, order), or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<GitHubPullRequestComment>?> EnumerateMissionPullRequestCommentsAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<GitHubPullRequestComment>>($"/api/v1/missions/{E(id)}/github/pull-request/comments/enumerate", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
+        /// Dashboard <c>enumerateMissionPullRequestChecks</c>: POST `/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/checks/enumerate`.
+        /// One page of the pull request's checks, paged by GitHub (page size 1 to 100).
+        /// </summary>
+        /// <param name="id">Mission id.</param>
+        /// <param name="query">Paging (page number, size, order), or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<GitHubPullRequestCheck>?> EnumerateMissionPullRequestChecksAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<GitHubPullRequestCheck>>($"/api/v1/missions/{E(id)}/github/pull-request/checks/enumerate", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>createMission</c>: POST '/api/v1/missions'.
         /// </summary>
         /// <param name="data">data.</param>

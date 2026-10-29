@@ -74,6 +74,14 @@ namespace Armada.Core.Services
                     error = "Architect plan JSON is invalid. Emit a complete armada-plan block with numeric dependencies.";
                     continue;
                 }
+                try { CollectionBounds.Validate(candidate); }
+                catch (CollectionLimitExceededException limit)
+                {
+                    // An oversized plan is rejected (never truncated): the Architect must split the work.
+                    plan = null;
+                    error = "Architect plan rejected: " + limit.Message + " Split the work into smaller plans.";
+                    continue;
+                }
                 if (candidate?.ContractVersion != null)
                 {
                     List<string> errors = ValidateContract(candidate);

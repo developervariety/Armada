@@ -1079,7 +1079,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);
             captain.ProcessId = NullableInt(reader["process_id"]);
-            try { captain.ProcessStartedUtc = NullableDateTime(reader["process_started_utc"]); } catch { }
+            captain.ProcessStartedUtc = NullableDateTime(reader["process_started_utc"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = NullableDateTime(reader["last_heartbeat_utc"]);
             try { captain.LastProcessAliveUtc = NullableDateTime(reader["last_process_alive_utc"]); } catch { }

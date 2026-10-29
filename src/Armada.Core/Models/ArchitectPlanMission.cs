@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System.Collections.Generic;
     using System.Text.Json.Serialization;
+    using Armada.Core.Services;
 
     /// <summary>
     /// One mission in an <see cref="ArchitectPlan"/>.
@@ -16,14 +17,17 @@ namespace Armada.Core.Models
 
         /// <summary>Executable acceptance scenarios, preserved in every downstream slice contract.</summary>
         [JsonPropertyName("acceptanceCriteria")]
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<ArchitectAcceptanceCriterion> AcceptanceCriteria { get; set; } = new List<ArchitectAcceptanceCriterion>();
 
         /// <summary>1-based indexes of relevant plan decisions. Null preserves legacy all-decision context; empty means none.</summary>
         [JsonPropertyName("decisionIndexes")]
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<int>? DecisionIndexes { get; set; }
 
         /// <summary>Exact commands whose original exit status must be checked.</summary>
         [JsonPropertyName("validationCommands")]
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<string> ValidationCommands { get; set; } = new List<string>();
 
         /// <summary>

@@ -1133,7 +1133,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);
             captain.ProcessId = NullableInt(reader["process_id"]);
-            try { captain.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]); } catch { }
+            captain.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]);
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
             try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }

@@ -34,6 +34,9 @@ interface ReleasePrefillState {
   objectiveIds?: string[];
 }
 
+/** Pull requests read per page; each one is a GitHub read, so pages stay small. */
+const GITHUB_PULL_REQUEST_PAGE_SIZE = 25;
+
 export default function ReleaseDetail() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
@@ -83,6 +86,9 @@ export default function ReleaseDetail() {
   const [prefillObjectiveIds, setPrefillObjectiveIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(!createMode);
   const [loadingGitHubPullRequests, setLoadingGitHubPullRequests] = useState(false);
+  const [gitHubPullRequestTotal, setGitHubPullRequestTotal] = useState(0);
+  const [gitHubPullRequestPage, setGitHubPullRequestPage] = useState(1);
+  const [loadingMoreGitHubPullRequests, setLoadingMoreGitHubPullRequests] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -213,22 +219,40 @@ export default function ReleaseDetail() {
   useEffect(() => {
     if (createMode || !id) {
       setGitHubPullRequests([]);
+      setGitHubPullRequestTotal(0);
       setLoadingGitHubPullRequests(false);
       return;
     }
 
     let cancelled = false;
     setLoadingGitHubPullRequests(true);
-    getReleaseGitHubPullRequests(id).then((result) => {
-      if (!cancelled) setGitHubPullRequests(result || []);
+    // One page at a time: each pull request on the page is read from GitHub; the total drives "Load more".
+    getReleaseGitHubPullRequests(id, { pageNumber: 1, pageSize: GITHUB_PULL_REQUEST_PAGE_SIZE }).then((result) => {
+      if (cancelled) return;
+      setGitHubPullRequests(result?.objects || []);
+      setGitHubPullRequestTotal(result?.totalRecords ?? 0);
+      setGitHubPullRequestPage(1);
     }).catch(() => {
-      if (!cancelled) setGitHubPullRequests([]);
+      if (!cancelled) { setGitHubPullRequests([]); setGitHubPullRequestTotal(0); }
     }).finally(() => {
       if (!cancelled) setLoadingGitHubPullRequests(false);
     });
 
     return () => { cancelled = true; };
   }, [createMode, id]);
+
+  const loadMoreGitHubPullRequests = () => {
+    if (!id || loadingMoreGitHubPullRequests) return;
+    const next = gitHubPullRequestPage + 1;
+    setLoadingMoreGitHubPullRequests(true);
+    getReleaseGitHubPullRequests(id, { pageNumber: next, pageSize: GITHUB_PULL_REQUEST_PAGE_SIZE }).then((result) => {
+      setGitHubPullRequests(prev => [...prev, ...(result?.objects || [])]);
+      setGitHubPullRequestTotal(result?.totalRecords ?? 0);
+      setGitHubPullRequestPage(next);
+    }).catch(() => {
+      setError(t('Failed to load more linked pull requests.'));
+    }).finally(() => setLoadingMoreGitHubPullRequests(false));
+  };
 
   function buildPayload(): ReleaseUpsertRequest {
     return {
@@ -680,7 +704,9 @@ export default function ReleaseDetail() {
             <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
               <h3 title={t('GitHub pull requests found from the pull request URLs on the linked missions, with their state, reviews, and checks.')}>{t('GitHub Pull Requests')}</h3>
               <div className="text-dim">
-                {gitHubPullRequests.length} {t('linked pull requests')}
+                {gitHubPullRequests.length < gitHubPullRequestTotal
+                  ? t('{{shown}} of {{total}} linked pull requests', { shown: gitHubPullRequests.length, total: gitHubPullRequestTotal })
+                  : `${gitHubPullRequestTotal} ${t('linked pull requests')}`}
               </div>
             </div>
 
@@ -703,13 +729,20 @@ export default function ReleaseDetail() {
                       </div>
                     </div>
                     <div className="detail-grid" style={{ marginTop: '0.75rem' }}>
-                      <div className="detail-field" title={t('Number of GitHub status checks on the pull request.')}><span className="detail-label">{t('Checks')}</span><span>{pullRequest.checks.length}</span></div>
-                      <div className="detail-field" title={t('Number of reviews submitted on the pull request.')}><span className="detail-label">{t('Reviews')}</span><span>{pullRequest.reviews.length}</span></div>
+                      <div className="detail-field" title={t('Number of GitHub status checks on the pull request.')}><span className="detail-label">{t('Checks')}</span><span>{pullRequest.checkCount}</span></div>
+                      <div className="detail-field" title={t('Number of reviews submitted on the pull request.')}><span className="detail-label">{t('Reviews')}</span><span>{pullRequest.reviewCount}</span></div>
                       <div className="detail-field" title={t('Reviewers whose review is still requested.')}><span className="detail-label">{t('Reviewers')}</span><span>{pullRequest.requestedReviewers.length > 0 ? pullRequest.requestedReviewers.join(', ') : '-'}</span></div>
                       <div className="detail-field" title={t('When the pull request last changed on GitHub.')}><span className="detail-label">{t('Updated')}</span><span>{pullRequest.updatedUtc ? formatRelativeTime(pullRequest.updatedUtc) : '-'}</span></div>
                     </div>
                   </div>
                 ))}
+                {gitHubPullRequests.length < gitHubPullRequestTotal && (
+                  <div>
+                    <button type="button" className="btn btn-sm" disabled={loadingMoreGitHubPullRequests} onClick={loadMoreGitHubPullRequests} title={t('Read the next page of linked pull requests from GitHub.')}>
+                      {loadingMoreGitHubPullRequests ? t('Loading...') : t('Load more')}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

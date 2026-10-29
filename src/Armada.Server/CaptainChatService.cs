@@ -119,12 +119,14 @@ namespace Armada.Server
         /// <param name="auth">Caller authentication context, used to scope which captain can be chatted with.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The assistant reply and its timing statistics.</returns>
+        /// <exception cref="Armada.Core.Services.CollectionLimitExceededException">Thrown when the history holds more than CollectionLimits.MaxRequestItems messages.</exception>
         public async Task<CaptainChatResponse> ChatAsync(string captainId, CaptainChatRequest request, AuthContext auth, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(request.Message)) return Fail("A message is required.");
+            Armada.Core.Services.CollectionBounds.Validate(request);
 
             // Scope the captain read so a caller can only chat with a captain they can see: a global admin any,
             // a tenant admin any in their tenant, a regular user only their own. Not-visible reads as not-found.
