@@ -2563,7 +2563,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
             {
-                foreach (string scenario in new[] { "colon-summary", "pending-reviews", "canonical-reviews", "at-stage-context", "at-stage-summary", "at-stage-same-criterion", "at-stage-current-before", "at-stage-current-after", "at-stage-mixed-current", "at-stage-mixed-earlier", "at-stage-no-context", "at-stage-cross-criterion", "at-stage-wrong-role", "at-stage-duplicate-role", "at-stage-missing-worker", "at-stage-cancelled-worker", "at-stage-foreign-worker", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future", "wrapped-current", "wrapped-earlier", "unpunctuated-future", "list-current", "list-earlier", "paragraph-current", "heading-current", "lowercase-marker", "next-criterion", "note-current", "note-earlier", "false-criterion", "intermediate-result-current", "bold-future" })
+                foreach (string scenario in new[] { "colon-summary", "colon-current", "colon-earlier", "colon-wrong-role", "colon-duplicate-role", "colon-wrong-count", "colon-missing-worker", "colon-cancelled-worker", "colon-foreign-worker", "pending-reviews", "canonical-reviews", "at-stage-context", "at-stage-summary", "at-stage-same-criterion", "at-stage-current-before", "at-stage-current-after", "at-stage-mixed-current", "at-stage-mixed-earlier", "at-stage-no-context", "at-stage-cross-criterion", "at-stage-wrong-role", "at-stage-duplicate-role", "at-stage-missing-worker", "at-stage-cancelled-worker", "at-stage-foreign-worker", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future", "wrapped-current", "wrapped-earlier", "unpunctuated-future", "list-current", "list-earlier", "paragraph-current", "heading-current", "lowercase-marker", "next-criterion", "note-current", "note-earlier", "false-criterion", "intermediate-result-current", "bold-future" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -2572,7 +2572,7 @@ namespace Armada.Test.Unit.Suites.Services
                         List<Mission> futureStages = new List<Mission>();
                         foreach (string persona in new[] { "PortingReferenceAnalyst", "TestEngineer", "Linter", "Worker" })
                         {
-                            if (scenario == "at-stage-missing-worker" && persona == "Worker") continue;
+                            if ((scenario is "at-stage-missing-worker" or "colon-missing-worker") && persona == "Worker") continue;
                             Mission stage = new Mission("Review report", "Independently review the report.")
                             {
                                 TenantId = rig.Mission.TenantId,
@@ -2602,12 +2602,12 @@ namespace Armada.Test.Unit.Suites.Services
                             futureStages[1].UserId = reviewer.Id;
                             await testDb.Driver.Missions.UpdateAsync(futureStages[1]).ConfigureAwait(false);
                         }
-                        if (scenario == "at-stage-cancelled-worker")
+                        if (scenario is "at-stage-cancelled-worker" or "colon-cancelled-worker")
                         {
                             futureStages[3].Status = MissionStatusEnum.Cancelled;
                             await testDb.Driver.Missions.UpdateAsync(futureStages[3]).ConfigureAwait(false);
                         }
-                        if (scenario == "at-stage-foreign-worker")
+                        if (scenario is "at-stage-foreign-worker" or "colon-foreign-worker")
                         {
                             UserMaster reviewer = new UserMaster(rig.Mission.TenantId!, "other-revising-owner@armada.test", "password");
                             await testDb.Driver.Users.CreateAsync(reviewer).ConfigureAwait(false);
@@ -2638,10 +2638,17 @@ namespace Armada.Test.Unit.Suites.Services
                                 : scenario.StartsWith("generic-", StringComparison.Ordinal) ? "Criterion 3 is NOT MET because the later reviews have not run."
                                 : "Acceptance criterion 3 is honestly NOT MET at this Worker precursor stage because the " + (scenario == "wrong-count" ? "three" : "four") + " later role reviews do not yet exist."
                         };
-                        if (scenario == "colon-summary")
+                        if (scenario.StartsWith("colon-", StringComparison.Ordinal))
                         {
                             output.RemoveAt(output.Count - 1);
-                            output.Add("Criterion 3 is NOT MET because the later reviews have not run: PortingReferenceAnalyst, TestEngineer, Linter, and Judge have not reviewed this report, and the Revising Worker is a separate later stage and has not run.");
+                            string roles = scenario == "colon-wrong-role" ? "Architect, TestEngineer, Linter, and Judge"
+                                : scenario == "colon-duplicate-role" ? "PortingReferenceAnalyst, TestEngineer, Judge, and Judge"
+                                : "PortingReferenceAnalyst, TestEngineer, Linter, and Judge";
+                            string summary = scenario == "colon-wrong-count" ? "three later reviews" : "the later reviews";
+                            string unfinished = scenario == "colon-current" ? ", and the current source study is unfinished"
+                                : scenario == "colon-earlier" ? ", and the earlier analyst omitted required source pages" : String.Empty;
+                            output.Add("Criterion 3 is NOT MET because " + summary + " have not run: " + roles
+                                + " have not reviewed this report, and the Revising Worker is a separate later stage and has not run" + unfinished + ".");
                         }
                         if (scenario.StartsWith("at-stage-", StringComparison.Ordinal))
                         {

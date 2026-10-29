@@ -274,6 +274,15 @@ namespace Armada.Core.Services
 
         private static bool IsFutureClause(string clause, PendingReviewObligations obligations)
         {
+            Match details = Regex.Match(clause.Trim(), @"\A(?<summary>[^:]+):\s*(?<roles>[A-Za-z ,]+?)\s+have\s+not\s+(?:yet\s+)?reviewed\s+(?:this|the)\s+report,\s+and\s+(?:the\s+)?Revising\s*Worker\s+is\s+a\s+separate\s+later\s+stage\s+and\s+has\s+not\s+(?:yet\s+)?run[.!]?\s*\z",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (details.Success)
+            {
+                string roles = Regex.Replace(details.Groups["roles"].Value, @",\s+and\s+", ", ",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+                return IsFutureClause(details.Groups["summary"].Value, obligations)
+                    && IsFutureClause(roles + " and RevisingWorker reviews remain pending.", obligations);
+            }
             Match pending = Regex.Match(clause.Trim(), @"\A(?<subject>.+?)\s+(?:do\s+not\s+(?:yet\s+)?exist|have\s+not\s+(?:yet\s+)?run|(?:are|remain)\s+(?:still\s+)?pending)[.!]?\s*\z",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             if (!pending.Success) return false;
