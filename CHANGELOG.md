@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Architect dependencies on revising chains
+
+- A `Depends on: Mission N` edge moves the first Worker of the dependent block's chain, never a revising Worker with the same title later in that chain, on every database provider.
+
 ### Mission mail and captain changes
 
 - `armada_send_signal` and `POST /api/v1/signals` accept a `missionId`. Mail that names a mission goes to the captain that holds the mission, and its unread mail moves to the next captain when the mission is assigned to a different one, so mail no longer reaches the wrong mission after a restart swaps captains. Migrations: SQLite 141, PostgreSQL 146, MySQL 134, SQL Server 137 (shared with the dispatch hold table).

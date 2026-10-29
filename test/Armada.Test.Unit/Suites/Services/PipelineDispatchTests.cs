@@ -684,6 +684,109 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A chain with a revising Worker carries two Worker stages with the same title. An explicit
+            // dependency must move the slice's initial Worker, the stage that starts the slice, never its
+            // revising Worker further down the same chain.
+            await RunTest("Architect dependency moves the slice's initial Worker, not a same-titled revising Worker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(6000 + git.WorktreeCalls.Count);
+
+                    Vessel vessel = new Vessel("revising-fanout-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain architectCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("revising-architect") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                    for (int i = 0; i < 3; i++)
+                        await testDb.Driver.Captains.CreateAsync(new Captain("revising-worker-" + i) { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("revising-fanout-voyage")).ConfigureAwait(false);
+
+                    Mission architect = new Mission("[Architect] Plan", "Break this down");
+                    architect.VesselId = vessel.Id;
+                    architect.VoyageId = voyage.Id;
+                    architect.CaptainId = architectCaptain.Id;
+                    architect.Persona = "Architect";
+                    architect.Status = MissionStatusEnum.InProgress;
+                    architect.BranchName = "armada/revising/architect";
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+                    Dock architectDock = new Dock(vessel.Id);
+                    architectDock.CaptainId = architectCaptain.Id;
+                    architectDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, architect.Id);
+                    architectDock.BranchName = architect.BranchName;
+                    architectDock.Active = true;
+                    architectDock = await testDb.Driver.Docks.CreateAsync(architectDock).ConfigureAwait(false);
+                    architect.DockId = architectDock.Id;
+                    await testDb.Driver.Missions.UpdateAsync(architect).ConfigureAwait(false);
+
+                    string previous = architect.Id;
+                    foreach ((string title, string persona) in new[] { ("[Worker] Placeholder", "Worker"), ("[Test Engineer] Placeholder", "Test Engineer"), ("[Worker] Placeholder", "Worker"), ("[Judge] Placeholder", "Judge") })
+                    {
+                        Mission stage = new Mission(title, "Template stage");
+                        stage.VesselId = vessel.Id;
+                        stage.VoyageId = voyage.Id;
+                        stage.Persona = persona;
+                        stage.Status = MissionStatusEnum.Pending;
+                        stage.DependsOnMissionId = previous;
+                        stage = await testDb.Driver.Missions.CreateAsync(stage).ConfigureAwait(false);
+                        previous = stage.Id;
+                    }
+
+                    architectCaptain.CurrentMissionId = architect.Id;
+                    architectCaptain.CurrentDockId = architectDock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(architectCaptain).ConfigureAwait(false);
+
+                    missionService.OnGetMissionOutput = _ =>
+                        "[ARMADA:MISSION] Add the core model\n" +
+                        "Update the model types.\n" +
+                        "[ARMADA:MISSION] Add the service layer\n" +
+                        "Depends on: Mission 1\n" +
+                        "Use the new model in the service.\n" +
+                        "[ARMADA:MISSION] Add the client panel\n" +
+                        "Depends on: Mission 2\n" +
+                        "Show the service data in the panel.";
+
+                    await missionService.HandleCompletionAsync(architectCaptain, architect.Id).ConfigureAwait(false);
+
+                    List<Mission> rows = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    static Mission testStageOf(List<Mission> all, string title) => all.Single(m => m.Title == title + " [Test Engineer]");
+                    string[] titles = { "Add the core model", "Add the service layer", "Add the client panel" };
+                    Mission[] roots = new Mission[3];
+                    Mission[] revising = new Mission[3];
+                    Mission[] judges = new Mission[3];
+                    for (int i = 0; i < 3; i++)
+                    {
+                        List<Mission> workers = rows.Where(m => m.Title == titles[i] + " [Worker]").ToList();
+                        AssertEqual(2, workers.Count, titles[i] + " has an initial and a revising Worker with the same title");
+                        Mission? testStage = rows.FirstOrDefault(m => m.Title == titles[i] + " [Test Engineer]");
+                        AssertNotNull(testStage, titles[i] + " has its Test Engineer stage");
+                        revising[i] = workers.Single(m => m.DependsOnMissionId == testStage!.Id);
+                        roots[i] = workers.Single(m => m.Id != revising[i].Id);
+                        judges[i] = rows.Single(m => m.Title == titles[i] + " [Judge]");
+                        AssertEqual(revising[i].Id, judges[i].DependsOnMissionId, titles[i] + " Judge follows its revising Worker");
+                        AssertEqual(roots[i].Id, testStage!.DependsOnMissionId, titles[i] + " Test Engineer follows its initial Worker");
+                    }
+
+                    AssertEqual(architect.Id, roots[0].DependsOnMissionId, "The core model slice starts from the Architect");
+                    AssertEqual(judges[0].Id, roots[1].DependsOnMissionId, "The service slice's initial Worker waits for the core model slice's Judge");
+                    AssertEqual(judges[1].Id, roots[2].DependsOnMissionId, "The panel slice's initial Worker waits for the service slice's Judge");
+                    AssertEqual(testStageOf(rows, titles[1]).Id, revising[1].DependsOnMissionId, "The service slice's revising Worker keeps its own chain edge");
+                    AssertEqual(testStageOf(rows, titles[2]).Id, revising[2].DependsOnMissionId, "The panel slice's revising Worker keeps its own chain edge");
+                    AssertEqual(MissionStatusEnum.Pending, roots[1].Status, "The service slice does not start before the core model slice ends");
+                    AssertEqual(MissionStatusEnum.Pending, roots[2].Status, "The panel slice does not start before the service slice ends");
+                }
+            });
+
             // A planner that commits behaviour strands every fan-out worker below it: they are cut
             // without that commit by design and fail stage_base_missing two stages later, read as a
             // captain fault. The handoff fails the planner by name and creates no workers.

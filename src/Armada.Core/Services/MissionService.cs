@@ -7564,7 +7564,7 @@ namespace Armada.Core.Services
 
                     voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(completedMission.VoyageId!, token).ConfigureAwait(false);
                     List<Mission> acceptedTerminals = GetArchitectBarrierTerminals(voyageMissions, roots);
-                    await ApplyArchitectMissionDependenciesAsync(completedMission, parsed, token).ConfigureAwait(false);
+                    await ApplyArchitectMissionDependenciesAsync(completedMission, parsed, roots, token).ConfigureAwait(false);
                     if (parsed[parsed.Count - 1].WaitForOtherMissions)
                         await AcceptArchitectIntegrationBarrierAsync(completedMission, parsed, roots, acceptedTerminals, token).ConfigureAwait(false);
                     foreach (string signalId in appliedSignalIds)
@@ -11829,6 +11829,7 @@ namespace Armada.Core.Services
         private async Task ApplyArchitectMissionDependenciesAsync(
             Mission architectMission,
             List<ParsedArchitectMission> parsed,
+            List<Mission> roots,
             CancellationToken token)
         {
             if (architectMission == null) throw new ArgumentNullException(nameof(architectMission));
@@ -11836,16 +11837,19 @@ namespace Armada.Core.Services
             if (parsed == null || parsed.Count == 0) return;
 
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(architectMission.VoyageId, token).ConfigureAwait(false);
+            Dictionary<string, Mission> currentById = voyageMissions.ToDictionary(m => m.Id, StringComparer.Ordinal);
             Dictionary<int, Mission> workerRootsByIndex = new Dictionary<int, Mission>();
             Dictionary<int, Mission> terminalStagesByIndex = new Dictionary<int, Mission>();
             Dictionary<string, Mission> terminalStagesByTitle = new Dictionary<string, Mission>(StringComparer.OrdinalIgnoreCase);
 
             for (int i = 0; i < parsed.Count; i++)
             {
-                string workerTitle = parsed[i].Title + " [Worker]";
-                Mission? workerRoot = voyageMissions.FirstOrDefault(m =>
-                    String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase) &&
-                    String.Equals(m.Title, workerTitle, StringComparison.OrdinalIgnoreCase));
+                // The fan-out created plan block i as roots[i]. A chain with a revising stage holds a second
+                // Worker with the same title further down, so the root is taken from the fan-out, never from a
+                // title match whose winner depends on the provider's row order.
+                Mission? workerRoot = null;
+                if (roots != null && roots.Count == parsed.Count) currentById.TryGetValue(roots[i].Id, out workerRoot);
+                workerRoot ??= FindArchitectSliceRoot(voyageMissions, architectMission.Id, parsed[i].Title + " [Worker]");
                 if (workerRoot == null) continue;
 
                 Mission terminalStage = FindTerminalPipelineStage(voyageMissions, workerRoot);
@@ -11888,6 +11892,17 @@ namespace Armada.Core.Services
                     " to depend on terminal stage " + resolvedDependency.Id +
                     " from reference '" + dependencyReference + "'");
             }
+        }
+
+        // The slice's first Worker: the one that starts from the Architect, else the earliest of the same title.
+        private static Mission? FindArchitectSliceRoot(List<Mission> voyageMissions, string architectId, string workerTitle)
+        {
+            return voyageMissions
+                .Where(m => String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase)
+                    && String.Equals(m.Title, workerTitle, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(m => String.Equals(m.DependsOnMissionId, architectId, StringComparison.Ordinal) ? 0 : 1)
+                .ThenBy(m => m.CreatedUtc)
+                .FirstOrDefault();
         }
 
         private static Mission FindTerminalPipelineStage(IEnumerable<Mission> voyageMissions, Mission root)

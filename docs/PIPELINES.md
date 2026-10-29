@@ -171,6 +171,11 @@ mission. Stored output is redacted for secrets, and a quoted span that is not
 a JSON string is treated as prose: it keeps its text and plan markers, and only
 key-shaped values inside it are removed.
 
+A block's `Depends on: Mission N` line makes the first Worker of that block's
+chain wait on the last stage of block N's chain. The handoff applies the edge to
+the Worker it created for the block, so a chain whose later stage is a revising
+Worker with the same title never takes the edge in its place.
+
 ### Structured Architect plans
 
 Architect output can also use a fenced `armada-plan` JSON contract with an
