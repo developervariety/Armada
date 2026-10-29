@@ -48,6 +48,7 @@ namespace Armada.Core.Database
                 FailureReason = row.NullableText("failure_reason"),
                 ReconciledUtc = row.NullableUtc("reconciled_utc"),
                 ReconciledReason = row.NullableText("reconciled_reason"),
+                IsEvaluation = row.Bool(EvaluationFlagSchema.Column),
                 RequiresReview = row.Bool("requires_review"),
                 ReviewDenyAction = row.EnumOrFallback("review_deny_action", ReviewDenyActionEnum.RetryStage),
                 ReviewComment = row.NullableText("review_comment"),

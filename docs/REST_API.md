@@ -1791,6 +1791,7 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 | `Pipeline` | string | no | Pipeline name to use for this voyage (alternative to `PipelineId`) |
 | `SkipStages` | array | no | Pipeline stages the operator confirms this voyage does not need (for example `["TestEngineer"]`). Each entry names one stage: a persona name when only one stage carries it, a stage order (`"5"` or `"#5"`), or a persona and its occurrence in stage order (`"Worker#2"` is the second Worker). The stages are dropped when the voyage is materialised, the remaining stages chain across the gap, and one `voyage.stage_skipped` event is recorded per stage. Naming the Judge, by persona or by order, returns `400` with `stage_skip_judge_refused`; an entry that names no stage of the effective pipeline returns `400` with `stage_skip_unknown_persona`; a bare persona name that more than one stage carries, or an order that parallel stages share, returns `400` with `stage_skip_ambiguous_persona`, and its message lists the order and occurrence name of each such stage. With an `ObjectiveId`, an absent `SkipStages` applies the objective's confirmed stored skip as a default (an entry that names no stage of the pipeline is dropped and recorded as a `voyage.stage_skip_default_dropped` event); `[]` skips nothing. |
 | `SkipStagesReason` | string | no | Reason recorded on each `voyage.stage_skipped` event. |
+| `IsEvaluation` | boolean | no | When true, the voyage and every mission created for it are evaluation work and stay out of the production summary. The default is false. A bare voyage (no vessel, or no missions) stores the same flag and creates no missions. |
 
 **Response:** `201 Created` - [Voyage](#voyage)
 
@@ -1992,6 +1993,7 @@ Create and dispatch a new mission. If a `VesselId` is provided, the Admiral will
 | `VoyageId` | string | no | Parent voyage ID |
 | `Priority` | int | no | Priority (lower = higher priority, default: 100) |
 | `SelectedPlaybooks` | array | no | Ordered [SelectedPlaybook](#selectedplaybook) rows for this standalone mission. Merges with vessel defaults (per-mission wins on collision). |
+| `IsEvaluation` | boolean | no | When true, the mission is evaluation work and stays out of the production summary. The default is false. A mission created for an evaluation voyage inherits that voyage's flag. A mission derived from an evaluation mission copies it. |
 
 **Response:** `201 Created` - [Mission](#mission)
 
@@ -2615,6 +2617,31 @@ curl -X PUT http://localhost:7890/api/v1/captains/cpt_abc123 \
   -H "Content-Type: application/json" \
   -H "x-api-key: YOUR_KEY" \
   -d '{"name": "captain-bravo", "runtime": "Codex"}'
+```
+
+---
+
+#### POST /api/v1/captains/{id}/probe
+
+Sends one tiny prompt through the captain's existing model validation and reports success, latency and a short error. The probe creates no mission. An `ApiEndpoint` captain is admitted by that validation and then probed through the existing model-endpoint validation, which also records the endpoint's health. Only a global administrator may call it. The same captain cannot be probed again for 30 seconds: a repeat returns `429` with `Retry-After`, `Error` `captain_model_probe_rate_limited` and `RetryAfterUtc`. An unknown captain returns `404`.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Captain ID (`cpt_` prefix) |
+
+**Response:** `200 OK`
+
+| Field | Type | Description |
+|---|---|---|
+| `CaptainId` | string | Captain that was probed |
+| `Success` | boolean | True when the prompt completed |
+| `LatencyMs` | number | Milliseconds spent on the probe |
+| `Error` | string | Short failure reason. Absent when the probe succeeds |
+
+```bash
+curl -X POST http://localhost:7890/api/v1/captains/cpt_abc123/probe \
+  -H "x-api-key: YOUR_KEY"
 ```
 
 ---
@@ -5921,6 +5948,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 55 | GET | `/api/v1/captains/{id}` | Get captain | Yes |
 | 56 | PUT | `/api/v1/captains/{id}` | Update captain | Yes |
 | 57 | POST | `/api/v1/captains/{id}/stop` | Stop captain | Yes |
+| 57a | POST | `/api/v1/captains/{id}/probe` | Probe a captain model | Yes |
 | 58 | POST | `/api/v1/captains/stop-all` | Stop all captains | Yes |
 | 59 | GET | `/api/v1/captains/{id}/log` | Get captain current log | Yes |
 | 60 | DELETE | `/api/v1/captains/{id}` | Delete captain | Yes |

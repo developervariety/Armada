@@ -735,7 +735,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(123, "Persist the shared mission context recall budget",
                     @"ALTER TABLE missions ADD COLUMN context_recall_calls INT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(124, "Persist local context search vectors", ContextEmbeddingSchema.MysqlStatements),
-                new SchemaMigration(125, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.MysqlStatements)
+                new SchemaMigration(125, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.MysqlStatements),
+                new SchemaMigration(127, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.MysqlStatements)
             };
         }
 

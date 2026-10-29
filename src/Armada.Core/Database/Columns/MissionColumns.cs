@@ -66,6 +66,7 @@ namespace Armada.Core.Database
             mission.ReconciledReason = row.NullableText("reconciled_reason");
             mission.HeldForOperatorReview = row.Bool(MissionOperatorHoldPersistence.HeldColumn);
             mission.HeldForOperatorReviewReason = mission.HeldForOperatorReview ? row.TextOrNull(MissionOperatorHoldPersistence.ReasonColumn) : null;
+            mission.IsEvaluation = row.Bool(EvaluationFlagSchema.Column);
             mission.RequiresReview = row.Bool("requires_review");
             mission.ReviewDenyAction = row.EnumOrFallback("review_deny_action", ReviewDenyActionEnum.RetryStage);
             mission.ReviewComment = row.NullableText("review_comment");
@@ -135,6 +136,7 @@ namespace Armada.Core.Database
                 .Text("preferred_model", mission.PreferredModel)
                 .Text("capabilityhint", mission.CapabilityHint)
                 .Text("mission_mode", mission.Mode.ToString())
+                .Bool(EvaluationFlagSchema.Column, mission.IsEvaluation)
                 .Bool("requires_review", mission.RequiresReview)
                 .Text("review_deny_action", mission.ReviewDenyAction.ToString())
                 .Text("review_comment", mission.ReviewComment)

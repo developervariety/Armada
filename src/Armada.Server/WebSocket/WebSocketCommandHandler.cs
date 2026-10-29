@@ -581,7 +581,9 @@ namespace Armada.Server.WebSocket
                     voyDesc,
                     voyageData.SelectedPlaybooks,
                     Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller),
-                    Armada.Core.Authorization.OwnershipPolicy.UserOf(caller)).ConfigureAwait(false);
+                    Armada.Core.Authorization.OwnershipPolicy.UserOf(caller),
+                    default,
+                    voyageData.IsEvaluation).ConfigureAwait(false);
                 if (!bare.Succeeded)
                     return new { type = "command.error", action = "create_voyage", error = bare.Message, code = bare.Code };
                 // Every voyage creation records voyage.dispatched, as the REST bare create does after its objective link.
@@ -607,7 +609,8 @@ namespace Armada.Server.WebSocket
                 Settings = _Settings,
                 CaptainAssignments = voyageData.CaptainAssignments,
                 SkipStages = voyageData.SkipStages,
-                SkipStagesReason = voyageData.SkipStagesReason
+                SkipStagesReason = voyageData.SkipStagesReason,
+                IsEvaluation = voyageData.IsEvaluation
             };
 
             VoyageDispatchResult result = await VoyageDispatchFactory().DispatchAsync(dispatchRequest).ConfigureAwait(false);

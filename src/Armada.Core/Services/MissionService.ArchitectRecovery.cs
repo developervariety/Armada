@@ -188,6 +188,7 @@ namespace Armada.Core.Services
                     worker.Persona = "Worker";
                     worker.DependsOnMissionId = architect.Id;
                     worker.Mode = architect.Mode;
+                    worker.IsEvaluation = architect.IsEvaluation;
                     worker.StartFromRef = startRef;
                     if (parsed[index].WaitForOtherMissions)
                         worker.IntegrationBarrier = CreatePreparingIntegrationBarrier(architect, worker, parsed);
@@ -364,6 +365,7 @@ namespace Armada.Core.Services
                     child.Persona = expected.Persona;
                     child.DependsOnMissionId = parent.Id;
                     child.Mode = expected.Mode;
+                    child.IsEvaluation = expected.IsEvaluation;
                     child.StageOrder = null;
                     child = await _Database.Missions.CreateAsync(child, token).ConfigureAwait(false);
                     rows.Add(child);

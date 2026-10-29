@@ -129,5 +129,11 @@ namespace Armada.Server
         /// Why the operator skips <see cref="SkipStages"/>. Recorded on each <c>voyage.stage_skipped</c> event.
         /// </summary>
         public string? SkipStagesReason { get; set; } = null;
+
+        /// <summary>
+        /// When true, the voyage and every mission created for it are evaluation work and stay out of
+        /// production summaries. The default is false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
     }
 }

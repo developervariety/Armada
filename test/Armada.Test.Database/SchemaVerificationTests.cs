@@ -98,10 +98,11 @@ namespace Armada.Test.Database
             foreach (string column in new[] { "mission_assignment_state", "stage_order", "mission_mode", "start_from_ref",
                 "retry_skip_captain_ids", "recovery_attempts", "landing_retry_count", "last_recovery_action_utc",
                 "prestaged_files", "preferred_model", "capabilityhint", "requires_review", "process_id",
-                "reconciled_utc", "reconciled_reason", "held_for_operator_review", "held_for_operator_review_reason", "assignment_hold_reason", "assignment_hold_entity_id" })
+                "reconciled_utc", "reconciled_reason", "held_for_operator_review", "held_for_operator_review_reason", "assignment_hold_reason", "assignment_hold_entity_id", "is_evaluation" })
             {
                 await AssertColumnAsync(conn, "missions", column, token).ConfigureAwait(false);
             }
+            await AssertColumnAsync(conn, "voyages", "is_evaluation", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "objectives", "preparation_json", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "objectives", "auto_dispatch_enabled", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "captains", "quarantine_until_utc", token).ConfigureAwait(false);

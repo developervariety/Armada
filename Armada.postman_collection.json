@@ -5495,6 +5495,35 @@
 					]
 				},
 				{
+					"name": "Probe Captain Model",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/probe",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"captains",
+								"{{captainId}}",
+								"probe"
+							]
+						},
+						"description": "Sends one tiny prompt through the captain's existing model validation and reports success, latency and a short error. Creates no mission. A global administrator is required, and the same captain cannot be probed again for 30 seconds."
+					},
+					"response": [
+						{
+							"name": "Probed",
+							"status": "OK",
+							"code": 200,
+							"body": "{\n  \"CaptainId\": \"cpt_abc123\",\n  \"Success\": true,\n  \"LatencyMs\": 120\n}"
+						}
+					]
+				},
+				{
 					"name": "Stop Captain",
 					"request": {
 						"method": "POST",

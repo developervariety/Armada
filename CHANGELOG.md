@@ -7,6 +7,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Evaluation voyages and missions
+
+- A voyage and a mission have `isEvaluation`, default false. REST, MCP, WebSocket and the .NET models set it on create. A mission created for an evaluation voyage inherits the flag, and a mission derived from an evaluation mission copies it. The production summary leaves that work out. See [POST /api/v1/voyages](docs/REST_API.md#post-apiv1voyages) and [Captain Writes](docs/MCP_API.md#captain-writes).
+
+### Captain model probe
+
+- `POST /api/v1/captains/{id}/probe` and `armada_probe_captain_model` send one tiny prompt through the captain's existing model validation and report success, latency and a short error. The probe creates no mission. Only a global administrator may run it, and the same captain waits 30 seconds between probes. See [POST /api/v1/captains/{id}/probe](docs/REST_API.md#post-apiv1captainsidprobe).
+
 ### Mission captain tier
 
 - `armada_create_mission` accepts an optional `tier` (`Economy`, `Standard` or `Premium`). Only captains at or above that tier are assigned. Omitting it keeps the default routing. An unrecognized value is rejected and creates nothing. See [Captain Writes](docs/MCP_API.md#captain-writes).

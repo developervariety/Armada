@@ -880,6 +880,132 @@ namespace Armada.Test.Unit.Suites.Services
                 catch (ArgumentException) { threw = true; }
                 AssertTrue(threw, "A report window longer than 90 days must be rejected.");
             }).ConfigureAwait(false);
+
+            await RunTest("EvaluationWorkStaysOutOfTheProductionSummary", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+                Voyage productionVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage
+                {
+                    Title = "Production delivery",
+                    Status = VoyageStatusEnum.Complete,
+                    CreatedUtc = start,
+                    CompletedUtc = start.AddHours(4)
+                }).ConfigureAwait(false);
+                Voyage evaluationVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage
+                {
+                    Title = "Evaluation delivery",
+                    Status = VoyageStatusEnum.Complete,
+                    IsEvaluation = true,
+                    CreatedUtc = start,
+                    CompletedUtc = start.AddHours(4)
+                }).ConfigureAwait(false);
+                Voyage reread = await testDb.Driver.Voyages.ReadAsync(evaluationVoyage.Id).ConfigureAwait(false);
+                AssertTrue(reread != null && reread.IsEvaluation, "An evaluation voyage keeps its flag");
+                Voyage plain = await testDb.Driver.Voyages.ReadAsync(productionVoyage.Id).ConfigureAwait(false);
+                AssertTrue(plain != null && !plain.IsEvaluation, "A voyage is not evaluation work unless the flag is set");
+
+                Mission productionMission = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = productionVoyage.Id,
+                    Title = "Implement",
+                    Status = MissionStatusEnum.Complete,
+                    CommitHash = "abc1234",
+                    StartedUtc = start.AddHours(1),
+                    CompletedUtc = start.AddHours(2),
+                    TotalRuntimeMs = 1000
+                }).ConfigureAwait(false);
+                Mission evaluationMission = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = evaluationVoyage.Id,
+                    Title = "Evaluate",
+                    Status = MissionStatusEnum.Complete,
+                    CommitHash = "eval123",
+                    IsEvaluation = true,
+                    StartedUtc = start.AddHours(1),
+                    CompletedUtc = start.AddHours(2),
+                    TotalRuntimeMs = 9000
+                }).ConfigureAwait(false);
+                Mission? evaluationSummary = await testDb.Driver.Missions.ReadSummaryAsync(evaluationMission.Id).ConfigureAwait(false);
+                AssertTrue(evaluationSummary != null && evaluationSummary.IsEvaluation, "An evaluation mission keeps its flag on the summary");
+
+                await testDb.Driver.MergeEntries.CreateAsync(new MergeEntry
+                {
+                    MissionId = productionMission.Id,
+                    BranchName = "work",
+                    Status = MergeStatusEnum.Landed,
+                    CompletedUtc = start.AddHours(3)
+                }).ConfigureAwait(false);
+                await testDb.Driver.MergeEntries.CreateAsync(new MergeEntry
+                {
+                    MissionId = evaluationMission.Id,
+                    BranchName = "eval",
+                    Status = MergeStatusEnum.Landed,
+                    CompletedUtc = start.AddHours(3)
+                }).ConfigureAwait(false);
+                CheckRun productionCheck = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    MissionId = productionMission.Id,
+                    VoyageId = productionVoyage.Id,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test",
+                    CommitHash = "abc1234",
+                    CreatedUtc = start.AddHours(2),
+                    StartedUtc = start.AddHours(2),
+                    CompletedUtc = start.AddHours(2).AddMinutes(1),
+                    DurationMs = 1000
+                }).ConfigureAwait(false);
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    MissionId = evaluationMission.Id,
+                    VoyageId = evaluationVoyage.Id,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test",
+                    CommitHash = "eval123",
+                    CreatedUtc = start.AddHours(2),
+                    StartedUtc = start.AddHours(2),
+                    CompletedUtc = start.AddHours(2).AddMinutes(1),
+                    DurationMs = 1000
+                }).ConfigureAwait(false);
+
+                Objective production = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Production slice",
+                    Status = ObjectiveStatusEnum.Completed,
+                    BacklogState = ObjectiveBacklogStateEnum.Dispatched,
+                    Category = "Protocol",
+                    Tags = new List<string> { "port:ecu" },
+                    VoyageIds = new List<string> { productionVoyage.Id },
+                    MissionIds = new List<string> { productionMission.Id },
+                    CheckRunIds = new List<string> { productionCheck.Id },
+                    CreatedUtc = start,
+                    CompletedUtc = start.AddHours(4),
+                    LastUpdateUtc = start.AddHours(4)
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Evaluation slice",
+                    Status = ObjectiveStatusEnum.Completed,
+                    BacklogState = ObjectiveBacklogStateEnum.Dispatched,
+                    Category = "Protocol",
+                    Tags = new List<string> { "port:ecu" },
+                    VoyageIds = new List<string> { evaluationVoyage.Id },
+                    MissionIds = new List<string> { evaluationMission.Id },
+                    CreatedUtc = start,
+                    CompletedUtc = start.AddHours(4),
+                    LastUpdateUtc = start.AddHours(4)
+                }).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(1) }).ConfigureAwait(false);
+
+                AssertEqual(1, result.RawCompletedSlices, "Evaluation slices stay out of the production count");
+                AssertEqual(1, result.Groups.Count);
+                AssertEqual(1, result.Groups.Single().VerifiedLandedSlices.Count);
+                AssertEqual(1000L, result.Groups.Single().RescueRuntime.HistoricalUnclassifiedMs, "Evaluation mission runtime stays out of the production summary");
+                AssertTrue(production.MissionIds.Contains(productionMission.Id));
+            }).ConfigureAwait(false);
         }
 
         private static async Task<Mission> CreateVerifiedSliceAsync(TestDatabase testDb, DateTime start, string label, bool landedMergeEntry = true)

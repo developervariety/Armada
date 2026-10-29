@@ -485,7 +485,8 @@ namespace Armada.Server
                         pipelineId,
                         request.Settings ?? _Settings,
                         stageSkip,
-                        request.CaptainAssignments).ConfigureAwait(false);
+                        request.CaptainAssignments,
+                        request.IsEvaluation).ConfigureAwait(false);
                 }
                 else
                 {
@@ -498,7 +499,8 @@ namespace Armada.Server
                         mergedPlaybooks,
                         stageSkip,
                         request.CaptainAssignments,
-                        token).ConfigureAwait(false);
+                        token,
+                        request.IsEvaluation).ConfigureAwait(false);
                 }
 
                 if (dispatchResult is not Voyage createdVoyage)
@@ -1381,7 +1383,8 @@ namespace Armada.Server
             string? pipelineId,
             ArmadaSettings? settings = null,
             StageSkipRequest? stageSkip = null,
-            List<CaptainAssignmentOverride>? captainOverrides = null)
+            List<CaptainAssignmentOverride>? captainOverrides = null,
+            bool isEvaluation = false)
         {
             if (vessel == null)
                 return new { Error = "Vessel not found: " + vesselId };
@@ -1402,8 +1405,9 @@ namespace Armada.Server
             bool isMultiStage = pipeline != null
                 && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
 
-            Voyage voyage = await _Database.Voyages.CreateAsync(
-                AdmiralService.NewDispatchVoyage(title, description, vessel, captainOverrides)).ConfigureAwait(false);
+            Voyage voyage = AdmiralService.NewDispatchVoyage(title, description, vessel, captainOverrides);
+            voyage.IsEvaluation = isEvaluation;
+            voyage = await _Database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelectionsLocal(selectedPlaybooks);
             if (voyage.SelectedPlaybooks.Count > 0)
             {
@@ -1439,6 +1443,7 @@ namespace Armada.Server
                     mission.PreferredModel = md.PreferredModel;
                     mission.CapabilityHint = md.CapabilityHint;
                     mission.Mode = Armada.Core.Enums.MissionModes.Parse(md.Mode);
+                    mission.IsEvaluation = voyage.IsEvaluation;
                     mission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
                     mission.DependsOnMissionId = externalDep;
                     if (String.IsNullOrEmpty(externalDep)) mission.StartFromRef = md.StartFromRef;
@@ -1490,6 +1495,7 @@ namespace Armada.Server
                         // Every stage of a read-only voyage stays read-only: a pipeline must not
                         // silently turn an audit into an implementing mission at stage 2.
                         stageMission.Mode = Armada.Core.Enums.MissionModes.Parse(md.Mode);
+                        stageMission.IsEvaluation = voyage.IsEvaluation;
                         stageMission.SelectedPlaybooks = ClonePlaybookSelectionsLocal(mergedForMission);
 
                         // Each pipeline stage receives a new dock worktree. Preserve every

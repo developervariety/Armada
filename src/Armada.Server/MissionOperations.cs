@@ -364,6 +364,7 @@ namespace Armada.Server
         /// <param name="tenantId">Owning tenant; a tenantless owner resolves playbooks in the default tenant.</param>
         /// <param name="userId">Owning user.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="isEvaluation">When true, the voyage is evaluation work and stays out of production summaries.</param>
         /// <returns>The created voyage, or the refusal.</returns>
         public async Task<BareVoyageResult> CreateBareVoyageAsync(
             string? title,
@@ -371,7 +372,8 @@ namespace Armada.Server
             List<SelectedPlaybook>? selectedPlaybooks,
             string? tenantId,
             string? userId,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool isEvaluation = false)
         {
             List<SelectedPlaybook> selections = selectedPlaybooks ?? new List<SelectedPlaybook>();
             if (selections.Count > 0)
@@ -389,6 +391,7 @@ namespace Armada.Server
             Voyage voyage = new Voyage(title ?? "", description ?? "");
             voyage.TenantId = tenantId;
             voyage.UserId = userId;
+            voyage.IsEvaluation = isEvaluation;
             voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = selections;
             if (selections.Count > 0)
