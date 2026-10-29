@@ -78,6 +78,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
   const [selectedActionId, setSelectedActionId] = useState<string>(initialActionId ?? '');
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [previewVessel, setPreviewVessel] = useState<Vessel | null>(null);
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [concurrency, setConcurrency] = useState('4');
   const [cleanTreeOverride, setCleanTreeOverride] = useState<boolean | null>(null);
   const [adHoc, setAdHoc] = useState<AdHocForm>(() => emptyAdHoc(initialKind ?? 'Command'));
@@ -142,6 +143,9 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
     setCleanTreeOverride(null);
   }, [mode, selectedAction]);
 
+  const inputDefinitions = useMemo(() => mode === 'saved' ? selectedAction?.inputs ?? [] : (adHoc.extensions?.Inputs ?? []).map(i => ({ name: i.Name, type: i.Type, required: i.Required ?? false, default: i.Default, allowedValues: i.AllowedValues ?? [], description: i.Description })), [mode, selectedAction, adHoc.extensions]);
+  useEffect(() => { setInputValues(Object.fromEntries(inputDefinitions.map(i => [i.name, i.default ?? '']))); }, [inputDefinitions]);
+
   const effectiveKind: FleetActionKind = mode === 'saved' ? (selectedAction?.kind ?? 'Command') : adHoc.kind;
   const bodyText = mode === 'saved'
     ? (selectedAction ? (selectedAction.kind === 'Command' ? selectedAction.commandText : selectedAction.promptTemplate) ?? '' : '')
@@ -151,7 +155,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
     : adHoc.requiresCleanWorkingTree;
 
   const errors = validateRunInputs({ vesselCount: vesselIds.length, mode, action: selectedAction, concurrency, adHoc });
-  const unknownVars = findUnknownTemplateVariables(bodyText);
+  const unknownVars = findUnknownTemplateVariables(bodyText, inputDefinitions.map(i => i.name));
   const hasErrors = Object.keys(errors).length > 0;
   const showError = (field: string) => (submitted && errors[field] ? errors[field] : '');
 
@@ -175,11 +179,12 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
       let result: FleetActionRunStartResult;
       if (mode === 'saved' && selectedAction) {
         const request: FleetActionRunRequest = buildSavedRunRequest(vesselIds, c, selectedAction, cleanTreeOverride);
+        if (selectedAction.inputs?.length) request.InputValues = inputValues;
         if (effectiveKind === 'Mission') request.Overrides = { ...request.Overrides, ApprovalOptions: approvalOptions };
         result = await runFleetAction(selectedAction.id, request);
       } else {
         const definition: FleetActionUpsertRequest = buildAdHocDefinition(adHoc);
-        result = await runAdHocFleetAction({ VesselIds: vesselIds, Concurrency: c, Definition: definition, ...(effectiveKind === 'Mission' ? { Overrides: { ApprovalOptions: approvalOptions } } : {}) });
+        result = await runAdHocFleetAction({ VesselIds: vesselIds, Concurrency: c, Definition: definition, ...(inputDefinitions.length ? { InputValues: inputValues } : {}), ...(effectiveKind === 'Mission' ? { Overrides: { ApprovalOptions: approvalOptions } } : {}) });
       }
       pushToast('success', t('{count, plural, one {Fleet action started on # vessel.} other {Fleet action started on # vessels.}}', { count: result.targetCount }));
       onClose();
@@ -337,6 +342,17 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
             </div>
           )}
 
+          {inputDefinitions.map(input => (
+            <label className="form-field" key={input.name}>
+              <span>{input.name}{input.required ? ' *' : ''}</span>
+              {input.type === 'enum'
+                ? <select required={input.required} value={inputValues[input.name] ?? ''} onChange={e => setInputValues(v => ({ ...v, [input.name]: e.target.value }))}>
+                    <option value="">-</option>{input.allowedValues.map(value => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                : <input required={input.required} value={inputValues[input.name] ?? ''} onChange={e => setInputValues(v => ({ ...v, [input.name]: e.target.value }))} placeholder={input.type === 'semver' ? '1.2.3' : undefined} />}
+              {input.description && <span className="text-dim">{input.description}</span>}
+            </label>
+          ))}
           <label className="form-field run-action-concurrency">
             <span className="form-label" title={effectiveKind === 'Command' ? t('How many vessels run the command at the same time (1-32). The Admiral-wide limit also applies.') : t('How many voyages from this run may be active at once (1-32).')}>{t('Concurrency')}</span>
             <input title={effectiveKind === 'Command' ? t('How many vessels run the command at the same time (1-32). The Admiral-wide limit also applies.') : t('How many voyages from this run may be active at once (1-32).')} type="number" min={1} max={32} value={concurrency} onChange={(e) => setConcurrency(e.target.value)} aria-invalid={Boolean(showError('concurrency'))} aria-describedby="run-action-concurrency-help" />

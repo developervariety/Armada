@@ -213,13 +213,6 @@ export default function Releases() {
 
   const columns: DataTableColumn<Release>[] = [
     {
-      key: 'title', label: t('Release'), required: true, headerTitle: t('Release title. Hover a row for its summary.'),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only releases whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
-      // One line: version, tag and summary have their own columns; the summary is also in the tooltip.
-      cellTitle: (release) => [release.title, release.summary].filter(Boolean).join('\n'),
-      render: (release) => <strong className="cell-one-line">{release.title}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Release ID (rel_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (release) => (
         <span className="id-display">
@@ -227,6 +220,13 @@ export default function Releases() {
           <CopyButton text={release.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'title', label: t('Release'), required: true, headerTitle: t('Release title. Hover a row for its summary.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only releases whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      // One line: version, tag and summary have their own columns; the summary is also in the tooltip.
+      cellTitle: (release) => [release.title, release.summary].filter(Boolean).join('\n'),
+      render: (release) => <strong className="cell-one-line">{release.title}</strong>,
     },
     {
       key: 'version', label: t('Version'), headerTitle: t('Release version. Hover a cell for its git tag.'), cellClassName: 'mono text-dim',

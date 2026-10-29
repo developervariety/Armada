@@ -45,6 +45,12 @@ namespace Armada.Core.Models
             set => _PendingCliPermissions = value ?? new List<CliPermissionRequest>();
         }
 
+        /// <summary>
+        /// What the captain turn running in the thread has produced so far (streamed text, thinking, and tool calls), or
+        /// null when no turn is running. Lets a client that opens the thread mid-turn restore the live reply.
+        /// </summary>
+        public AskTurnProgress? ActiveTurn { get; set; } = null;
+
         #endregion
 
         #region Private-Members

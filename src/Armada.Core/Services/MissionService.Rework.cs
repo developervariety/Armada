@@ -85,14 +85,11 @@ namespace Armada.Core.Services
                 if (colon > 0) baseTitle = baseTitle.Substring(colon + 2);
             }
 
-            string taskSpec = StripPipelineHandoff(worker.Description);
+            // The task without earlier handoffs or an earlier round's rework section (a later round restates its own).
+            string taskSpec = ReworkPromptBuilder.StripSection(StripPipelineHandoff(worker.Description));
             Mission rework = new Mission(_ReworkTitlePrefix + round + (escalateTo != null ? _EscalatedMarker : "") + ": " + baseTitle,
-                taskSpec + "\n\n## Rework round " + round + " requested by the Judge\n"
-                + "A reviewer checked this branch and asked for the changes in its review below (the previous stage output). "
-                + "Resolve every reported finding, and check adjacent paths of the same feature against the original mission acceptance requirements. Reconcile findings from all preceding verifiers, including those labelled nonblocking: a reproducible violation of an explicit acceptance criterion or invariant remains blocking regardless of that label. For each unresolved finding, fix it with a regression or explain with evidence why it is outside this slice contract. "
-                + "The findings are required corrections, not a replacement for the original scope or proof that unreported paths work. "
-                + "Keep everything that is already right, add regression coverage that exercises the affected behavior, run the tests, and commit. "
-                + "Report any original requirements that remain unverified, including publication and delivery. Do not start over or expand the mission scope.");
+                // Numbered demands, one per line; the reviewer's findings are filled in from its handoff artifact at launch.
+                taskSpec + ReworkPromptBuilder.BuildSection(round, judge.Persona));
             rework.TenantId = judge.TenantId;
             rework.UserId = judge.UserId;
             rework.VoyageId = judge.VoyageId;

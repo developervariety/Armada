@@ -22,6 +22,7 @@ namespace Armada.Server.Routes
     {
         private readonly DatabaseDriver _database;
         private readonly WorkflowProfileService _workflowProfiles;
+        private readonly WorkflowProfileAccessService _access;
         private readonly JsonSerializerOptions _jsonOptions;
         private static readonly JsonSerializerOptions _bodyJsonOptions = new JsonSerializerOptions
         {
@@ -41,6 +42,7 @@ namespace Armada.Server.Routes
             _database = database ?? throw new ArgumentNullException(nameof(database));
             _workflowProfiles = workflowProfiles ?? throw new ArgumentNullException(nameof(workflowProfiles));
             _jsonOptions = jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions));
+            _access = new WorkflowProfileAccessService(_database, _workflowProfiles);
         }
 
         /// <summary>
@@ -111,10 +113,7 @@ namespace Armada.Server.Routes
                 WorkflowProfile profile = JsonSerializer.Deserialize<WorkflowProfile>(req.Http.Request.DataAsString, _bodyJsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as WorkflowProfile.");
 
-                if (!ctx.IsAdmin)
-                    profile.TenantId = ctx.TenantId;
-
-                return await _workflowProfiles.ValidateAsync(profile).ConfigureAwait(false);
+                return await _access.ValidateAsync(ctx, profile).ConfigureAwait(false);
             },
             api => api
                 .WithTag("WorkflowProfiles")
@@ -129,23 +128,14 @@ namespace Armada.Server.Routes
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return BuildAuthError(req);
 
-                string vesselId = req.Parameters["vesselId"];
-                Vessel? vessel = await ReadAccessibleVesselAsync(ctx, vesselId).ConfigureAwait(false);
-                if (vessel == null)
+                try
                 {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                    return await _access.PreviewAsync(ctx, req.Parameters["vesselId"], req.Query.GetValueOrDefault("workflowProfileId")).ConfigureAwait(false);
                 }
-
-                string? explicitProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId"));
-                WorkflowProfileResolutionPreviewResult? preview = await _workflowProfiles.PreviewForVesselAsync(ctx, vessel, explicitProfileId).ConfigureAwait(false);
-                if (preview == null || preview.ResolvedProfile == null)
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
                 {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "No workflow profile could be resolved for this vessel" };
+                    return RouteErrorMapper.ToResponse(req, ex);
                 }
-
-                return preview;
             },
             api => api
                 .WithTag("WorkflowProfiles")
@@ -162,23 +152,14 @@ namespace Armada.Server.Routes
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return BuildAuthError(req);
 
-                string vesselId = req.Parameters["vesselId"];
-                Vessel? vessel = await ReadAccessibleVesselAsync(ctx, vesselId).ConfigureAwait(false);
-                if (vessel == null)
+                try
                 {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                    return await _access.ResolveAsync(ctx, req.Parameters["vesselId"], req.Query.GetValueOrDefault("workflowProfileId")).ConfigureAwait(false);
                 }
-
-                string? explicitProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId"));
-                WorkflowProfile? profile = await _workflowProfiles.ResolveForVesselAsync(ctx, vessel, explicitProfileId).ConfigureAwait(false);
-                if (profile == null)
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
                 {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "No workflow profile could be resolved for this vessel" };
+                    return RouteErrorMapper.ToResponse(req, ex);
                 }
-
-                return profile;
             },
             api => api
                 .WithTag("WorkflowProfiles")
@@ -198,25 +179,16 @@ namespace Armada.Server.Routes
                 WorkflowProfile profile = JsonSerializer.Deserialize<WorkflowProfile>(req.Http.Request.DataAsString, _bodyJsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as WorkflowProfile.");
 
-                profile.TenantId = ctx.IsAdmin ? (NormalizeEmpty(profile.TenantId) ?? ctx.TenantId) : ctx.TenantId;
-                profile.UserId = ctx.UserId;
-                profile.OwnershipScope = ScopedVisibility.ResolveCreateScope(ctx, profile.OwnershipScope);
-
-                WorkflowProfileValidationResult validation = await _workflowProfiles.ValidateAsync(profile).ConfigureAwait(false);
-                if (!validation.IsValid)
+                try
                 {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse
-                    {
-                        Error = ApiResultEnum.BadRequest,
-                        Message = String.Join(" ", validation.Errors)
-                    };
+                    WorkflowProfile created = await _access.CreateAsync(ctx, profile).ConfigureAwait(false);
+                    req.Http.Response.StatusCode = 201;
+                    return created;
                 }
-
-                await EnsureUniqueDefaultAsync(profile).ConfigureAwait(false);
-                WorkflowProfile created = await _database.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
-                req.Http.Response.StatusCode = 201;
-                return created;
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
             },
             api => api
                 .WithTag("WorkflowProfiles")
@@ -232,16 +204,14 @@ namespace Armada.Server.Routes
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return BuildAuthError(req);
 
-                WorkflowProfile? profile = await _database.WorkflowProfiles.ReadAsync(
-                    req.Parameters["id"],
-                    BuildScopedReadQuery(ctx)).ConfigureAwait(false);
-                if (profile == null || !ScopedVisibility.CanView(ctx, profile.OwnershipScope, profile.TenantId, profile.UserId))
+                try
                 {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Workflow profile not found" };
+                    return await _access.GetAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 }
-
-                return profile;
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
             },
             api => api
                 .WithTag("WorkflowProfiles")
@@ -257,67 +227,23 @@ namespace Armada.Server.Routes
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return BuildAuthError(req);
 
-                WorkflowProfile? existing = await _database.WorkflowProfiles.ReadAsync(
-                    req.Parameters["id"],
-                    BuildScopedReadQuery(ctx)).ConfigureAwait(false);
-                if (existing == null || !ScopedVisibility.CanView(ctx, existing.OwnershipScope, existing.TenantId, existing.UserId))
+                try
                 {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Workflow profile not found" };
+                    // The body is read inside apply, after the 404 and 403 checks, as it was before the shared service.
+                    return await _access.UpdateAsync(
+                        ctx,
+                        req.Parameters["id"],
+                        (existing, canChangeOwnership) =>
+                        {
+                            WorkflowProfile incoming = JsonSerializer.Deserialize<WorkflowProfile>(req.Http.Request.DataAsString, _bodyJsonOptions)
+                                ?? throw new InvalidOperationException("Request body could not be deserialized as WorkflowProfile.");
+                            WorkflowProfileAccessService.ApplyReplacement(existing, incoming, canChangeOwnership);
+                        }).ConfigureAwait(false);
                 }
-                if (!ScopedVisibility.CanEdit(ctx, existing.OwnershipScope, existing.TenantId, existing.UserId))
+                catch (Exception ex) when (ex is KeyNotFoundException || ex is UnauthorizedAccessException || ex is ArgumentException)
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only modify your own workflow profiles; a tenant-wide profile requires a tenant admin." };
+                    return RouteErrorMapper.ToResponse(req, ex);
                 }
-
-                WorkflowProfile incoming = JsonSerializer.Deserialize<WorkflowProfile>(req.Http.Request.DataAsString, _bodyJsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as WorkflowProfile.");
-
-                existing.Name = incoming.Name;
-                existing.Description = incoming.Description;
-                existing.Scope = incoming.Scope;
-                if (ctx.IsAdmin || ctx.IsTenantAdmin) existing.OwnershipScope = incoming.OwnershipScope;
-                existing.FleetId = NormalizeEmpty(incoming.FleetId);
-                existing.VesselId = NormalizeEmpty(incoming.VesselId);
-                existing.IsDefault = incoming.IsDefault;
-                existing.Active = incoming.Active;
-                existing.LanguageHints = incoming.LanguageHints ?? new List<string>();
-                existing.LintCommand = NormalizeEmpty(incoming.LintCommand);
-                existing.BuildCommand = NormalizeEmpty(incoming.BuildCommand);
-                existing.UnitTestCommand = NormalizeEmpty(incoming.UnitTestCommand);
-                existing.IntegrationTestCommand = NormalizeEmpty(incoming.IntegrationTestCommand);
-                existing.E2ETestCommand = NormalizeEmpty(incoming.E2ETestCommand);
-                existing.MigrationCommand = NormalizeEmpty(incoming.MigrationCommand);
-                existing.SecurityScanCommand = NormalizeEmpty(incoming.SecurityScanCommand);
-                existing.PerformanceCommand = NormalizeEmpty(incoming.PerformanceCommand);
-                existing.PackageCommand = NormalizeEmpty(incoming.PackageCommand);
-                existing.DeploymentVerificationCommand = NormalizeEmpty(incoming.DeploymentVerificationCommand);
-                existing.RollbackVerificationCommand = NormalizeEmpty(incoming.RollbackVerificationCommand);
-                existing.PublishArtifactCommand = NormalizeEmpty(incoming.PublishArtifactCommand);
-                existing.ReleaseVersioningCommand = NormalizeEmpty(incoming.ReleaseVersioningCommand);
-                existing.ChangelogGenerationCommand = NormalizeEmpty(incoming.ChangelogGenerationCommand);
-                existing.RequiredInputs = incoming.RequiredInputs ?? new List<WorkflowInputReference>();
-                existing.ExpectedArtifacts = incoming.ExpectedArtifacts ?? new List<string>();
-                existing.Environments = incoming.Environments ?? new List<WorkflowEnvironmentProfile>();
-                // Once a person edits a profile Armada created, it is theirs: Armada never replaces it automatically.
-                existing.SourceTemplate = null;
-                existing.LastUpdateUtc = DateTime.UtcNow;
-
-                WorkflowProfileValidationResult validation = await _workflowProfiles.ValidateAsync(existing).ConfigureAwait(false);
-                if (!validation.IsValid)
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse
-                    {
-                        Error = ApiResultEnum.BadRequest,
-                        Message = String.Join(" ", validation.Errors)
-                    };
-                }
-
-                await EnsureUniqueDefaultAsync(existing).ConfigureAwait(false);
-                WorkflowProfile updated = await _database.WorkflowProfiles.UpdateAsync(existing).ConfigureAwait(false);
-                return updated;
             },
             api => api
                 .WithTag("WorkflowProfiles")
@@ -335,21 +261,15 @@ namespace Armada.Server.Routes
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return BuildAuthError(req);
 
-                WorkflowProfile? existing = await _database.WorkflowProfiles.ReadAsync(
-                    req.Parameters["id"],
-                    BuildScopedReadQuery(ctx)).ConfigureAwait(false);
-                if (existing == null || !ScopedVisibility.CanView(ctx, existing.OwnershipScope, existing.TenantId, existing.UserId))
+                try
                 {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Workflow profile not found" };
+                    await _access.DeleteAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
                 }
-                if (!ScopedVisibility.CanEdit(ctx, existing.OwnershipScope, existing.TenantId, existing.UserId))
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
                 {
-                    req.Http.Response.StatusCode = 403;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only delete your own workflow profiles; a tenant-wide profile requires a tenant admin." };
+                    return RouteErrorMapper.ToResponse(req, ex);
                 }
 
-                await _database.WorkflowProfiles.DeleteAsync(existing.Id, BuildScopedReadQuery(ctx)).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
@@ -360,6 +280,32 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Workflow profile ID (wfp_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/workflow-profiles/delete/multiple", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                DeleteMultipleRequest? body = String.IsNullOrWhiteSpace(req.Http.Request.DataAsString)
+                    ? null
+                    : JsonSerializer.Deserialize<DeleteMultipleRequest>(req.Http.Request.DataAsString, _bodyJsonOptions);
+                try
+                {
+                    return await _access.DeleteMultipleAsync(ctx, body?.Ids).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("WorkflowProfiles")
+                .WithSummary("Batch delete multiple workflow profiles")
+                .WithDescription("Permanently deletes multiple workflow profiles by ID. Ids that are missing, outside the caller's scope, or not editable by the caller are skipped with a reason. This cannot be undone.")
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of workflow profile IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
         }
 
@@ -422,47 +368,6 @@ namespace Armada.Server.Routes
             if (ctx.IsAdmin) return;
             query.TenantId = ctx.TenantId;
             query.UserId = null;
-        }
-
-        private static WorkflowProfileQuery BuildScopedReadQuery(AuthContext ctx)
-        {
-            WorkflowProfileQuery query = new WorkflowProfileQuery();
-            ApplyReadScope(ctx, query);
-            return query;
-        }
-
-        private async Task EnsureUniqueDefaultAsync(WorkflowProfile profile)
-        {
-            if (!profile.IsDefault) return;
-
-            WorkflowProfileQuery query = new WorkflowProfileQuery
-            {
-                TenantId = profile.TenantId,
-                Scope = profile.Scope,
-                PageNumber = 1,
-                PageSize = 1000
-            };
-
-            if (profile.Scope == WorkflowProfileScopeEnum.Fleet)
-                query.FleetId = profile.FleetId;
-            if (profile.Scope == WorkflowProfileScopeEnum.Vessel)
-                query.VesselId = profile.VesselId;
-
-            List<WorkflowProfile> peers = await _database.WorkflowProfiles.EnumerateAllAsync(query).ConfigureAwait(false);
-            foreach (WorkflowProfile peer in peers.Where(item => item.IsDefault && !String.Equals(item.Id, profile.Id, StringComparison.Ordinal)))
-            {
-                peer.IsDefault = false;
-                await _database.WorkflowProfiles.UpdateAsync(peer).ConfigureAwait(false);
-            }
-        }
-
-        private async Task<Vessel?> ReadAccessibleVesselAsync(AuthContext ctx, string vesselId)
-        {
-            if (ctx.IsAdmin)
-                return await _database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
-            if (ctx.IsTenantAdmin)
-                return await _database.Vessels.ReadAsync(ctx.TenantId!, vesselId).ConfigureAwait(false);
-            return await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, vesselId).ConfigureAwait(false);
         }
 
         private static bool TryParseNullableBool(string? value, out bool? result)

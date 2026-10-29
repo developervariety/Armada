@@ -9,9 +9,10 @@ namespace Armada.Runtimes
     /// <summary>
     /// Points a CLI runtime's permission prompts at Armada's <c>cli_permission_prompt</c> tool on the scoped "armada" MCP
     /// server (Approve in Armada). Used on the Admiral host and on a Harbor, so both launch a captain the same way:
-    /// Claude Code through <c>--permission-prompt-tool mcp__armada__cli_permission_prompt</c>, and Mux 1.5.0 or later
-    /// through <c>mux print --permission-prompt-tool armada.cli_permission_prompt</c>. The launch must carry a scoped MCP
-    /// token, or the prompt tool is unreachable and every prompt is denied.
+    /// Claude Code through <c>--permission-prompt-tool mcp__armada__cli_permission_prompt</c>, Mux 1.5.0 or later
+    /// through <c>mux print --permission-prompt-tool armada.cli_permission_prompt</c>, and pi through
+    /// <c>--extension &lt;bin&gt;/Pi/armada-permission-gate.ts</c>, whose tool_call hook calls the same tool. The launch must
+    /// carry a scoped MCP token, or the prompt tool is unreachable and every prompt is denied.
     /// </summary>
     public static class CliPermissionPromptSetup
     {
@@ -54,6 +55,20 @@ namespace Armada.Runtimes
                 claude.PermissionPromptTool = approve ? CliPermissionPolicyResolver.ClaudePromptToolName : null;
                 claude.PermissionPromptTimeoutSeconds = approve ? promptTimeoutSeconds : null;
                 return approve;
+            }
+
+            if (runtime is PiRuntime pi)
+            {
+                // pi never prompts: Armada's permission gate extension asks cli_permission_prompt from pi's tool_call
+                // hook. Without the extension file the launch stays on the Refuse tool exclusion.
+                pi.PermissionGateExtensionPath = null;
+                pi.PermissionPromptTimeoutSeconds = null;
+                if (!approve) return false;
+                string? extension = PiRuntime.FindPermissionGateExtension();
+                if (extension == null) return false;
+                pi.PermissionGateExtensionPath = extension;
+                pi.PermissionPromptTimeoutSeconds = Math.Clamp(promptTimeoutSeconds + CliTimeoutMarginSeconds, 10, 86400);
+                return true;
             }
 
             if (runtime is MuxRuntime mux)
