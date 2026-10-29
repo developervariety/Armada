@@ -2724,7 +2724,7 @@
 								"git-status"
 							]
 						},
-						"description": "Returns commits ahead/behind the remote default branch for the vessel's working directory."
+						"description": "Returns commits ahead/behind the remote default branch for the vessel's working directory. The Admiral reuses a status it read for two minutes (fifteen seconds after a failed read)."
 					}
 				},
 				{

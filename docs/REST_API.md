@@ -1662,6 +1662,23 @@ Additional refusal reasons: `invalid_strategy`, `same_ref` (`400`);
 
 ---
 
+#### GET /api/v1/vessels/{id}/git-status
+
+Returns how far the vessel's working checkout is from the remote default branch: `commitsAhead` and `commitsBehind`. A checkout that is missing, or a git failure, returns `commitsAhead` and `commitsBehind` as null with an `error` that names the cause.
+
+The Admiral fetches the remote and counts commits once, then reuses the status for two minutes (fifteen seconds when the read failed). Requests that arrive while a read runs share it. A status is held per vessel, checkout and default branch, so a changed working directory or branch is read again at once. The Dashboard Vessels page asks only for the vessels on the visible page, four at a time.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Vessel ID (`vsl_` prefix) |
+
+**Response:** `200 OK` - `{ "vesselId": "vsl_...", "commitsAhead": 0, "commitsBehind": 0 }`
+**Error:** `404` - Vessel not found
+
+---
+
 #### GET /api/v1/vessels/{id}/readiness
 
 Returns readiness warnings and blocking issues for a vessel. Optional query:

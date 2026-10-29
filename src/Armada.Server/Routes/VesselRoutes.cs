@@ -40,6 +40,7 @@ namespace Armada.Server.Routes
         private readonly IBranchInventory? _branchInventory;
         private readonly VesselBranchWriteService? _branchWrites;
         private readonly RepositoryHealthService? _repositoryHealth;
+        private readonly VesselGitStatusCache _gitStatus;
 
         /// <summary>
         /// Instantiate.
@@ -57,6 +58,7 @@ namespace Armada.Server.Routes
         /// built that removes docks through <paramref name="dockService"/>, writes vessel events through
         /// <paramref name="emitEvent"/>, and releases a running captain in the database without stopping its process.</param>
         /// <param name="repositoryHealth">Advisory repository health. When null the route reports that health is not available.</param>
+        /// <param name="gitStatus">Short-lived cache of vessel git status reads. When null, one reads git for the route.</param>
         public VesselRoutes(
             DatabaseDriver database,
             VesselReadinessService readiness,
@@ -68,8 +70,10 @@ namespace Armada.Server.Routes
             IBranchInventory? branchInventory = null,
             VesselBranchWriteService? branchWrites = null,
             MissionOperations? operations = null,
-            RepositoryHealthService? repositoryHealth = null)
+            RepositoryHealthService? repositoryHealth = null,
+            VesselGitStatusCache? gitStatus = null)
         {
+            _gitStatus = gitStatus ?? new VesselGitStatusCache(ReadGitStatusAsync);
             _branchWrites = branchWrites;
             _repositoryHealth = repositoryHealth;
             _operations = operations;
@@ -413,33 +417,14 @@ namespace Armada.Server.Routes
                 Vessel? vessel = await Armada.Core.Authorization.CallerScopedRead.ReadVesselAsync(_database, ctx, id).ConfigureAwait(false);
                 if (vessel == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
                 if (String.IsNullOrEmpty(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
-                    return (object)new { VesselId = id, CommitsAhead = (int?)null, CommitsBehind = (int?)null, Error = "No working directory configured or directory does not exist" };
+                    return (object)new VesselGitStatus { VesselId = id, Error = "No working directory configured or directory does not exist" };
 
-                try
-                {
-                    string baseBranch = vessel.DefaultBranch ?? "main";
-
-                    // Fetch latest from remote (silent, best-effort)
-                    try { await RunGitCommandAsync(vessel.WorkingDirectory, "fetch", "origin", "--quiet").ConfigureAwait(false); }
-                    catch { /* ignore fetch failures -- offline or no remote */ }
-
-                    string aheadStr = await RunGitCommandAsync(vessel.WorkingDirectory, "rev-list", "--count", "origin/" + baseBranch + "..HEAD").ConfigureAwait(false);
-                    string behindStr = await RunGitCommandAsync(vessel.WorkingDirectory, "rev-list", "--count", "HEAD..origin/" + baseBranch).ConfigureAwait(false);
-
-                    int.TryParse(aheadStr.Trim(), out int ahead);
-                    int.TryParse(behindStr.Trim(), out int behind);
-
-                    return (object)new { VesselId = id, CommitsAhead = ahead, CommitsBehind = behind };
-                }
-                catch (Exception ex)
-                {
-                    return (object)new { VesselId = id, CommitsAhead = (int?)null, CommitsBehind = (int?)null, Error = "Git error: " + ex.Message };
-                }
+                return (object)await _gitStatus.GetAsync(vessel).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Vessels")
                 .WithSummary("Get vessel git status")
-                .WithDescription("Returns commits ahead/behind the remote default branch for the vessel's working directory.")
+                .WithDescription("Returns commits ahead/behind the remote default branch for the vessel's working directory. The Admiral reuses a status it read for two minutes (fifteen seconds after a failed read), so the checkout is fetched at most that often however often a list refreshes.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithSecurity("ApiKey"));
 
@@ -890,6 +875,31 @@ namespace Armada.Server.Routes
             }
             catch { }
             return null;
+        }
+
+        /// <summary>
+        /// Read how far a checkout is from the remote default branch. A failed fetch leaves the last known remote
+        /// state; a failed count is reported in the status.
+        /// </summary>
+        private static async Task<VesselGitStatus> ReadGitStatusAsync(string vesselId, string workingDirectory, string baseBranch)
+        {
+            try
+            {
+                // Fetch latest from remote (best-effort; a failed fetch leaves the last known remote state).
+                try { await RunGitCommandAsync(workingDirectory, "fetch", "origin", "--quiet").ConfigureAwait(false); }
+                catch (InvalidOperationException) { /* offline or no remote */ }
+
+                string aheadStr = await RunGitCommandAsync(workingDirectory, "rev-list", "--count", "origin/" + baseBranch + "..HEAD").ConfigureAwait(false);
+                string behindStr = await RunGitCommandAsync(workingDirectory, "rev-list", "--count", "HEAD..origin/" + baseBranch).ConfigureAwait(false);
+
+                Int32.TryParse(aheadStr.Trim(), out int ahead);
+                Int32.TryParse(behindStr.Trim(), out int behind);
+                return new VesselGitStatus { VesselId = vesselId, CommitsAhead = ahead, CommitsBehind = behind };
+            }
+            catch (Exception ex)
+            {
+                return new VesselGitStatus { VesselId = vesselId, Error = "Git error: " + ex.Message };
+            }
         }
 
         /// <summary>
