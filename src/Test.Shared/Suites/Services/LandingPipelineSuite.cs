@@ -43,13 +43,37 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            foreach (MissionStatusEnum finalStatus in new[] { MissionStatusEnum.LandingFailed, MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete })
+            {
+                cases.Add(CaseAsync("completion_dock_retention_" + finalStatus, "Completion retains retryable docks and reclaims landed docks", TestTags.Positive, async () =>
+                {
+                    using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    IDockService docks = new DockService(logging, db.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, db.Driver, settings, git, docks);
+                    MissionService missions = new MissionService(logging, db.Driver, settings, docks, captains);
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(db.Driver, LandingModeEnum.LocalMerge);
+                    missions.OnMissionComplete = async (m, d) =>
+                    {
+                        Mission persisted = (await db.Driver.Missions.ReadAsync(m.Id))!;
+                        persisted.Status = finalStatus;
+                        await db.Driver.Missions.UpdateAsync(persisted);
+                    };
+                    await missions.HandleCompletionAsync(entities.Captain);
+                    Dock retained = (await db.Driver.Docks.ReadAsync(entities.Dock.Id))!;
+                    AssertEqual(finalStatus != MissionStatusEnum.Complete, retained.Active);
+                }));
+            }
+
             // === Local Merge Happy Path ===
 
             cases.Add(CaseAsync("handle_completion_sets_work_produced_then_land", "HandleCompletion sets WorkProduced then completion handler can land", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
 
@@ -76,7 +100,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
 
@@ -110,7 +134,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     git.ShouldThrowOnMergeLocal = true;
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
@@ -318,7 +342,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
 
@@ -352,7 +376,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
@@ -398,7 +422,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
@@ -426,7 +450,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);

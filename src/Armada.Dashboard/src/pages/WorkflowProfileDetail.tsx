@@ -46,7 +46,9 @@ const INPUT_DESCRIPTION_TIP = 'Optional note on what the input is for, shown wit
 const ENV_NAME_TIP = 'Environment name, for example dev, staging or prod. Deployments and check runs for an environment with this name use the commands below. Required.';
 const CMD_LINTCOMMAND_TIP = 'Shell command Armada runs for a Lint check in the vessel\'s working directory, for example npm run lint. Leave blank if the project has no lint step.';
 const CMD_BUILDCOMMAND_TIP = 'Shell command Armada runs for a Build check in the vessel\'s working directory, for example dotnet build. Leave blank if the project has no build step.';
-const CMD_UNITTESTCOMMAND_TIP = 'Shell command Armada runs for an Unit Test check in the vessel\'s working directory, for example dotnet test. Leave blank if the project has no unit test step.';
+const CMD_UNITTESTCOMMAND_TIP = 'Full unit-test command: the complete unit-test suite, run in the vessel\'s working directory, for example dotnet test. Used by Unit Test checks and by stage checks unless the abbreviated suite is requested. Leave blank if the project has no unit test step.';
+const CMD_ABBREVIATEDUNITTESTCOMMAND_TIP = 'Abbreviated unit-test command: a fast subset of the unit tests, for example dotnet test --filter Category=Smoke. Used by Abbreviated Unit Test checks, and by stage checks when the mission description or the stage persona\'s prompt contains [ARMADA:UNIT-TESTS] abbreviated. When blank, those run the full command instead.';
+const UNIT_TEST_SELECTION_HINT = 'Which unit-test command runs: you can choose directly by running an Abbreviated Unit Test check, or by putting [ARMADA:UNIT-TESTS] abbreviated (or full) in a mission description. Otherwise the stage persona\'s prompt decides, for example a Test Engineer prompt template containing that line. With neither, the full command runs.';
 const CMD_INTEGRATIONTESTCOMMAND_TIP = 'Shell command Armada runs for an Integration Test check in the vessel\'s working directory, for example npm run test:integration. Leave blank if the project has no integration test step.';
 const CMD_E2ETESTCOMMAND_TIP = 'Shell command Armada runs for an E2E Test check in the vessel\'s working directory, for example npx playwright test. Leave blank if the project has no end-to-end test step.';
 const CMD_MIGRATIONCOMMAND_TIP = 'Shell command Armada runs for a Migration check in the vessel\'s working directory, for example dotnet ef database update. Leave blank if the project has no database migration step.';
@@ -93,6 +95,7 @@ export default function WorkflowProfileDetail() {
   const [lintCommand, setLintCommand] = useState('');
   const [buildCommand, setBuildCommand] = useState('');
   const [unitTestCommand, setUnitTestCommand] = useState('');
+  const [abbreviatedUnitTestCommand, setAbbreviatedUnitTestCommand] = useState('');
   const [integrationTestCommand, setIntegrationTestCommand] = useState('');
   const [e2eTestCommand, setE2ETestCommand] = useState('');
   const [migrationCommand, setMigrationCommand] = useState('');
@@ -157,6 +160,7 @@ export default function WorkflowProfileDetail() {
         setLintCommand(result.lintCommand || '');
         setBuildCommand(result.buildCommand || '');
         setUnitTestCommand(result.unitTestCommand || '');
+        setAbbreviatedUnitTestCommand(result.abbreviatedUnitTestCommand || '');
         setIntegrationTestCommand(result.integrationTestCommand || '');
         setE2ETestCommand(result.e2eTestCommand || '');
         setMigrationCommand(result.migrationCommand || '');
@@ -211,6 +215,7 @@ export default function WorkflowProfileDetail() {
       lintCommand: lintCommand.trim() || null,
       buildCommand: buildCommand.trim() || null,
       unitTestCommand: unitTestCommand.trim() || null,
+      abbreviatedUnitTestCommand: abbreviatedUnitTestCommand.trim() || null,
       integrationTestCommand: integrationTestCommand.trim() || null,
       e2eTestCommand: e2eTestCommand.trim() || null,
       migrationCommand: migrationCommand.trim() || null,
@@ -593,8 +598,13 @@ export default function WorkflowProfileDetail() {
             <textarea title={t(CMD_BUILDCOMMAND_TIP)} value={buildCommand} disabled={!canManage} onChange={(event) => setBuildCommand(event.target.value)} rows={3} />
           </label>
           <label className="playbook-editor-field" title={t(CMD_UNITTESTCOMMAND_TIP)}>
-            <span>{t('Unit Test Command')}</span>
-            <textarea title={t(CMD_UNITTESTCOMMAND_TIP)} value={unitTestCommand} disabled={!canManage} onChange={(event) => setUnitTestCommand(event.target.value)} rows={3} />
+            <span>{t('Unit Test Command (Full)')}</span>
+            <textarea title={t(CMD_UNITTESTCOMMAND_TIP)} value={unitTestCommand} disabled={!canManage} onChange={(event) => setUnitTestCommand(event.target.value)} rows={3} placeholder={t('dotnet test')} />
+          </label>
+          <label className="playbook-editor-field" title={t(CMD_ABBREVIATEDUNITTESTCOMMAND_TIP)}>
+            <span>{t('Unit Test Command (Abbreviated)')}</span>
+            <textarea title={t(CMD_ABBREVIATEDUNITTESTCOMMAND_TIP)} value={abbreviatedUnitTestCommand} disabled={!canManage} onChange={(event) => setAbbreviatedUnitTestCommand(event.target.value)} rows={3} placeholder={t('dotnet test --filter Category=Smoke')} />
+            <span className="text-dim" title={t(UNIT_TEST_SELECTION_HINT)}>{t(UNIT_TEST_SELECTION_HINT)}</span>
           </label>
           <label className="playbook-editor-field" title={t(CMD_INTEGRATIONTESTCOMMAND_TIP)}>
             <span>{t('Integration Test Command')}</span>
