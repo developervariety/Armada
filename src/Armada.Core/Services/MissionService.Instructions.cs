@@ -50,7 +50,10 @@ namespace Armada.Core.Services
             string instructionsPath = Path.Combine(worktreePath, instructionsFileName);
 
             Mission? previousStage = await ReadPreviousStageAsync(mission, token).ConfigureAwait(false);
-            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, previousStage);
+            HandoffRendering? handoff = previousStage != null
+                ? await RenderHandoffAsync(harborHost, worktreePath, previousStage, captain, token).ConfigureAwait(false)
+                : null;
+            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, previousStage, handoff);
             List<MissionPlaybookSnapshot> playbookSnapshots = await LoadMissionPlaybookSnapshotsAsync(mission, token).ConfigureAwait(false);
 
             string content = "";
@@ -105,7 +108,32 @@ namespace Armada.Core.Services
             // Apply the vessel's project-profile persona override (if any) so per-project customization takes effect.
             PersonaOverride? personaOverride = await ResolvePersonaOverrideAsync(vessel, mission.Persona, token).ConfigureAwait(false);
             string? personaTemplateName = await ResolvePersonaTemplateNameAsync(mission, token).ConfigureAwait(false);
-            string personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+            PromptVariantEnum promptVariant = await ResolvePromptVariantAsync(mission, captain, token).ConfigureAwait(false);
+            string personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, promptVariant, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+            if (handoff != null)
+            {
+                // The description's prior-stage placeholder receives the rendered handoff, unless the persona template
+                // already carries it through {PreviousStageOutput} (Judge, Test Engineer, Linter): deliver it once.
+                bool templateCarriesHandoff = personaPrompt.Contains(handoff.Evidence.Trim(), StringComparison.Ordinal);
+                string carriedNote = "The prior stage's handoff artifact is rendered in the role instructions below (prior stage evidence and diff).";
+                string block = templateCarriesHandoff ? carriedNote : handoff.Combined();
+                // A rework description lists the reviewer's findings, its demands and the output contract (Phase 3 item 2).
+                string filled = ReworkPromptBuilder.IsReworkDescription(templateParams["MissionDescription"])
+                    ? ReworkPromptBuilder.Compose(templateParams["MissionDescription"], handoff, templateCarriesHandoff ? carriedNote : null)
+                    : PipelineHandoffContext.Fill(templateParams["MissionDescription"], block);
+                if (!String.Equals(filled, templateParams["MissionDescription"], StringComparison.Ordinal))
+                {
+                    templateParams["MissionDescription"] = filled;
+                    personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, promptVariant, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+                }
+            }
+            else if (ReworkPromptBuilder.IsReworkDescription(templateParams["MissionDescription"]))
+            {
+                // No reviewer stage to render: keep the fallback findings line and drop the placeholder.
+                templateParams["MissionDescription"] = ReworkPromptBuilder.Compose(templateParams["MissionDescription"], null);
+                personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, promptVariant, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+            }
+
             templateParams["PersonaPrompt"] = personaPrompt;
             content += await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false);
             content += "\n";
@@ -230,8 +258,9 @@ namespace Armada.Core.Services
             IDockFileSystem files = harborHost != null ? harborHost.Files : _LocalFiles;
             string? existing = await files.ReadTextAsync(instructionsPath, token).ConfigureAwait(false);
 
-            // A runtime whose instructions file is not the repository's own (MUX.md, CODEX.md, GEMINI.md, CURSOR.md)
-            // would otherwise never see the project's rules: mux loads MUX.md first and skips AGENTS.md and CLAUDE.md.
+            // A runtime whose instructions file is not the repository's own (MUX.md, CODEX.md, GEMINI.md, CURSOR.md,
+            // AGENTS.override.md for pi) would otherwise never see the project's rules: mux loads MUX.md first and skips
+            // AGENTS.md and CLAUDE.md, and pi's AGENTS.override.md hides the dock's AGENTS.md.
             // Carry the repository's AGENTS.md, else CLAUDE.md, into the generated file. Codex reads AGENTS.md itself.
             if (existing == null && !String.Equals(instructionsFileName, "CLAUDE.md", StringComparison.Ordinal))
             {
@@ -457,6 +486,30 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Resolve the persona prompt variant for the mission (<see cref="PromptVariantResolver"/>): the voyage's captain
+        /// override for the mission's persona, then the captain's <c>promptVariant</c> runtime option, then Current.
+        /// Best-effort: a voyage read failure falls back to the captain's setting.
+        /// </summary>
+        private async Task<PromptVariantEnum> ResolvePromptVariantAsync(Mission mission, Captain? captain, CancellationToken token)
+        {
+            List<CaptainAssignmentOverride> overrides;
+            try
+            {
+                overrides = await ReadVoyageCaptainOverridesAsync(mission.VoyageId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                _Logging.Debug(_Header + "could not read voyage overrides for the prompt variant of mission " + mission.Id + ": " + ex.Message);
+                overrides = new List<CaptainAssignmentOverride>();
+            }
+
+            PromptVariantEnum variant = PromptVariantResolver.Resolve(mission.Persona, overrides, captain);
+            if (variant != PromptVariantEnum.Current)
+                _Logging.Debug(_Header + "mission " + mission.Id + " renders the " + variant + " persona prompt variant");
+            return variant;
+        }
+
+        /// <summary>
         /// Resolve the prompt template configured on the mission's persona (<see cref="Persona.PromptTemplateName"/>).
         /// Returns null (use the conventional persona.&lt;name&gt; template) when the persona is not found or names no
         /// template, and logs and returns null when the configured template does not exist.
@@ -490,6 +543,45 @@ namespace Armada.Core.Services
             }
 
             return templateName;
+        }
+
+        /// <summary>
+        /// Render the prior stage's handoff artifact for the captain about to read it: the budget comes from the captain's
+        /// served context when known, else <see cref="ArmadaSettings.HandoffBudgetTokens"/>; the pointer to the complete
+        /// artifact uses a tool the captain has. A captain that can only read files gets the complete artifact written to
+        /// .armada/handoff/ in its worktree (git-excluded and a scratch path, so it is never committed). If that write
+        /// fails, the rendering says that nothing beyond it can reach the captain.
+        /// </summary>
+        private async Task<HandoffRendering> RenderHandoffAsync(DockHost? harborHost, string worktreePath, Mission previousStage, Captain? captain, CancellationToken token)
+        {
+            HandoffArtifact artifact = await new HandoffArtifactService(_Database, _Logging).GetOrCreateForStageAsync(previousStage, token).ConfigureAwait(false);
+            ModelEndpoint? endpoint = null;
+            if (!String.IsNullOrEmpty(captain?.ModelEndpointId))
+            {
+                try { endpoint = await _Database.ModelEndpoints.ReadAsync(captain!.ModelEndpointId!, token).ConfigureAwait(false); }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested)) { endpoint = null; }
+            }
+
+            HandoffReader reader = HandoffReaderResolver.Resolve(captain, endpoint);
+            HandoffRendering rendering = HandoffRenderer.Render(artifact, reader, _Settings.HandoffBudgetTokens);
+            if (rendering.Pointer == HandoffPointerKindEnum.File && rendering.FilePath != null)
+            {
+                IDockFileSystem files = harborHost != null ? harborHost.Files : _LocalFiles;
+                try
+                {
+                    string absolute = Path.Combine(worktreePath, rendering.FilePath.Replace('/', Path.DirectorySeparatorChar));
+                    await files.WriteTextAsync(absolute, HandoffRenderer.RenderFullDocument(artifact), token).ConfigureAwait(false);
+                    await files.AddGitExcludeEntryAsync(worktreePath, HandoffRenderer.HandoffDirectory + "/", token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    _Logging.Warn(_Header + "could not write the handoff file for mission " + previousStage.Id + " into " + worktreePath + ": " + ex.Message);
+                    HandoffReader noAccess = new HandoffReader { ContextTokens = reader.ContextTokens, HasMcpTools = false, CanReadFiles = false };
+                    rendering = HandoffRenderer.RenderWithBudget(artifact, noAccess, rendering.BudgetTokens);
+                }
+            }
+
+            return rendering;
         }
 
         /// <summary>

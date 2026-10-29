@@ -29,6 +29,18 @@ namespace Armada.Server.Mcp
         /// Shell command template (Command kind).
         /// </summary>
         public string? CommandText { get; set; }
+        /// <summary>Optional Windows command template.</summary>
+        public string? CommandWindows { get; set; }
+        /// <summary>Output parser ID.</summary>
+        public string? OutputParser { get; set; }
+        /// <summary>Source scan action key or ID.</summary>
+        public string? ScanSourceActionKey { get; set; }
+        /// <summary>Executables required on the target host PATH.</summary>
+        public System.Collections.Generic.List<string>? RequiredTools { get; set; }
+        /// <summary>Whether this action requires network access.</summary>
+        public bool? RequiresNetwork { get; set; }
+        /// <summary>Typed runtime input definitions.</summary>
+        public System.Collections.Generic.List<Armada.Core.Models.FleetActionInput>? Inputs { get; set; }
 
         /// <summary>
         /// Prompt template (Mission kind).

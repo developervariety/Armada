@@ -13,6 +13,7 @@ namespace Test.Shared.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Runtimes;
     using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -214,6 +215,57 @@ namespace Test.Shared.Suites.Services
                     finally
                     {
                         try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            }));
+
+            cases.Add(CaseAsync("pi_mission_writes_agents_override_carrying_agents_md", "A pi mission writes AGENTS.override.md with the instructions followed by the repository's AGENTS.md; a pi launch sees it and git status stays clean", TestTags.Positive, async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, CreateSettings(), new StubGitService());
+                    string root = Path.Combine(Path.GetTempPath(), "armada_pi_override_" + Guid.NewGuid().ToString("N"));
+                    string tempDir = Path.Combine(root, "dock");
+                    Directory.CreateDirectory(tempDir);
+                    try
+                    {
+                        Git(tempDir, "init", "-q");
+                        File.WriteAllText(Path.Combine(tempDir, "AGENTS.md"), "# Repo rules\nAlways run the tests.\n");
+                        Git(tempDir, "add", "AGENTS.md");
+                        Git(tempDir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init");
+
+                        Captain captain = new Captain("PiCaptain") { Runtime = AgentRuntimeEnum.Pi };
+                        Mission mission = new Mission { Title = "Implement the pi feature", Description = "Do the work." };
+                        await service.GenerateClaudeMdAsync(tempDir, mission, new Vessel("PiVessel", "https://github.com/test/repo"), captain);
+
+                        string overridePath = Path.Combine(tempDir, "AGENTS.override.md");
+                        AssertTrue(File.Exists(overridePath), "pi missions write AGENTS.override.md");
+                        AssertFalse(File.Exists(Path.Combine(tempDir, "CLAUDE.md")), "pi missions do not write CLAUDE.md");
+                        string content = File.ReadAllText(overridePath);
+                        int missionAt = content.IndexOf("Implement the pi feature", StringComparison.Ordinal);
+                        int repoAt = content.IndexOf("Always run the tests.", StringComparison.Ordinal);
+                        AssertTrue(missionAt >= 0, "mission instructions present");
+                        AssertTrue(repoAt > missionAt, "the repository AGENTS.md follows the mission instructions");
+                        AssertEqual("# Repo rules\nAlways run the tests.\n", File.ReadAllText(Path.Combine(tempDir, "AGENTS.md")), "AGENTS.md is untouched");
+
+                        string stubDirectory = Path.Combine(root, "stub");
+                        string stub = StubAgentProcesses.WritePiStub(stubDirectory);
+                        File.WriteAllText(Path.Combine(stubDirectory, "pi-replay.jsonl"), String.Join("\n", PiStreamFixtures.PlainReply) + "\n");
+                        PiRuntime runtime = new PiRuntime(logging) { ExecutablePath = stub };
+                        TaskCompletionSource<int?> exited = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        runtime.OnProcessExited += (pid, code) => exited.TrySetResult(code);
+                        await runtime.StartAsync(tempDir, "go", captain: captain);
+                        AssertTrue(await Task.WhenAny(exited.Task, Task.Delay(30000)) == exited.Task, "stub pi exited");
+                        AssertEqual(0, await exited.Task ?? -1);
+                        AssertEqual(content, File.ReadAllText(Path.Combine(stubDirectory, "pi-agents-override.md")), "pi saw the generated file in the dock");
+
+                        AssertEqual(String.Empty, Git(tempDir, "status", "--porcelain").Trim(), "git status is clean");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(root, true); } catch { }
                     }
                 }
             }));
@@ -1302,6 +1354,24 @@ namespace Test.Shared.Suites.Services
             string directory = TestTemp.NewDirectory(directoryLabel);
             await service.GenerateClaudeMdAsync(directory, mission, vessel).ConfigureAwait(false);
             return await File.ReadAllTextAsync(Path.Combine(directory, "CLAUDE.md")).ConfigureAwait(false);
+        }
+
+        private static string Git(string workingDirectory, params string[] args)
+        {
+            System.Diagnostics.ProcessStartInfo info = new System.Diagnostics.ProcessStartInfo("git")
+            {
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            foreach (string arg in args) info.ArgumentList.Add(arg);
+            using System.Diagnostics.Process process = System.Diagnostics.Process.Start(info)!;
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            AssertEqual(0, process.ExitCode, "git " + String.Join(" ", args) + ": " + error);
+            return output;
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)

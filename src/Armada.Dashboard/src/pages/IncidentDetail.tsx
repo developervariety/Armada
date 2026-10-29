@@ -34,6 +34,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildIncidentPrompt, INCIDENT_SEVERITIES, INCIDENT_STATUSES, toInputDateTime, toUtcValue } from '../lib/deliveryForms';
+import { PLANNING_PATH } from '../lib/navTargets';
 
 
 interface IncidentPrefillState {
@@ -308,7 +309,7 @@ export default function IncidentDetail() {
 
   function handlePlanHotfix() {
     const prompt = buildIncidentPrompt(title, summary, impact, environmentName, deploymentId, releaseId);
-    navigate('/planning', {
+    navigate(PLANNING_PATH, {
       state: {
         fromIncident: true,
         vesselId: vesselId || selectedEnvironment?.vesselId || null,

@@ -19,6 +19,8 @@ namespace Armada.Core.Services
     /// Usage per runtime: Claude Code's stream-json <c>result</c> event (input, output, cache-read and cache-creation
     /// tokens, and total_cost_usd); Codex's <c>turn.completed</c> usage (input including cached, cached input, output);
     /// OpenCode's <c>step_finish</c> parts (input, output, reasoning, cache read and write, cost; summed across steps);
+    /// pi's assistant <c>message_end</c> usage (input, output with reasoning already included, cache read and write,
+    /// cost; summed across model responses, never from cumulative <c>message_update</c> usage);
     /// Mux's <c>run_completed</c> usage (contract version 2, unless stats are off). Gemini, Cursor, and the in-process
     /// API runtime report no per-turn usage, so their completion tokens are
     /// estimated from the reply. Input tokens always include cached tokens, and cached tokens are the cache-read
@@ -193,7 +195,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Observe one stdout line of a runtime: its typed event when the line is one (Claude Code stream-json, Codex
-        /// exec --json, OpenCode --format json, Mux protocol), otherwise plain reply text.
+        /// exec --json, OpenCode --format json, pi --mode json, Mux protocol), otherwise plain reply text.
         /// </summary>
         /// <param name="runtime">The captain's runtime.</param>
         /// <param name="line">The stdout line.</param>
@@ -215,6 +217,12 @@ namespace Armada.Core.Services
             if (runtime == AgentRuntimeEnum.OpenCode && OpenCodeStreamEvent.TryParse(line, out OpenCodeStreamEvent? openCode) && openCode != null)
             {
                 ObserveOpenCode(openCode);
+                return true;
+            }
+
+            if (runtime == AgentRuntimeEnum.Pi && PiStreamEvent.TryParse(line, out PiStreamEvent? pi) && pi != null)
+            {
+                ObservePi(pi);
                 return true;
             }
 
@@ -341,6 +349,44 @@ namespace Armada.Core.Services
 
                 AddUsage(input, output, cached, evt.Part.Cost);
             }
+        }
+
+        /// <summary>
+        /// Observe a pi --mode json record: text deltas are reply text; thinking, tool-call deltas and tool executions are
+        /// output; and each assistant message_end (one per model response) adds that response's usage and cost. Usage on
+        /// message_update is cumulative for the response in progress and is never summed, and reasoning tokens are already
+        /// part of output.
+        /// </summary>
+        /// <param name="evt">The event.</param>
+        public void ObservePi(PiStreamEvent evt)
+        {
+            if (evt == null) return;
+            if (!String.IsNullOrEmpty(evt.TextDelta))
+            {
+                MarkText();
+                return;
+            }
+
+            if (String.Equals(evt.Type, PiStreamEvent.TypeMessageUpdate, StringComparison.Ordinal)
+                || String.Equals(evt.Type, PiStreamEvent.TypeToolExecutionStart, StringComparison.Ordinal))
+            {
+                // Thinking and tool-call deltas are output; message_update usage is cumulative and never summed.
+                if (evt.AssistantMessageEvent != null || evt.ToolCallId != null) MarkOutput();
+                return;
+            }
+
+            PiMessage? message = evt.AssistantMessageEnd;
+            if (message == null) return;
+            SetModel(message.ResponseModel ?? message.Model);
+            if (!String.IsNullOrEmpty(message.Text)) MarkText();
+            PiUsage? usage = message.Usage;
+            if (usage == null) return;
+
+            long? input = null;
+            if (usage.Input.HasValue || usage.CacheRead.HasValue || usage.CacheWrite.HasValue)
+                input = (usage.Input ?? 0) + (usage.CacheRead ?? 0) + (usage.CacheWrite ?? 0);
+            // reasoning is already included in output.
+            AddUsage(input, usage.Output, usage.CacheRead, usage.Cost?.Total);
         }
 
         /// <summary>

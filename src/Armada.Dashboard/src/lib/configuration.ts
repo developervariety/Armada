@@ -140,6 +140,7 @@ export function countProfileCapabilities(profile: WorkflowProfile): number {
     profile.lintCommand,
     profile.buildCommand,
     profile.unitTestCommand,
+    profile.abbreviatedUnitTestCommand,
     profile.integrationTestCommand,
     profile.e2eTestCommand,
     profile.packageCommand,
