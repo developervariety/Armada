@@ -4,35 +4,29 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
 
     /// <summary>
-    /// Query for Armada historical timeline aggregation.
+    /// Query for Armada historical timeline aggregation: the standard <see cref="EnumerationQuery"/> paging (PageNumber,
+    /// PageSize 1 to 1000, default 50 here) and Order (CreatedDescending, the default, is newest first by occurrence
+    /// time; CreatedAscending is oldest first), its TenantId, UserId, VesselId, MissionId, and VoyageId filters, plus the
+    /// timeline-specific filters below.
     /// </summary>
-    public class HistoricalTimelineQuery
+    public class HistoricalTimelineQuery : EnumerationQuery
     {
-        #region Private-Members
+        #region Constructors-and-Factories
 
-        private int _PageSize = 50;
+        /// <summary>
+        /// Instantiate with the timeline's default page size of 50.
+        /// </summary>
+        public HistoricalTimelineQuery()
+        {
+            PageSize = 50;
+        }
 
         #endregion
-
-        /// <summary>
-        /// Tenant scope or filter.
-        /// </summary>
-        public string? TenantId { get; set; } = null;
-
-        /// <summary>
-        /// User scope or filter.
-        /// </summary>
-        public string? UserId { get; set; } = null;
 
         /// <summary>
         /// Optional objective filter.
         /// </summary>
         public string? ObjectiveId { get; set; } = null;
-
-        /// <summary>
-        /// Optional vessel filter.
-        /// </summary>
-        public string? VesselId { get; set; } = null;
 
         /// <summary>
         /// Optional environment filter.
@@ -62,16 +56,6 @@ namespace Armada.Core.Models
         public bool ExcludeReadRequests { get; set; } = false;
 
         /// <summary>
-        /// Optional mission filter.
-        /// </summary>
-        public string? MissionId { get; set; } = null;
-
-        /// <summary>
-        /// Optional voyage filter.
-        /// </summary>
-        public string? VoyageId { get; set; } = null;
-
-        /// <summary>
         /// Optional principal or actor text filter.
         /// </summary>
         public string? Actor { get; set; } = null;
@@ -95,25 +79,5 @@ namespace Armada.Core.Models
         /// Optional upper-bound time filter.
         /// </summary>
         public DateTime? ToUtc { get; set; } = null;
-
-        /// <summary>
-        /// Page number.
-        /// </summary>
-        public int PageNumber { get; set; } = 1;
-
-        /// <summary>
-        /// Results per page (1 to 1000, default 50). Values outside the range are clamped, so a request can never ask for
-        /// an unbounded page.
-        /// </summary>
-        public int PageSize
-        {
-            get => _PageSize;
-            set => _PageSize = value < 1 ? 1 : (value > 1000 ? 1000 : value);
-        }
-
-        /// <summary>
-        /// Zero-based offset.
-        /// </summary>
-        public int Offset => PageNumber <= 1 ? 0 : (PageNumber - 1) * PageSize;
     }
 }

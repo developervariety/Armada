@@ -935,6 +935,10 @@ namespace Armada.Runtimes
         /// </summary>
         private void EmitToolEvent(int processId, ApiRuntimeToolEvent toolEvent)
         {
+            // General output is forwarded over Harbor, preserving lifecycle evidence without
+            // putting diagnostics in the captain's final reply or depending on Admiral-local process IDs.
+            EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.ToolCall, "[tool-lifecycle] " +
+                JsonSerializer.Serialize(new { id = toolEvent.Id, started = toolEvent.Phase == ApiRuntimeToolPhaseEnum.Started }));
             try { OnToolEvent?.Invoke(processId, toolEvent); } catch { }
             if (toolEvent.Phase == ApiRuntimeToolPhaseEnum.Started && !String.IsNullOrWhiteSpace(toolEvent.Name))
             {
