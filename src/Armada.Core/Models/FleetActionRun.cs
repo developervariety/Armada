@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// One invocation of a fleet action over a set of target vessels. The run stores a snapshot of the
@@ -19,13 +20,16 @@ namespace Armada.Core.Models
         /// <summary>Source action built-in key (or ID) for {{scan.summary}}.</summary>
         public string? ScanSourceActionKey { get; set; }
         /// <summary>Executable names required on the target host PATH.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public System.Collections.Generic.List<string> RequiredTools { get => _RequiredTools; set => _RequiredTools = value ?? new(); }
         private System.Collections.Generic.List<string> _RequiredTools = new();
         /// <summary>Whether execution requires network access.</summary>
         public bool RequiresNetwork { get; set; }
         /// <summary>Validated runtime values, snapshotted at dispatch.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public System.Collections.Generic.List<FleetActionInput> Inputs { get; set; } = new();
         /// <summary>Validated runtime input values.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems, Reason = "One per declared input")]
         public System.Collections.Generic.Dictionary<string, string> InputValues { get => _InputValues; set => _InputValues = value ?? new(); }
         private System.Collections.Generic.Dictionary<string, string> _InputValues = new();
         /// <summary>Targets with parsed findings, counted separately from failures.</summary>

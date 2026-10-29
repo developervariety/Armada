@@ -87,17 +87,54 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Inventory a vessel's cleanup candidates. Read-only: nothing is created, changed, or deleted.
+        /// Inventory a vessel's cleanup candidates and summarize them (counts and measured size). Read-only: nothing is
+        /// created, changed, or deleted. The resources are read one page at a time with
+        /// <see cref="EnumerateResourcesAsync"/>.
         /// </summary>
         /// <param name="vessel">Vessel (already authorized by the caller).</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The classified inventory.</returns>
+        /// <returns>The inventory summary.</returns>
         /// <exception cref="ArgumentNullException">Thrown when vessel is null.</exception>
         public async Task<VesselCleanupInventory> ScanAsync(Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             List<VesselCleanupResource> resources = await InventoryAsync(vessel, null, token).ConfigureAwait(false);
             return BuildInventory(vessel, resources);
+        }
+
+        /// <summary>
+        /// Inventory a vessel's cleanup candidates and return one page of them, in inventory order (docks oldest first,
+        /// then each repository's orphaned worktrees and managed branches). The inventory comes from git and the file
+        /// system on each owning host, which have no paging of their own, so the classification runs over the whole
+        /// inventory and the page is cut from it; TotalRecords is exact. Read-only.
+        /// </summary>
+        /// <param name="vessel">Vessel (already authorized by the caller).</param>
+        /// <param name="query">Paging (page size 1 to 1000, default 10). Status, when set, filters by disposition
+        /// (Safe, InUse, or Unknown, case-insensitive); null is the first page of every resource.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The page.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when vessel is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when Status is not a disposition.</exception>
+        public async Task<EnumerationResult<VesselCleanupResource>> EnumerateResourcesAsync(Vessel vessel, EnumerationQuery? query, CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (query == null) query = new EnumerationQuery();
+            VesselCleanupDispositionEnum? disposition = null;
+            if (!String.IsNullOrWhiteSpace(query.Status))
+            {
+                if (Char.IsDigit(query.Status.Trim()[0])
+                    || !Enum.TryParse<VesselCleanupDispositionEnum>(query.Status.Trim(), true, out VesselCleanupDispositionEnum parsed)
+                    || !Enum.IsDefined(typeof(VesselCleanupDispositionEnum), parsed))
+                    throw new ArgumentException("status must be Safe, InUse, or Unknown.");
+                disposition = parsed;
+            }
+
+            System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+            List<VesselCleanupResource> resources = await InventoryAsync(vessel, null, token).ConfigureAwait(false);
+            if (disposition.HasValue) resources = resources.Where(r => r.Disposition == disposition.Value).ToList();
+            EnumerationResult<VesselCleanupResource> page = CollectionLimits.Page(query, resources);
+            page.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
+            return page;
         }
 
         /// <summary>
@@ -111,10 +148,12 @@ namespace Armada.Core.Services
         /// <returns>Per-item outcomes and the refreshed inventory.</returns>
         /// <exception cref="ArgumentNullException">Thrown when vessel or request is null.</exception>
         /// <exception cref="ArgumentException">Thrown when no keys are selected.</exception>
+        /// <exception cref="CollectionLimitExceededException">Thrown when more than <see cref="CollectionLimits.MaxRequestItems"/> keys are sent.</exception>
         public async Task<VesselCleanupResult> CleanupAsync(Vessel vessel, VesselCleanupRequest request, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (request == null) throw new ArgumentNullException(nameof(request));
+            CollectionLimits.RequireRequestItems(request.Keys, "Keys");
             List<string> keys = (request.Keys ?? new List<string>())
                 .Where(k => !String.IsNullOrWhiteSpace(k))
                 .Distinct(StringComparer.Ordinal)
@@ -659,8 +698,14 @@ namespace Armada.Core.Services
         private async Task<CleanupSnapshot> LoadSnapshotAsync(Vessel vessel, CancellationToken token)
         {
             CleanupSnapshot snap = new CleanupSnapshot();
-            snap.AllDocks = await _Database.Docks.EnumerateAsync(token).ConfigureAwait(false);
-            snap.VesselDocks = snap.AllDocks.Where(d => d.VesselId == vessel.Id).ToList();
+            // Docks are read in bounded pages at the data source: this vessel's docks (oldest first), and the docks of
+            // every vessel that have a worktree path (needed to tell a shared or Armada-owned worktree from an orphan).
+            snap.VesselDocks = await ReadDockPagesAsync(new EnumerationQuery { VesselId = vessel.Id }, null, token).ConfigureAwait(false);
+            snap.AllDocks = await ReadDockPagesAsync(new EnumerationQuery(), d => !String.IsNullOrEmpty(d.WorktreePath), token).ConfigureAwait(false);
+            foreach (Dock own in snap.VesselDocks)
+            {
+                if (!snap.AllDocks.Any(d => d.Id == own.Id)) snap.AllDocks.Add(own);
+            }
             snap.Missions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
             HashSet<string> missionIds = new HashSet<string>(snap.Missions.Select(m => m.Id), StringComparer.Ordinal);
             snap.MergeEntries = (await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false))
@@ -711,6 +756,28 @@ namespace Armada.Core.Services
             return r;
         }
 
+        private async Task<List<Dock>> ReadDockPagesAsync(EnumerationQuery query, Func<Dock, bool>? keep, CancellationToken token)
+        {
+            List<Dock> docks = new List<Dock>();
+            query.Order = EnumerationOrderEnum.CreatedAscending;
+            query.PageSize = CollectionLimits.MaxPageSize;
+            query.PageNumber = 1;
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                EnumerationResult<Dock> page = await _Database.Docks.EnumerateAsync(query, token).ConfigureAwait(false);
+                foreach (Dock dock in page.Objects)
+                {
+                    if (keep == null || keep(dock)) docks.Add(dock);
+                }
+
+                if (page.Objects.Count < query.PageSize || query.PageNumber >= page.TotalPages) break;
+                query.PageNumber++;
+            }
+
+            return docks;
+        }
+
         private static VesselCleanupInventory BuildInventory(Vessel vessel, List<VesselCleanupResource> resources)
         {
             VesselCleanupInventory inventory = new VesselCleanupInventory
@@ -718,7 +785,7 @@ namespace Armada.Core.Services
                 VesselId = vessel.Id,
                 VesselName = vessel.Name,
                 ScannedUtc = DateTime.UtcNow,
-                Resources = resources
+                ResourceCount = resources.Count
             };
             foreach (VesselCleanupResource r in resources)
             {

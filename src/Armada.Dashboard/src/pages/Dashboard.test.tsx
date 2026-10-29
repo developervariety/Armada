@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import {
   enumerateFleetActionRuns,
+  enumerateVoyageProgress,
   getMissionHistory,
   getStatus,
   getVesselHealthSummary,
@@ -56,6 +57,7 @@ vi.mock('../api/client', () => ({
   deleteMission: vi.fn(),
   restartMission: vi.fn(),
   enumerateFleetActionRuns: vi.fn(),
+  enumerateVoyageProgress: vi.fn(),
   getMissionHistory: vi.fn(),
   getVesselHealthSummary: vi.fn(),
 }));
@@ -194,6 +196,7 @@ describe('Dashboard home refresh', () => {
     vi.mocked(listCaptains).mockResolvedValue(emptyPage());
     vi.mocked(listFleets).mockResolvedValue(emptyPage());
     vi.mocked(enumerateFleetActionRuns).mockResolvedValue(emptyPage());
+    vi.mocked(enumerateVoyageProgress).mockResolvedValue(emptyPage());
     vi.mocked(getMissionHistory).mockResolvedValue(historyResult(4));
     vi.mocked(getVesselHealthSummary).mockResolvedValue({ totalVessels: 0 } as VesselHealthSummary);
   });
@@ -228,6 +231,7 @@ describe('Dashboard home refresh', () => {
 
     expect(getStatus).toHaveBeenCalledTimes(1);
     expect(listMissionSummaries).toHaveBeenCalledTimes(1);
+    expect(enumerateVoyageProgress).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       releaseFirst();
@@ -237,6 +241,7 @@ describe('Dashboard home refresh', () => {
     expect(screen.queryByText('Older mission')).not.toBeInTheDocument();
     expect(getStatus).toHaveBeenCalledTimes(2);
     expect(listMissionSummaries).toHaveBeenCalledTimes(2);
+    expect(enumerateVoyageProgress).toHaveBeenCalledTimes(2);
   });
 
   it('uses the same single follow-up when Refresh is clicked during a home load', async () => {
@@ -264,6 +269,7 @@ describe('Dashboard home refresh', () => {
 
     expect(getStatus).toHaveBeenCalledTimes(2);
     expect(listMissionSummaries).toHaveBeenCalledTimes(2);
+    expect(enumerateVoyageProgress).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       releaseRefresh();
@@ -273,6 +279,7 @@ describe('Dashboard home refresh', () => {
     expect(screen.queryByText('Older mission')).not.toBeInTheDocument();
     expect(getStatus).toHaveBeenCalledTimes(3);
     expect(listMissionSummaries).toHaveBeenCalledTimes(3);
+    expect(enumerateVoyageProgress).toHaveBeenCalledTimes(3);
   });
 
   it('stops periodic home reloads when auto-refresh is None and still reloads reference data', async () => {

@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import DataTable, { type DataTableColumn } from '../shared/DataTable';
 import ActionMenu from '../shared/ActionMenu';
 import ConfirmDialog from '../shared/ConfirmDialog';
+import { useDeleteProgress } from '../../lib/useDeleteProgress';
 import JsonViewer from '../shared/JsonViewer';
 import CopyButton from '../shared/CopyButton';
 import CodeStatusBadge from '../shared/CodeStatusBadge';
@@ -28,6 +29,7 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
   const { isTenantAdmin } = useAuth();
+  const deletion = useDeleteProgress();
 
   const [rows, setRows] = useState<FleetAction[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
@@ -85,15 +87,16 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
 
   async function handleDelete(a: FleetAction) {
     setConfirmDelete(null);
-    try {
-      await deleteFleetAction(a.id);
-      pushToast('warning', a.isBuiltIn
-        ? t('Built-in action "{{name}}" hidden.', { name: a.name })
-        : t('Fleet action "{{name}}" deleted.', { name: a.name }));
-      void load();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Delete failed.'));
-    }
+    const done = await deletion.run({
+      kind: 'fleetAction',
+      action: () => deleteFleetAction(a.id),
+      errorMessage: (err) => (err instanceof Error && err.message ? err.message : t('Delete failed.')),
+    });
+    if (!done) return;
+    pushToast('warning', a.isBuiltIn
+      ? t('Built-in action "{{name}}" hidden.', { name: a.name })
+      : t('Fleet action "{{name}}" deleted.', { name: a.name }));
+    void load();
   }
 
   const toggleOrder = () => {
@@ -258,6 +261,7 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
         onConfirm={() => { if (confirmDelete) void handleDelete(confirmDelete); }}
         onCancel={() => setConfirmDelete(null)}
       />
+      {deletion.dialog}
 
       <VesselPickerModal
         open={runFlow.stage === 'pick'}

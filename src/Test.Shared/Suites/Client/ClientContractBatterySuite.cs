@@ -72,8 +72,17 @@ namespace Test.Shared.Suites.Client
                 }
 
                 AssertEqual(BatteryRunStatusEnum.Completed, run.Status, run.FailureReason);
-                AssertEqual(10, run.Results.Count, "results");
+                AssertEqual(0, run.Results.Count, "the run read does not embed results");
+                EnumerationResult<BatteryTaskResult> first = (await c.EnumerateBatteryRunResultsAsync(run.Id, new EnumerationQuery { PageNumber = 1, PageSize = 4, Order = EnumerationOrderEnum.CreatedAscending }))!;
+                AssertEqual(10L, first.TotalRecords, "results total");
+                AssertEqual(3, first.TotalPages, "results pages");
+                AssertEqual(4, first.Objects.Count, "first page");
+                EnumerationResult<BatteryTaskResult> last = (await c.EnumerateBatteryRunResultsAsync(run.Id, new EnumerationQuery { PageNumber = 3, PageSize = 4, Order = EnumerationOrderEnum.CreatedAscending }))!;
+                AssertEqual(2, last.Objects.Count, "final partial page");
+                EnumerationResult<BatteryTaskResult> viaGet = (await c.ListBatteryRunResultsAsync(run.Id, 1, 1000, null))!;
+                AssertEqual(10, viaGet.Objects.Count, "GET twin");
                 await ClientContract.ExpectErrorAsync(() => c.GetBatteryRunAsync("bat_missing"), "unknown run", 404, 404);
+                await ClientContract.ExpectErrorAsync(() => c.EnumerateBatteryRunResultsAsync("bat_missing"), "unknown run results", 404, 404);
             }));
 
             return new TestSuiteDescriptor(suiteId: Suite, displayName: "Armada.Client contract: fixture battery", cases: cases);
