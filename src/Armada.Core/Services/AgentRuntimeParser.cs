@@ -24,7 +24,7 @@ namespace Armada.Core.Services
         /// </summary>
         public static string AcceptedValues
         {
-            get => "claude, codex, gemini, cursor, mux, opencode, api (ApiEndpoint), custom";
+            get => "claude, codex, gemini, cursor, mux, opencode, pi, api (ApiEndpoint), custom";
         }
 
         #endregion
@@ -69,6 +69,7 @@ namespace Armada.Core.Services
             aliases["claude"] = AgentRuntimeEnum.ClaudeCode;
             aliases["claude-code"] = AgentRuntimeEnum.ClaudeCode;
             aliases["open-code"] = AgentRuntimeEnum.OpenCode;
+            aliases["pi-coding-agent"] = AgentRuntimeEnum.Pi;
             aliases["api"] = AgentRuntimeEnum.ApiEndpoint;
             aliases["api-endpoint"] = AgentRuntimeEnum.ApiEndpoint;
             return aliases;

@@ -29,6 +29,18 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// POST /api/v1/tenants/enumerate: one page of the tenants (global admins), with the total.
+        /// </summary>
+        /// <param name="query">Paging and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<TenantMetadata>?> EnumerateTenantsAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<TenantMetadata>>("/api/v1/tenants/enumerate", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>createTenant</c>: POST '/api/v1/tenants'. The server generates the seeded tenant admin's
         /// password and returns it once in <see cref="TenantCreateResult.AdminPassword"/>; pass a
         /// <see cref="TenantCreateRequest"/> with <see cref="TenantCreateRequest.AdminPassword"/> set to supply it instead

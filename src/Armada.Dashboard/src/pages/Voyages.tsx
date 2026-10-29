@@ -189,12 +189,6 @@ export default function Voyages() {
 
   const columns: DataTableColumn<Voyage>[] = [
     {
-      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Name of the voyage, a batch of related missions dispatched together. Click to sort.'),
-      cellClassName: 'cell-title', cellTitle: (v) => v.title,
-      filter: <input type="text" className="col-filter" aria-label={t('Title')} title={t('Show only voyages on this page whose title contains this text. Not case sensitive.')} value={table.colFilters.title ?? ''} onChange={e => table.setColFilter('title', e.target.value)} placeholder={t('Search...')} />,
-      render: (v) => <><strong className="line-clamp-2">{v.title}</strong>{v.isEvaluation && <EvaluationBadge isEvaluation />}</>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique voyage ID (vyg_ prefix). Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',
       render: (v) => (
         <span className="id-display">
@@ -202,6 +196,12 @@ export default function Voyages() {
           <CopyButton text={v.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Name of the voyage, a batch of related missions dispatched together. Click to sort.'),
+      cellClassName: 'cell-title', cellTitle: (v) => v.title,
+      filter: <input type="text" className="col-filter" aria-label={t('Title')} title={t('Show only voyages on this page whose title contains this text. Not case sensitive.')} value={table.colFilters.title ?? ''} onChange={e => table.setColFilter('title', e.target.value)} placeholder={t('Search...')} />,
+      render: (v) => <><strong className="line-clamp-2">{v.title}</strong>{v.isEvaluation && <EvaluationBadge isEvaluation />}</>,
     },
     {
       key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Open while missions are being set up, InProgress while any run, then Complete, Failed (some missions failed) or Cancelled. Click to sort.'), cellClassName: 'cell-nowrap',

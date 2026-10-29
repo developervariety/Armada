@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System.Collections.Generic;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// Body of POST /api/v1/battery/runs (run_battery).
@@ -37,6 +38,12 @@ namespace Armada.Core.Models
         /// Create the pack's fixture vessel when it does not exist yet.
         /// </summary>
         public bool CreateFixtureVessel { get; set; } = false;
+
+        /// <summary>
+        /// Persona prompt variant every task of the run renders with, or null to use the captain's own setting
+        /// (default Current). Runs that differ only in this setting compare the variants.
+        /// </summary>
+        public PromptVariantEnum? PromptVariant { get; set; } = null;
 
         #endregion
 

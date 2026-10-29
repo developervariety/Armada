@@ -291,7 +291,7 @@ What the CLI does differently for a remote target:
   Remove --server/--profile, unset ARMADA_SERVER_URL, pass --profile local, or run 'armada profile use local'.`
 - Targeting errors exit with code 2. The full per-command list is in [section 9](#9-cli-command-reference-for-remote-targets).
 
-### MCP clients (Claude Code, Codex, Gemini CLI, Cursor, Mux, OpenCode)
+### MCP clients (Claude Code, Codex, Gemini CLI, Cursor, Mux, OpenCode, pi)
 
 Remote MCP needs a credential on every call. Let `armada mcp install` write the client configs:
 
@@ -364,6 +364,14 @@ OpenCode, `~/.config/opencode/opencode.json` (OpenCode **not run here**):
 ```json
 { "mcp": { "armada": {
   "type": "remote", "url": "https://armada.example.com:7891/mcp", "enabled": true,
+  "headers": { "Authorization": "Bearer <token>" } } } }
+```
+
+pi, `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`; pi **not run here**):
+
+```json
+{ "mcpServers": { "armada": {
+  "type": "http", "url": "https://armada.example.com:7891/mcp",
   "headers": { "Authorization": "Bearer <token>" } } } }
 ```
 
@@ -559,7 +567,7 @@ and 4 manage profiles.
 | `watch` | Yes | target options | Polls REST. Bell and notification settings come from this machine's settings. |
 | `log` | Yes | target options | Reads `GET /api/v1/missions/{id}/log` or `/captains/{id}/log` instead of local files; `--follow` polls every second. |
 | `diff` | Yes | target options | |
-| `inbox` | Yes | target options | |
+| `inbox` | Yes | target options | Pages through `POST /api/v1/inbox/enumerate`. |
 | `health` | Yes | target options | `--evaluate` runs on the Admiral host. |
 | `doctor` | Yes | target options | Checks reachability, transport, and the credential on the remote; skips this machine's settings, database, and runtimes. |
 | `mission list`, `create`, `show`, `cancel`, `restart`, `retry` | Yes | target options | `show` tails the log through REST. |
