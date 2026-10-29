@@ -60,6 +60,17 @@ namespace Armada.Core.Database.Interfaces
         Task<List<CliPermissionRequest>> EnumerateAsync(CliPermissionRequestQuery query, CancellationToken token = default);
 
         /// <summary>
+        /// One page of requests, newest first (created_utc then id, descending), with the total matching the filters.
+        /// The query's Limit is ignored.
+        /// </summary>
+        /// <param name="query">Filters.</param>
+        /// <param name="pageNumber">One-based page number (values below 1 become 1).</param>
+        /// <param name="pageSize">Page size, clamped to 1-1000.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        Task<EnumerationResult<CliPermissionRequest>> EnumeratePageAsync(CliPermissionRequestQuery query, int pageNumber, int pageSize, CancellationToken token = default);
+
+        /// <summary>
         /// Delete requests that are no longer pending (allowed, denied, expired, or cancelled) and were decided before a
         /// cutoff (a request with no decision time counts from its creation). Pending requests are never deleted.
         /// </summary>

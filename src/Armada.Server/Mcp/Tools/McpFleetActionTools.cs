@@ -120,7 +120,8 @@ namespace Armada.Server.Mcp.Tools
                         FleetActionRunRequest body = new FleetActionRunRequest
                         {
                             VesselIds = request.VesselIds ?? new List<string>(),
-                            Concurrency = request.Concurrency
+                            Concurrency = request.Concurrency,
+                            InputValues = request.InputValues ?? new()
                         };
 
                         if (String.IsNullOrWhiteSpace(request.ActionId))
@@ -248,6 +249,12 @@ namespace Armada.Server.Mcp.Tools
                 Description = args.Description,
                 Kind = kind,
                 CommandText = args.CommandText,
+                CommandWindows = args.CommandWindows,
+                OutputParser = args.OutputParser,
+                ScanSourceActionKey = args.ScanSourceActionKey,
+                RequiredTools = args.RequiredTools,
+                RequiresNetwork = args.RequiresNetwork,
+                Inputs = args.Inputs,
                 PromptTemplate = args.PromptTemplate,
                 PipelineId = args.PipelineId,
                 Persona = args.Persona,
@@ -267,7 +274,17 @@ namespace Armada.Server.Mcp.Tools
                     name = new { type = "string", description = "Display name" },
                     description = new { type = "string", description = "Optional description" },
                     kind = new { type = "string", description = "Command or Mission" },
-                    commandText = new { type = "string", description = "Shell command template (Command kind)" },
+                    commandWindows = new { type = "string", description = "Optional Windows shell command" },
+                outputParser = new { type = "string", description = "Registered output parser ID" },
+                scanSourceActionKey = new { type = "string", description = "Source scan action key or ID for scan.summary" },
+                requiredTools = new { type = "array", items = new { type = "string" } },
+                requiresNetwork = new { type = "boolean" },
+                inputs = new { type = "array", items = new { type = "object", properties = new {
+                    name = new { type = "string" }, type = new { type = "string", @enum = new[] { "string", "semver", "enum" } },
+                    required = new { type = "boolean" }, @default = new { type = "string" },
+                    allowedValues = new { type = "array", items = new { type = "string" } }, description = new { type = "string" }
+                }, required = new[] { "name", "type" } } },
+                commandText = new { type = "string", description = "Shell command template (Command kind)" },
                     promptTemplate = new { type = "string", description = "Prompt template (Mission kind)" },
                     pipelineId = new { type = "string", description = "Optional pipeline ID (Mission kind); empty string clears it" },
                     persona = new { type = "string", description = "Optional persona name (Mission kind); empty string clears it" },
@@ -282,6 +299,16 @@ namespace Armada.Server.Mcp.Tools
                 name = new { type = "string", description = "Display name" },
                 description = new { type = "string", description = "Optional description" },
                 kind = new { type = "string", description = "Command (default) or Mission" },
+                commandWindows = new { type = "string", description = "Optional Windows shell command" },
+                outputParser = new { type = "string", description = "Registered output parser ID" },
+                scanSourceActionKey = new { type = "string", description = "Source scan action key or ID for scan.summary" },
+                requiredTools = new { type = "array", items = new { type = "string" } },
+                requiresNetwork = new { type = "boolean" },
+                inputs = new { type = "array", items = new { type = "object", properties = new {
+                    name = new { type = "string" }, type = new { type = "string", @enum = new[] { "string", "semver", "enum" } },
+                    required = new { type = "boolean" }, @default = new { type = "string" },
+                    allowedValues = new { type = "array", items = new { type = "string" } }, description = new { type = "string" }
+                }, required = new[] { "name", "type" } } },
                 commandText = new { type = "string", description = "Shell command template (required for Command kind)" },
                 promptTemplate = new { type = "string", description = "Prompt template (required for Mission kind)" },
                 pipelineId = new { type = "string", description = "Optional pipeline ID (Mission kind)" },
@@ -301,9 +328,20 @@ namespace Armada.Server.Mcp.Tools
                 } },
                 actionId = new { type = "string", description = "Saved fleet action ID (fac_ prefix). Omit for an ad hoc run." },
                 vesselIds = new { type = "array", items = new { type = "string" }, description = "Target vessel IDs (vsl_ prefix), 1-500" },
+                inputValues = new { type = "object", additionalProperties = new { type = "string" }, description = "Runtime values keyed by declared input name" },
                 concurrency = new { type = "integer", description = "Concurrency for this run (1-32); defaults to the action's default" },
                 name = new { type = "string", description = "Ad hoc: display name" },
                 kind = new { type = "string", description = "Ad hoc: Command or Mission" },
+                commandWindows = new { type = "string", description = "Optional Windows shell command" },
+                outputParser = new { type = "string", description = "Registered output parser ID" },
+                scanSourceActionKey = new { type = "string", description = "Source scan action key or ID for scan.summary" },
+                requiredTools = new { type = "array", items = new { type = "string" } },
+                requiresNetwork = new { type = "boolean" },
+                inputs = new { type = "array", items = new { type = "object", properties = new {
+                    name = new { type = "string" }, type = new { type = "string", @enum = new[] { "string", "semver", "enum" } },
+                    required = new { type = "boolean" }, @default = new { type = "string" },
+                    allowedValues = new { type = "array", items = new { type = "string" } }, description = new { type = "string" }
+                }, required = new[] { "name", "type" } } },
                 commandText = new { type = "string", description = "Ad hoc: shell command template" },
                 promptTemplate = new { type = "string", description = "Ad hoc: prompt template" },
                 pipelineId = new { type = "string", description = "Pipeline ID for Mission runs (overrides the saved action's)" },

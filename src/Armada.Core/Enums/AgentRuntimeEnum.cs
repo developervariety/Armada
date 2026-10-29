@@ -56,6 +56,12 @@ namespace Armada.Core.Enums
         /// Custom agent runtime.
         /// </summary>
         [EnumMember(Value = "Custom")]
-        Custom
+        Custom,
+
+        /// <summary>
+        /// pi coding agent CLI (pi.dev; print mode with JSONL event output, provider-neutral).
+        /// </summary>
+        [EnumMember(Value = "Pi")]
+        Pi
     }
 }
