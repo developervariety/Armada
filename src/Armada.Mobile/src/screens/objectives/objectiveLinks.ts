@@ -5,6 +5,7 @@ import {
   buildObjectiveReleaseNotes,
 } from '@dashboard/lib/backlogUtils';
 import { dispatchHref as dispatchLink } from '../operations/w24/dispatchLink';
+import { planningHref as planningTabHref } from '../../navigation/legacyRedirects';
 
 /**
  * Where a backlog item leads: its canonical route and the prefilled Planning, Dispatch, and Release drafts the
@@ -28,7 +29,7 @@ function withQuery(path: string, params: Record<string, string | null | undefine
 
 /** Start Planning: a planning session prefilled from the item (needs a primary vessel). */
 export function planningHref(objective: Objective, fleetId: string, vesselId: string): string {
-  return withQuery('/planning', {
+  return planningTabHref(null, {
     from: 'objective',
     objectiveId: objective.id,
     title: `${objective.title} Planning`,
@@ -79,7 +80,7 @@ export interface LinkGroup {
 /** The Armada Links section: records that reference the item, each linking to its page. Empty groups are left out. */
 export function armadaLinkGroups(objective: Objective): LinkGroup[] {
   const groups: LinkGroup[] = [
-    { key: 'planning', label: 'Planning Sessions', ids: objective.planningSessionIds, href: (id) => `/planning/${encodeURIComponent(id)}` },
+    { key: 'planning', label: 'Planning Sessions', ids: objective.planningSessionIds, href: (id) => planningTabHref(id) },
     { key: 'refinement', label: 'Refinement Sessions', ids: objective.refinementSessionIds, href: (id) => backlogItemPath(objective.id, id) },
     { key: 'voyages', label: 'Voyages', ids: objective.voyageIds, href: (id) => `/voyages/${encodeURIComponent(id)}` },
     { key: 'missions', label: 'Missions', ids: objective.missionIds, href: (id) => `/missions/${encodeURIComponent(id)}` },

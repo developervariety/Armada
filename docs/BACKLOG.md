@@ -109,9 +109,9 @@ Compatibility objective routes:
 
 Refinement routes:
 
-- `GET /api/v1/backlog/{id}/refinement-sessions`
+- `POST /api/v1/backlog/{id}/refinement-sessions/enumerate`
 - `POST /api/v1/backlog/{id}/refinement-sessions`
-- `GET /api/v1/objectives/{id}/refinement-sessions`
+- `POST /api/v1/objectives/{id}/refinement-sessions/enumerate`
 - `POST /api/v1/objectives/{id}/refinement-sessions`
 - `GET /api/v1/objective-refinement-sessions/{id}`
 - `POST /api/v1/objective-refinement-sessions/{id}/messages`
