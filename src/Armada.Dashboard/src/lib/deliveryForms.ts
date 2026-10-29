@@ -104,6 +104,7 @@ export const ALL_CHECK_TYPES: CheckRunType[] = [
   'Lint',
   'Build',
   'UnitTest',
+  'AbbreviatedUnitTest',
   'IntegrationTest',
   'E2ETest',
   'Migration',
@@ -129,6 +130,7 @@ export function getAvailableCheckTypes(profile: WorkflowProfile | null): CheckRu
   if (profile.lintCommand) types.push('Lint');
   if (profile.buildCommand) types.push('Build');
   if (profile.unitTestCommand) types.push('UnitTest');
+  if (profile.abbreviatedUnitTestCommand) types.push('AbbreviatedUnitTest');
   if (profile.integrationTestCommand) types.push('IntegrationTest');
   if (profile.e2eTestCommand) types.push('E2ETest');
   if (profile.migrationCommand) types.push('Migration');
@@ -198,6 +200,7 @@ export function formatCoverageMetric(metric: { covered: number | null; total: nu
 export const RUNBOOK_CHECK_TYPES: CheckRunType[] = [
   'Build',
   'UnitTest',
+  'AbbreviatedUnitTest',
   'IntegrationTest',
   'E2ETest',
   'Migration',

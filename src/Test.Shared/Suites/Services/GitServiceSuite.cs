@@ -476,6 +476,91 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("merge_branch_local_async_unions_only_changelog", "MergeBranchLocalAsync Keeps Both Changelog Entries", TestTags.Negative, async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string targetDir = Path.Combine(rootDir, "target");
+
+                try
+                {
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "CHANGELOG.md"), "base entry\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "CHANGELOG.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Base changelog").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "remote", "add", "armada", bareDir).ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "checkout", "-b", "armada/conflict").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "CHANGELOG.md"), "branch change\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-am", "Branch change").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "push", "armada", "armada/conflict").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(targetDir, "CHANGELOG.md"), "target change\n").ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "commit", "-am", "Target change").ConfigureAwait(false);
+
+                    await service.MergeBranchLocalAsync(targetDir, bareDir, "armada/conflict", "main").ConfigureAwait(false);
+                    string content = await File.ReadAllTextAsync(Path.Combine(targetDir, "CHANGELOG.md")).ConfigureAwait(false);
+                    AssertContains("branch change", content);
+                    AssertContains("target change", content);
+                    AssertEqual(String.Empty, (await RunGitAsync(targetDir, "ls-files", "-u").ConfigureAwait(false)).Trim());
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            }));
+
+            cases.Add(CaseAsync("landing_sync_integrates_current_target", "Landing synchronization integrates the current target into the stale mission branch", TestTags.Negative, async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = TestTemp.NewDirectory("gitservice");
+                string sourceDir = TestGitRepoHelper.CreateWorkingRepoCopy();
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string targetDir = Path.Combine(rootDir, "target");
+
+                try
+                {
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "CHANGELOG.md"), "base entry\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "CHANGELOG.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Base changelog").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "remote", "add", "armada", bareDir).ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "checkout", "-b", "armada/conflict").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "CHANGELOG.md"), "branch change\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-am", "Branch change").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "push", "armada", "armada/conflict").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", bareDir, targetDir).ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(targetDir, "CHANGELOG.md"), "target change\n").ConfigureAwait(false);
+                    await RunGitAsync(targetDir, "commit", "-am", "Target change").ConfigureAwait(false);
+
+                    bool changed = await LandingTargetSynchronization.SynchronizeAsync(service, sourceDir, "main", targetDir).ConfigureAwait(false);
+                    AssertTrue(changed, "the mission dock head advances when target moved");
+                    string content = await File.ReadAllTextAsync(Path.Combine(sourceDir, "CHANGELOG.md")).ConfigureAwait(false);
+                    AssertContains("branch change", content);
+                    AssertContains("target change", content);
+                    AssertEqual(String.Empty, (await RunGitAsync(sourceDir, "ls-files", "-u").ConfigureAwait(false)).Trim());
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("merge_branch_local_async_succeeds_when_target_checkout_is_a_git_worktree", "MergeBranchLocalAsync Succeeds When TargetCheckout Is A GitWorktree", TestTags.Positive, async () =>
             {
                 GitService service = CreateService();

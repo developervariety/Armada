@@ -29,7 +29,7 @@ namespace Armada.Tui.Screens.Build
         /// <summary>
         /// Runtimes offered by the create and list edit form, in the dashboard's order.
         /// </summary>
-        public static readonly AgentRuntimeEnum[] Runtimes = new AgentRuntimeEnum[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.ApiEndpoint };
+        public static readonly AgentRuntimeEnum[] Runtimes = new AgentRuntimeEnum[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Pi, AgentRuntimeEnum.ApiEndpoint };
 
         #endregion
 
@@ -50,6 +50,7 @@ namespace Armada.Tui.Screens.Build
                 case AgentRuntimeEnum.Cursor:
                 case AgentRuntimeEnum.Mux:
                 case AgentRuntimeEnum.OpenCode:
+                case AgentRuntimeEnum.Pi:
                     return true;
                 default:
                     return false;
@@ -65,6 +66,7 @@ namespace Armada.Tui.Screens.Build
         {
             if (runtime == AgentRuntimeEnum.ClaudeCode) return "Claude Code";
             if (runtime == AgentRuntimeEnum.ApiEndpoint) return "API Endpoint";
+            if (runtime == AgentRuntimeEnum.Pi) return "pi";
             return runtime.ToString();
         }
 

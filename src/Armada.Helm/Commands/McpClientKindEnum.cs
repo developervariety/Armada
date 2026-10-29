@@ -37,6 +37,11 @@ namespace Armada.Helm.Commands
         /// <summary>
         /// OpenCode.
         /// </summary>
-        OpenCode
+        OpenCode,
+
+        /// <summary>
+        /// pi (pi.dev).
+        /// </summary>
+        Pi
     }
 }

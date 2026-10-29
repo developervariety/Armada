@@ -25,7 +25,7 @@ The dashboard persona editor uses a wide, responsive two-column form with dragga
 
 ## What Armada is
 
-Armada coordinates AI coding agents (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, or a hosted model endpoint)
+Armada coordinates AI coding agents (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi, or a hosted model endpoint)
 across your git repositories. You describe the work; Armada gives each agent its own git worktree and branch, runs
 it through a pipeline (plan, implement, test, review), lands the result, and keeps the whole history: missions,
 logs, diffs, status changes, and the context agents learned about each repository.

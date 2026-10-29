@@ -6,7 +6,7 @@ namespace Armada.Core.Models
 
     /// <summary>
     /// The MCP server maps of a host user's agent CLI configuration file, read (never written) so a thread-scoped launch
-    /// can find the user's existing Armada server entries. OpenCode keeps its servers under <c>mcp</c>; Cursor, Gemini, and
+    /// can find the user's existing Armada server entries. OpenCode keeps its servers under <c>mcp</c>; Cursor, Gemini, pi, and
     /// Claude Code keep them under <c>mcpServers</c>. Each server definition is kept as raw JSON because only its name and
     /// its text are inspected.
     /// </summary>
