@@ -96,6 +96,11 @@ namespace Armada.Core
         public static readonly int DefaultStageCheckTimeoutMinutes = 15;
 
         /// <summary>
+        /// Default token budget for a prior stage's handoff when the reader's served context is not known.
+        /// </summary>
+        public static readonly int DefaultHandoffBudgetTokens = 4000;
+
+        /// <summary>
         /// Most log lines one log read returns (REST, MCP, and WebSocket); larger requests are clamped. Page with the offset.
         /// </summary>
         public static readonly int MaxLogLinesPerRequest = 5000;
@@ -258,6 +263,11 @@ namespace Armada.Core
         /// ID prefix for stage outcomes (one stage attempt with its provenance and suspected cause).
         /// </summary>
         public static readonly string StageOutcomeIdPrefix = "sto_";
+
+        /// <summary>
+        /// ID prefix for handoff artifacts (the structured, versioned record one stage attempt hands to the next stage).
+        /// </summary>
+        public static readonly string HandoffArtifactIdPrefix = "hoa_";
 
         /// <summary>
         /// ID prefix for failure-cause rules (map an attempt's signals to a suspected cause).

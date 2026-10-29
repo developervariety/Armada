@@ -31,6 +31,18 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// POST /api/v1/stage-outcomes/enumerate: one page of the stage outcomes visible to the caller, newest first, with the total.
+        /// </summary>
+        /// <param name="query">Paging and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<StageOutcome>?> EnumerateStageOutcomesAsync(StageOutcomeQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<StageOutcome>>("/api/v1/stage-outcomes/enumerate", query ?? new StageOutcomeQuery(), null, token);
+        }
+
+        /// <summary>
         /// GET /api/v1/stage-outcomes/{id}.
         /// </summary>
         /// <param name="id">Outcome id (sto_ prefix).</param>
@@ -101,6 +113,18 @@ namespace Armada.Client
             if (pageNumber.HasValue) pairs.Add(new KeyValuePair<string, string?>("pageNumber", pageNumber.Value.ToString(CultureInfo.InvariantCulture)));
             if (pageSize.HasValue) pairs.Add(new KeyValuePair<string, string?>("pageSize", pageSize.Value.ToString(CultureInfo.InvariantCulture)));
             return GetAsync<EnumerationResult<FailureCauseRule>>($"/api/v1/failure-cause-rules{ArmadaQueryString.FromPairs(pairs)}", null, token);
+        }
+
+        /// <summary>
+        /// POST /api/v1/failure-cause-rules/enumerate: one page of the failure-cause rules visible to the caller, in evaluation order, with the total.
+        /// </summary>
+        /// <param name="query">Paging and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<FailureCauseRule>?> EnumerateFailureCauseRulesAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<FailureCauseRule>>("/api/v1/failure-cause-rules/enumerate", query ?? new EnumerationQuery(), null, token);
         }
 
         /// <summary>
