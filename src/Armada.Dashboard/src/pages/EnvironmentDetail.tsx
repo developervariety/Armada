@@ -25,6 +25,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import { buildEnvironmentDuplicatePayload } from '../lib/duplicates';
 import { createVerificationDefinition, ENVIRONMENT_KINDS, parseHeaderLines, serializeHeaderLines } from '../lib/environmentForm';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 export default function EnvironmentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -33,6 +34,7 @@ export default function EnvironmentDetail() {
   const { isAdmin, isTenantAdmin } = useAuth();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
 
   const createMode = id === 'new';
   const canManage = isAdmin || isTenantAdmin;
@@ -231,13 +233,9 @@ export default function EnvironmentDetail() {
       message: t('Delete "{{name}}"? This removes only the environment record.', { name: environment.name }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteEnvironment(environment.id);
-          pushToast('warning', t('Environment "{{name}}" deleted.', { name: environment.name }));
-          navigate('/environments');
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'environment', action: () => deleteEnvironment(environment.id), errorMessage: (err) => (err instanceof Error ? err.message : t('Delete failed.')) }))) return;
+        pushToast('warning', t('Environment "{{name}}" deleted.', { name: environment.name }));
+        navigate('/environments');
       },
     });
   }
@@ -373,6 +371,7 @@ export default function EnvironmentDetail() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+      {deletion.dialog}
 
       <div className="detail-grid">
         <section className="card detail-panel">

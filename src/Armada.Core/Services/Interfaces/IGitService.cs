@@ -374,6 +374,24 @@ namespace Armada.Core.Services.Interfaces
         Task<bool?> IsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default);
 
         /// <summary>
+        /// Find commits reachable from a revision whose message carries a trailer with exactly the given key and value
+        /// (for example <c>Armada-Mission-Id: msn_...</c>), newest first. The search is a bounded
+        /// <c>git log &lt;revision&gt; --fixed-strings --grep</c> narrowed by <c>--since</c>, and each candidate's parsed
+        /// trailers must match the value exactly, so a message that only mentions the value in prose does not count.
+        /// </summary>
+        /// <param name="repoPath">Repository path (working tree or bare repository).</param>
+        /// <param name="revision">Revision to search from (for example refs/remotes/origin/main).</param>
+        /// <param name="trailerKey">Trailer key, without the colon.</param>
+        /// <param name="trailerValue">Exact trailer value.</param>
+        /// <param name="sinceUtc">Only commits committed at or after this time, or null for no bound.</param>
+        /// <param name="maxCount">Maximum number of commits to return (at least 1).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The matching commit hashes; empty when none match, the revision does not resolve, or git fails.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when repoPath, revision, trailerKey, or trailerValue is null or empty.</exception>
+        Task<IReadOnlyList<string>> FindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
+            => Task.FromResult<IReadOnlyList<string>>(new List<string>());
+
+        /// <summary>
         /// Summarize the working tree (git status --porcelain): modified tracked files and untracked files.
         /// </summary>
         /// <param name="repoPath">Working tree path.</param>
