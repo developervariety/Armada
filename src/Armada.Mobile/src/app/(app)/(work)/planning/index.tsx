@@ -1,6 +1,6 @@
-import { PlanningScreen } from '../../../../screens/planning/PlanningScreen';
+import { PlanningRedirect } from '@/navigation/legacyRedirects';
 
-/** /planning: planning sessions; `?new=1` (with prefill params) opens Start Session. */
+/** /planning: now the Dispatch hub's Planning tab; prefill params (`?new=1`, vesselId, prompt, ...) are kept. */
 export default function PlanningRoute() {
-  return <PlanningScreen />;
+  return <PlanningRedirect />;
 }

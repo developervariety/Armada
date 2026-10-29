@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { updateSettings } from '../../api/client';
 import type { CliPermissionPolicy, CliPermissionSettingsData } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import CliPermissionPolicySelect from '../cliPermissions/CliPermissionPolicySelect';
 import { PROMPT_TIMEOUT_RANGE } from '../../lib/cliPermissions';
 import { CLI_PERMISSION_DEFAULTS, validPromptTimeout } from '../../lib/settingsRanges';
+import { cliPermissionsHref } from '../../lib/navTargets';
 
 interface CliPermissionSettingsProps {
   permissions: CliPermissionSettingsData | null | undefined;
@@ -84,7 +86,9 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
     <div className="settings-section" style={{ marginTop: '1.5rem' }}>
       <h3>{t('CLI Tool Permissions')}</h3>
       <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
-        {t('How CLI captains handle shell commands, file edits, and fetches that need permission when neither the conversation nor the captain sets a policy. Refuse lets the CLI refuse them; Approve in Armada asks an approver here (Claude Code, Mux 1.5 or later, and API endpoints; other runtimes fall back to Refuse); Bypass runs them without asking.')}
+        {t('How CLI captains handle shell commands, file edits, and fetches that need permission when neither the conversation nor the captain sets a policy. Refuse lets the CLI refuse them; Approve in Armada asks an approver here (Claude Code, Mux 1.5 or later, pi, and API endpoints; other runtimes fall back to Refuse); Bypass runs them without asking.')}
+        {' '}
+        <Link to={cliPermissionsHref()} title={t('Pending CLI tool requests and the allow and deny rules live on the CLI Tool Permissions tab of Settings.')}>{t('Requests and rules')}</Link>
       </p>
       <fieldset disabled={locked} className="settings-fieldset">
         <div className="settings-grid">

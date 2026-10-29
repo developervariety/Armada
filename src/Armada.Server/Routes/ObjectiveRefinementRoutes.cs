@@ -76,38 +76,6 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<ObjectiveRefinementSession>>("One page"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/objectives/{id}/refinement-sessions", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
-                }
-
-                Objective? objective = await _objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
-                if (objective == null)
-                {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
-                }
-
-                List<ObjectiveRefinementSession> sessions = await EnumerateSessionsByObjectiveAsync(ctx, objective.Id).ConfigureAwait(false);
-                return sessions.OrderByDescending(s => s.LastUpdateUtc).ToList();
-            },
-            api => api
-                .WithTag("Objectives")
-                .WithSummary("List objective refinement sessions")
-                .WithDescription("Returns captain-backed refinement sessions linked to the specified objective.")
-                .WithParameter(OpenApiParameterMetadata.Path("id", "Objective ID (obj_ prefix)"))
-                .WithResponse(200, OpenApiJson.For<List<ObjectiveRefinementSession>>("Objective refinement sessions"))
-                .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithSecurity("ApiKey"));
-
             app.Post<ObjectiveRefinementSessionCreateRequest>("/api/v1/objectives/{id}/refinement-sessions", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -220,38 +188,6 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<ObjectiveRefinementSession>>("One page"))
-                .WithSecurity("ApiKey"));
-
-            app.Get("/api/v1/backlog/{id}/refinement-sessions", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
-                }
-
-                Objective? objective = await _objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
-                if (objective == null)
-                {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Backlog item not found" };
-                }
-
-                List<ObjectiveRefinementSession> sessions = await EnumerateSessionsByObjectiveAsync(ctx, objective.Id).ConfigureAwait(false);
-                return sessions.OrderByDescending(s => s.LastUpdateUtc).ToList();
-            },
-            api => api
-                .WithTag("Objectives")
-                .WithSummary("List backlog refinement sessions")
-                .WithDescription("Returns captain-backed refinement sessions linked to the specified backlog item.")
-                .WithParameter(OpenApiParameterMetadata.Path("id", "Backlog item ID (obj_ prefix)"))
-                .WithResponse(200, OpenApiJson.For<List<ObjectiveRefinementSession>>("Backlog refinement sessions"))
-                .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             app.Post<ObjectiveRefinementSessionCreateRequest>("/api/v1/backlog/{id}/refinement-sessions", async (ApiRequest req) =>

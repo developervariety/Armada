@@ -60,7 +60,22 @@ namespace Armada.Server.Routes
                 // ten_system is excluded at the SQL level (WHERE id != 'ten_system') in all backends
                 return (object)result;
             },
-            api => api.WithTag("Tenants").WithSummary("List tenants (admin only)"));
+            api => api.WithTag("Tenants").WithSummary("List tenants (admin only)").WithResponse(200, OpenApiJson.For<EnumerationResult<TenantMetadata>>("One page")));
+
+            app.Post("/api/v1/tenants/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                EnumerationQuery query = EnumerationRequestReader.Read(req, _jsonOptions);
+                EnumerationResult<TenantMetadata> result = await _database.Tenants.EnumerateAsync(query).ConfigureAwait(false);
+                // ten_system is excluded at the SQL level (WHERE id != 'ten_system') in all backends
+                return (object)result;
+            },
+            api => api.WithTag("Tenants").WithSummary("Enumerate tenants (admin only)").WithDescription("One page of tenants (the system tenant excluded). Paging comes from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).").WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false)).WithResponse(200, OpenApiJson.For<EnumerationResult<TenantMetadata>>("One page")));
 
             app.Post("/api/v1/tenants", async (ApiRequest req) =>
             {
@@ -189,7 +204,35 @@ namespace Armada.Server.Routes
                 result.Objects = result.Objects.Select(u => UserMaster.Redact(u)).ToList();
                 return (object)result;
             },
-            api => api.WithTag("Users").WithSummary("List users"));
+            api => api.WithTag("Users").WithSummary("List users").WithResponse(200, OpenApiJson.For<EnumerationResult<UserMaster>>("One page")));
+
+            app.Post("/api/v1/users/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                EnumerationQuery query = EnumerationRequestReader.Read(req, _jsonOptions);
+                EnumerationResult<UserMaster> result;
+                if (ctx.IsAdmin)
+                {
+                    result = await _database.Users.EnumerateAsync(query).ConfigureAwait(false);
+                }
+                else if (ctx.IsTenantAdmin)
+                {
+                    result = await _database.Users.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                }
+                else
+                {
+                    UserMaster? self = await _database.Users.ReadAsync(ctx.TenantId!, ctx.UserId!).ConfigureAwait(false);
+                    result = EnumerationResult<UserMaster>.Create(query, self != null ? new List<UserMaster> { self } : new List<UserMaster>(), self != null ? 1 : 0);
+                }
+                result.Objects = result.Objects.Select(u => UserMaster.Redact(u)).ToList();
+                return (object)result;
+            },
+            api => api.WithTag("Users").WithSummary("Enumerate users").WithDescription("One page of users, redacted: a global admin sees every tenant, a tenant admin their tenant, and other users only themselves. Paging comes from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).").WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false)).WithResponse(200, OpenApiJson.For<EnumerationResult<UserMaster>>("One page")));
 
             app.Post("/api/v1/users", async (ApiRequest req) =>
             {
@@ -381,7 +424,29 @@ namespace Armada.Server.Routes
                 result.Objects = result.Objects.Select(c => Credential.Redact(c)).ToList();
                 return (object)result;
             },
-            api => api.WithTag("Credentials").WithSummary("List credentials"));
+            api => api.WithTag("Credentials").WithSummary("List credentials").WithResponse(200, OpenApiJson.For<EnumerationResult<Credential>>("One page")));
+
+            app.Post("/api/v1/credentials/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                EnumerationQuery query = EnumerationRequestReader.Read(req, _jsonOptions);
+                // Bearer tokens are shown once, in the create response; reads return them redacted.
+                EnumerationResult<Credential> result;
+                if (ctx.IsAdmin)
+                    result = await _database.Credentials.EnumerateAsync(query).ConfigureAwait(false);
+                else if (ctx.IsTenantAdmin)
+                    result = await _database.Credentials.EnumerateAsync(ctx.TenantId!, query).ConfigureAwait(false);
+                else
+                    result = await _database.Credentials.EnumerateByUserAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
+                result.Objects = result.Objects.Select(c => Credential.Redact(c)).ToList();
+                return (object)result;
+            },
+            api => api.WithTag("Credentials").WithSummary("Enumerate credentials").WithDescription("One page of credentials with bearer tokens redacted: a global admin sees every tenant, a tenant admin their tenant, and other users their own. Paging comes from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).").WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false)).WithResponse(200, OpenApiJson.For<EnumerationResult<Credential>>("One page")));
 
             app.Post("/api/v1/credentials", async (ApiRequest req) =>
             {

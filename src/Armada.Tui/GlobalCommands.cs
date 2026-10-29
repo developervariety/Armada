@@ -51,6 +51,16 @@ namespace Armada.Tui
                 c.Register(go);
             }
 
+            // Destinations that became hub tabs keep their Go commands and g-letter keys, opening the tab.
+            foreach (NavShortcut shortcut in NavCatalog.Shortcuts)
+            {
+                string to = shortcut.Item.To;
+                ArmadaCommand go = Cmd("go." + shortcut.Id, shortcut.Item.Label, CommandMenuEnum.Go, () => context.Navigate(to), signedIn,
+                    shortcut.Item.GoKey != null ? "g " + shortcut.Item.GoKey : null);
+                go.Group = "Go to";
+                c.Register(go);
+            }
+
             c.Register(Group(Cmd("go.approvals", "Approvals", CommandMenuEnum.Go, () => context.Navigate("/approvals"), signedIn), "Go to"));
             c.Register(Group(Cmd("go.back", "Back", CommandMenuEnum.Go, () => context.Router.Back(), signedIn, "alt+left"), "Go to"));
             c.Register(Group(Cmd("go.forward", "Forward", CommandMenuEnum.Go, () => context.Router.Forward(), signedIn, "alt+right"), "Go to"));

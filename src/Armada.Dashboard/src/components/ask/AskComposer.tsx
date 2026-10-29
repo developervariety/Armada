@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { AskQuickAction } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import { quickActionForm } from '../../lib/askQuickActions';
@@ -53,6 +53,33 @@ export interface AskComposerHandle {
   reset: (options?: AskComposerOptions) => void;
 }
 
+/** localStorage key of the prompts sent from this browser, oldest first. */
+export const PROMPT_HISTORY_KEY = 'armada.ask.promptHistory';
+/** The most prompts kept in the history. */
+export const PROMPT_HISTORY_LIMIT = 100;
+
+function loadPromptHistory(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(PROMPT_HISTORY_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string').slice(-PROMPT_HISTORY_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Adds a sent prompt to the history, skipping blank text and a repeat of the newest entry. */
+function recordPrompt(text: string): void {
+  if (!text.trim()) return;
+  const history = loadPromptHistory();
+  if (history[history.length - 1] === text) return;
+  history.push(text);
+  try {
+    localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(history.slice(-PROMPT_HISTORY_LIMIT)));
+  } catch {
+    // Storage is full or unavailable; history is a convenience.
+  }
+}
+
 interface Hint {
   text: string;
   params?: Record<string, string>;
@@ -72,6 +99,19 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
   const [openForm, setOpenForm] = useState<AskQuickAction | null>(null);
   const [hint, setHint] = useState<Hint | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Shell-style prompt history: the entries being browsed, the index into them (-1 = not browsing), and the
+  // draft that was being typed when browsing started.
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef(-1);
+  const historyDraftRef = useRef('');
+  const caretToEndRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!caretToEndRef.current) return;
+    caretToEndRef.current = false;
+    const el = inputRef.current;
+    if (el) el.setSelectionRange(el.value.length, el.value.length);
+  }, [input]);
 
   const catalog = useMemo(() => buildCommandCatalog(quickActions), [quickActions]);
   const matches = useMemo(() => filterCommands(catalog, input), [catalog, input]);
@@ -93,6 +133,7 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
   }
 
   function reset(options?: AskComposerOptions) {
+    historyIndexRef.current = -1;
     applyText(options?.text ?? '');
     setOpenForm(null);
     setHint(null);
@@ -139,13 +180,15 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
   const canSubmit = pending.kind === 'command' || canSendText;
 
   function submit() {
-    if (pending.kind === 'command') { void runItem(pending.item, pending.args); return; }
+    historyIndexRef.current = -1;
+    if (pending.kind === 'command') { recordPrompt(input); void runItem(pending.item, pending.args); return; }
     if (pending.kind === 'unknown') {
       const outcome = unknownCommandHint(pending.command);
       setHint({ text: outcome.hint ?? '', params: outcome.hintParams });
       return;
     }
     if (!canSendText) return;
+    recordPrompt(input);
     onSend(messageText(input));
     setText('');
     setHint(null);
@@ -158,10 +201,44 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
       if (event.key === 'Tab') { event.preventDefault(); void runItem(matches[safeIndex], ''); return; }
       if (event.key === 'Escape') { event.preventDefault(); setMenuDismissed(true); return; }
     }
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && browseHistory(event)) return;
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       submit();
     }
+  }
+
+  /** Moves through the prompt history on ArrowUp (caret on the first line) or ArrowDown (caret on the last line). */
+  function browseHistory(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (menuOpen || event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+    const el = event.currentTarget;
+    const value = el.value;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    if (start !== end) return false;
+    let next: number;
+    if (event.key === 'ArrowUp') {
+      if (value.slice(0, start).includes('\n')) return false;
+      if (historyIndexRef.current === -1) {
+        historyRef.current = loadPromptHistory();
+        if (historyRef.current.length === 0) return false;
+        historyDraftRef.current = value;
+        next = historyRef.current.length - 1;
+      } else {
+        if (historyIndexRef.current === 0) return false;
+        next = historyIndexRef.current - 1;
+      }
+    } else {
+      if (historyIndexRef.current === -1 || value.slice(end).includes('\n')) return false;
+      next = historyIndexRef.current + 1;
+    }
+    event.preventDefault();
+    const text = next >= historyRef.current.length ? historyDraftRef.current : historyRef.current[next];
+    historyIndexRef.current = next >= historyRef.current.length ? -1 : next;
+    caretToEndRef.current = true;
+    setText(text);
+    setHint(null);
+    return true;
   }
 
   const placeholder = noCaptain
@@ -195,7 +272,7 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
           aria-autocomplete="list"
           aria-activedescendant={highlighted ? quickOptionId(highlighted) : undefined}
           aria-describedby={hint ? 'ask-composer-hint' : undefined}
-          onChange={(e) => { setText(e.target.value); setHint(null); }}
+          onChange={(e) => { historyIndexRef.current = -1; setText(e.target.value); setHint(null); }}
           onKeyDown={onKeyDown}
         />
         {turnActive && pending.kind !== 'command' ? (

@@ -41,7 +41,7 @@ import ModelProbeEvaluate from '../components/ModelProbeEvaluate';
 const ALLOWED_PERSONAS_TOOLTIP = 'Personas this captain may take on, as a JSON array of persona names, for example ["Worker", "Judge"]. Blank lets it fill any persona.';
 const PREFERRED_PERSONA_TOOLTIP = 'A persona name, for example Worker. When several captains could take a mission, dispatch prefers this captain for work of this persona. Blank means no preference.';
 const LOG_READABLE_TOOLTIP = 'On: show the log as entries with tool calls named, secrets redacted and noise removed. Off: show the raw log text.';
-const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'ApiEndpoint', 'Custom'];
+const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'Pi', 'ApiEndpoint', 'Custom'];
 type CaptainDetailFormState = {
   name: string;
   runtime: string;
@@ -652,10 +652,6 @@ export default function CaptainDetail() {
                 { label: 'Duplicate', onClick: () => navigate(`/missions?duplicate=${encodeURIComponent(m.id)}`) },
               ]} /> },
               {
-                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
-                render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,
-              },
-              {
                 key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix). Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
                 render: (m) => (
                   <span className="id-display">
@@ -663,6 +659,10 @@ export default function CaptainDetail() {
                     <CopyButton text={m.id} onClick={(e) => e.stopPropagation()} />
                   </span>
                 ),
+              },
+              {
+                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
+                render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,
               },
               { key: 'status', label: t('Status'), headerTitle: t('Where the mission is in its lifecycle, for example Pending, InProgress, Review, Complete or Failed.'), cellClassName: 'cell-nowrap', render: (m) => <StatusBadge status={m.status} /> },
               {
