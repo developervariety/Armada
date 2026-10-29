@@ -410,6 +410,22 @@ namespace Armada.Core.Services
             await UpgradeBuiltInCommitPreambleAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInMissionRulesAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInContextCompletionAsync(token).ConfigureAwait(false);
+            await UpgradeBuiltInProgressSignalsAsync(token).ConfigureAwait(false);
+        }
+
+        private async Task UpgradeBuiltInProgressSignalsAsync(CancellationToken token)
+        {
+            // The blocked outcome line was added for every persona; an untouched built-in copy picks it up, an edited one
+            // is kept as is.
+            const string name = "mission.progress_signals";
+            string current = _EmbeddedDefaults[name].Content;
+            PromptTemplate? existing = await _Database.PromptTemplates.ReadByNameAsync(name, token).ConfigureAwait(false);
+            if (existing == null || !existing.IsBuiltIn) return;
+            if (NormalizeLineEndings(existing.Content) != NormalizeLineEndings(current.Replace(CaptainBlockedContract.SignalLine, String.Empty))) return;
+            existing.Content = current;
+            existing.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.PromptTemplates.UpdateAsync(existing, token).ConfigureAwait(false);
+            _Logging.Debug(_Header + "upgraded built-in mission.progress_signals with the blocked outcome line");
         }
 
         private async Task UpgradeBuiltInContextCompletionAsync(CancellationToken token)
@@ -778,6 +794,7 @@ namespace Armada.Core.Services
                     "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n" +
                     "- `[ARMADA:TOKENS] input=1234 output=567 cached=0` -- report the tokens you consumed this session (input/prompt, output/completion, and cache-read). Emit this once near the end if your runtime can determine the counts; it lets the Admiral record real token usage instead of an estimate.\n" +
                     "- `[ARMADA:RESULT] COMPLETE` -- worker/test engineer mission finished successfully\n" +
+                    CaptainBlockedContract.SignalLine +
                     "- `[ARMADA:VERDICT] PASS` -- judge approves the mission\n" +
                     "- `[ARMADA:VERDICT] FAIL` -- judge rejects the mission\n" +
                     "- `[ARMADA:VERDICT] NEEDS_REVISION` -- judge requests follow-up changes\n" +

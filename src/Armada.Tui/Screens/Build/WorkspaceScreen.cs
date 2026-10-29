@@ -10,6 +10,7 @@ namespace Armada.Tui.Screens.Build
     using Armada.Tui.Input;
     using Armada.Tui.Modals;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Screens.Operations;
     using Armada.Tui.Services;
     using Armada.Tui.Text;
@@ -895,7 +896,7 @@ namespace Armada.Tui.Screens.Build
             string p = WorkspacePaths.Normalize(target);
             Confirm("Delete", Tr("Delete {{path}}?", LocalizationArgs.Of("path", p)), () =>
             {
-                Call((c, t) => c.DeleteWorkspaceEntryAsync(VesselId, p, t), r =>
+                DeleteProgress.Run(Context, "Deleting workspace entry", t => Context.Client.DeleteWorkspaceEntryAsync(VesselId, p, t), r =>
                 {
                     List<string> expanded = Tree.Expanded.Where(x => x.Length > 0 && !WorkspacePaths.InScope(x, p)).ToList();
                     OpenTabs.RemoveAll(x => WorkspacePaths.InScope(x, p));
@@ -913,7 +914,7 @@ namespace Armada.Tui.Screens.Build
                     Error = null;
                     Toast(NotificationSeverityEnum.Warning, Tr("Deleted {{path}}", LocalizationArgs.Of("path", p)));
                     RefreshWorkspace(expanded);
-                }, null, ex => Error = String.IsNullOrEmpty(ex.Message) ? Tr("Delete failed.") : ex.Message);
+                }, "Delete failed.");
             }, "Delete");
         }
 
