@@ -165,8 +165,7 @@ namespace Armada.Core.Services
                                 return result;
                             }
 
-                            string output = ((commandResult.StandardOutput ?? "") + "\n" + (commandResult.StandardError ?? "")).Trim();
-                            if (output.Length > 3000) output = "...\n" + output.Substring(output.Length - 3000);
+                            string output = StageCheckOutputSummarizer.Summarize((commandResult.StandardOutput ?? "") + "\n" + (commandResult.StandardError ?? ""));
                             _Logging.Warn(_Header + "stage check for mission " + mission.Id + " failed: " + command + " exited " + commandResult.ExitCode);
                             result.Status = StageCheckStatusEnum.Failed;
                             result.FailedCommand = command;
