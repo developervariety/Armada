@@ -142,9 +142,9 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(PermissionLevel.Authenticated, level);
             }));
 
-            cases.Add(Case("planning_sessions_get_is_authenticated", "PlanningSessions GET IsAuthenticated", TestTags.Positive, () =>
+            cases.Add(Case("planning_sessions_enumerate_is_authenticated", "PlanningSessions enumerate (POST) IsAuthenticated", TestTags.Positive, () =>
             {
-                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/planning-sessions");
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/planning-sessions/enumerate");
                 AssertEqual(PermissionLevel.Authenticated, level);
             }));
 
