@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Needs You landing failures
+
+- A `landing_failed` row in the Needs You inbox shows the failure reason preformatted and has a Retry Landing button. The button calls the same retry-landing API as the mission page, reports its error in place and reloads the list.
+
 ### Rescue dedupe against operator recovery
 
 - Autonomous recovery dispatches no rescue for a failed mission while an active non-rescue mission on the same vessel names the failed mission id in its description. It records one `autonomous_recovery.skipped_active_recovery_mission` event naming that mission, and evaluates the rescue again once the mission ends.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getInbox } from '../api/client';
+import { getInbox, retryMissionLanding } from '../api/client';
 import type { InboxItem, InboxSeverity } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -15,6 +15,9 @@ import { useLoadError } from '../lib/useLoadError';
 /** A pending Ask action proposal. The item is read-only and links to its conversation, where the exact approval fence decides it. */
 const CONVERSATION_KIND = 'ask_proposal';
 
+/** A mission whose landing failed. The row shows the reason as written and retries the landing in place. */
+const LANDING_FAILED_KIND = 'landing_failed';
+
 function severityColor(severity: InboxSeverity): string {
   if (severity === 'Critical') return 'var(--danger, #ff6b6b)';
   if (severity === 'Warning') return 'var(--warning, #d98a00)';
@@ -24,7 +27,7 @@ function severityColor(severity: InboxSeverity): string {
 export default function Inbox() {
   const navigate = useNavigate();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, pushToast } = useNotifications();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const { error, setError, loadFailed, loadSucceeded } = useLoadError();
@@ -42,6 +45,20 @@ export default function Inbox() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function retryLanding(item: InboxItem) {
+    if (!item.entityId) return;
+    let failure = '';
+    try {
+      await retryMissionLanding(item.entityId);
+      pushToast('success', t('Landing succeeded for "{{title}}"', { title: item.title }));
+    } catch (err: unknown) {
+      failure = err instanceof Error ? err.message : t('Retry landing failed.');
+    }
+    // The reload clears the dialog, so the landing error is shown after it.
+    await load();
+    if (failure) setError(failure);
   }
 
   useEffect(() => { load(); }, []);
@@ -106,7 +123,11 @@ export default function Inbox() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                 <div>
                   <strong>{item.title}</strong>
-                  <div className="text-dim" style={{ marginTop: '0.2rem' }}>{item.detail}</div>
+                  {item.kind === LANDING_FAILED_KIND ? (
+                    <pre className="text-dim" style={{ marginTop: '0.2rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit' }}>{item.detail}</pre>
+                  ) : (
+                    <div className="text-dim" style={{ marginTop: '0.2rem' }}>{item.detail}</div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span
@@ -122,6 +143,15 @@ export default function Inbox() {
                       onClick={(e) => { e.stopPropagation(); navigate(item.href); }}
                     >
                       {t('Open conversation')}
+                    </button>
+                  )}
+                  {item.kind === LANDING_FAILED_KIND && (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={(e) => { e.stopPropagation(); void retryLanding(item); }}
+                    >
+                      {t('Retry Landing')}
                     </button>
                   )}
                 </div>
