@@ -152,24 +152,24 @@ namespace Test.Shared.Suites.E2E
                 }
             }));
 
-            cases.Add(CaseAsync("inbox_rest_and_mcp_omit_expired_ask_proposals", "REST and MCP inbox both leave out Ask proposals older than Ask.ProposalExpiryMinutes", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("inbox_rest_and_mcp_omit_expired_ask_proposals", "REST inbox/enumerate and MCP enumerate inbox both leave out Ask proposals older than Ask.ProposalExpiryMinutes", TestTags.Negative, async () =>
             {
                 RequireSetup();
                 List<InboxItem> restItems;
                 using (HttpClient client = _TenantAUser!.CreateClient(_Server!.BaseUrl))
                 {
-                    HttpResponseMessage resp = await client.GetAsync("/api/v1/inbox").ConfigureAwait(false);
+                    HttpResponseMessage resp = await client.PostAsync("/api/v1/inbox/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, resp.StatusCode);
-                    restItems = await JsonHelper.DeserializeAsync<List<InboxItem>>(resp).ConfigureAwait(false);
+                    restItems = (await JsonHelper.DeserializeAsync<EnumerationResult<InboxItem>>(resp).ConfigureAwait(false)).Objects;
                 }
 
                 List<InboxItem> mcpItems;
                 using (McpToolClient client = CreateMcpClient(_TenantAUser!))
                 {
                     await client.InitializeAsync().ConfigureAwait(false);
-                    Armada.Runtimes.Mcp.McpToolCallResult result = await client.CallToolResultAsync("inbox", "{}").ConfigureAwait(false);
-                    AssertFalse(result.IsError, "inbox should succeed: " + result.Text);
-                    mcpItems = JsonHelper.Deserialize<E2eMcpInboxResult>(result.Text).Items;
+                    Armada.Runtimes.Mcp.McpToolCallResult result = await client.CallToolResultAsync("enumerate", "{\"entityType\":\"inbox\",\"pageSize\":1000}").ConfigureAwait(false);
+                    AssertFalse(result.IsError, "enumerate inbox should succeed: " + result.Text);
+                    mcpItems = JsonHelper.Deserialize<EnumerationResult<InboxItem>>(result.Text).Objects;
                 }
 
                 List<string> restAsks = restItems.Where(i => i.Kind == InboxItemKinds.AskProposal).Select(i => i.EntityId ?? "").ToList();

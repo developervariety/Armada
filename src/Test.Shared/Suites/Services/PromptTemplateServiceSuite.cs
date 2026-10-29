@@ -58,6 +58,16 @@ namespace Test.Shared.Suites.Services
                     AssertTrue(names.Contains("persona.product_manager"), "Should contain persona.product_manager");
                     AssertTrue(names.Contains("persona.usability_engineer"), "Should contain persona.usability_engineer");
                     AssertTrue(names.Contains("persona.judge"), "Should contain persona.judge");
+                    PromptTemplate worker = templates.Find(t => t.Name == "persona.worker")!;
+                    worker.Content = PersonaPromptImprovements.Briefs[worker.Name];
+                    await testDb.Driver.PromptTemplates.UpdateAsync(worker).ConfigureAwait(false);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    worker = (await testDb.Driver.PromptTemplates.ReadByNameAsync(worker.Name).ConfigureAwait(false))!;
+                    AssertContains("Print progress before long commands", worker.Content, "previous shipped defaults are upgraded");
+                    worker.Content = "Operator custom guidance";
+                    await testDb.Driver.PromptTemplates.UpdateAsync(worker).ConfigureAwait(false);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    AssertEqual(worker.Content, (await testDb.Driver.PromptTemplates.ReadByNameAsync(worker.Name).ConfigureAwait(false))!.Content, "custom persona overrides survive");
                 }
             }));
 
@@ -544,6 +554,7 @@ namespace Test.Shared.Suites.Services
                     {
                         string rendered = await service.RenderAsync(name, new Dictionary<string, string> { ["MissionDescription"] = "A bounded offline task", ["Diff"] = "a verified diff", ["PreviousStageOutput"] = "supplied evidence" }).ConfigureAwait(false);
                         AssertTrue(rendered.Length < 2400, name + " stays succinct");
+                        AssertContains("Print progress before long commands; skip the full test suite when Armada runs post-stage checks.", rendered);
                         AssertContains("Report unavailable tools", rendered, name + " unavailable checks are explicit");
                         AssertContains("Never claim an inspection", rendered, name + " evidence honesty");
                         AssertFalse(rendered.Contains("{MissionDescription}"), name + " objective rendered");
