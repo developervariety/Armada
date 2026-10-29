@@ -30,6 +30,12 @@ namespace Armada.Core.Services
         public const int DeterminismRepeats = 3;
 
         /// <summary>
+        /// Probes in the quick set, and so the most results one run records (output contract, served context, ASCII,
+        /// tool calling, speed, determinism).
+        /// </summary>
+        public const int ProbeCount = 6;
+
+        /// <summary>
         /// Approximate input tokens of the small speed exchange.
         /// </summary>
         public const int SpeedSmallInputTokens = 4000;

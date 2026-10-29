@@ -42,7 +42,15 @@ namespace Test.Shared.Suites.Client
                 string id = setup.Vessel.Id;
                 VesselCleanupInventory? inventory = await c.GetVesselCleanupInventoryAsync(id);
                 AssertEqual(id, inventory?.VesselId, "inventory vessel");
-                AssertEqual(inventory!.Resources.Count, inventory.SafeCount + inventory.InUseCount + inventory.UnknownCount, "every resource is classified");
+                AssertEqual(inventory!.ResourceCount, inventory.SafeCount + inventory.InUseCount + inventory.UnknownCount, "every resource is classified");
+                EnumerationResult<VesselCleanupResource>? resources = await c.ListVesselCleanupResourcesAsync(id, new EnumerationQuery { PageSize = 1000 });
+                AssertEqual((long)inventory.ResourceCount, resources?.TotalRecords, "resource page total matches the summary");
+
+                ArmadaApiException? tooMany = null;
+                try { await c.RunVesselCleanupAsync(id, Enumerable.Range(0, 1001).Select(i => "dock:dck_x" + i).ToList()); }
+                catch (ArmadaApiException ex) { tooMany = ex; }
+                AssertNotNull(tooMany, "more than 1000 keys is rejected");
+                AssertEqual(400, tooMany!.StatusCode, "over the key limit is a 400");
 
                 VesselCleanupResult? result = await c.RunVesselCleanupAsync(id, new List<string> { "dock:dck_does_not_exist" });
                 AssertNotNull(result, "cleanup result");
@@ -206,7 +214,15 @@ namespace Test.Shared.Suites.Client
                 VesselSetup setup = await LiveServerSetup.CreateVesselAsync(c, "workspace");
                 string id = setup.Vessel.Id;
                 AssertTrue((await c.GetWorkspaceStatusAsync(id))?.HasWorkingDirectory == true, "status");
-                AssertTrue((await c.GetWorkspaceTreeAsync(id))!.Entries.Any(e => e.Name == "README.md"), "tree");
+                AssertTrue((await c.ListWorkspaceDirectoryAsync(id)).Any(e => e.Name == "README.md"), "tree");
+                WorkspaceTreeResult? treePage = await c.GetWorkspaceTreeAsync(id, null, new EnumerationQuery { PageNumber = 1, PageSize = 1 });
+                AssertEqual(1, treePage!.Entries.Count, "one entry per page of one");
+                AssertTrue(treePage.TotalRecords >= 1 && treePage.TotalPages == treePage.TotalRecords, "tree totals describe the whole directory");
+                AssertEqual(0, (await c.ListWorkspaceActiveMissionsAsync(id))!.TotalRecords, "no active missions");
+                AssertEqual(0, (await c.ListAllWorkspaceActiveMissionsAsync(id)).Count, "no active missions across pages");
+                EnumerationResult<VesselDependency>? dependencies = await c.ListVesselDependenciesAsync(id, new EnumerationQuery { PageSize = 5 });
+                AssertEqual(5, dependencies!.PageSize, "dependency page size");
+                AssertEqual((await c.GetVesselHealthAsync(id))!.DependencyCount, dependencies.TotalRecords, "dependency total matches the health count");
                 WorkspaceFileResponse readme = (await c.GetWorkspaceFileAsync(id, "README.md"))!;
                 AssertEqual("hello\n", readme.Content, "file content");
                 AssertTrue((await c.SaveWorkspaceFileAsync(id, new WorkspaceSaveRequest { Path = "README.md", Content = "hello contract\n", ExpectedHash = readme.ContentHash }))?.SizeBytes > 0, "save");
@@ -215,6 +231,8 @@ namespace Test.Shared.Suites.Client
                 AssertEqual("contract-dir/b.txt", (await c.RenameWorkspaceEntryAsync(id, new WorkspaceRenameRequest { Path = "contract-dir/a.txt", NewPath = "contract-dir/b.txt" }))?.NewPath, "rename");
                 AssertTrue((await c.SearchWorkspaceAsync(id, "needle"))!.TotalMatches >= 1, "search");
                 AssertTrue((await c.GetWorkspaceChangesAsync(id))!.IsDirty, "changes");
+                WorkspaceChangesResult allChanges = (await c.ListAllWorkspaceChangesAsync(id))!;
+                AssertEqual((int)allChanges.TotalRecords, allChanges.Changes.Count, "every changed file across pages");
                 AssertContains("hello contract", (await c.GetWorkspaceDiffAsync(id, "README.md"))?.Diff ?? "", "diff");
                 AssertNotNull(await c.DeleteWorkspaceEntryAsync(id, "contract-dir"), "delete entry");
                 WorkspaceExecResult? exec = await c.ExecWorkspaceCommandAsync(id, "git status --short", 30);

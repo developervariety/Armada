@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Body for creating or updating a fleet action, and the inline definition of an ad hoc run. On create, omitted
@@ -17,10 +18,12 @@ namespace Armada.Core.Models
         /// <summary>Source action built-in key (or ID) for {{scan.summary}}.</summary>
         public string? ScanSourceActionKey { get; set; }
         /// <summary>Executable names required on the target host PATH.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public System.Collections.Generic.List<string>? RequiredTools { get; set; }
         /// <summary>Whether execution requires network access.</summary>
         public bool? RequiresNetwork { get; set; }
         /// <summary>Typed runtime input definitions.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public System.Collections.Generic.List<FleetActionInput>? Inputs { get; set; }
 
 

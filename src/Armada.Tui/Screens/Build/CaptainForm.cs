@@ -294,7 +294,7 @@ namespace Armada.Tui.Screens.Build
                     else
                     {
                         discovered.Clear();
-                        discovered.AddRange(result.Endpoints ?? new List<MuxEndpointInfo>());
+                        discovered.AddRange(result.Objects ?? new List<MuxEndpointInfo>());
                         muxHint = discovered.Count == 0
                             ? loc.T("No saved Mux endpoints were found for this config directory.")
                             : loc.T("{{count}} saved Mux endpoint(s) available.", LocalizationArgs.Of("count", discovered.Count));
