@@ -10,6 +10,7 @@ upstream integrations and excludes changes already present at that baseline.
 ### Mission metadata validation
 
 - REST, MCP and WebSocket mission metadata updates refuse unknown or non-patchable fields by name before saving any field. Sending a preference, status or recovery counter cannot silently succeed without changing it.
+- WebSocket authorization coverage verifies that a mixed protected-field patch writes nothing and that a supported metadata-only patch still succeeds.
 
 ### Terminal failure facts and bounded review retries
 

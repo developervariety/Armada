@@ -287,8 +287,15 @@ namespace Armada.Test.Unit.Suites.Routes
                     OperatorRecords records = await OperatorRecords.SeedAsync(testDb.Driver, callers).ConfigureAwait(false);
                     WebSocketCommandHandler handler = CreateHandler(testDb);
 
-                    string json = await SendAsync(handler, "update_mission", records.Mission.Id,
+                    string before = await records.SnapshotAsync(testDb.Driver).ConfigureAwait(false);
+                    string refused = await SendAsync(handler, "update_mission", records.Mission.Id,
                         new { Title = "renamed-mission", Status = "Complete", TenantId = callers.TenantB, UserId = callers.AdminB.UserId }, McpTestCaller.Operator).ConfigureAwait(false);
+                    AssertContains("mission_field_not_patchable", refused);
+                    foreach (string field in new[] { "Status", "TenantId", "UserId" }) AssertContains(field, refused);
+                    AssertEqual(before, await records.SnapshotAsync(testDb.Driver).ConfigureAwait(false), "unsupported fields refuse the complete patch without writes");
+
+                    string json = await SendAsync(handler, "update_mission", records.Mission.Id,
+                        new { Title = "renamed-mission" }, McpTestCaller.Operator).ConfigureAwait(false);
 
                     Mission? stored = await testDb.Driver.Missions.ReadAsync(records.Mission.Id).ConfigureAwait(false);
                     AssertContains("command.result", json);
