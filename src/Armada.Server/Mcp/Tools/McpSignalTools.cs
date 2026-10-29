@@ -31,8 +31,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_send_signal",
-                "Send a signal/message to a captain, or to a mission. Mail that names a mission reaches the captain that holds the mission now and follows the mission when it moves to another captain, so address a mission rather than a captain when the work matters more than who does it.",
-                "Send a signal/message to a captain. The stored signal is returned. When the captain is running on a runtime that does not deliver mail mid-mission, the response includes Delivery=stored_until_next_launch and a reason that names the runtime.",
+                "Send a signal/message to a captain, or to a mission. Mail that names a mission reaches the captain that holds the mission now and follows the mission when it moves to another captain, so address a mission rather than a captain when the work matters more than who does it. The stored signal is returned. When the captain is running on a runtime that does not deliver mail mid-mission, the response includes Delivery=stored_until_next_launch and a reason that names the runtime.",
                 new
                 {
                     type = "object",
