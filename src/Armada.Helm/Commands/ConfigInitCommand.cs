@@ -164,7 +164,7 @@ namespace Armada.Helm.Commands
             switch (mode)
             {
                 case LandingModeEnum.MergeAndPush:
-                    return "MergeAndPush - merge into your working directory, then push to its remote";
+                    return "MergeAndPush - verify in the isolated dock, then push the verified commit";
                 case LandingModeEnum.LocalMerge:
                     return "LocalMerge - merge into your working directory, no push";
                 case LandingModeEnum.PullRequest:

@@ -42,14 +42,14 @@ namespace Armada.Core.Database.Mysql.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO workflow_profiles
                         (id, tenant_id, user_id, name, description, scope, ownership_scope, fleet_id, vessel_id, is_default, active, source_template,
-                         language_hints_json, lint_command, build_command, unit_test_command, integration_test_command,
+                         language_hints_json, lint_command, build_command, unit_test_command, abbreviated_unit_test_command, integration_test_command,
                          e2e_test_command, package_command, publish_artifact_command, release_versioning_command,
                          changelog_generation_command, migration_command, security_scan_command, performance_command,
                          deployment_verification_command, rollback_verification_command, required_secrets_json,
                          expected_artifacts_json, environments_json, created_utc, last_update_utc)
                         VALUES
                         (@id, @tenant_id, @user_id, @name, @description, @scope, @ownership_scope, @fleet_id, @vessel_id, @is_default, @active, @source_template,
-                         @language_hints_json, @lint_command, @build_command, @unit_test_command, @integration_test_command,
+                         @language_hints_json, @lint_command, @build_command, @unit_test_command, @abbreviated_unit_test_command, @integration_test_command,
                          @e2e_test_command, @package_command, @publish_artifact_command, @release_versioning_command,
                          @changelog_generation_command, @migration_command, @security_scan_command, @performance_command,
                          @deployment_verification_command, @rollback_verification_command, @required_secrets_json,
@@ -115,6 +115,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         lint_command = @lint_command,
                         build_command = @build_command,
                         unit_test_command = @unit_test_command,
+                        abbreviated_unit_test_command = @abbreviated_unit_test_command,
                         integration_test_command = @integration_test_command,
                         e2e_test_command = @e2e_test_command,
                         package_command = @package_command,
@@ -305,6 +306,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@lint_command", (object?)profile.LintCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@build_command", (object?)profile.BuildCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@unit_test_command", (object?)profile.UnitTestCommand ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@abbreviated_unit_test_command", (object?)profile.AbbreviatedUnitTestCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@integration_test_command", (object?)profile.IntegrationTestCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@e2e_test_command", (object?)profile.E2ETestCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@package_command", (object?)profile.PackageCommand ?? DBNull.Value);
@@ -340,6 +342,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 LintCommand = MysqlDatabaseDriver.NullableString(reader["lint_command"]),
                 BuildCommand = MysqlDatabaseDriver.NullableString(reader["build_command"]),
                 UnitTestCommand = MysqlDatabaseDriver.NullableString(reader["unit_test_command"]),
+                AbbreviatedUnitTestCommand = MysqlDatabaseDriver.NullableString(reader["abbreviated_unit_test_command"]),
                 IntegrationTestCommand = MysqlDatabaseDriver.NullableString(reader["integration_test_command"]),
                 E2ETestCommand = MysqlDatabaseDriver.NullableString(reader["e2e_test_command"]),
                 PackageCommand = MysqlDatabaseDriver.NullableString(reader["package_command"]),

@@ -8,6 +8,17 @@ namespace Armada.Core.Services
     {
         #region Skip-Reasons
 
+        /// <summary>The vessel has no action configuration.</summary>
+        public const string NotConfigured = "NotConfigured";
+        /// <summary>No supported ecosystem matches.</summary>
+        public const string NoMatchingEcosystem = "NoMatchingEcosystem";
+        /// <summary>No credentials for the forge are available.</summary>
+        public const string NoForgeCredentials = "NoForgeCredentials";
+        /// <summary>The execution host is configured offline.</summary>
+        public const string NetworkUnavailable = "NetworkUnavailable";
+        /// <summary>Prefix followed by the missing executable name.</summary>
+        public const string ToolMissing = "ToolMissing:";
+
         /// <summary>
         /// The working tree had uncommitted changes and the run requires a clean tree.
         /// </summary>

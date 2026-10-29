@@ -13,3 +13,6 @@
 # Fixture battery packs are byte-exact data: no line-ending or encoding conversion, so the BOM/CRLF fixture
 # (battery/csharp/fixture/src/Inventory/LegacyCodes.cs) and its expected result keep every byte.
 battery/** -text
+
+# Preserve concurrent release notes during landing.
+CHANGELOG.md merge=union
