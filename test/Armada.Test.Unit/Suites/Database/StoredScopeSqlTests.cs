@@ -60,7 +60,7 @@ namespace Armada.Test.Unit.Suites.Database
                     VerificationStatus = DeploymentVerificationStatusEnum.Passed, Search = "Find", FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
                 };
                 AssertScope(p => expected, p => DeploymentMethods.Scope(DeploymentMethods.Table.Filter(), everyFilter, p), p => DeploymentMethods.Scope(DeploymentMethods.Table.Filter(), new DeploymentQuery(), p));
-                AssertEqual("COALESCE(completed_utc, started_utc, last_update_utc) DESC, created_utc DESC", DeploymentMethods.Order);
+                AssertEqual("COALESCE(completed_utc, started_utc, last_update_utc) DESC, created_utc DESC, id DESC", DeploymentMethods.Order);
                 AssertTableMatchesWriter(DeploymentMethods.Table, new Deployment());
             });
 
@@ -72,7 +72,7 @@ namespace Armada.Test.Unit.Suites.Database
                     TenantId = "ten_x", UserId = "usr_x", VesselId = "vsl_x", Kind = EnvironmentKindEnum.Staging, IsDefault = true, Active = false, Search = "Find"
                 };
                 AssertScope(p => expected, p => DeploymentEnvironmentMethods.Scope(DeploymentEnvironmentMethods.Table.Filter(), everyFilter, p), p => DeploymentEnvironmentMethods.Scope(DeploymentEnvironmentMethods.Table.Filter(), new DeploymentEnvironmentQuery(), p));
-                AssertEqual("is_default DESC, active DESC, name ASC, created_utc DESC", DeploymentEnvironmentMethods.Order);
+                AssertEqual("is_default DESC, active DESC, name ASC, created_utc DESC, id DESC", DeploymentEnvironmentMethods.Order);
                 AssertTableMatchesWriter(DeploymentEnvironmentMethods.Table, new DeploymentEnvironment());
             });
 
@@ -85,7 +85,7 @@ namespace Armada.Test.Unit.Suites.Database
                     Status = ReleaseStatusEnum.Candidate, Search = "Find", FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
                 };
                 AssertScope(p => expected, p => ReleaseMethods.Scope(ReleaseMethods.Table.Filter(), everyFilter, p), p => ReleaseMethods.Scope(ReleaseMethods.Table.Filter(), new ReleaseQuery(), p));
-                AssertEqual("COALESCE(published_utc, last_update_utc) DESC, created_utc DESC", ReleaseMethods.Order);
+                AssertEqual("COALESCE(published_utc, last_update_utc) DESC, created_utc DESC, id DESC", ReleaseMethods.Order);
                 AssertTableMatchesWriter(ReleaseMethods.Table, new Release());
             });
 
@@ -113,7 +113,7 @@ namespace Armada.Test.Unit.Suites.Database
                     FromUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), ToUtc = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
                 };
                 AssertScope(p => expected, p => TokenUsageMethods.Scope(TokenUsageMethods.Table.Filter(), everyFilter), p => TokenUsageMethods.Scope(TokenUsageMethods.Table.Filter(), new TokenUsageQuery()));
-                AssertEqual("created_utc DESC", TokenUsageMethods.Order);
+                AssertEqual("created_utc DESC, id DESC", TokenUsageMethods.Order);
                 AssertTableMatchesWriter(TokenUsageMethods.Table, new TokenUsageRecord());
             });
 
@@ -132,7 +132,7 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertScope(p => p == DatabaseTypeEnum.Postgresql ? postgresql : others,
                     p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), everyFilter, p),
                     p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), new RequestHistoryQuery(), p));
-                AssertEqual("created_utc DESC", RequestHistoryMethods.Order);
+                AssertEqual("created_utc DESC, id DESC", RequestHistoryMethods.Order);
                 AssertScope(p => "UPPER(method) NOT IN ('GET', 'HEAD', 'OPTIONS')",
                     p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), new RequestHistoryQuery { ExcludeReadMethods = true }, p),
                     p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), new RequestHistoryQuery(), p));

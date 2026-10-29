@@ -14,6 +14,10 @@ upstream integrations and excludes changes already present at that baseline.
 - The incident API shapes, filters, search and ordering are unchanged. A caller who is neither a global nor a tenant administrator sees the incidents it owns, whichever user wrote the newest snapshot. Deleting an incident removes its row and every snapshot event together.
 - Migrations: SQLite 137, PostgreSQL 141, MySQL 130, SQL Server 133.
 
+### Deterministic page order
+
+- Every paged list ordered by creation time now breaks ties by id in the same direction on SQLite, PostgreSQL, MySQL and SQL Server, so rows that share a timestamp (a voyage dispatch creates many missions in one tick) never repeat or vanish across pages. The shared token usage, request history, release, deployment and deployment environment orders carry the same tie-break.
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.

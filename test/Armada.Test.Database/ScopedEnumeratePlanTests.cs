@@ -46,19 +46,19 @@ namespace Armada.Test.Database
                     .Text("@vessel_id", "vsl_plan").Page()
                     .Shared(CheckRunMethods.Scope(CheckRunMethods.Table.Filter(), new CheckRunQuery { VesselId = "vsl_plan" }), CheckRunMethods.Order),
                 new PlannedRead("deployments by tenant", "deployments",
-                    "SELECT * FROM deployments WHERE tenant_id = @tenant_id ORDER BY COALESCE(completed_utc, started_utc, last_update_utc) DESC, created_utc DESC LIMIT @page_size OFFSET @offset;")
+                    "SELECT * FROM deployments WHERE tenant_id = @tenant_id ORDER BY COALESCE(completed_utc, started_utc, last_update_utc) DESC, created_utc DESC, id DESC LIMIT @page_size OFFSET @offset;")
                     .Text("@tenant_id", "ten_plan").Page()
                     .Shared(DeploymentMethods.Scope(DeploymentMethods.Table.Filter(), new DeploymentQuery { TenantId = "ten_plan" }, DatabaseTypeEnum.Postgresql), DeploymentMethods.Order),
                 new PlannedRead("releases by vessel", "releases",
-                    "SELECT * FROM releases WHERE vessel_id = @vessel_id ORDER BY COALESCE(published_utc, last_update_utc) DESC, created_utc DESC LIMIT @page_size OFFSET @offset;")
+                    "SELECT * FROM releases WHERE vessel_id = @vessel_id ORDER BY COALESCE(published_utc, last_update_utc) DESC, created_utc DESC, id DESC LIMIT @page_size OFFSET @offset;")
                     .Text("@vessel_id", "vsl_plan").Page()
                     .Shared(ReleaseMethods.Scope(ReleaseMethods.Table.Filter(), new ReleaseQuery { VesselId = "vsl_plan" }, DatabaseTypeEnum.Postgresql), ReleaseMethods.Order),
                 new PlannedRead("token usage by tenant and window", "token_usage",
-                    "SELECT * FROM token_usage WHERE tenant_id = @tenant_id AND created_utc >= @from_utc AND created_utc <= @to_utc ORDER BY created_utc DESC LIMIT 25 OFFSET 0;")
+                    "SELECT * FROM token_usage WHERE tenant_id = @tenant_id AND created_utc >= @from_utc AND created_utc <= @to_utc ORDER BY created_utc DESC, id DESC LIMIT 25 OFFSET 0;")
                     .Text("@tenant_id", "ten_plan").Time("@from_utc", "created_utc", from).Time("@to_utc", "created_utc", to)
                     .Shared(TokenUsageMethods.Scope(TokenUsageMethods.Table.Filter(), new TokenUsageQuery { TenantId = "ten_plan", FromUtc = from, ToUtc = to }), TokenUsageMethods.Order),
                 new PlannedRead("request history by tenant and window", "request_history",
-                    "SELECT * FROM request_history WHERE tenant_id = @tenant_id AND created_utc >= @from_utc AND created_utc <= @to_utc ORDER BY created_utc DESC LIMIT 25 OFFSET 0;")
+                    "SELECT * FROM request_history WHERE tenant_id = @tenant_id AND created_utc >= @from_utc AND created_utc <= @to_utc ORDER BY created_utc DESC, id DESC LIMIT 25 OFFSET 0;")
                     .Text("@tenant_id", "ten_plan").Time("@from_utc", "created_utc", from).Time("@to_utc", "created_utc", to)
                     .Shared(RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), new RequestHistoryQuery { TenantId = "ten_plan", FromUtc = from, ToUtc = to }, DatabaseTypeEnum.Postgresql), RequestHistoryMethods.Order)
             };

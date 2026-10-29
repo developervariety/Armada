@@ -350,7 +350,7 @@ Query string parameters **override** body values on POST enumerate endpoints, al
 |---|---|---|---|---|
 | `pageNumber` | int | 1 | >= 1 | Page number (1-based) |
 | `pageSize` | int | 100 | 1 - 1000 | Results per page |
-| `order` | string | `CreatedDescending` | `CreatedAscending`, `CreatedDescending` | Sort order by creation date |
+| `order` | string | `CreatedDescending` | `CreatedAscending`, `CreatedDescending` | Sort order by creation date; rows that share a creation time order by id in the same direction, so a page never repeats or skips a row |
 | `createdAfter` | datetime | null | ISO 8601 | Filter: created after this timestamp |
 | `createdBefore` | datetime | null | ISO 8601 | Filter: created before this timestamp |
 
