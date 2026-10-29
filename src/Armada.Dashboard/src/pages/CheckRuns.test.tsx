@@ -134,6 +134,7 @@ describe('CheckRuns', () => {
         lintCommand: null,
         buildCommand: 'dotnet build',
         unitTestCommand: 'dotnet test',
+        abbreviatedUnitTestCommand: null,
         integrationTestCommand: null,
         e2eTestCommand: null,
         migrationCommand: null,

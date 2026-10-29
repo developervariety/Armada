@@ -81,6 +81,7 @@ namespace Armada.Core.Database.SqlServer
             CliPermissionRequests = new CliPermissionRequestMethods(this, _Settings, _Logging);
             CliPermissionRules = new CliPermissionRuleMethods(this, _Settings, _Logging);
             StageOutcomes = new StageOutcomeMethods(this, _Settings, _Logging);
+            HandoffArtifacts = new HandoffArtifactMethods(this, _Settings, _Logging);
             FailureCauseRules = new FailureCauseRuleMethods(this, _Settings, _Logging);
             ModelProbeRuns = new ModelProbeRunMethods(this, _Settings, _Logging);
             ModelProbeResults = new ModelProbeResultMethods(this, _Settings, _Logging);
@@ -536,6 +537,12 @@ namespace Armada.Core.Database.SqlServer
             catch { vessel.DefinitionOfDoneBuildCommand = null; }
             try { vessel.DefinitionOfDoneTestCommand = NullableString(reader["definition_of_done_test_command"]); }
             catch { vessel.DefinitionOfDoneTestCommand = null; }
+            try { vessel.TestCommand = NullableString(reader["test_command"]); }
+            catch { vessel.TestCommand = null; }
+            try { vessel.LintCommand = NullableString(reader["lint_command"]); }
+            catch { vessel.LintCommand = null; }
+            try { vessel.AuditCommand = NullableString(reader["audit_command"]); }
+            catch { vessel.AuditCommand = null; }
             try { vessel.DefinitionOfDoneTimeoutSeconds = Convert.ToInt32(reader["definition_of_done_timeout_seconds"]); }
             catch { vessel.DefinitionOfDoneTimeoutSeconds = 1800; }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;

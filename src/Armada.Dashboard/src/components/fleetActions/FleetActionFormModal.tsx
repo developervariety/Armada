@@ -49,7 +49,7 @@ export default function FleetActionFormModal({ open, mode, source, defaultTimeou
 
   const errors = validateActionForm(form);
   const bodyText = form.kind === 'Command' ? form.commandText : form.promptTemplate;
-  const unknownVars = findUnknownTemplateVariables(bodyText);
+  const unknownVars = findUnknownTemplateVariables(bodyText, form.extensions?.Inputs?.map(i => i.Name));
   const show = (field: string) => (submitted && errors[field] ? t(errors[field]) : '');
 
   function insertToken(token: string) {

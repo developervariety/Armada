@@ -88,9 +88,9 @@ describe('Planning send ordering (F16)', () => {
     vi.mocked(sendPlanningSessionMessage).mockImplementation(() => new Promise((resolve) => { resolveSend = resolve; }));
 
     render(
-      <MemoryRouter initialEntries={['/planning/psn_1']}>
+      <MemoryRouter initialEntries={['/dispatch?tab=planning&session=psn_1']}>
         <Routes>
-          <Route path="/planning/:id" element={<Planning />} />
+          <Route path="/dispatch" element={<Planning />} />
         </Routes>
       </MemoryRouter>,
     );
