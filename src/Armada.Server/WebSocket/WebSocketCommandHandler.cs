@@ -167,11 +167,11 @@ namespace Armada.Server.WebSocket
 
                 case "stop_captain":
                     string captainId = command.CaptainId ?? "";
-                    await _Admiral.RecallCaptainAsync(captainId).ConfigureAwait(false);
+                    await _Admiral.RecallCaptainAsync(captainId, new OperatorStopContext(OperatorStopContext.SourceWebSocketStopCaptain, caller?.UserId)).ConfigureAwait(false);
                     return new { type = "command.result", action = "stop_captain", data = (object)new { status = "stopped", captainId = captainId } };
 
                 case "stop_all":
-                    await _Admiral.RecallAllAsync().ConfigureAwait(false);
+                    await _Admiral.RecallAllAsync(new OperatorStopContext(OperatorStopContext.SourceWebSocketStopAll, caller?.UserId)).ConfigureAwait(false);
                     return new { type = "command.result", action = "stop_all", data = (object)new { status = "all_stopped" } };
 
                 case "stop_server":

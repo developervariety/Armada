@@ -360,7 +360,7 @@ namespace Armada.Server.Routes
                 }
 
                 // Recall invokes the owner-aware lifecycle and requires its stop confirmation before releasing state.
-                try { await _admiral.RecallCaptainAsync(id).ConfigureAwait(false); }
+                try { await _admiral.RecallCaptainAsync(id, new OperatorStopContext(OperatorStopContext.SourceRestStopCaptain, ctx.UserId)).ConfigureAwait(false); }
                 catch (InvalidOperationException ex)
                 {
                     req.Http.Response.StatusCode = 409;
@@ -389,7 +389,7 @@ namespace Armada.Server.Routes
                 List<Exception> failures = new List<Exception>();
                 if (ctx.IsAdmin)
                 {
-                    try { await _admiral.RecallAllAsync().ConfigureAwait(false); }
+                    try { await _admiral.RecallAllAsync(new OperatorStopContext(OperatorStopContext.SourceRestStopAll, ctx.UserId)).ConfigureAwait(false); }
                     catch (Exception ex) { failures.Add(ex); }
                 }
                 else
@@ -397,7 +397,7 @@ namespace Armada.Server.Routes
                     List<Captain> working = await _database.Captains.EnumerateByStateAsync(ctx.TenantId!, CaptainStateEnum.Working).ConfigureAwait(false);
                     foreach (Captain owned in working)
                     {
-                        try { await _admiral.RecallCaptainAsync(owned.Id).ConfigureAwait(false); }
+                        try { await _admiral.RecallCaptainAsync(owned.Id, new OperatorStopContext(OperatorStopContext.SourceRestStopAll, ctx.UserId)).ConfigureAwait(false); }
                         catch (Exception ex) { failures.Add(ex); }
                     }
                 }
