@@ -21,6 +21,11 @@ namespace Armada.Tui.Screens.Configuration
     /// </summary>
     public static class WorkflowProfileForms
     {
+        /// <summary>
+        /// Hint shown under the abbreviated unit-test command field, explaining when it runs.
+        /// </summary>
+        public const string AbbreviatedUnitTestHint = "Fast subset of the unit tests. Runs for an AbbreviatedUnitTest check, and in stage checks when the mission description or the stage persona's prompt has [ARMADA:UNIT-TESTS] abbreviated. Blank: the full command runs.";
+
         #region Public-Methods
 
         /// <summary>
@@ -56,23 +61,24 @@ namespace Armada.Tui.Screens.Configuration
         {
             EntityForm form = new EntityForm(context);
             InputField name = form.Text("Name", existing != null ? existing.Name : "Default Workflow", "", true, existing == null ? "Set the core details here. Required inputs, environment commands, and the remaining commands can be configured after creation." : null);
-            InputField description = form.Text("Description", existing?.Description);
-            SelectField<string> scope = form.Select("Scope", ProfileFormSupport.ScopeOptions(context), (existing?.Scope ?? WorkflowProfileScopeEnum.Global).ToString(), null, true);
+            InputField description = form.Text("Description", existing?.Description, "", false, "Optional note on what kind of project this profile is for.");
+            SelectField<string> scope = form.Select("Scope", ProfileFormSupport.ScopeOptions(context), (existing?.Scope ?? WorkflowProfileScopeEnum.Global).ToString(), null, true, "Global: all vessels. Fleet: one fleet's vessels. Vessel: one repository. A vessel uses Vessel, then Fleet, then Global.");
             SelectField<string> visibility = form.Scope(existing != null ? existing.OwnershipScope : ScopeRules.ResolveCreateScope(context.Session, null));
             SelectField<string> fleet = form.Select("Fleet", EntityLookups.Options(data.Fleets, f => f.Id, f => f.Name), existing?.FleetId, "Select a fleet...", false, "Used when the scope is Fleet.");
             SelectField<string> vessel = form.Select("Vessel", EntityLookups.Options(data.Vessels, v => v.Id, v => v.Name), existing?.VesselId, "Select a vessel...", false, "Used when the scope is Vessel.");
-            TextAreaField hints = form.Area("Language / Runtime Hints", EntityUi.JoinLines(existing?.LanguageHints), 3);
+            TextAreaField hints = form.Area("Language / Runtime Hints", EntityUi.JoinLines(existing?.LanguageHints), 3, false, "Languages and tools the project uses, one per line. For reference only.");
             hints.Placeholder = "dotnet\nreact\npostgres";
-            TextAreaField artifacts = form.Area("Expected Artifacts", EntityUi.JoinLines(existing?.ExpectedArtifacts), 3);
+            TextAreaField artifacts = form.Area("Expected Artifacts", EntityUi.JoinLines(existing?.ExpectedArtifacts), 3, false, "Files the checks produce, one path per line; collected onto each check run.");
             artifacts.Placeholder = "bin/Release/app.zip\ncoverage/summary.xml";
-            TextAreaField lint = form.Area("Lint Command", existing?.LintCommand, 2, false, null, ".sh");
-            TextAreaField build = form.Area("Build Command", existing?.BuildCommand, 2, false, null, ".sh");
-            TextAreaField unit = form.Area("Unit Test Command", existing?.UnitTestCommand, 2, false, null, ".sh");
-            TextAreaField integration = form.Area("Integration Test Command", existing?.IntegrationTestCommand, 2, false, null, ".sh");
-            TextAreaField e2e = form.Area("E2E Test Command", existing?.E2ETestCommand, 2, false, null, ".sh");
-            TextAreaField package = form.Area("Package Command", existing?.PackageCommand, 2, false, null, ".sh");
-            CheckField isDefault = form.Check("Default for this scope", existing?.IsDefault ?? false);
-            CheckField active = form.Check("Active", existing?.Active ?? true);
+            TextAreaField lint = form.Area("Lint Command", existing?.LintCommand, 2, false, "Runs for a Lint check in the vessel's working directory. Blank: no lint step.", ".sh");
+            TextAreaField build = form.Area("Build Command", existing?.BuildCommand, 2, false, "Runs for a Build check and first in every stage check. Blank: no build step.", ".sh");
+            TextAreaField unit = form.Area("Unit Test Command (Full)", existing?.UnitTestCommand, 2, false, "Complete unit-test suite. Runs for a UnitTest check, and in stage checks unless the abbreviated suite is requested.", ".sh");
+            TextAreaField unitAbbreviated = form.Area("Unit Test Command (Abbreviated)", existing?.AbbreviatedUnitTestCommand, 2, false, AbbreviatedUnitTestHint, ".sh");
+            TextAreaField integration = form.Area("Integration Test Command", existing?.IntegrationTestCommand, 2, false, "Runs for an IntegrationTest check. Blank: no integration test step.", ".sh");
+            TextAreaField e2e = form.Area("E2E Test Command", existing?.E2ETestCommand, 2, false, "Runs for an E2ETest check. Blank: no end-to-end test step.", ".sh");
+            TextAreaField package = form.Area("Package Command", existing?.PackageCommand, 2, false, "Runs for a Package check. Blank: no package step.", ".sh");
+            CheckField isDefault = form.Check("Default for this scope", existing?.IsDefault ?? false, "Wins when several active profiles match the same vessel at the same scope.");
+            CheckField active = form.Check("Active", existing?.Active ?? true, "Off: Armada never chooses this profile, even when a vessel names it.");
             form.MarkClean();
 
             WorkflowProfile? saved = null;
@@ -92,6 +98,7 @@ namespace Armada.Tui.Screens.Configuration
                 payload.LintCommand = EntityUi.Blank(lint.Value);
                 payload.BuildCommand = EntityUi.Blank(build.Value);
                 payload.UnitTestCommand = EntityUi.Blank(unit.Value);
+                payload.AbbreviatedUnitTestCommand = EntityUi.Blank(unitAbbreviated.Value);
                 payload.IntegrationTestCommand = EntityUi.Blank(integration.Value);
                 payload.E2ETestCommand = EntityUi.Blank(e2e.Value);
                 payload.PackageCommand = EntityUi.Blank(package.Value);
@@ -157,7 +164,7 @@ namespace Armada.Tui.Screens.Configuration
         /// <returns>Count.</returns>
         public static int CountCapabilities(WorkflowProfile p)
         {
-            int commands = ProfileFormSupport.CountSet(p.LintCommand, p.BuildCommand, p.UnitTestCommand, p.IntegrationTestCommand, p.E2ETestCommand,
+            int commands = ProfileFormSupport.CountSet(p.LintCommand, p.BuildCommand, p.UnitTestCommand, p.AbbreviatedUnitTestCommand, p.IntegrationTestCommand, p.E2ETestCommand,
                 p.PackageCommand, p.PublishArtifactCommand, p.ReleaseVersioningCommand, p.ChangelogGenerationCommand);
             int environments = (p.Environments ?? new List<WorkflowEnvironmentProfile>()).Sum(e => ProfileFormSupport.CountSet(e.DeployCommand, e.RollbackCommand, e.SmokeTestCommand, e.HealthCheckCommand));
             return commands + environments;

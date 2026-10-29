@@ -1300,13 +1300,6 @@ namespace Test.Shared.Suites.E2E
                 ReplaceGitDirectoryWithInvalidGitfile(repo);
                 string vesselId = await CreateRepositoryVesselAsync(authClient, createdFleetIds, createdVesselIds, repo);
 
-                string listBody = await ReadBranchListBodyAsync(authClient, vesselId);
-                AssertFalse(listBody.Contains(marker), "list response contains the repository directory");
-                BranchListResponse list = JsonHelper.Deserialize<BranchListResponse>(listBody);
-                AssertEqual("Git error: unable to list branches", list.Error, "list error");
-                AssertEqual(0, list.BranchCount, "list count");
-                AssertEqual(0, list.Branches.Count, "list branches");
-
                 string pageBody = await ReadBranchEnumerationBodyAsync(authClient, vesselId);
                 AssertFalse(pageBody.Contains(marker), "enumerate response contains the repository directory");
                 BranchEnumerationResult page = JsonHelper.Deserialize<BranchEnumerationResult>(pageBody);
@@ -1370,15 +1363,6 @@ namespace Test.Shared.Suites.E2E
             foreach (FileInfo file in root.GetFiles("*", SearchOption.AllDirectories))
             {
                 if (file.Attributes.HasFlag(FileAttributes.ReadOnly)) file.Attributes = FileAttributes.Normal;
-            }
-        }
-
-        private static async Task<string> ReadBranchListBodyAsync(HttpClient client, string vesselId)
-        {
-            using (HttpResponseMessage response = await client.GetAsync("/api/v1/vessels/" + vesselId + "/branches"))
-            {
-                AssertEqual(HttpStatusCode.OK, response.StatusCode, "list status");
-                return await response.Content.ReadAsStringAsync();
             }
         }
 

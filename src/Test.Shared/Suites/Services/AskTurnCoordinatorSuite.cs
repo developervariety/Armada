@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -238,6 +239,118 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("The captain did not respond within the time limit.", failedTurn.Error, "ask.turn error");
                 AssertEqual(last.Id, failedTurn.MessageId, "ask.turn names the error message");
                 AssertEqual(400, (await h.Turns.SendMessageAsync(owner, thread.Id, new AskMessageSendRequest { Content = "   " }).ConfigureAwait(false)).StatusCode, "empty message");
+            }));
+
+            cases.Add(CaseAsync("detail_restores_running_turn_progress", "Thread detail read mid-turn carries what the captain streamed so far (text, thinking, tool calls with details), so a reopened conversation restores its live cards", async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                AuthContext owner = AskTestHarness.User("usr_live");
+                Captain captain = await NewCaptainAsync(h, "usr_live").ConfigureAwait(false);
+                AskThread thread = await h.Threads.CreateThreadAsync(owner, new AskThreadCreateRequest { CaptainId = captain.Id }).ConfigureAwait(false);
+                h.Runner.Reply = "All quiet.";
+                h.Runner.ToolCalls = new List<AskMessageToolCall> { new AskMessageToolCall { CallId = "call_1", ToolName = "mcp__armada__status", ArgumentsText = "{\"verbose\":true}", ResultText = "{\"Health\":\"ok\"}", Ok = true } };
+                h.Runner.Gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                h.Runner.BeforeGate = options =>
+                {
+                    options.OnThinking?.Invoke("Checking status.");
+                    options.OnTool?.Invoke(new CaptainToolActivity { Phase = "started", Id = "call_1", Name = "mcp__armada__status", Arguments = "{\"verbose\":true}" });
+                    options.OnTool?.Invoke(new CaptainToolActivity { Phase = "completed", Id = "call_1", Name = "mcp__armada__status", Ok = true, ElapsedMs = 12, Result = "{\"Health\":\"ok\"}" });
+                    options.OnTool?.Invoke(new CaptainToolActivity { Phase = "started", Id = "call_2", Name = "mcp__armada__enumerate", Arguments = "{\"entityType\":\"voyage\"}" });
+                    options.OnChunk?.Invoke("so far");
+                };
+
+                AskTurnStart start = await h.Turns.SendMessageAsync(owner, thread.Id, new AskMessageSendRequest { Content = "How is the fleet?" }).ConfigureAwait(false);
+                AssertEqual(202, start.StatusCode);
+                bool streamed = await AskTestHarness.WaitUntilAsync(() => Task.FromResult(h.EventsFor("usr_live", "ask.chunk").Count >= 2), 10000).ConfigureAwait(false);
+                AssertTrue(streamed, "the turn streamed its events");
+
+                AskThreadDetail during = (await h.Threads.GetThreadDetailAsync(owner, thread.Id).ConfigureAwait(false))!;
+                AskTurnProgress? live = during.ActiveTurn;
+                AssertNotNull(live, "detail carries the running turn's progress");
+                AssertEqual(start.Response!.TurnId, live!.TurnId, "progress names the running turn");
+                AssertEqual(during.Thread.ActiveTurnId, live.TurnId, "progress matches the thread's ActiveTurnId");
+                AskMessage reserved = (await h.Threads.EnumerateMessagesAsync(owner, thread.Id, null).ConfigureAwait(false))!.Messages.Single(m => m.Role == AskMessageRoleEnum.Assistant);
+                AssertEqual(reserved.Id, live.MessageId, "progress names the reserved reply");
+                AssertEqual(0, reserved.ToolCalls.Count, "nothing is persisted on the reply until the turn ends");
+                AssertEqual("partial so far", live.Text, "streamed text so far");
+                AssertEqual("Checking status.", live.ThinkingText, "streamed thinking so far");
+                AssertEqual(2, live.ToolCalls.Count, "both tool calls, merged by call id");
+                AskMessageToolCall done = live.ToolCalls[0];
+                AssertEqual("call_1", done.CallId);
+                AssertEqual("mcp__armada__status", done.ToolName);
+                AssertEqual("{\"verbose\":true}", done.ArgumentsText, "arguments kept for the expanded card");
+                AssertEqual("{\"Health\":\"ok\"}", done.ResultText, "result kept for the expanded card");
+                AssertEqual(true, done.Ok, "completed call is ok");
+                AssertEqual(12L, done.ElapsedMs, "elapsed time kept");
+                AskMessageToolCall running = live.ToolCalls[1];
+                AssertEqual("call_2", running.CallId);
+                AssertNull(running.Ok, "a call still running has no outcome");
+                AssertNull(running.ResultText, "a call still running has no result");
+
+                // The REST and MCP surfaces serialize the detail: the progress survives a JSON round trip.
+                AskThreadDetail roundTrip = JsonSerializer.Deserialize<AskThreadDetail>(JsonSerializer.Serialize(during))!;
+                AssertEqual("partial so far", roundTrip.ActiveTurn!.Text, "text after a round trip");
+                AssertEqual("{\"Health\":\"ok\"}", roundTrip.ActiveTurn.ToolCalls[0].ResultText, "tool result after a round trip");
+                AssertNull(JsonSerializer.Deserialize<AskThreadDetail>("{}")!.ActiveTurn, "minimal detail has no active turn");
+                AskTurnProgress minimal = JsonSerializer.Deserialize<AskThreadDetail>("{\"ActiveTurn\":{\"Text\":null,\"ToolCalls\":null}}")!.ActiveTurn!;
+                AssertEqual(String.Empty, minimal.Text, "null text defaults to empty");
+                AssertEqual(String.Empty, minimal.TurnId, "missing turn id defaults to empty");
+                AssertEqual(0, minimal.ToolCalls.Count, "null tool calls default to empty");
+
+                AssertNull((await h.Threads.GetThreadDetailAsync(AskTestHarness.User("usr_other"), thread.Id).ConfigureAwait(false)), "another user cannot read the progress");
+
+                h.Runner.Gate.TrySetResult(true);
+                await WaitForTurnEndAsync(h, thread.Id).ConfigureAwait(false);
+                AssertNull((await h.Threads.GetThreadDetailAsync(owner, thread.Id).ConfigureAwait(false))!.ActiveTurn, "no progress once the turn ended");
+                AskMessage reply = (await h.Threads.EnumerateMessagesAsync(owner, thread.Id, null).ConfigureAwait(false))!.Messages.Single(m => m.Id == reserved.Id);
+                AssertEqual("All quiet.", reply.ContentText);
+                AssertEqual(1, reply.ToolCalls.Count, "the runner's tool calls are stored once, not again from the live record");
+                AssertEqual("{\"Health\":\"ok\"}", reply.ToolCalls[0].ResultText, "persisted tool result");
+            }));
+
+            cases.Add(CaseAsync("stopped_turn_keeps_tool_calls", "A turn stopped mid-way keeps the tool calls it already made on its stopped message", async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                AuthContext owner = AskTestHarness.User("usr_stop");
+                Captain captain = await NewCaptainAsync(h, "usr_stop").ConfigureAwait(false);
+                AskThread thread = await h.Threads.CreateThreadAsync(owner, new AskThreadCreateRequest { CaptainId = captain.Id }).ConfigureAwait(false);
+                h.Runner.Gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                h.Runner.BeforeGate = options => options.OnTool?.Invoke(new CaptainToolActivity { Phase = "started", Id = "call_1", Name = "mcp__armada__status", Arguments = "{\"verbose\":true}" });
+
+                await h.Turns.SendMessageAsync(owner, thread.Id, new AskMessageSendRequest { Content = "Status?" }).ConfigureAwait(false);
+                bool running = await AskTestHarness.WaitUntilAsync(() => Task.FromResult(h.EventsFor("usr_stop", "ask.tool").Count >= 2), 10000).ConfigureAwait(false);
+                AssertTrue(running, "the tool call streamed");
+                AssertEqual(200, await h.Turns.CancelAsync(owner, thread.Id).ConfigureAwait(false), "owner stops the turn");
+                await WaitForTurnEndAsync(h, thread.Id).ConfigureAwait(false);
+
+                AskMessage last = (await h.Threads.EnumerateMessagesAsync(owner, thread.Id, null).ConfigureAwait(false))!.Messages.Last();
+                AssertEqual(AskMessageKindEnum.Error, last.Kind, "stopped message");
+                AssertContains("Stopped before", last.ContentText);
+                AssertEqual(1, last.ToolCalls.Count, "the tool call made before the stop is kept");
+                AssertEqual("mcp__armada__status", last.ToolCalls[0].ToolName);
+                AssertEqual("{\"verbose\":true}", last.ToolCalls[0].ArgumentsText, "its arguments are kept");
+            }));
+
+            cases.Add(CaseAsync("crashed_turn_keeps_tool_calls", "A turn whose runtime throws keeps the tool calls it already made on its error message", async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                AuthContext owner = AskTestHarness.User("usr_crash");
+                Captain captain = await NewCaptainAsync(h, "usr_crash").ConfigureAwait(false);
+                AskThread thread = await h.Threads.CreateThreadAsync(owner, new AskThreadCreateRequest { CaptainId = captain.Id }).ConfigureAwait(false);
+                h.Runner.Gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                await h.Turns.SendMessageAsync(owner, thread.Id, new AskMessageSendRequest { Content = "Status?" }).ConfigureAwait(false);
+                bool running = await AskTestHarness.WaitUntilAsync(() => Task.FromResult(h.EventsFor("usr_crash", "ask.tool").Count >= 1), 10000).ConfigureAwait(false);
+                AssertTrue(running, "the tool call streamed");
+                h.Runner.Gate.TrySetException(new InvalidOperationException("runtime crashed"));
+                await WaitForTurnEndAsync(h, thread.Id).ConfigureAwait(false);
+
+                AskMessage last = (await h.Threads.EnumerateMessagesAsync(owner, thread.Id, null).ConfigureAwait(false))!.Messages.Last();
+                AssertEqual(AskMessageKindEnum.Error, last.Kind, "error message");
+                AssertContains("runtime crashed", last.ContentText);
+                AssertEqual(1, last.ToolCalls.Count, "the tool call made before the crash is kept");
+                AssertEqual("call_1", last.ToolCalls[0].CallId);
+                AssertEqual("failed", AskTurnEventPayload.From(h.EventsFor("usr_crash", "ask.turn").Last().Payload).State, "failed ask.turn");
             }));
 
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Ask Turn Coordinator", cases: cases);

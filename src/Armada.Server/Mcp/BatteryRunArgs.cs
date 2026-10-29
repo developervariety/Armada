@@ -31,5 +31,10 @@ namespace Armada.Server.Mcp
         /// Create missing fixture vessels.
         /// </summary>
         public bool? CreateFixtureVessel { get; set; } = null;
+
+        /// <summary>
+        /// Persona prompt variant for every task (Current, Lean or Compact), or null for the captain's own setting.
+        /// </summary>
+        public string? PromptVariant { get; set; } = null;
     }
 }
