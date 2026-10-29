@@ -220,6 +220,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed defaults upgrades an untouched Ask system prompt to the propose-and-wait rule", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    PromptTemplateService initial = new PromptTemplateService(testDb.Driver, logging);
+                    await initial.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    string priorDefault = File.ReadAllText(Path.Combine(
+                        AppContext.BaseDirectory,
+                        "Fixtures",
+                        "PromptTemplates",
+                        "AskSystem.previous.txt"));
+                    PromptTemplate row = (await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false))!;
+                    row.Content = priorDefault;
+                    await testDb.Driver.PromptTemplates.UpdateAsync(row).ConfigureAwait(false);
+
+                    PromptTemplateService restarted = new PromptTemplateService(testDb.Driver, logging);
+                    await restarted.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate upgraded = (await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false))!;
+                    AssertEqual(restarted.GetEmbeddedDefault("ask.system"), upgraded.Content,
+                        "an untouched installed Ask prompt takes the current default");
+                    AssertContains("armada_dispatch", upgraded.Content, "the prompt names the dispatch proposal tool");
+                    AssertContains("armada_create_mission", upgraded.Content, "the prompt names the mission proposal tool");
+                    AssertContains("Never propose a mission or voyage on your own initiative", upgraded.Content,
+                        "the prompt forbids unprompted proposals");
+                    AssertFalse(upgraded.Content.Contains("dispatch work unless the operator explicitly asks"),
+                        "the superseded dispatch-on-request line is gone");
+                }
+            });
+
             await RunTest("Seed defaults includes specialist persona templates", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Ask proposes repository changes
+
+- The built-in `ask.system` prompt tells Ask to answer a repository change request by proposing `armada_dispatch` or `armada_create_mission` with a ready brief, and to wait for the owner's decision. Ask proposes work only when the operator asks for it; read-only lookups stay in the chat. An installed copy that still holds the earlier built-in prompt takes the new text on the next start, and an edited copy is kept.
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.

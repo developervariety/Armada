@@ -161,6 +161,11 @@ fingerprint. Arguments are limited to 32,000 characters. Protected values are
 refused before proposal storage. The service stores bounded outcome summaries
 and typed work identifiers, not raw tool results.
 
+The built-in `ask.system` prompt tells the captain to answer a request for a
+repository change by proposing `armada_dispatch` or `armada_create_mission` with
+a ready brief, then to wait for the decision. The captain proposes work only when
+the operator asks for it, and read-only lookups stay in the chat.
+
 The human owner reviews the tool and arguments, then approves or rejects the
 proposal. Approval sends its fingerprint. The server rechecks current authority
 and the fingerprint, claims the pending proposal, and invokes the original
