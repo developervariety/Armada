@@ -2551,7 +2551,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 VesselId = rig.Vessel.Id,
                                 VoyageId = rig.Voyage.Id,
                                 Mode = MissionModeEnum.Research,
-                                Persona = scenario == "canonical-reviews" && persona == "TestEngineer" ? PersonaCatalog.TestEngineer : persona,
+                                Persona = scenario == "canonical-reviews" && persona == "TestEngineer" ? global::Armada.Core.PersonaCatalog.TestEngineer : persona,
                                 Status = MissionStatusEnum.Pending,
                                 DependsOnMissionId = parentId
                             };
