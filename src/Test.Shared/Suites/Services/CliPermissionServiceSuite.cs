@@ -588,7 +588,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(pending.Id, adminItem.EntityId);
                 AssertTrue(adminItem.CliPermission!.CanDecide, "admin can decide");
                 AssertNotNull(adminItem.ExpiresUtc, "expiry for a countdown");
-                AssertEqual("/cli-permissions?request=" + pending.Id, adminItem.Href);
+                AssertEqual("/server?tab=cli-permissions&request=" + pending.Id, adminItem.Href);
                 InboxItem ownerItem = (await inbox.GetInboxAsync(owner).ConfigureAwait(false)).Single(i => i.Kind == InboxItemKinds.CliPermission);
                 AssertFalse(ownerItem.CliPermission!.CanDecide, "owner sees it but cannot decide");
                 AssertEqual("/ask/" + thread.Id, ownerItem.Href);

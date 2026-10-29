@@ -50,6 +50,10 @@ namespace Armada.Core.Database.Interfaces
         /// <returns>True when the row was written; false when its status had already moved on or the mission is missing.</returns>
         Task<bool> TryUpdateIfStatusAsync(Mission mission, IReadOnlyCollection<MissionStatusEnum> expectedStatuses, CancellationToken token = default);
 
+        /// <summary>Write only when both status and the observed row timestamp still match.</summary>
+        Task<bool> TryUpdateIfUnchangedAsync(Mission mission, DateTime expectedLastUpdateUtc, IReadOnlyCollection<MissionStatusEnum> expectedStatuses, CancellationToken token = default);
+
+
         /// <summary>
         /// Claim ownership of one agent process exit for a mission: clears the recorded process id only while it is still
         /// <paramref name="processId"/>. Exactly one caller wins for a given process, so a process exit is handled once
