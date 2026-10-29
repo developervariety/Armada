@@ -1460,3 +1460,8 @@ Both tools require a global administrator.
 Both tools read the conversations the authenticated human caller owns. No tool in
 this group sends a message, approves or rejects a proposal, changes a conversation
 or deletes one. See [Saved Ask Conversations](MCP_API.md#saved-ask-conversations).
+
+`armada_cli_permission_prompt` is not listed here: it is not a general tool. Claude Code
+calls it through `--permission-prompt-tool` during a saved Ask turn, and only that turn's
+own scoped credential can see or call it. See
+[Approving native tool calls](ASK_CONVERSATIONS.md#approving-native-tool-calls).

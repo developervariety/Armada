@@ -1124,7 +1124,9 @@ Returns current server settings including ports, agent configuration, system pat
   "IdleCaptainTimeoutSeconds": 0,
   "AutoCreatePr": false,
   "Ask": {
-    "NativeToolAccess": "ReadOnly"
+    "NativeToolAccess": "ReadOnly",
+    "ApproveNativeToolsInArmada": false,
+    "ToolApprovalTimeoutSeconds": 120
   },
   "DataDirectory": "C:\\Users\\joelc\\.armada",
   "DatabasePath": "C:\\Users\\joelc\\.armada\\armada.db",
@@ -1177,6 +1179,9 @@ A supplied `Ask.NativeToolAccess` (`ReadOnly` or `Unrestricted`) sets the native
 runtimes launched for Ask turns, and an omitted member leaves the current value. `ReadOnly` is the default.
 `Unrestricted` gives Ask turns the mission launch defaults. See
 [native tool access](ASK_CONVERSATIONS.md#native-tool-access).
+A supplied `Ask.ApproveNativeToolsInArmada` turns owner approval of native tool calls on or off for saved Claude Code
+turns, and `Ask.ToolApprovalTimeoutSeconds` (10 to 600) sets how long a request waits before it is denied. See
+[approving native tool calls](ASK_CONVERSATIONS.md#approving-native-tool-calls).
 
 A supplied `ModelTier.UsageRouting` is validated before anything is applied: the policy shape and ranges, each
 account's key file path against the Admiral's account folder root, and each account's runtime against the captains

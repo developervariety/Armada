@@ -415,6 +415,7 @@ namespace Armada.Core.Database.Sqlite
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             ContextEmbeddings = new Armada.Core.Database.ContextEmbeddingMethods(() => new SqliteConnection(_ConnectionString));
                     AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+                    AskToolPermissions = new Armada.Core.Database.AskToolPermissionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
                     FleetActions = new Armada.Core.Database.FleetActionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
                     FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);

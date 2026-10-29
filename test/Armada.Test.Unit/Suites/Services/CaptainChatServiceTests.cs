@@ -72,6 +72,34 @@ namespace Armada.Test.Unit.Suites.Services
                 new List<string>();
         }
 
+        /// <summary>A Claude Code runtime that records how the chat service configured it, then fails the launch.</summary>
+        private sealed class RecordingClaudeRuntime : ClaudeCodeRuntime
+        {
+            public RecordingClaudeRuntime(LoggingModule logging) : base(logging) { }
+
+            public override Task<int> StartAsync(string workingDirectory, string prompt, Dictionary<string, string>? environment = null,
+                string? logFilePath = null, string? finalMessageFilePath = null, string? model = null, Captain? captain = null,
+                bool showThinking = false, CancellationToken token = default, CaptainLaunchIsolationPlan? isolationPlan = null)
+            {
+                throw new InvalidOperationException("launch reached the process start");
+            }
+        }
+
+        private sealed class RecordingClaudeRuntimeFactory : AgentRuntimeFactory
+        {
+            private readonly LoggingModule _Logging;
+
+            public RecordingClaudeRuntimeFactory(LoggingModule logging) : base(logging) { _Logging = logging; }
+
+            public RecordingClaudeRuntime? LastRuntime { get; private set; }
+
+            public override IAgentRuntime Create(AgentRuntimeEnum runtimeType)
+            {
+                LastRuntime = new RecordingClaudeRuntime(_Logging);
+                return LastRuntime;
+            }
+        }
+
         private sealed class NoReadOnlyCliRuntimeFactory : AgentRuntimeFactory
         {
             private readonly LoggingModule _Logging;
@@ -281,6 +309,34 @@ namespace Armada.Test.Unit.Suites.Services
                         await chat.ChatSavedAsync(caller, savedTurn, new CaptainChatRequest { Message = "saved question" }).ConfigureAwait(false);
                         AssertEqual(NativeToolAccessEnum.Unrestricted, factory.LastRuntime!.ReceivedIsolationPlan!.NativeToolAccess, runtime + " launches with mission defaults once the operator widens Ask");
                     }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Only an attended saved Claude Code turn sends tool permission prompts to Armada, and only when the setting is on", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    SessionTokenService sessionTokens = new SessionTokenService();
+                    ArmadaSettings settings = new ArmadaSettings { McpPort = 51790 };
+                    AuthContext caller = AuthContext.Authenticated("tenant-prompt", "user-prompt", true, true, "Session");
+                    Captain captain = new Captain("chat-prompt", AgentRuntimeEnum.ClaudeCode);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    RecordingClaudeRuntimeFactory factory = new RecordingClaudeRuntimeFactory(logging);
+                    CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, settings, sessionTokens);
+                    AskTurn savedTurn = new AskTurn { ThreadId = "thread-prompt", RequestId = "turn-prompt", CaptainId = captain.Id };
+
+                    await chat.ChatSavedAsync(caller, savedTurn, new CaptainChatRequest { Message = "saved question" }).ConfigureAwait(false);
+                    AssertNull(factory.LastRuntime!.PermissionPromptTool, "The setting is off by default");
+
+                    settings.Ask.ApproveNativeToolsInArmada = true;
+                    settings.Ask.ToolApprovalTimeoutSeconds = 45;
+                    await chat.ChatAsync(caller, captain.Id, new CaptainChatRequest { Message = "temporary question" }).ConfigureAwait(false);
+                    AssertNull(factory.LastRuntime!.PermissionPromptTool, "Temporary chat is not an attended saved turn");
+
+                    await chat.ChatSavedAsync(caller, savedTurn, new CaptainChatRequest { Message = "saved question" }).ConfigureAwait(false);
+                    AssertEqual("mcp__armada__armada_cli_permission_prompt", factory.LastRuntime!.PermissionPromptTool, "A saved Claude Code turn names the Armada prompt tool");
+                    AssertEqual(45, factory.LastRuntime!.PermissionPromptTimeoutSeconds, "The prompt wait follows the setting");
                 }
             }).ConfigureAwait(false);
 

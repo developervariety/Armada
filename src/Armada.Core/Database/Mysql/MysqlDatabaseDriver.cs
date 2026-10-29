@@ -113,6 +113,7 @@ namespace Armada.Core.Database.Mysql
             MemoryProposals = new MemoryProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            AskToolPermissions = new Armada.Core.Database.AskToolPermissionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             FleetActions = new Armada.Core.Database.FleetActionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             ContextEmbeddings = new Armada.Core.Database.ContextEmbeddingMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString));
             FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
@@ -749,7 +750,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(128, "Persist the unread reply count of saved Ask threads",
                     @"ALTER TABLE ask_threads ADD COLUMN unread_count INT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(129, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.MysqlStatements),
-                new SchemaMigration(130, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.MysqlStatements)
+                new SchemaMigration(130, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.MysqlStatements),
+                new SchemaMigration(131, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.MysqlStatements)
             };
         }
 

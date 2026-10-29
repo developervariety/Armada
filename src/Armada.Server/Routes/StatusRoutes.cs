@@ -552,7 +552,9 @@ namespace Armada.Server.Routes
                 if (body.Ask != null)
                 {
                     body.Ask.ApplyTo(_settings.Ask);
-                    _logging.Info(_Header + "ask settings updated via API: nativeToolAccess=" + _settings.Ask.NativeToolAccess);
+                    _logging.Info(_Header + "ask settings updated via API: nativeToolAccess=" + _settings.Ask.NativeToolAccess
+                        + " approveNativeToolsInArmada=" + _settings.Ask.ApproveNativeToolsInArmada
+                        + " toolApprovalTimeoutSeconds=" + _settings.Ask.ToolApprovalTimeoutSeconds);
                 }
 
                 if (body.AdditionalPromptTemplates != null)

@@ -76,6 +76,8 @@ type AskNativeToolAccess = 'ReadOnly' | 'Unrestricted';
 
 interface AskSettings {
   nativeToolAccess: AskNativeToolAccess;
+  approveNativeToolsInArmada?: boolean;
+  toolApprovalTimeoutSeconds?: number;
 }
 
 interface ServerSettings {
@@ -307,7 +309,11 @@ export default function Server() {
     if (!settings) return;
     try {
       const sent = {
-        ask: { nativeToolAccess: settings.ask?.nativeToolAccess ?? 'ReadOnly' },
+        ask: {
+          nativeToolAccess: settings.ask?.nativeToolAccess ?? 'ReadOnly',
+          approveNativeToolsInArmada: settings.ask?.approveNativeToolsInArmada ?? false,
+          toolApprovalTimeoutSeconds: settings.ask?.toolApprovalTimeoutSeconds ?? 120,
+        },
       };
       const updated = await updateSettings(sent);
       applySavedSettings(updated as unknown as ServerSettings, sent);
@@ -869,7 +875,7 @@ export default function Server() {
                   onChange={(e) =>
                     setSettings({
                       ...settings,
-                      ask: { nativeToolAccess: e.target.value as AskNativeToolAccess },
+                      ask: { ...settings.ask, nativeToolAccess: e.target.value as AskNativeToolAccess },
                     })
                   }
                   title={t('Native tool access for Ask conversations')}
@@ -877,6 +883,39 @@ export default function Server() {
                   <option value="ReadOnly">{t('Read-only (default)')}</option>
                   <option value="Unrestricted">{t('Unrestricted (same as missions)')}</option>
                 </select>
+              </div>
+              <div className="form-group">
+                <label title={t('Sends each native tool call of a saved Claude Code Ask conversation to its owner in the Dashboard.')}>
+                  <input
+                    type="checkbox"
+                    checked={settings.ask?.approveNativeToolsInArmada ?? false}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        ask: { nativeToolAccess: 'ReadOnly', ...settings.ask, approveNativeToolsInArmada: e.target.checked },
+                      })
+                    }
+                    title={t('Approve native tool calls of Ask conversations in Armada')}
+                  />{' '}
+                  {t('Approve native tool calls in Armada')}
+                </label>
+                <small className="text-muted">{t('Saved Claude Code conversations ask you before a native tool runs. Nothing runs without your decision. Missions never use this.')}</small>
+              </div>
+              <div className="form-group">
+                <label title={t('Seconds a native tool request waits for your decision before it is denied.')}>{t('Approval Timeout (seconds)')}</label>
+                <input
+                  type="number"
+                  min={10}
+                  max={600}
+                  value={settings.ask?.toolApprovalTimeoutSeconds ?? 120}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      ask: { nativeToolAccess: 'ReadOnly', ...settings.ask, toolApprovalTimeoutSeconds: parseInt(e.target.value, 10) || 120 },
+                    })
+                  }
+                  title={t('Native tool approval timeout in seconds')}
+                />
               </div>
             </div>
             <button

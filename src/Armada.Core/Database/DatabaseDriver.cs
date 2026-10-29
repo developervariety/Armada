@@ -188,6 +188,9 @@ namespace Armada.Core.Database
         /// <summary>Durable Ask action proposal operations.</summary>
         public virtual IAskActionProposalMethods AskActionProposals { get; protected set; } = null!;
 
+        /// <summary>Ask native tool permission requests and remembered rules.</summary>
+        public virtual IAskToolPermissionMethods AskToolPermissions { get; protected set; } = null!;
+
         /// <summary>Derived context search vectors, keyed by tenant, source and model.</summary>
         public virtual IContextEmbeddingMethods ContextEmbeddings { get; protected set; } = null!;
 

@@ -3,7 +3,7 @@
 Temporary chat keeps the current page-state conversation and direct captain
 chat route. Saved conversations add history on the Admiral. The Dashboard can create,
 resume, rename, pin and archive a thread. Archive hides a thread from the normal
-list; it does not delete history.
+list; deleting an archived thread removes its history.
 
 Each thread belongs to one user in one tenant. The Dashboard offers these as separate modes. Saved-thread routes retain the
 Ask administrator access rule. A mission credential cannot use these human
@@ -81,6 +81,8 @@ The saved-thread API uses these routes:
 | GET | `/api/v1/ask/threads/{id}/turns/{turnId}` | Read a stored request. |
 | POST | `/api/v1/ask/threads/{id}/read` | Clear the thread's unread count. |
 | POST | `/api/v1/ask/threads/{id}/unread` | Set the thread's unread count to one. |
+| DELETE | `/api/v1/ask/threads/{id}` | Delete an archived conversation. |
+| POST | `/api/v1/ask/threads/delete/multiple` | Delete up to 100 archived conversations. |
 
 The MCP tools `armada_list_ask_threads` and `armada_get_ask_thread` read a human
 owner's saved conversations. They are read-only: no MCP tool sends a message,
@@ -92,11 +94,10 @@ matching typed contracts. Clients must retain the request identifier until they
 know the result. Transport failure is not permission to submit the same text
 under a new identifier.
 
-The fork does not import upstream's central CLI permission requests and rules,
-automatic approval, retention pruning or bulk thread deletion with this feature.
 Temporary chat MCP access uses the captain chat service's current caller scope.
 Saved turns use a separate turn-bound MCP credential and the manual approval gate. Saved threads
-do not change dispatch, landing, rescue or deployment authority.
+do not change dispatch, landing, rescue or deployment authority. Nothing deletes a
+conversation automatically: there is no retention pruning.
 
 A send body has `requestId`, `content` and `showThinking`. It does not accept
 history or a captain identifier. A new request pins the thread's selected captain.
@@ -114,6 +115,21 @@ Thread updates use presence flags (`setTitle`, `setCaptainId`, `setPinned`,
 null captain clears it. Absent flags leave fields unchanged. Thread lists return
 an enumeration result. Turn lists return a bounded array in ascending sequence
 order, using the exclusive `beforeSequence` cursor for older pages.
+
+## Deleting conversations
+
+The owner deletes a conversation with `DELETE /api/v1/ask/threads/{id}`, or
+several with `POST /api/v1/ask/threads/delete/multiple` and a body of
+`{"ids": [...]}` (at most 100 distinct ids). Delete removes the thread with its
+turns and proposals and cannot be undone. Only the owner can delete, and no MCP
+tool deletes a conversation.
+
+A conversation is deleted only when it is archived, has no active turn, no
+uncertain turn and no proposal that is waiting for a decision or executing. The
+single route answers 204, 404 for an unknown conversation, or 409 with the reason.
+The bulk route answers 200 with `deleted`, `status` and a `skipped` entry
+(`id`, `reason`) for each refused id. Each delete records an `ask_thread.deleted`
+audit event that keeps the thread id and title.
 
 ## Native tool access
 
@@ -146,6 +162,45 @@ A CLI runtime that cannot express read-only native tools is refused for Ask with
 a message that names the runtime. It never launches with its permissive defaults.
 A new CLI runtime refuses Ask until it declares a read-only mapping.
 
+## Approving native tool calls
+
+With `ask.approveNativeToolsInArmada` on, a saved Ask turn on a Claude Code captain
+sends each native tool call that needs permission to the conversation owner instead
+of applying `ask.nativeToolAccess`. Other runtimes and temporary chat keep
+`ask.nativeToolAccess`, and a mission launch never uses this. The setting is off by
+default, hot-reloads, and is edited on the Dashboard Server page (Ask Settings) and in
+`PUT /api/v1/settings`.
+
+Claude Code is launched without a permission bypass and with
+`--permission-prompt-tool mcp__armada__armada_cli_permission_prompt`. The prompt tool
+is an Armada MCP tool that only the turn's own scoped credential can see or call. A
+human, mission or other Ask credential does not list it and cannot call it, and it
+answers only while the credential's turn is still the thread's running turn.
+
+Each call becomes a request that waits for the owner on the Ask page, under Tool
+permissions. The owner allows or denies it, and can remember the choice for that tool
+in that conversation. A request nobody decides within `ask.toolApprovalTimeoutSeconds`
+(default 120, from 10 to 600) is denied, and it cannot be allowed afterward. Cancelling
+the turn also expires its waiting requests. Claude Code's MCP tool timeout is raised
+above the approval timeout so that Armada denies the call before Claude Code gives up.
+
+A remembered rule applies to one tool name in one conversation. A rule decides later
+requests for that tool without a prompt, and the request is recorded with the rule as
+its decision source. The owner forgets a rule on the Ask page. Rules and requests are
+removed with the conversation.
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/v1/ask/threads/{id}/tool-permissions` | The newest requests, pending ones included |
+| `POST /api/v1/ask/threads/{id}/tool-permissions/{requestId}/allow` | Allow a pending request; optional body `{"remember": true}` |
+| `POST /api/v1/ask/threads/{id}/tool-permissions/{requestId}/deny` | Deny a pending request; optional body `{"remember": true}` |
+| `GET /api/v1/ask/threads/{id}/tool-permission-rules` | The remembered rules |
+| `DELETE /api/v1/ask/threads/{id}/tool-permission-rules/{ruleId}` | Forget a rule |
+
+Only the thread owner reads or decides. A decision on a request that is already
+decided or expired answers 409. Each owner decision records an
+`ask_tool_permission.decided` audit event.
+
 ## Proposed actions and work
 
 A saved turn uses an authenticated, encrypted credential bound to its owner,
@@ -160,6 +215,11 @@ normalized full record identifiers, canonical arguments and an owner-bound
 fingerprint. Arguments are limited to 32,000 characters. Protected values are
 refused before proposal storage. The service stores bounded outcome summaries
 and typed work identifiers, not raw tool results.
+
+The built-in `ask.system` prompt tells the captain to answer a request for a
+repository change by proposing `armada_dispatch` or `armada_create_mission` with
+a ready brief, then to wait for the decision. The captain proposes work only when
+the operator asks for it, and read-only lookups stay in the chat.
 
 The human owner reviews the tool and arguments, then approves or rejects the
 proposal. Approval sends its fingerprint. The server rechecks current authority

@@ -3,6 +3,7 @@ namespace Armada.Core.Database.Interfaces
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>Owner-scoped persistence for saved Ask threads and their durable turns.</summary>
@@ -34,6 +35,16 @@ namespace Armada.Core.Database.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>The stored thread, or null when it is not owned.</returns>
         Task<AskThread?> UpdateAsync(AskThread thread, CancellationToken token = default);
+        /// <summary>
+        /// Delete an archived thread with its turns and proposals when it holds no open turn and no open proposal.
+        /// The check and the delete are one statement, so a turn reserved at the same moment cannot be lost.
+        /// </summary>
+        /// <param name="tenantId">Tenant id.</param>
+        /// <param name="userId">User id.</param>
+        /// <param name="threadId">Thread id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns><see cref="AskThreadDeleteOutcomeEnum.Deleted"/>, or the reason the thread was kept.</returns>
+        Task<AskThreadDeleteOutcomeEnum> TryDeleteAsync(string tenantId, string userId, string threadId, CancellationToken token = default);
         /// <summary>Atomically deduplicate a request and claim the thread's one active turn.</summary>
         /// <param name="tenantId">Tenant id.</param>
         /// <param name="userId">User id.</param>

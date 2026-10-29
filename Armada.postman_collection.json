@@ -304,6 +304,18 @@
 			"description": "Stable request ID for an idempotent saved Ask turn."
 		},
 		{
+			"key": "askToolPermissionId",
+			"value": "atp_example",
+			"type": "string",
+			"description": "Native tool permission request ID of a saved Ask thread."
+		},
+		{
+			"key": "askToolPermissionRuleId",
+			"value": "atr_example",
+			"type": "string",
+			"description": "Remembered native tool rule ID of a saved Ask thread."
+		},
+		{
 			"key": "typedDecisionName",
 			"value": "my_custom_decision",
 			"type": "string"
@@ -11358,6 +11370,72 @@
 						"body": {"mode": "raw", "raw": "{\n  \"setTitle\": true,\n  \"title\": \"Saved question\",\n  \"setPinned\": true,\n  \"pinned\": true\n}"},
 						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}"]},
 						"description": "Update a thread title, captain, pin or archive state."
+					}
+				},
+				{
+					"name": "Delete Saved Ask Thread",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}"]},
+						"description": "Delete an archived Ask thread you own, with its turns and proposals. Returns 409 while it has an active or uncertain turn or an open proposal."
+					}
+				},
+				{
+					"name": "Delete Multiple Saved Ask Threads",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\n  \"ids\": [\"{{askThreadId}}\"]\n}"},
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/delete/multiple", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "delete", "multiple"]},
+						"description": "Delete up to 100 archived Ask threads. A thread that cannot be deleted is returned in skipped with its reason."
+					}
+				},
+				{
+					"name": "List Ask Tool Permission Requests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/tool-permissions", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "tool-permissions"]},
+						"description": "List the newest native tool permission requests of a saved Ask thread, pending ones included."
+					}
+				},
+				{
+					"name": "Allow Ask Tool Permission Request",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\n  \"remember\": false\n}"},
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/tool-permissions/{{askToolPermissionId}}/allow", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "tool-permissions", "{{askToolPermissionId}}", "allow"]},
+						"description": "Allow a pending native tool request. Set remember to apply the choice to later requests for the same tool in this thread."
+					}
+				},
+				{
+					"name": "Deny Ask Tool Permission Request",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\n  \"remember\": false\n}"},
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/tool-permissions/{{askToolPermissionId}}/deny", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "tool-permissions", "{{askToolPermissionId}}", "deny"]},
+						"description": "Deny a pending native tool request. Set remember to apply the choice to later requests for the same tool in this thread."
+					}
+				},
+				{
+					"name": "List Ask Tool Permission Rules",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/tool-permission-rules", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "tool-permission-rules"]},
+						"description": "List the native tool rules remembered for a saved Ask thread."
+					}
+				},
+				{
+					"name": "Delete Ask Tool Permission Rule",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/tool-permission-rules/{{askToolPermissionRuleId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "tool-permission-rules", "{{askToolPermissionRuleId}}"]},
+						"description": "Forget one remembered native tool rule."
 					}
 				},
 				{

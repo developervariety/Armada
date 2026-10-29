@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     internal sealed class AskThreadCompletionReadBarrier : IAskThreadMethods
@@ -41,6 +42,11 @@ namespace Test.Shared.Suites.Services
         public Task<EnumerationResult<AskThread>> EnumerateAsync(string tenantId, string userId, int pageNumber, int pageSize, bool includeArchived, CancellationToken token = default)
         {
             return _Inner.EnumerateAsync(tenantId, userId, pageNumber, pageSize, includeArchived, token);
+        }
+
+        public Task<AskThreadDeleteOutcomeEnum> TryDeleteAsync(string tenantId, string userId, string threadId, CancellationToken token = default)
+        {
+            return _Inner.TryDeleteAsync(tenantId, userId, threadId, token);
         }
 
         public Task<AskThread?> UpdateAsync(AskThread thread, CancellationToken token = default)

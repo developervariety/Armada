@@ -21,7 +21,9 @@ namespace Test.Shared.Suites.Database
                 CaseAsync("one_thread_allows_only_one_concurrent_active_turn", "Concurrent reservations hold one active turn", TestTags.Positive, ConcurrentReservationAsync),
                 CaseAsync("completed_turns_round_trip_and_page_as_history", "Completed turns preserve responses and page as history", TestTags.Positive, HistoryPagingAsync),
                 CaseAsync("stale_completion_cannot_release_a_later_turn", "A stale completion cannot release another active turn", TestTags.Negative, StaleCompletionAsync),
-                CaseAsync("finished_replies_raise_the_unread_count_until_the_owner_reads", "Finished replies raise the unread count until the owner reads", TestTags.Positive, UnreadLifecycleAsync)
+                CaseAsync("finished_replies_raise_the_unread_count_until_the_owner_reads", "Finished replies raise the unread count until the owner reads", TestTags.Positive, UnreadLifecycleAsync),
+                CaseAsync("delete_removes_only_archived_idle_threads_without_open_proposals", "Delete removes only archived idle threads without an open proposal", TestTags.Negative, DeleteRulesAsync),
+                CaseAsync("delete_is_not_blocked_by_an_expired_pending_proposal", "An expired pending proposal does not block a delete", TestTags.Positive, DeleteIgnoresExpiredPendingProposalAsync)
             };
             return new TestSuiteDescriptor(suiteId: "Database.AskThread", displayName: "Ask Thread Database", cases: cases);
         }

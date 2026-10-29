@@ -28,6 +28,13 @@ namespace Armada.Test.Runtimes.Suites
 
             public bool PromptViaStdin => UsePromptStdin;
 
+            public Dictionary<string, string> LaunchVariables(Captain? captain = null)
+            {
+                Dictionary<string, string> variables = new Dictionary<string, string>();
+                AddLaunchVariables(variables, null, captain);
+                return variables;
+            }
+
             public ProcessStartInfo StartInfoWithEnvironment(Captain? captain, string? existingThinkingBudget = null)
             {
                 ProcessStartInfo startInfo = new ProcessStartInfo();
@@ -142,6 +149,27 @@ namespace Armada.Test.Runtimes.Suites
                 string? error = CaptainRuntimeOptions.ValidateReasoningEffort(AgentRuntimeEnum.ClaudeCode, "max");
                 AssertNotNull(error, "max must be rejected for ClaudeCode");
                 AssertContains("Accepted values: low, medium, high.", error!, "Error should list the supported values");
+            });
+
+            await RunTest("PermissionPromptTool_RoutesToolPermissionsToArmadaAndRaisesTheMcpToolTimeout", () =>
+            {
+                InspectableClaudeCodeRuntime prompting = CreateRuntime();
+                prompting.PermissionPromptTool = "mcp__armada__armada_cli_permission_prompt";
+                prompting.PermissionPromptTimeoutSeconds = 90;
+                List<string> args = prompting.Args("Look at the repository");
+                int flag = args.IndexOf("--permission-prompt-tool");
+                AssertTrue(flag >= 0, "The prompt tool flag is passed");
+                AssertEqual("mcp__armada__armada_cli_permission_prompt", args[flag + 1], "The flag names the Armada tool");
+                int mode = args.IndexOf("--permission-mode");
+                AssertTrue(mode >= 0 && args[mode + 1] == "default", "Permissions are not bypassed");
+                AssertFalse(args.Contains("--dangerously-skip-permissions"), "A prompting launch never skips permissions");
+                AssertFalse(args.Contains("--tools"), "A prompting launch does not narrow the native tools: the owner decides each one");
+                AssertEqual(((90 + ClaudeCodeRuntime.PermissionPromptTimeoutMarginSeconds) * 1000).ToString(), prompting.LaunchVariables()["MCP_TOOL_TIMEOUT"], "Claude Code waits longer than Armada's expiry");
+
+                InspectableClaudeCodeRuntime mission = CreateRuntime();
+                List<string> missionArgs = mission.Args("Do the work");
+                AssertFalse(missionArgs.Contains("--permission-prompt-tool"), "A launch without the prompt tool, such as a mission, never carries the flag");
+                AssertFalse(mission.LaunchVariables().ContainsKey("MCP_TOOL_TIMEOUT"), "A launch without the prompt tool leaves the MCP tool timeout alone");
             });
 
             await RunTest("ApplyEnvironment_HighReasoningEffort_SetsMaximumThinkingBudget", () =>

@@ -147,6 +147,8 @@ import type {
   CaptainChatRequest,
   CaptainChatResponse,
   AskThread,
+  AskToolPermissionRequest,
+  AskToolPermissionRule,
   AskActionProposal,
   AskProposalDecision,
   AskWorkReport,
@@ -1331,6 +1333,12 @@ export const getAskThread = (id: string) =>
   get<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`);
 export const updateAskThread = (id: string, data: AskThreadUpdateRequest) =>
   put<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`, data);
+/** Deletes an archived conversation; a conversation that is busy or has an open proposal answers 409. */
+export const deleteAskThread = (id: string) =>
+  del<void>(`/api/v1/ask/threads/${encodeURIComponent(id)}`);
+/** Deletes up to 100 archived conversations. A conversation that cannot be deleted comes back in `skipped` with its reason. */
+export const deleteAskThreads = (ids: string[]) =>
+  post<BatchDeleteResult>('/api/v1/ask/threads/delete/multiple', { ids });
 export const markAskThreadRead = (id: string) =>
   post<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}/read`);
 export const markAskThreadUnread = (id: string) =>
@@ -1347,6 +1355,14 @@ export const getAskTurn = (threadId: string, requestId: string) =>
 export const listAskProposals = (threadId: string) => get<AskActionProposal[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/proposals`);
 export const decideAskProposal = (threadId: string, proposalId: string, decision: 'approve' | 'reject', fingerprint: string) =>
   post<AskProposalDecision>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/proposals/${encodeURIComponent(proposalId)}/${decision}`, { fingerprint });
+export const listAskToolPermissions = (threadId: string) =>
+  get<AskToolPermissionRequest[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permissions`);
+export const decideAskToolPermission = (threadId: string, requestId: string, decision: 'allow' | 'deny', remember: boolean) =>
+  post<AskToolPermissionRequest>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permissions/${encodeURIComponent(requestId)}/${decision}`, { remember });
+export const listAskToolPermissionRules = (threadId: string) =>
+  get<AskToolPermissionRule[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permission-rules`);
+export const deleteAskToolPermissionRule = (threadId: string, ruleId: string) =>
+  del<void>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permission-rules/${encodeURIComponent(ruleId)}`);
 export const listAskWorkReports = (threadId: string) => get<AskWorkReport[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/work`);
 
 /** Building a Model Context provisions a worktree and runs a captain over it; minutes, not seconds. */

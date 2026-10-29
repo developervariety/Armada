@@ -275,6 +275,10 @@ mission launch defaults for every Ask turn. A runtime that cannot express read-o
 is refused for Ask with a message that names it. Mission launches never use this
 setting. See [native tool access](ASK_CONVERSATIONS.md#native-tool-access).
 
+With `ask.approveNativeToolsInArmada` on, a saved Claude Code Ask turn sends each native tool call to the
+conversation owner on the Ask page and denies a call nobody decides within `ask.toolApprovalTimeoutSeconds`. See
+[approving native tool calls](ASK_CONVERSATIONS.md#approving-native-tool-calls).
+
 The home dashboard reports failed reads in an inline alert and keeps the last
 available rows and voyage labels. The alert names the failed section and its
 error. Retry and the next scheduled or relevant event refresh use the same

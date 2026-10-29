@@ -102,7 +102,20 @@ describe('Server settings drafts', () => {
     expect(access).toHaveValue('ReadOnly');
     fireEvent.change(access, { target: { value: 'Unrestricted' } });
     fireEvent.click(screen.getByText('Save Ask Settings'));
-    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ ask: { nativeToolAccess: 'Unrestricted' } }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ ask: { nativeToolAccess: 'Unrestricted', approveNativeToolsInArmada: false, toolApprovalTimeoutSeconds: 120 } }));
     await waitFor(() => expect(access).toHaveValue('Unrestricted'));
+  });
+
+  it('saves the native tool approval switch and its timeout with the Ask settings', async () => {
+    vi.mocked(getSettings).mockResolvedValue({ ...saved(4), ask: { nativeToolAccess: 'ReadOnly' } } as never);
+    vi.mocked(updateSettings).mockResolvedValue({ ...saved(4), ask: { nativeToolAccess: 'ReadOnly', approveNativeToolsInArmada: true, toolApprovalTimeoutSeconds: 90 } } as never);
+    render(<Server />);
+    await waitFor(() => expect(maxCaptainsInput()).toHaveValue(4));
+    const approve = screen.getByTitle('Approve native tool calls of Ask conversations in Armada') as HTMLInputElement;
+    expect(approve.checked).toBe(false);
+    fireEvent.click(approve);
+    fireEvent.change(screen.getByTitle('Native tool approval timeout in seconds'), { target: { value: '90' } });
+    fireEvent.click(screen.getByText('Save Ask Settings'));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ ask: { nativeToolAccess: 'ReadOnly', approveNativeToolsInArmada: true, toolApprovalTimeoutSeconds: 90 } }));
   });
 });

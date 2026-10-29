@@ -7,6 +7,8 @@ import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
 import CaptainTierBadge from '../components/shared/CaptainTierBadge';
 import { parsePreferenceRank } from '../lib/captainTier';
@@ -79,6 +81,7 @@ export default function Captains() {
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const deleteProgress = useDeleteProgress();
   const [quarantineTarget, setQuarantineTarget] = useState<Captain | null>(null);
   const [quarantining, setQuarantining] = useState(false);
 
@@ -209,18 +212,20 @@ export default function Captains() {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
         setSelected([]);
-        let failed = 0;
-        for (const id of ids) {
-          try { await deleteCaptain(id); } catch { failed++; }
-        }
-        const deleted = ids.length - failed;
-        if (deleted > 0) {
-          pushToast(failed > 0 ? 'warning' : 'success', failed > 0
-            ? t('Deleted {{deleted}} captains. {{failed}} failed.', { deleted, failed })
-            : t('Deleted {{deleted}} captains.', { deleted }));
-        }
-        if (failed > 0) setError(t('Deleted {{deleted}} captains, {{failed}} failed.', { deleted: ids.length - failed, failed }));
-        load();
+        await deleteProgress.run(t('Deleting {{count}} captains', { count: ids.length }), async () => {
+          let failed = 0;
+          for (const id of ids) {
+            try { await deleteCaptain(id); } catch { failed++; }
+          }
+          const deleted = ids.length - failed;
+          if (deleted > 0) {
+            pushToast(failed > 0 ? 'warning' : 'success', failed > 0
+              ? t('Deleted {{deleted}} captains. {{failed}} failed.', { deleted, failed })
+              : t('Deleted {{deleted}} captains.', { deleted }));
+          }
+          if (failed > 0) setError(t('Deleted {{deleted}} captains, {{failed}} failed.', { deleted: ids.length - failed, failed }));
+          load();
+        });
       },
     });
   }
@@ -482,6 +487,7 @@ export default function Captains() {
         onSubmit={request => void handleQuarantineSubmit(request)}
         onCancel={() => setQuarantineTarget(null)}
       />
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 

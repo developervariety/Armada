@@ -243,6 +243,14 @@ namespace Armada.Server
                 if (runtime is ClaudeCodeRuntime claudeRuntime)
                 {
                     claudeRuntime.StreamJsonOutput = true;
+
+                    // An attended saved turn can route native tool permission prompts to its owner. The prompt tool
+                    // is reachable only with this turn's scoped credential, and a request with no decision is denied.
+                    if (savedTurn != null && callerMcpAccess != null && _Settings.Ask.ApproveNativeToolsInArmada)
+                    {
+                        claudeRuntime.PermissionPromptTool = ClaudeCodeRuntime.ArmadaMcpAllowRule + "__" + Armada.Server.Mcp.AskToolPolicy.PermissionPromptToolName;
+                        claudeRuntime.PermissionPromptTimeoutSeconds = _Settings.Ask.ToolApprovalTimeoutSeconds;
+                    }
                 }
 
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -56,6 +56,24 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Every paged list ordered by creation time now breaks ties by id in the same direction on SQLite, PostgreSQL, MySQL and SQL Server, so rows that share a timestamp (a voyage dispatch creates many missions in one tick) never repeat or vanish across pages. The shared token usage, request history, release, deployment and deployment environment orders carry the same tie-break.
 
+### Ask native tool approval
+
+- With `ask.approveNativeToolsInArmada` on (off by default), a saved Ask turn on a Claude Code captain no longer applies `ask.nativeToolAccess`. It launches Claude Code without a permission bypass and with `--permission-prompt-tool` set to the new MCP tool `armada_cli_permission_prompt`. Each native tool call that needs permission becomes a request that waits for the conversation owner on the Ask page. The owner allows or denies it and can remember the choice for that tool in that conversation. A request nobody decides within `ask.toolApprovalTimeoutSeconds` (default 120, 10 to 600) is denied. Missions, temporary chat and other runtimes do not use this.
+- Only the turn's own scoped credential lists or calls `armada_cli_permission_prompt`, and only while that turn is the thread's running turn. The owner reads and decides through `GET /api/v1/ask/threads/{id}/tool-permissions`, `POST .../tool-permissions/{requestId}/allow` and `.../deny`, and `GET` and `DELETE .../tool-permission-rules`. Each owner decision records an `ask_tool_permission.decided` event.
+- Requests and rules are stored in the new `ask_tool_permission_requests` and `ask_tool_permission_rules` tables (SQLite migration 138, PostgreSQL 142, MySQL 131, SQL Server 134) and are removed with their conversation. The Dashboard Server page edits both settings.
+
+### Ask conversation delete
+
+- `DELETE /api/v1/ask/threads/{id}` and `POST /api/v1/ask/threads/delete/multiple` (at most 100 ids) delete the caller's own archived Ask conversations with their turns and proposals. A conversation with an active or uncertain turn, or a proposal that is waiting for a decision or executing, is kept: the single route answers 409 with the reason and the bulk route lists the id in `skipped` with its reason. Each delete records an `ask_thread.deleted` event that keeps the thread id and title. The Dashboard shows Delete on archived conversations and a Delete selected action. No MCP tool deletes a conversation, and nothing deletes one automatically.
+
+### Delete progress dialog
+
+- The Dashboard opens a progress dialog while a slow delete runs: vessel delete, mission and voyage purge, bulk delete of vessels, missions, docks, captains and fleets, and Ask conversation delete. The dialog says the delete may take some time, cannot be dismissed while the request is pending, closes on success, and turns into the error with Retry and Dismiss on failure. A second delete started while one is pending is ignored.
+
+### Ask proposes repository changes
+
+- The built-in `ask.system` prompt tells Ask to answer a repository change request by proposing `armada_dispatch` or `armada_create_mission` with a ready brief, and to wait for the owner's decision. Ask proposes work only when the operator asks for it; read-only lookups stay in the chat. An installed copy that still holds the earlier built-in prompt takes the new text on the next start, and an edited copy is kept.
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.

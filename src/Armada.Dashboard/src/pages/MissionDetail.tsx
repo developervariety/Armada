@@ -27,6 +27,8 @@ import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
@@ -88,6 +90,7 @@ export default function MissionDetail() {
 
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const deleteProgress = useDeleteProgress();
 
   const formatDuration = useCallback((totalRuntimeMs: number | null | undefined): string => {
     if (totalRuntimeMs == null || totalRuntimeMs < 0) return t('N/A');
@@ -381,13 +384,11 @@ export default function MissionDetail() {
       message: t('Purge mission "{{title}}"? This will clean up all associated resources (branches, worktrees, etc.) and cannot be undone.', { title: mission.title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
+        await deleteProgress.run(t('Purging mission'), async () => {
           await purgeMission(mission.id);
           pushToast('warning', t('Mission "{{title}}" purged.', { title: mission.title }));
           navigate('/missions');
-        } catch (e: unknown) {
-          setError(t('Purge failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
-        }
+        });
       },
     });
   }
@@ -479,6 +480,7 @@ export default function MissionDetail() {
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
