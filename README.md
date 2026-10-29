@@ -23,7 +23,8 @@
 ---
 
 Routing preview accepts a mission capability hint and shows each captain's effective
-tier, capability score, rank and tie preferences. See [Smart Routing](docs/USAGE_ROUTING.md).
+tier, capability score, rank and tie preferences. PostgreSQL upgrades preserve
+objective links on existing planning sessions. See [Smart Routing](docs/USAGE_ROUTING.md).
 
 ## Why Armada
 

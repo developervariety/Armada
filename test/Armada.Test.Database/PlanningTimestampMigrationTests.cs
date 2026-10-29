@@ -7,6 +7,7 @@ namespace Armada.Test.Database
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Settings;
     using Npgsql;
     using SyslogLogging;
@@ -20,6 +21,7 @@ namespace Armada.Test.Database
     {
         private const int _ConversionVersion = 114;
         private const int _CreationVersion = 108;
+        private const int _ObjectiveLinkVersion = 141;
         private readonly DatabaseSettings _Settings;
         private sealed class StopAfterConversionException : Exception { }
 
@@ -41,7 +43,7 @@ namespace Armada.Test.Database
                 await ExecuteAsync(conn, "DROP TABLE IF EXISTS planning_session_messages; DROP TABLE IF EXISTS planning_sessions;", token).ConfigureAwait(false);
                 // The tables as they stand before the planning migration: its columns, with the times held as text.
                 foreach (string statement in Armada.Core.Database.Postgresql.Queries.TableQueries.GetMigrations().Single(m => m.Version == _CreationVersion).Statements)
-                    await ExecuteAsync(conn, statement.Replace("TIMESTAMPTZ", "TEXT"), token).ConfigureAwait(false);
+                    await ExecuteAsync(conn, statement.Replace("TIMESTAMPTZ", "TEXT").Replace("objective_id TEXT,", String.Empty), token).ConfigureAwait(false);
                 await ExecuteAsync(conn, "INSERT INTO planning_sessions (id, captain_id, vessel_id, title, status, created_utc, started_utc, completed_utc, last_update_utc) "
                     + "VALUES ('" + sessionId + "', 'cpt_text', 'vsl_text', 'Text times', 'Created', '2027-01-02T03:04:05.1234560Z', '', NULL, '2027-01-02T04:05:06.0000000Z');", token).ConfigureAwait(false);
                 await ExecuteAsync(conn, "INSERT INTO planning_session_messages (id, planning_session_id, role, sequence, content, created_utc, last_update_utc) "
@@ -101,6 +103,8 @@ namespace Armada.Test.Database
                     await conn.OpenAsync(token).ConfigureAwait(false);
                     foreach (object[] row in later)
                     {
+                        // The recreated historical table lacks this column; its upgrade must run again.
+                        if (Convert.ToInt32(row[0]) == _ObjectiveLinkVersion) continue;
                         using (NpgsqlCommand restore = new NpgsqlCommand("INSERT INTO schema_migrations (version, description, applied_utc) VALUES (@version, @description, @applied_utc) ON CONFLICT (version) DO NOTHING;", conn))
                         {
                             restore.Parameters.AddWithValue("@version", row[0]);
@@ -110,6 +114,39 @@ namespace Armada.Test.Database
                         }
                     }
 
+
+                }
+            }
+
+            try
+            {
+                using (DatabaseDriver upgrade = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+                    {
+                        await conn.OpenAsync(token).ConfigureAwait(false);
+                        DatabaseAssert.Equal("text", await ColumnTypeAsync(conn, "planning_sessions", "objective_id", token).ConfigureAwait(false),
+                            "The existing planning table gains its objective link column");
+                    }
+                    PlanningSession preserved = await upgrade.PlanningSessions.ReadAsync(sessionId, token).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("The historical planning session was lost.");
+                    DatabaseAssert.Equal("Text times", preserved.Title, "The objective-column upgrade preserves the existing session");
+                    DatabaseAssert.True(preserved.ObjectiveId == null, "An existing session starts with no objective link");
+                    preserved.ObjectiveId = "obj_upgrade_link";
+                    await upgrade.PlanningSessions.UpdateAsync(preserved, token).ConfigureAwait(false);
+                }
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    PlanningSession preserved = await reopened.PlanningSessions.ReadAsync(sessionId, token).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("The linked planning session was lost.");
+                    DatabaseAssert.Equal("obj_upgrade_link", preserved.ObjectiveId, "The objective link survives repeated startup");
+                }
+            }
+            finally
+            {
+                using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+                {
+                    await conn.OpenAsync(token).ConfigureAwait(false);
                     await ExecuteAsync(conn, "DELETE FROM planning_sessions WHERE id = '" + sessionId + "';", token).ConfigureAwait(false);
                 }
             }

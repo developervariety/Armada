@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- PostgreSQL upgrades add the optional objective link to existing planning tables and preserve stored sessions across restart.
+
 - Routing preview accepts capability hints and shows the ranking inputs used by the Legacy selector.
 
 ### Report completion
