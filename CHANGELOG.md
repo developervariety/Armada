@@ -18,6 +18,10 @@ upstream integrations and excludes changes already present at that baseline.
 - Compact voyage status reads omit unrequested mission descriptions and report previews. Explicit description and output requests retain bounded previews.
 - Captain briefs name configured validation commands and input environment names without copying their values, and distinguish manual validation from native Check proof.
 
+### History filter and order
+
+- The History timeline accepts `excludeReadRequests` to leave out request entries for `GET`, `HEAD` and `OPTIONS`, and `order` (`CreatedDescending` or `CreatedAscending`). The request-history query applies the exclusion in SQL on every provider, before the per-source read limit, so polling no longer fills the request source or marks it truncated. The History page hides read-only requests until `Show read requests` is checked, and its export reads at most 10 pages and says when more entries match. The whole-list routes are unchanged.
+
 ### Judge blocking rule
 
 - The Judge persona carries a `## When To Block` section: NEEDS_REVISION is for a defect the Judge can show (a criterion whose behaviour is missing or wrong, a failing test, build or command, a regression, data-loss or security fault, or an out-of-scope behaviour change). Requests for more tests or evidence, report or commit hygiene, pending Checks and style are Suggested Follow-ups, not blocks. An existing built-in Judge row receives the section on the next start.

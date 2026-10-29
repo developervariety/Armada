@@ -42,6 +42,7 @@
   - [Pipelines](#pipelines)
   - [Workspace](#workspace)
   - [Planning Sessions](#planning-sessions)
+  - [History](#history)
   - [Inbox](#inbox)
   - [Incidents](#incidents)
   - [Background Jobs](#background-jobs)
@@ -4355,6 +4356,28 @@ Stop an active planning session and release its resources.
 Delete a planning session and its transcript. Active sessions are stopped first.
 
 - Response: `204 No Content`
+
+---
+
+### History
+
+A cross-entity timeline of missions, voyages, planning sessions, checks, requests, merge entries, events and the other records the server keeps. Entries are scoped to the caller. Missions, check runs, deployments, events and request history are read newest first, at most 2000 records from each; a source with more records is named in `TruncatedSources`.
+
+#### GET /api/v1/history
+
+#### POST /api/v1/history/enumerate
+
+Read one page of the timeline. `GET` takes the filters as query parameters; `POST` takes the same fields as a JSON body, and query parameters override body values.
+
+**Fields:** `pageNumber`, `pageSize` (1 to 500, default 50), `objectiveId`, `vesselId`, `environmentId`, `deploymentId`, `incidentId`, `postmortemOnly`, `missionId`, `voyageId`, `actor`, `text`, `sourceTypes` (query: `sourceType`, comma-separated), `fromUtc`, `toUtc`, `excludeReadRequests`, `order`.
+
+`excludeReadRequests=true` leaves out request-history entries for `GET`, `HEAD` and `OPTIONS`, so a client that polls does not fill the request source. The database applies the filter before the 2000-record read, so the request entries, the totals and the pages cover only the remaining requests. The default is `false`.
+
+`order` is `CreatedDescending` (newest first, the default) or `CreatedAscending` (oldest first). Entries with the same time keep a fixed order by source identifier. The order applies to the records the sources read; a truncated source still holds its newest records.
+
+**Response:** `200 OK` - `HistoricalTimelineResult`: `Objects`, `PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `TotalMs`, `UnavailableSources`, `TruncatedSources`.
+
+The Dashboard History page hides read-only requests until `Show read requests` is checked. An export reads at most 10 pages of 500 entries and says so when more entries match.
 
 ---
 

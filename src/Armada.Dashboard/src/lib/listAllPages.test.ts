@@ -34,4 +34,11 @@ describe('listAllPages', () => {
     expect(all.map((item) => item.id)).toEqual(['a']);
     expect(fetchPage).toHaveBeenCalledTimes(2);
   });
+
+  it('stops after the page cap and returns what it read', async () => {
+    const fetchPage = vi.fn(async (pageNumber: number) => page(pageNumber, 9, [`p${pageNumber}`]));
+    const all = await listAllPages(fetchPage, 2);
+    expect(all.map((item) => item.id)).toEqual(['p1', 'p2']);
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+  });
 });

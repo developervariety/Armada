@@ -2110,10 +2110,10 @@
 								"enumerate"
 							]
 						},
-						"description": "Enumerate the cross-entity Armada timeline using a JSON body.",
+						"description": "Enumerate the cross-entity Armada timeline using a JSON body. ExcludeReadRequests leaves out GET, HEAD and OPTIONS request entries; Order is CreatedDescending or CreatedAscending.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50,\n  \"VesselId\": \"{{vesselId}}\",\n  \"ObjectiveId\": \"{{objectiveId}}\",\n  \"FromUtc\": \"2026-01-01T00:00:00Z\"\n}"
+							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50,\n  \"VesselId\": \"{{vesselId}}\",\n  \"ObjectiveId\": \"{{objectiveId}}\",\n  \"FromUtc\": \"2026-01-01T00:00:00Z\",\n  \"ExcludeReadRequests\": true,\n  \"Order\": \"CreatedDescending\"\n}"
 						}
 					},
 					"event": {

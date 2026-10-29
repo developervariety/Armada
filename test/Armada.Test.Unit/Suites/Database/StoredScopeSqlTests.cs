@@ -133,6 +133,9 @@ namespace Armada.Test.Unit.Suites.Database
                     p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), everyFilter, p),
                     p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), new RequestHistoryQuery(), p));
                 AssertEqual("created_utc DESC", RequestHistoryMethods.Order);
+                AssertScope(p => "UPPER(method) NOT IN ('GET', 'HEAD', 'OPTIONS')",
+                    p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), new RequestHistoryQuery { ExcludeReadMethods = true }, p),
+                    p => RequestHistoryMethods.Scope(RequestHistoryMethods.Entries.Filter(), new RequestHistoryQuery(), p));
                 AssertTableMatchesWriter(RequestHistoryMethods.Entries, new RequestHistoryEntry());
                 AssertTableMatchesWriter(RequestHistoryMethods.Details, new RequestHistoryDetail());
             });

@@ -2376,6 +2376,8 @@ export interface HistoricalTimelineQuery {
   deploymentId?: string | null;
   incidentId?: string | null;
   postmortemOnly?: boolean;
+  /** Leave out request entries for GET, HEAD and OPTIONS. */
+  excludeReadRequests?: boolean;
   missionId?: string | null;
   voyageId?: string | null;
   actor?: string | null;
@@ -2383,6 +2385,8 @@ export interface HistoricalTimelineQuery {
   sourceTypes?: string[];
   fromUtc?: string | null;
   toUtc?: string | null;
+  /** Order by time of occurrence; the server default is CreatedDescending. */
+  order?: 'CreatedAscending' | 'CreatedDescending';
   pageNumber?: number;
   pageSize?: number;
 }

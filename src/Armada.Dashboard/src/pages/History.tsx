@@ -45,6 +45,8 @@ const HISTORY_SOURCE_TYPES = [
 /** The table shows this many entries; the route caps a page at 500. */
 const HISTORY_PAGE_SIZE = 250;
 const HISTORY_EXPORT_PAGE_SIZE = 500;
+/** An export reads at most this many pages (5000 entries at the export page size). */
+const HISTORY_EXPORT_MAX_PAGES = 10;
 
 function queryFromParams(params: URLSearchParams): HistoricalTimelineQuery {
   const sourceType = params.get('sourceType');
@@ -57,6 +59,7 @@ function queryFromParams(params: URLSearchParams): HistoricalTimelineQuery {
     vesselId: params.get('vesselId') || null,
     sourceTypes: sourceType ? [sourceType] : [],
     postmortemOnly: params.get('postmortemOnly') === 'true' || undefined,
+    excludeReadRequests: true,
   };
 }
 
@@ -153,6 +156,7 @@ function buildMarkdown(query: HistoricalTimelineQuery, entries: HistoricalTimeli
   if (query.actor) activeFilters.push(`actor=\`${query.actor}\``);
   if (query.vesselId) activeFilters.push(`vessel=\`${query.vesselId}\``);
   if (query.postmortemOnly) activeFilters.push('postmortemOnly=`true`');
+  if (query.excludeReadRequests === false) activeFilters.push('readRequests=`shown`');
   if (query.sourceTypes && query.sourceTypes.length > 0) activeFilters.push(`sourceTypes=\`${query.sourceTypes.join(', ')}\``);
 
   const lines: string[] = [
@@ -204,6 +208,8 @@ export default function History() {
   const [vesselFilter, setVesselFilter] = useState(initialQuery.get('vesselId') || 'all');
   const [sourceTypeFilter, setSourceTypeFilter] = useState(initialQuery.get('sourceType') || 'all');
   const [postmortemOnly, setPostmortemOnly] = useState(initialQuery.get('postmortemOnly') === 'true');
+  // Read-only request polling (GET, HEAD, OPTIONS) is hidden until the operator asks for it.
+  const [showReadRequests, setShowReadRequests] = useState(false);
   // The filters the table was loaded with. The inputs above can hold edits not applied yet; loads,
   // refreshes and exports use this query so half-typed filters never reach the server.
   const [appliedQuery, setAppliedQuery] = useState<HistoricalTimelineQuery>(() => queryFromParams(initialQuery));
@@ -228,6 +234,7 @@ export default function History() {
       vesselId: vesselFilter === 'all' ? null : vesselFilter,
       sourceTypes: sourceTypeFilter === 'all' ? [] : [sourceTypeFilter],
       postmortemOnly: postmortemOnly || undefined,
+      excludeReadRequests: !showReadRequests,
     };
   }
 
@@ -260,6 +267,7 @@ export default function History() {
     setVesselFilter(params.get('vesselId') || 'all');
     setSourceTypeFilter(params.get('sourceType') || 'all');
     setPostmortemOnly(params.get('postmortemOnly') === 'true');
+    setShowReadRequests(false);
     setTextFilter(params.get('text') || '');
     setActorFilter(params.get('actor') || '');
     setAppliedQuery(queryFromParams(params));
@@ -367,8 +375,9 @@ export default function History() {
     setVesselFilter(view.query.vesselId || 'all');
     setSourceTypeFilter(view.query.sourceTypes && view.query.sourceTypes.length > 0 ? view.query.sourceTypes[0] : 'all');
     setPostmortemOnly(view.query.postmortemOnly === true);
+    setShowReadRequests(view.query.excludeReadRequests === false);
     // Applying a view loads it, like pressing Apply.
-    setAppliedQuery({ ...view.query, pageNumber: 1, pageSize: HISTORY_PAGE_SIZE });
+    setAppliedQuery({ ...view.query, excludeReadRequests: view.query.excludeReadRequests ?? true, pageNumber: 1, pageSize: HISTORY_PAGE_SIZE });
   }
 
   function deleteSavedView(id: string) {
@@ -380,9 +389,19 @@ export default function History() {
   async function exportCurrentView(format: 'json' | 'csv' | 'md') {
     try {
       setExporting(format);
-      // Export the view the table shows, reading every page (the route returns at most 500 per page).
+      // Export the view the table shows, reading pages (the route returns at most 500 per page) up to the export cap.
       const query: HistoricalTimelineQuery = { ...appliedQuery, pageNumber: 1, pageSize: HISTORY_EXPORT_PAGE_SIZE };
-      const allEntries = await listAllPages((pageNumber) => enumerateHistoryTimeline({ ...query, pageNumber }));
+      let matching = 0;
+      let matchingPages = 0;
+      const allEntries = await listAllPages(async (pageNumber) => {
+        const result = await enumerateHistoryTimeline({ ...query, pageNumber });
+        matching = result.totalRecords || 0;
+        matchingPages = result.totalPages || 0;
+        return result;
+      }, HISTORY_EXPORT_MAX_PAGES);
+      if (matchingPages > HISTORY_EXPORT_MAX_PAGES) {
+        pushToast('warning', t('The export holds the first {{shown}} of {{total}} entries. Narrow the filters to export the rest.', { shown: allEntries.length, total: matching }));
+      }
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 
       if (format === 'json') {
@@ -515,6 +534,14 @@ export default function History() {
               onChange={(event) => setPostmortemOnly(event.target.checked)}
             />
             {t('Postmortem context only')}
+          </label>
+          <label className="checkbox-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>
+            <input
+              type="checkbox"
+              checked={showReadRequests}
+              onChange={(event) => setShowReadRequests(event.target.checked)}
+            />
+            {t('Show read requests')}
           </label>
           <button className="btn btn-primary" onClick={() => setAppliedQuery(buildQuery())}>{t('Apply')}</button>
         </div>

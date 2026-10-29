@@ -62,6 +62,8 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("deploymentId", "Optional deployment filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("incidentId", "Optional incident filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("postmortemOnly", "Optional flag that narrows results to incidents with postmortem data and directly linked lifecycle entries", false))
+                .WithParameter(OpenApiParameterMetadata.Query("excludeReadRequests", "Optional flag that leaves out request entries for GET, HEAD and OPTIONS", false))
+                .WithParameter(OpenApiParameterMetadata.Query("order", "Optional order by time: CreatedDescending (default) or CreatedAscending", false))
                 .WithParameter(OpenApiParameterMetadata.Query("missionId", "Optional mission filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("voyageId", "Optional voyage filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("actor", "Optional actor or principal filter", false))
@@ -111,6 +113,10 @@ namespace Armada.Server.Routes
                 query.ToUtc = toUtc.ToUniversalTime();
             if (Boolean.TryParse(QueryValueReader.Read(req, "postmortemOnly"), out bool postmortemOnly))
                 query.PostmortemOnly = postmortemOnly;
+            if (Boolean.TryParse(QueryValueReader.Read(req, "excludeReadRequests"), out bool excludeReadRequests))
+                query.ExcludeReadRequests = excludeReadRequests;
+            if (Enum.TryParse(QueryValueReader.Read(req, "order"), true, out EnumerationOrderEnum order))
+                query.Order = order;
 
             query.ObjectiveId = NormalizeEmpty(QueryValueReader.Read(req, "objectiveId")) ?? query.ObjectiveId;
             query.VesselId = NormalizeEmpty(QueryValueReader.Read(req, "vesselId")) ?? query.VesselId;
