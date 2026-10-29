@@ -9,7 +9,7 @@ A run targets one captain and one pack. For each task the Admiral:
 2. Dispatches a voyage on the pack's fixture vessel. The voyage uses the `WorkerOnly` pipeline, landing mode `None`,
    and `IsEvaluation` true, so no battery work lands and no evaluation mission counts as production work.
 3. Waits for the mission to finish or for the task timeout (60 minutes unless the task sets `timeoutMinutes`).
-4. Waits for mission completion handling to release the captain, then grades an isolated checkout of the recorded result commit on the Admiral host. Hidden grading files do not change the captain's dock. The grading checkout is removed after grading.
+4. Waits for a passed Definition-of-Done record matching the current captain, dock, commit and attempt, the later final completion event, and captain release. It then grades an isolated checkout of the recorded result commit on the Admiral host. Hidden grading files do not change the captain's dock. The grading checkout is removed after grading.
 
 Evaluation missions wait for their requested captain when it is busy or unavailable; they do not use another captain from the fallback tier. The normal eligibility and usage gates still apply. Captain wait time is included in `MissionDurationMs`, so use the mission's start and completion times when comparing execution time.
 
