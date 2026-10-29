@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createVessel, updateVessel, deleteVessel, getVesselGitStatus, listAllFleets, listAllPipelines, listAllVessels } from '../api/client';
+import { createVessel, updateVessel, deleteVessel, listAllFleets, listAllPipelines, listAllVessels } from '../api/client';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -13,6 +13,7 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { useVesselGitStatus } from '../lib/useVesselGitStatus';
 import { autoLandFormFromPredicate, autoLandPredicatePayload, EMPTY_AUTO_LAND_FORM, type AutoLandForm } from '../lib/vesselAutoLand';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
 import PageHeader from '../components/shared/PageHeader';
@@ -77,7 +78,8 @@ export default function Vessels() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
   const { error, setError, loadFailed, loadSucceeded } = useLoadError();
-  const [gitStatus, setGitStatus] = useState<Record<string, { ahead: number | null; behind: number | null }>>({});
+  // Bumped by each list load so the visible rows read their sync status again.
+  const [statusRefresh, setStatusRefresh] = useState(0);
 
   // Modal
   const [showForm, setShowForm] = useState(false);
@@ -128,6 +130,10 @@ export default function Vessels() {
     initialPageSize: 25,
   });
 
+  // Sync status is read for the rows on screen only, so a long list does not start git for every vessel.
+  const visibleVesselIds = useMemo(() => table.paginated.map((v) => v.id), [table.paginated]);
+  const gitStatus = useVesselGitStatus(visibleVesselIds, statusRefresh);
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -136,18 +142,7 @@ export default function Vessels() {
       setFleets(fResult);
       setPipelines(pResult);
       loadSucceeded();
-
-      // Fetch git status for each vessel in the background (non-blocking)
-      const statusMap: Record<string, { ahead: number | null; behind: number | null }> = {};
-      await Promise.all(vResult.map(async (v: Vessel) => {
-        try {
-          const gs = await getVesselGitStatus(v.id);
-          statusMap[v.id] = { ahead: gs.commitsAhead, behind: gs.commitsBehind };
-        } catch {
-          statusMap[v.id] = { ahead: null, behind: null };
-        }
-      }));
-      setGitStatus(statusMap);
+      setStatusRefresh((tick) => tick + 1);
     } catch {
       loadFailed(t('Failed to load vessels.'));
     } finally {

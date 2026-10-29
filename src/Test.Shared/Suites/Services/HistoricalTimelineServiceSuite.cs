@@ -597,6 +597,106 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("enumerate_excludes_read_requests_before_the_source_bound", "EnumerateAsync leaves out GET, HEAD and OPTIONS requests in the database, so polling cannot fill the request source", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                string tenantId = "ten_history_reads";
+                string userId = "usr_history_reads";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, true, true, "UnitTest");
+
+                // Six read-only requests are newer than the two writes, and the source holds three records, so a
+                // filter applied after the bounded read would find no write at all.
+                DateTime baseUtc = DateTime.UtcNow.AddHours(-1);
+                List<string> writeIds = new List<string>();
+                string[] methods = { "POST", "DELETE", "GET", "HEAD", "OPTIONS", "get", "GET", "GET" };
+                for (int i = 0; i < methods.Length; i++)
+                {
+                    RequestHistoryEntry request = new RequestHistoryEntry
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Method = methods[i],
+                        Route = "/api/v1/status",
+                        RouteTemplate = "/api/v1/status",
+                        StatusCode = 200,
+                        IsSuccess = true,
+                        CreatedUtc = baseUtc.AddMinutes(i)
+                    };
+                    await testDb.Driver.RequestHistory.CreateAsync(request, null).ConfigureAwait(false);
+                    if (i < 2) writeIds.Add(request.Id);
+                }
+
+                HistoricalTimelineService service = new HistoricalTimelineService(testDb.Driver, null, 3);
+                HistoricalTimelineResult everything = await service.EnumerateAsync(auth, new HistoricalTimelineQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 500,
+                    SourceTypes = new List<string> { "Request" }
+                }).ConfigureAwait(false);
+                AssertEqual(3, everything.Objects.Count, "without the flag the newest three requests are read");
+                AssertTrue(everything.Objects.TrueForAll(entry => !writeIds.Contains(entry.SourceId)), "the newest requests are all reads");
+                AssertTrue(everything.TruncatedSources.Contains("Request"), "the request source is cut at its limit");
+
+                HistoricalTimelineResult writesOnly = await service.EnumerateAsync(auth, new HistoricalTimelineQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 500,
+                    SourceTypes = new List<string> { "Request" },
+                    ExcludeReadRequests = true
+                }).ConfigureAwait(false);
+                AssertEqual(2, (int)writesOnly.TotalRecords, "the total counts only the writes");
+                AssertEqual(writeIds[1] + "," + writeIds[0], String.Join(",", writesOnly.Objects.Select(entry => entry.SourceId)), "only the two writes are listed, newest first");
+                AssertFalse(writesOnly.TruncatedSources.Contains("Request"), "two writes are within the source limit, so the source is not cut");
+            }));
+
+            cases.Add(CaseAsync("enumerate_orders_oldest_first_when_asked", "EnumerateAsync lists newest first by default and oldest first on request, with a fixed order for equal times", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                string tenantId = "ten_history_order";
+                string userId = "usr_history_order";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, true, true, "UnitTest");
+
+                DateTime baseUtc = DateTime.UtcNow.AddHours(-1);
+                DateTime tied = baseUtc.AddMinutes(5);
+                List<RequestHistoryEntry> created = new List<RequestHistoryEntry>();
+                DateTime[] times = { baseUtc, tied, baseUtc.AddMinutes(9), tied };
+                foreach (DateTime createdUtc in times)
+                {
+                    RequestHistoryEntry request = new RequestHistoryEntry
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Method = "POST",
+                        Route = "/api/v1/status",
+                        RouteTemplate = "/api/v1/status",
+                        StatusCode = 200,
+                        IsSuccess = true,
+                        CreatedUtc = createdUtc
+                    };
+                    await testDb.Driver.RequestHistory.CreateAsync(request, null).ConfigureAwait(false);
+                    created.Add(request);
+                }
+
+                HistoricalTimelineService service = new HistoricalTimelineService(testDb.Driver);
+                HistoricalTimelineQuery query = new HistoricalTimelineQuery { PageNumber = 1, PageSize = 500, SourceTypes = new List<string> { "Request" } };
+
+                HistoricalTimelineResult newestFirst = await service.EnumerateAsync(auth, query).ConfigureAwait(false);
+                List<string> descending = newestFirst.Objects.Select(entry => entry.SourceId).ToList();
+                AssertEqual(created[2].Id, descending[0], "the newest request comes first by default");
+                AssertEqual(created[0].Id, descending[3], "the oldest request comes last by default");
+
+                query.Order = EnumerationOrderEnum.CreatedAscending;
+                HistoricalTimelineResult oldestFirst = await service.EnumerateAsync(auth, query).ConfigureAwait(false);
+                List<string> ascending = oldestFirst.Objects.Select(entry => entry.SourceId).ToList();
+                AssertEqual(created[0].Id, ascending[0], "the oldest request comes first when asked");
+                AssertEqual(created[2].Id, ascending[3], "the newest request comes last when asked");
+                AssertEqual(String.Join(",", descending.AsEnumerable().Reverse()), String.Join(",", ascending), "the two orders are exact opposites, including the entries with equal times");
+            }));
+
             // Audit addition: null auth is rejected (confirmed against source).
 
             cases.Add(CaseAsync("enumerate_null_auth_throws", "EnumerateAsync NullAuth Throws", TestTags.Negative, async () =>

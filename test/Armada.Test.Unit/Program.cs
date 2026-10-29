@@ -277,6 +277,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CodeIndexRoutesTests());
             runner.AddSuite(new ServerRestartRouteTests());
             runner.AddSuite(new FailureCategoryCodeTests());
+            runner.AddSuite(new VesselGitStatusCacheTests());
             runner.AddSuite(new AuditDrainerTests());
             runner.AddSuite(new ArmedCheckEligibilityTests());
             runner.AddSuite(new LandingStatusTruthTests());

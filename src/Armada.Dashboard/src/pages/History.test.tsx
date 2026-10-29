@@ -28,11 +28,13 @@ vi.mock('../context/LocaleContext', () => {
   return { useLocale: () => locale };
 });
 
+const { pushToastMock } = vi.hoisted(() => ({ pushToastMock: vi.fn() }));
 vi.mock('../context/NotificationContext', () => ({
-  useNotifications: () => ({ pushToast: vi.fn() }),
+  useNotifications: () => ({ pushToast: pushToastMock }),
 }));
 
 const SERVER_TOTAL = 734;
+let serverTotal = SERVER_TOTAL;
 
 function entry(id: string, title: string) {
   return {
@@ -64,13 +66,13 @@ function entry(id: string, title: string) {
 function serverTimeline(query?: HistoricalTimelineQuery) {
   const pageSize = Math.min(Math.max(query?.pageSize ?? 100, 1), 500);
   const pageNumber = query?.pageNumber ?? 1;
-  const totalPages = Math.max(1, Math.ceil(SERVER_TOTAL / pageSize));
+  const totalPages = Math.max(1, Math.ceil(serverTotal / pageSize));
   return {
     success: true,
     pageNumber,
     pageSize,
     totalPages,
-    totalRecords: SERVER_TOTAL,
+    totalRecords: serverTotal,
     totalMs: 1,
     objects: pageNumber <= totalPages ? [entry(`his_${pageNumber}`, pageNumber === 1 ? 'Deploy finished' : `Page ${pageNumber} entry`)] : [],
   };
@@ -116,6 +118,7 @@ describe('History', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    serverTotal = SERVER_TOTAL;
 
     vi.mocked(enumerateHistoryTimeline).mockImplementation(async (query?: HistoricalTimelineQuery) => serverTimeline(query) as never);
 
@@ -211,6 +214,43 @@ describe('History', () => {
         postmortemOnly: true,
       });
     });
+  });
+
+  it('hides read-only request polling until asked, and carries the choice into the next query', async () => {
+    renderHistory();
+    expect(await screen.findByText('Deploy finished')).toBeInTheDocument();
+    expect(lastQuery()?.excludeReadRequests).toBe(true);
+
+    fireEvent.click(screen.getByLabelText('Show read requests'));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(lastQuery()?.excludeReadRequests).toBe(false));
+
+    fireEvent.click(screen.getByLabelText('Show read requests'));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(lastQuery()?.excludeReadRequests).toBe(true));
+  });
+
+  it('exports at most ten pages and says when the export holds only the first entries', async () => {
+    serverTotal = 7000;
+    renderHistory();
+    expect(await screen.findByText('Deploy finished')).toBeInTheDocument();
+
+    const callsBeforeExport = vi.mocked(enumerateHistoryTimeline).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await waitFor(() => expect(createObjectUrlMock).toHaveBeenCalled());
+
+    const exportQueries = vi.mocked(enumerateHistoryTimeline).mock.calls.slice(callsBeforeExport).map((call) => call[0]);
+    expect(exportQueries.map((query) => query?.pageNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(exportQueries.every((query) => query?.excludeReadRequests === true)).toBe(true);
+    expect(pushToastMock).toHaveBeenCalledWith('warning', 'The export holds the first 10 of 7000 entries. Narrow the filters to export the rest.');
+  });
+
+  it('does not warn when an export holds every entry', async () => {
+    renderHistory();
+    expect(await screen.findByText('Deploy finished')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Export JSON' }));
+    await waitFor(() => expect(createObjectUrlMock).toHaveBeenCalled());
+    expect(pushToastMock).not.toHaveBeenCalled();
   });
 
   it('reloads when the URL filters change', async () => {

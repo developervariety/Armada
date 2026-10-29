@@ -6,8 +6,8 @@ namespace Armada.Core.Database.Interfaces
     using Armada.Core.Models;
 
     /// <summary>
-    /// Storage operations for native captain memory records and their tags. Visibility, search,
-    /// ordering and paging belong to the memory service; this layer only fences by tenant.
+    /// Storage operations for native captain memory records and their tags. The whole-list reads fence by tenant
+    /// only; the paged read also applies the caller's visibility, the filters, the order and the page.
     /// </summary>
     public interface IMemoryMethods
     {
@@ -54,6 +54,18 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate the records of one tenant, newest first.
         /// </summary>
         Task<List<Memory>> EnumerateAsync(string tenantId, CancellationToken token = default);
+
+        /// <summary>
+        /// Read one page of records. The database applies the tenant and viewer fence, the filters of the request,
+        /// the order (salience descending, then newest first, then identifier) and the page, so only the page's
+        /// records are read. <see cref="EnumerationResult{T}.TotalRecords"/> counts every record that matches.
+        /// </summary>
+        /// <param name="request">Paging, range, vessel, voyage, mission, search, type and topic filters.</param>
+        /// <param name="tenantId">Tenant to read; null reads every tenant.</param>
+        /// <param name="viewerUserId">User whose view applies: a user-specific record of another user is left out.
+        /// Null applies no per-record fence, for a global or tenant administrator.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task<EnumerationResult<Memory>> EnumeratePageAsync(MemoryEnumerateRequest request, string? tenantId, string? viewerUserId, CancellationToken token = default);
 
         /// <summary>
         /// Enumerate the records of one tenant that concern one vessel: records about or originating from it,

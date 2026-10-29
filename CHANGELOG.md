@@ -29,6 +29,17 @@ upstream integrations and excludes changes already present at that baseline.
 ### Orphan recovery and operator review
 
 - The orphaned-mission sweep no longer collects `Review` missions. A mission awaiting operator review keeps its mission-to-captain link with a released captain and no process, and the sweep used to complete it again and reset it to `WorkProduced`.
+### History filter and order
+
+- The History timeline accepts `excludeReadRequests` to leave out request entries for `GET`, `HEAD` and `OPTIONS`, and `order` (`CreatedDescending` or `CreatedAscending`). The request-history query applies the exclusion in SQL on every provider, before the per-source read limit, so polling no longer fills the request source or marks it truncated. The History page hides read-only requests until `Show read requests` is checked, and its export reads at most 10 pages and says when more entries match. The whole-list routes are unchanged.
+
+### Database memory enumeration
+
+- `POST /api/v1/memories/enumerate` takes an `EnumerationQuery` body (or querystring) plus `search`, `type` and `topic`, and returns one `EnumerationResult` page. `GET /api/v1/memories` and the MCP memory tools share the same read. The database now applies caller visibility (global administrator: every tenant; tenant administrator: its tenant; other callers: tenant-wide records plus their own), the filters, the order (salience, then newest, then identifier) and the page, so a request no longer loads every visible memory. Search treats `%`, `_` and `[` as plain text. The whole-list reads and the single-record routes are unchanged.
+
+### Bounded vessel git-status reads
+
+- `GET /api/v1/vessels/{id}/git-status` reuses a vessel's status for two minutes (fifteen seconds after a failed read) and lets requests that arrive during a read share it, so a list refresh no longer fetches and counts commits for every vessel each time. The Vessels page reads the status of the visible rows only, four at a time, and reads them again on each refresh. The response shape is unchanged.
 
 ### Judge blocking rule
 

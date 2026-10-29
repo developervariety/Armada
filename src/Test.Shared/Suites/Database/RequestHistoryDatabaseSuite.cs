@@ -87,6 +87,57 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("enumerate_excludes_read_methods_in_the_page_and_its_total", "EnumerateAsync leaves out GET, HEAD and OPTIONS entries before it pages and counts", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+
+                    DateTime baseUtc = DateTime.UtcNow.AddHours(-1);
+                    string[] methods = { "POST", "get", "PUT", "HEAD", "DELETE", "OPTIONS", "GET", "PATCH" };
+                    List<string> writeIds = new List<string>();
+                    for (int i = 0; i < methods.Length; i++)
+                    {
+                        RequestHistoryEntry entry = BuildEntry(methods[i], "/api/v1/fleets", 200, "usr_one");
+                        entry.CreatedUtc = baseUtc.AddMinutes(i);
+                        await db.RequestHistory.CreateAsync(entry, null).ConfigureAwait(false);
+                        if (methods[i] is "POST" or "PUT" or "DELETE" or "PATCH") writeIds.Add(entry.Id);
+                    }
+
+                    EnumerationResult<RequestHistoryEntry> all = await db.RequestHistory.EnumerateAsync(new RequestHistoryQuery { PageNumber = 1, PageSize = 25 }).ConfigureAwait(false);
+                    AssertEqual(8, (int)all.TotalRecords, "every entry is listed without the flag");
+
+                    EnumerationResult<RequestHistoryEntry> firstPage = await db.RequestHistory.EnumerateAsync(new RequestHistoryQuery
+                    {
+                        ExcludeReadMethods = true,
+                        PageNumber = 1,
+                        PageSize = 3
+                    }).ConfigureAwait(false);
+                    AssertEqual(4, (int)firstPage.TotalRecords, "the total counts only the writes");
+                    AssertEqual(2, firstPage.TotalPages, "the pages cover only the writes");
+                    AssertEqual(3, firstPage.Objects.Count, "the first page is full of writes");
+                    AssertTrue(firstPage.Objects.TrueForAll(entry => writeIds.Contains(entry.Id)), "the first page holds only writes");
+
+                    EnumerationResult<RequestHistoryEntry> secondPage = await db.RequestHistory.EnumerateAsync(new RequestHistoryQuery
+                    {
+                        ExcludeReadMethods = true,
+                        PageNumber = 2,
+                        PageSize = 3
+                    }).ConfigureAwait(false);
+                    AssertEqual(1, secondPage.Objects.Count, "the second page holds the last write");
+                    AssertTrue(writeIds.Contains(secondPage.Objects[0].Id), "the last entry is a write");
+
+                    EnumerationResult<RequestHistoryEntry> withMethod = await db.RequestHistory.EnumerateAsync(new RequestHistoryQuery
+                    {
+                        ExcludeReadMethods = true,
+                        Method = "get",
+                        PageNumber = 1,
+                        PageSize = 25
+                    }).ConfigureAwait(false);
+                    AssertEqual(0, (int)withMethod.TotalRecords, "a method filter naming a read method finds nothing beside the exclusion");
+                }
+            }));
+
             cases.Add(CaseAsync("delete_by_filter_removes_matching_rows", "DeleteByFilterAsync removes matching request-history rows", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

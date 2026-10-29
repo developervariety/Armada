@@ -175,6 +175,8 @@ namespace Armada.Core.Database
                 string method = query.Method.ToUpperInvariant();
                 filter.Condition("UPPER(method) = @method", p => p.Text("@method", "method", method));
             }
+            if (query.ExcludeReadMethods)
+                filter.Condition("UPPER(method) NOT IN ('GET', 'HEAD', 'OPTIONS')", null);
             if (!String.IsNullOrWhiteSpace(query.Route))
             {
                 string route = "%" + query.Route + "%";

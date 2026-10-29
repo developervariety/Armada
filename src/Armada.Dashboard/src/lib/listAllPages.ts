@@ -6,11 +6,15 @@ const MAX_PAGES = 1000;
 /**
  * Read every page of a server enumeration. The server caps a page (500 for objectives), so asking
  * for one large page silently returns only the first part of the set. Reading stops when the
- * server reports the last page or returns an empty page.
+ * server reports the last page or returns an empty page, or after `maxPages` pages when the
+ * caller caps the read.
  */
-export async function listAllPages<T>(fetchPage: (pageNumber: number) => Promise<EnumerationResult<T>>): Promise<T[]> {
+export async function listAllPages<T>(
+  fetchPage: (pageNumber: number) => Promise<EnumerationResult<T>>,
+  maxPages: number = MAX_PAGES,
+): Promise<T[]> {
   const all: T[] = [];
-  for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
+  for (let pageNumber = 1; pageNumber <= Math.min(maxPages, MAX_PAGES); pageNumber++) {
     const result = await fetchPage(pageNumber);
     const objects = result.objects || [];
     all.push(...objects);

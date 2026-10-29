@@ -284,6 +284,109 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Enumeration pages in the database, counts every match and tags only the page", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    MemoryService service = new MemoryService(testDb.Driver);
+                    AuthContext caller = User("ten_pg", "usr_pg");
+                    for (int i = 0; i < 5; i++)
+                        await service.CreateAsync(caller, new Memory { Content = "finding " + i, Salience = 0.1 * (i + 1), Tags = new List<string> { "tag-" + i, "shared" } }).ConfigureAwait(false);
+
+                    EnumerationResult<Memory> second = await service.EnumerateAsync(caller, new MemoryEnumerateRequest { PageNumber = 2, PageSize = 2 }).ConfigureAwait(false);
+                    AssertEqual(5, (int)second.TotalRecords, "Total counts every visible record");
+                    AssertEqual(3, second.TotalPages, "Pages cover the whole set");
+                    AssertEqual(2, second.PageNumber, "The page number is echoed");
+                    AssertEqual("finding 2,finding 1", String.Join(",", second.Objects.Select(memory => memory.Content)), "The second page holds the middle salience records");
+                    AssertTrue(second.Objects.All(memory => memory.Tags.Contains("shared") && memory.Tags.Count == 2), "Each record on the page carries its own tags");
+                    AssertTrue(second.Objects[0].Tags.Contains("tag-2") && second.Objects[1].Tags.Contains("tag-1"), "Tags belong to their record");
+
+                    EnumerationResult<Memory> oversized = await service.EnumerateAsync(caller, new EnumerationQuery { PageSize = 5000 }).ConfigureAwait(false);
+                    AssertEqual(EnumerationQuery.MaxPageSize, oversized.PageSize, "A page is capped");
+                    AssertEqual(5000, oversized.RequestedPageSize ?? 0, "The size that was asked for is reported");
+
+                    EnumerationResult<Memory> beyond = await service.EnumerateAsync(caller, new MemoryEnumerateRequest { PageNumber = 9, PageSize = 2 }).ConfigureAwait(false);
+                    AssertEqual(0, beyond.Objects.Count, "A page past the end is empty");
+                    AssertEqual(5, (int)beyond.TotalRecords, "A page past the end still reports the total");
+                }
+            });
+
+            await RunTest("Search matches wildcard characters as plain text", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    MemoryService service = new MemoryService(testDb.Driver);
+                    AuthContext caller = User("ten_like", "usr_like");
+                    await service.CreateAsync(caller, new Memory { Content = "coverage is 100% now" }).ConfigureAwait(false);
+                    await service.CreateAsync(caller, new Memory { Content = "coverage is 1000 now" }).ConfigureAwait(false);
+                    await service.CreateAsync(caller, new Memory { Content = "the snake_case rule" }).ConfigureAwait(false);
+                    await service.CreateAsync(caller, new Memory { Content = "the snakeXcase rule" }).ConfigureAwait(false);
+                    await service.CreateAsync(caller, new Memory { Content = "a [bracket] note and a bang! note" }).ConfigureAwait(false);
+
+                    AssertEqual(1, (int)(await service.EnumerateAsync(caller, new EnumerationQuery(), "100%").ConfigureAwait(false)).TotalRecords, "A percent sign is not a wildcard");
+                    AssertEqual(1, (int)(await service.EnumerateAsync(caller, new EnumerationQuery(), "snake_case").ConfigureAwait(false)).TotalRecords, "An underscore is not a wildcard");
+                    AssertEqual(1, (int)(await service.EnumerateAsync(caller, new EnumerationQuery(), "[bracket]").ConfigureAwait(false)).TotalRecords, "A bracket is not a wildcard");
+                    AssertEqual(1, (int)(await service.EnumerateAsync(caller, new EnumerationQuery(), "bang!").ConfigureAwait(false)).TotalRecords, "The escape character matches itself");
+                    AssertEqual(1, (int)(await service.EnumerateAsync(caller, new EnumerationQuery(), "%").ConfigureAwait(false)).TotalRecords, "A lone percent sign finds only the record that holds one");
+                }
+            });
+
+            await RunTest("Enumeration shows each caller exactly the records it may read one by one", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    MemoryService service = new MemoryService(testDb.Driver);
+                    AuthContext adminA = TenantAdmin("ten_va", "usr_admin_a");
+                    AuthContext userA1 = User("ten_va", "usr_a1");
+                    AuthContext userA2 = User("ten_va", "usr_a2");
+                    AuthContext adminB = TenantAdmin("ten_vb", "usr_admin_b");
+                    AuthContext userB = User("ten_vb", "usr_b1");
+                    AuthContext global = AuthContext.Authenticated("ten_va", "usr_global", true, true, "test");
+
+                    List<Memory> all = new List<Memory>();
+                    all.Add(await service.CreateAsync(adminA, new Memory { Content = "A shared", Scope = MemoryScopeEnum.TenantWide }).ConfigureAwait(false));
+                    all.Add(await service.CreateAsync(adminA, new Memory { Content = "A admin private", Scope = MemoryScopeEnum.UserSpecific }).ConfigureAwait(false));
+                    all.Add(await service.CreateAsync(userA1, new Memory { Content = "A user one private" }).ConfigureAwait(false));
+                    all.Add(await service.CreateAsync(userA2, new Memory { Content = "A user two private" }).ConfigureAwait(false));
+                    all.Add(await service.CreateAsync(adminB, new Memory { Content = "B shared", Scope = MemoryScopeEnum.TenantWide }).ConfigureAwait(false));
+                    all.Add(await service.CreateAsync(userB, new Memory { Content = "B user private" }).ConfigureAwait(false));
+
+                    foreach (AuthContext caller in new List<AuthContext> { adminA, userA1, userA2, adminB, userB, global })
+                    {
+                        List<string> readable = new List<string>();
+                        foreach (Memory memory in all)
+                            if (await service.ReadAsync(caller, memory.Id).ConfigureAwait(false) != null) readable.Add(memory.Id);
+
+                        EnumerationResult<Memory> page = await service.EnumerateAsync(caller, new EnumerationQuery { PageSize = 100 }).ConfigureAwait(false);
+                        AssertEqual(String.Join(",", readable.OrderBy(id => id, StringComparer.Ordinal)),
+                            String.Join(",", page.Objects.Select(memory => memory.Id).OrderBy(id => id, StringComparer.Ordinal)),
+                            "Enumeration lists what a one-by-one read returns for " + caller.UserId);
+                        AssertEqual(readable.Count, (int)page.TotalRecords, "The total counts only what " + caller.UserId + " may read");
+                    }
+
+                    AssertEqual(6, (int)(await service.EnumerateAsync(global, new EnumerationQuery()).ConfigureAwait(false)).TotalRecords, "A global administrator reads every tenant");
+                }
+            });
+
+            await RunTest("Enumeration filters by voyage, mission, type and creation time in the database", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    MemoryService service = new MemoryService(testDb.Driver);
+                    AuthContext caller = User("ten_flt", "usr_flt");
+                    Memory first = await service.CreateAsync(caller, new Memory { Content = "from a voyage", SourceVoyageId = "vyg_one", SourceMissionId = "msn_one", Type = MemoryTypeEnum.Episodic }).ConfigureAwait(false);
+                    await Task.Delay(30).ConfigureAwait(false);
+                    Memory second = await service.CreateAsync(caller, new Memory { Content = "from another voyage", SourceVoyageId = "vyg_two", SourceMissionId = "msn_two" }).ConfigureAwait(false);
+
+                    AssertEqual(first.Id, (await service.EnumerateAsync(caller, new MemoryEnumerateRequest { VoyageId = "vyg_one" }).ConfigureAwait(false)).Objects.Single().Id, "Voyage filter");
+                    AssertEqual(second.Id, (await service.EnumerateAsync(caller, new MemoryEnumerateRequest { MissionId = "msn_two" }).ConfigureAwait(false)).Objects.Single().Id, "Mission filter");
+                    AssertEqual(first.Id, (await service.EnumerateAsync(caller, new MemoryEnumerateRequest { Type = MemoryTypeEnum.Episodic }).ConfigureAwait(false)).Objects.Single().Id, "Type filter");
+                    AssertEqual(second.Id, (await service.EnumerateAsync(caller, new MemoryEnumerateRequest { CreatedAfter = first.CreatedUtc }).ConfigureAwait(false)).Objects.Single().Id, "Created-after bound is exclusive");
+                    AssertEqual(first.Id, (await service.EnumerateAsync(caller, new MemoryEnumerateRequest { CreatedBefore = second.CreatedUtc }).ConfigureAwait(false)).Objects.Single().Id, "Created-before bound is exclusive");
+                    AssertEqual(0, (int)(await service.EnumerateAsync(caller, new MemoryEnumerateRequest { VoyageId = "vyg_one", MissionId = "msn_two" }).ConfigureAwait(false)).TotalRecords, "Filters combine");
+                }
+            });
+
             await RunTest("An unauthenticated caller reaches no record", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

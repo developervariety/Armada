@@ -452,6 +452,8 @@ function buildHistoryQuery(params?: HistoricalTimelineQuery): string {
     if (params.deploymentId) search.set('deploymentId', params.deploymentId);
     if (params.incidentId) search.set('incidentId', params.incidentId);
     if (params.postmortemOnly) search.set('postmortemOnly', String(params.postmortemOnly));
+    if (params.excludeReadRequests !== undefined) search.set('excludeReadRequests', String(params.excludeReadRequests));
+    if (params.order) search.set('order', params.order);
     if (params.missionId) search.set('missionId', params.missionId);
   if (params.voyageId) search.set('voyageId', params.voyageId);
   if (params.actor) search.set('actor', params.actor);

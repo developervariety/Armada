@@ -2054,6 +2054,39 @@ using System.IO;
                 AssertFalse(result.Objects.Any(memory => memory.Id == memoryAId), "Tenant B must not see the tenant-A record");
             }).ConfigureAwait(false);
 
+            await RunTest("Memory_EnumerateFromTenantA_PagesAndFiltersInTheDatabase", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/memories/enumerate",
+                    JsonHelper.ToJsonContent(new { PageNumber = 1, PageSize = 5, Type = "Semantic", Topic = "CROSS-TENANT", Search = "tenant A" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                EnumerationResult<Memory> result = await JsonHelper.DeserializeAsync<EnumerationResult<Memory>>(response).ConfigureAwait(false);
+                AssertTrue(result.Objects.Any(memory => memory.Id == memoryAId), "Expected the record in the tenant-A enumeration");
+                AssertEqual(result.Objects.Count, (int)result.TotalRecords, "The total counts the matches");
+
+                HttpResponseMessage none = await _ClientA!.PostAsync("/api/v1/memories/enumerate?type=Procedural", JsonHelper.ToJsonContent(new { PageNumber = 1 })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, none.StatusCode);
+                EnumerationResult<Memory> procedural = await JsonHelper.DeserializeAsync<EnumerationResult<Memory>>(none).ConfigureAwait(false);
+                AssertFalse(procedural.Objects.Any(memory => memory.Id == memoryAId), "The querystring type overrides the body");
+            }).ConfigureAwait(false);
+
+            await RunTest("Memory_EnumerateFromTenantB_DoesNotContainMemory", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/memories/enumerate", JsonHelper.ToJsonContent(new { PageNumber = 1, PageSize = 100 })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                EnumerationResult<Memory> result = await JsonHelper.DeserializeAsync<EnumerationResult<Memory>>(response).ConfigureAwait(false);
+                AssertFalse(result.Objects.Any(memory => memory.Id == memoryAId), "Tenant B must not see the tenant-A record");
+            }).ConfigureAwait(false);
+
+            await RunTest("Memory_EnumerateWithUnknownType_Returns400", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/memories/enumerate", JsonHelper.ToJsonContent(new { Type = "NotAType" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, response.StatusCode);
+                HttpResponseMessage query = await _ClientA!.PostAsync("/api/v1/memories/enumerate?type=NotAType", JsonHelper.ToJsonContent(new { PageNumber = 1 })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, query.StatusCode);
+            }).ConfigureAwait(false);
+
             await RunTest("Memory_ReadFromTenantB_Returns404", async () =>
             {
                 HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/memories/" + memoryAId).ConfigureAwait(false);

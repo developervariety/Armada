@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using System.Collections.Generic;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// Query for Armada historical timeline aggregation.
@@ -83,6 +84,19 @@ namespace Armada.Core.Models
         /// Optional upper-bound time filter.
         /// </summary>
         public DateTime? ToUtc { get; set; } = null;
+
+        /// <summary>
+        /// When true, request-history entries for the read-only methods (GET, HEAD and OPTIONS) are left out. The
+        /// request source applies it in the database, so the bounded newest-first read of requests holds only the
+        /// remaining entries.
+        /// </summary>
+        public bool ExcludeReadRequests { get; set; } = false;
+
+        /// <summary>
+        /// Order of the entries by time of occurrence. Entries with the same time keep a fixed order by source
+        /// identifier, so a page boundary does not move between requests.
+        /// </summary>
+        public EnumerationOrderEnum Order { get; set; } = EnumerationOrderEnum.CreatedDescending;
 
         /// <summary>
         /// Page number.

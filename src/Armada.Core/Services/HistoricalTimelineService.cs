@@ -192,9 +192,9 @@ namespace Armada.Core.Services
                 filtered = filtered.Where(entry => allowed.Contains(entry.SourceType));
             }
 
-            List<HistoricalTimelineEntry> ordered = filtered
-                .OrderByDescending(entry => entry.OccurredUtc)
-                .ThenByDescending(entry => entry.SourceId, StringComparer.Ordinal)
+            List<HistoricalTimelineEntry> ordered = (query.Order == EnumerationOrderEnum.CreatedAscending
+                    ? filtered.OrderBy(entry => entry.OccurredUtc).ThenBy(entry => entry.SourceId, StringComparer.Ordinal)
+                    : filtered.OrderByDescending(entry => entry.OccurredUtc).ThenByDescending(entry => entry.SourceId, StringComparer.Ordinal))
                 .ToList();
 
             int pageSize = query.PageSize < 1 ? 50 : query.PageSize;
@@ -668,6 +668,7 @@ namespace Armada.Core.Services
                 TenantId = auth.IsAdmin ? timelineQuery.TenantId : auth.TenantId,
                 UserId = auth.IsAdmin || auth.IsTenantAdmin ? timelineQuery.UserId : auth.UserId,
                 Route = null,
+                ExcludeReadMethods = timelineQuery.ExcludeReadRequests,
                 FromUtc = timelineQuery.FromUtc,
                 ToUtc = timelineQuery.ToUtc
             };

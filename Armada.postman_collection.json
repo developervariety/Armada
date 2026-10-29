@@ -2110,10 +2110,10 @@
 								"enumerate"
 							]
 						},
-						"description": "Enumerate the cross-entity Armada timeline using a JSON body.",
+						"description": "Enumerate the cross-entity Armada timeline using a JSON body. ExcludeReadRequests leaves out GET, HEAD and OPTIONS request entries; Order is CreatedDescending or CreatedAscending.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50,\n  \"VesselId\": \"{{vesselId}}\",\n  \"ObjectiveId\": \"{{objectiveId}}\",\n  \"FromUtc\": \"2026-01-01T00:00:00Z\"\n}"
+							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50,\n  \"VesselId\": \"{{vesselId}}\",\n  \"ObjectiveId\": \"{{objectiveId}}\",\n  \"FromUtc\": \"2026-01-01T00:00:00Z\",\n  \"ExcludeReadRequests\": true,\n  \"Order\": \"CreatedDescending\"\n}"
 						}
 					},
 					"event": {
@@ -2724,7 +2724,7 @@
 								"git-status"
 							]
 						},
-						"description": "Returns commits ahead/behind the remote default branch for the vessel's working directory."
+						"description": "Returns commits ahead/behind the remote default branch for the vessel's working directory. The Admiral reuses a status it read for two minutes (fifteen seconds after a failed read)."
 					}
 				},
 				{
@@ -10657,6 +10657,35 @@
 							]
 						},
 						"description": "Lists or searches the records visible to the caller, highest salience first, then newest."
+					}
+				},
+				{
+					"name": "Enumerate Memories",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/memories/enumerate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"memories",
+								"enumerate"
+							]
+						},
+						"description": "Returns one page of the records visible to the caller, highest salience first, then newest. The database applies visibility, filters and the page. Query parameters override body values.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Search\": \"gate\",\n  \"Type\": \"Procedural\",\n  \"Topic\": \"build\",\n  \"VesselId\": \"{{vesselId}}\"\n}"
+						}
 					}
 				},
 				{

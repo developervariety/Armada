@@ -44,6 +44,12 @@ namespace Armada.Core.Models
         public string? Method { get; set; } = null;
 
         /// <summary>
+        /// When true, entries for the read-only methods (GET, HEAD and OPTIONS) are left out, so a client that polls
+        /// does not fill the result. The database applies it, so paging and counts cover only the remaining entries.
+        /// </summary>
+        public bool ExcludeReadMethods { get; set; } = false;
+
+        /// <summary>
         /// Route filter.
         /// </summary>
         public string? Route { get; set; } = null;
