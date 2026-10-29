@@ -381,6 +381,22 @@ namespace Armada.Test.Unit
                     AssertNull(idleSent.DeliveryReason);
                 }
             });
+
+            await RunTest("SendSignal_RunningCaptainInAnotherTenant_ReturnsNoDeliveryNotice", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_other", Name = "ten_other" }).ConfigureAwait(false);
+                    Captain foreign = await testDb.Driver.Captains.CreateAsync(
+                        new Captain("foreign-cursor", AgentRuntimeEnum.Cursor) { State = CaptainStateEnum.Working, TenantId = "ten_other" }).ConfigureAwait(false);
+                    Signal sent = new Signal(SignalTypeEnum.Mail, "cross-tenant probe") { TenantId = "ten_sender", ToCaptainId = foreign.Id };
+
+                    Signal annotated = await SignalDelivery.AnnotateAsync(testDb.Driver, sent).ConfigureAwait(false);
+
+                    AssertNull(annotated.Delivery, "a captain in another tenant reveals no running state");
+                    AssertNull(annotated.DeliveryReason);
+                }
+            });
         }
     }
 }

@@ -57,6 +57,9 @@ namespace Armada.Core.Services
 
             Captain? captain = await database.Captains.ReadAsync(signal.ToCaptainId, token).ConfigureAwait(false);
             if (captain == null || !IsRunningCaptain(captain)) return signal;
+            // A notice describes the recipient's state, so it is given only for a captain in the sender's tenant.
+            if (!String.IsNullOrEmpty(signal.TenantId) && !String.IsNullOrEmpty(captain.TenantId)
+                && !String.Equals(signal.TenantId, captain.TenantId, StringComparison.Ordinal)) return signal;
             if (RuntimeDeliversMidMissionMail(captain.Runtime)) return signal;
 
             signal.Delivery = StoredUntilNextLaunch;
