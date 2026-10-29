@@ -229,12 +229,16 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(AskProposalStatusEnum.Executed, proposal.Status, proposal.ErrorText ?? "");
 
                 AskThreadDetail detail = await JsonHelper.DeserializeAsync<AskThreadDetail>(await a.GetAsync("/api/v1/ask/threads/" + thread.Id).ConfigureAwait(false)).ConfigureAwait(false);
-                AskTrackedWork work = detail.TrackedWork.Single();
+                AssertEqual(1L, detail.TrackedWorkCount, "one tracked item counted");
+                EnumerationResult<AskTrackedWork> workPage = await JsonHelper.DeserializeAsync<EnumerationResult<AskTrackedWork>>(await a.PostAsync("/api/v1/ask/threads/" + thread.Id + "/work/enumerate", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false)).ConfigureAwait(false);
+                AskTrackedWork work = workPage.Objects.Single();
                 AssertEqual(AskTrackedEntityTypeEnum.Voyage, work.EntityType);
                 AssertNotNull(work.Snapshot, "snapshot embedded");
                 AssertEqual("Ask dispatch", work.Snapshot!.Title);
                 AssertEqual(1, work.Snapshot.TotalCount, "one mission");
-                AssertEqual("Add a README line", work.Snapshot.Missions.Single().Title);
+                AssertEqual(1, work.Snapshot.MissionCount, "one mission row");
+                EnumerationResult<AskWorkMissionSnapshot> missionRows = await JsonHelper.DeserializeAsync<EnumerationResult<AskWorkMissionSnapshot>>(await a.PostAsync("/api/v1/ask/threads/" + thread.Id + "/work/" + work.Id + "/missions/enumerate", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual("Add a README line", missionRows.Objects.Single().Title);
 
                 AssertStatusCode(HttpStatusCode.OK, await a.GetAsync("/api/v1/voyages/" + work.EntityId).ConfigureAwait(false), "the voyage is visible in the caller's tenant");
 
@@ -334,19 +338,23 @@ namespace Test.Shared.Suites.E2E
                 }
 
                 AskThreadDetail detail = await JsonHelper.DeserializeAsync<AskThreadDetail>(await a.GetAsync("/api/v1/ask/threads/" + thread.Id).ConfigureAwait(false)).ConfigureAwait(false);
-                AskActionProposal pending = detail.PendingProposals.Single();
+                AssertEqual(1L, detail.PendingProposalCount, "one pending proposal counted");
+                EnumerationResult<AskActionProposal> pendingPage = await JsonHelper.DeserializeAsync<EnumerationResult<AskActionProposal>>(await a.PostAsync("/api/v1/ask/threads/" + thread.Id + "/proposals/enumerate", JsonHelper.ToJsonContent(new { Status = "Pending" })).ConfigureAwait(false)).ConfigureAwait(false);
+                AskActionProposal pending = pendingPage.Objects.Single();
                 AssertEqual(String.Format(Armada.Server.Ask.AskActionService.ProposedResultFormat, pending.Id), proposed, "dispatch becomes this proposal (the tool replies with the proposal's own id)");
                 AssertEqual("dispatch", pending.ToolName);
                 AssertNotNull(pending.ExpiresUtc, "ExpiresUtc");
-                AssertEqual(0, detail.TrackedWork.Count, "nothing ran yet");
+                AssertEqual(0L, detail.TrackedWorkCount, "nothing ran yet");
 
                 HttpResponseMessage approved = await a.PostAsync("/api/v1/ask/threads/" + thread.Id + "/proposals/" + pending.Id + "/approve", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false);
                 AssertStatusCode(HttpStatusCode.OK, approved);
                 AskActionProposal executed = await JsonHelper.DeserializeAsync<AskActionProposal>(approved).ConfigureAwait(false);
                 AssertEqual(AskProposalStatusEnum.Executed, executed.Status, executed.ErrorText ?? "");
                 AskThreadDetail after = await JsonHelper.DeserializeAsync<AskThreadDetail>(await a.GetAsync("/api/v1/ask/threads/" + thread.Id).ConfigureAwait(false)).ConfigureAwait(false);
-                AssertEqual(AskTrackedEntityTypeEnum.Voyage, after.TrackedWork.Single().EntityType, "voyage tracked after approval");
-                await a.DeleteAsync("/api/v1/voyages/" + after.TrackedWork.Single().EntityId).ConfigureAwait(false);
+                AssertEqual(1L, after.TrackedWorkCount, "one item tracked after approval");
+                EnumerationResult<AskTrackedWork> afterWork = await JsonHelper.DeserializeAsync<EnumerationResult<AskTrackedWork>>(await a.PostAsync("/api/v1/ask/threads/" + thread.Id + "/work/enumerate", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(AskTrackedEntityTypeEnum.Voyage, afterWork.Objects.Single().EntityType, "voyage tracked after approval");
+                await a.DeleteAsync("/api/v1/voyages/" + afterWork.Objects.Single().EntityId).ConfigureAwait(false);
             }));
 
             cases.Add(CaseAsync("quick_action_catalog", "GET quick-actions returns the catalog", async () =>

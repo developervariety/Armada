@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiErrorMessage, listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools, listModelEndpoints, setCaptainCliPermissionPolicy } from '../api/client';
+import { apiErrorMessage, listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools, enumerateModelEndpoints, setCaptainCliPermissionPolicy } from '../api/client';
 import { listAll } from '../api/paging';
 import type { ModelEndpoint } from '../types/models';
 import type { Captain, CaptainToolAccessResult } from '../types/models';
@@ -146,8 +146,9 @@ export default function Captains() {
 
   // Load the configured inference endpoints so an API-endpoint captain can be pointed at one.
   useEffect(() => {
-    listModelEndpoints()
-      .then(result => setInferenceEndpoints((result ?? []).filter(e => e.kind === 'Inference')))
+    // A picker needs every endpoint: read the pages explicitly (bounded by listAll's safety stop).
+    listAll(enumerateModelEndpoints)
+      .then(result => setInferenceEndpoints((result?.objects ?? []).filter(e => e.kind === 'Inference')))
       .catch(() => setInferenceEndpoints([]));
   }, []);
 
@@ -326,7 +327,8 @@ export default function Captains() {
     });
 
     try {
-      const result = await getCaptainTools(captain.id);
+      // Probe once (refresh) for the summary and sources; the viewer then reads each tool section a page at a time.
+      const result = await getCaptainTools(captain.id, { refresh: true, pageSize: 1 });
       setToolViewer({
         open: true,
         captainName: captain.name,
@@ -560,6 +562,7 @@ export default function Captains() {
       <CaptainToolViewer
         open={toolViewer.open}
         captainName={toolViewer.captainName}
+        captainId={toolViewer.data?.captainId || undefined}
         loading={toolViewer.loading}
         error={toolViewer.error}
         data={toolViewer.data}

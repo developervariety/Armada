@@ -33,8 +33,8 @@ namespace Armada.Helm.Commands
                 return await GetAsync<Playbook>("/api/v1/playbooks/" + idOrFileName).ConfigureAwait(false);
             }
 
-            EnumerationResult<Playbook>? result = await GetAsync<EnumerationResult<Playbook>>("/api/v1/playbooks").ConfigureAwait(false);
-            return result?.Objects?.FirstOrDefault(p =>
+            List<Playbook> playbooks = await PlaybookPages.ReadAllAsync(path => GetAsync<EnumerationResult<Playbook>>(path)).ConfigureAwait(false);
+            return playbooks.FirstOrDefault(p =>
                 String.Equals(p.FileName, idOrFileName, StringComparison.OrdinalIgnoreCase) ||
                 String.Equals(p.Id, idOrFileName, StringComparison.OrdinalIgnoreCase));
         }

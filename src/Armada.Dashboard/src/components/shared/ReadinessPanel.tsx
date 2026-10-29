@@ -195,6 +195,9 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
             </div>
           )}
 
+          {(readiness.issueCount ?? 0) > readiness.issues.length && (
+            <p className="text-dim readiness-issues-capped">{t('Showing the {{shown}} most severe of {{total}} issues.', { shown: String(readiness.issues.length), total: String(readiness.issueCount) })}</p>
+          )}
           {readiness.issues.length > 0 ? (
             <div className="readiness-issues">
               {readiness.issues.map((issue, index) => {

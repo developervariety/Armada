@@ -42,6 +42,7 @@ export default function AssignmentBlockerCard({ blocker }: AssignmentBlockerCard
               <Link to={`/missions/${missionId}`} className="mono" title={t('A mission that must settle before this one can be assigned. Click to open it.')}>{missionId}</Link>
             </span>
           ))}
+          {(blocker.blockingMissionCount ?? 0) > blocker.blockingMissionIds.length && <span className="text-dim">{` (+${(blocker.blockingMissionCount ?? 0) - blocker.blockingMissionIds.length})`}</span>}
         </p>
       )}
       {blocker.captains.length > 0 && (
@@ -60,6 +61,7 @@ export default function AssignmentBlockerCard({ blocker }: AssignmentBlockerCard
               )}
             </li>
           ))}
+          {(blocker.captainCount ?? 0) > blocker.captains.length && <li className="text-dim">{`+${(blocker.captainCount ?? 0) - blocker.captains.length}`}</li>}
         </ul>
       )}
     </div>

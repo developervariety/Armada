@@ -61,6 +61,8 @@ namespace Armada.Core.Storage
             lock (_Sync)
             {
                 StorageSnapshot result = Clone(_Snapshot);
+                // Hosts are not serialized with the snapshot (they are paged through EnumerateHosts); copy them apart.
+                result.Hosts = Clone(_Snapshot.Hosts);
                 result.Collecting = !_Collection.IsCompleted;
                 result.IntervalSeconds = _Settings.Storage.IntervalSeconds;
                 result.HistoryCapacity = _Settings.Storage.HistoryCapacity;
@@ -79,8 +81,30 @@ namespace Armada.Core.Storage
                     host.Stale = DateTime.UtcNow - host.MeasuredUtc > TimeSpan.FromSeconds(Math.Max(_Settings.Storage.IntervalSeconds, host.IntervalSeconds) * 2);
                     if (host.HostId != "admiral" && !_Connected(host.HostId)) host.Stale = true;
                 }
+                result.HostCount = result.Hosts.Count;
+                result.FreshHostCount = result.Hosts.Count(h => !h.Stale && h.Status == "Complete");
+                result.ObservedFileBytes = result.Hosts.Sum(h => h.Locations.Sum(l => l.Bytes ?? 0));
                 return result;
             }
+        }
+
+        /// <summary>
+        /// One page of the cached host reports: the Admiral first, then each Harbor by name and id. Reading does not
+        /// perform filesystem or database work. The host list is held in memory (one report per registered Harbor,
+        /// rebuilt on each collection), so the page is cut from it; TotalRecords is exact.
+        /// </summary>
+        /// <param name="query">Paging (page size 1 to 1000); null is the first page of 10.</param>
+        /// <returns>The page.</returns>
+        public EnumerationResult<StorageHostReport> EnumerateHosts(EnumerationQuery? query)
+        {
+            if (query == null) query = new EnumerationQuery();
+            StorageSnapshot snapshot = Read();
+            List<StorageHostReport> ordered = snapshot.Hosts
+                .OrderBy(h => h.HostId == "admiral" ? 0 : 1)
+                .ThenBy(h => h.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(h => h.HostId, StringComparer.Ordinal)
+                .ToList();
+            return Armada.Core.Services.CollectionLimits.Page(query, ordered);
         }
 
         /// <summary>Requests collection without waiting. Concurrent requests coalesce and return false.</summary>
@@ -101,7 +125,7 @@ namespace Armada.Core.Storage
             if (report.IntervalSeconds < 30 || report.IntervalSeconds > 86400) return;
             if (report.Status is not ("Complete" or "Partial" or "Unavailable" or "Pending")) return;
             if (report.Locations == null || report.Volumes == null || report.Warnings == null) return;
-            if (report.Locations.Count > _Settings.Storage.MaxLocations || report.Volumes.Count > 256 || report.Warnings.Count > 20) return;
+            if (report.Locations.Count > _Settings.Storage.MaxLocations || report.Volumes.Count > StorageHostReport.MaxVolumes || report.Warnings.Count > StorageHostReport.MaxWarnings) return;
             if (report.MeasuredUtc > DateTime.UtcNow.AddMinutes(5) || report.MeasuredUtc < DateTime.UtcNow.AddDays(-30)) return;
             foreach (StorageLocation location in report.Locations)
             {
@@ -217,6 +241,10 @@ namespace Armada.Core.Storage
                     }
                     point.ObservedFileBytes = point.Hosts.Values.Sum();
                     foreach (StorageTable table in next.Database.Tables.Where(t => t.DataBytes.HasValue || t.IndexBytes.HasValue)) point.Tables[table.Schema + "." + table.Name] = (table.DataBytes ?? 0) + (table.IndexBytes ?? 0);
+                    // Bounded breakdowns: the largest entries plus one folded (other) entry, so totals still add up.
+                    point.Hosts = StorageHistoryPoint.Fold(point.Hosts);
+                    point.Categories = StorageHistoryPoint.Fold(point.Categories);
+                    point.Tables = StorageHistoryPoint.Fold(point.Tables);
                     next.History.Add(point);
                     next.History = next.History.TakeLast(_Settings.Storage.HistoryCapacity).ToList();
                     lock (_Sync) _Snapshot = next;

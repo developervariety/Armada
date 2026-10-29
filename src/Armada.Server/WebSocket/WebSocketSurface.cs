@@ -70,7 +70,7 @@ namespace Armada.Server.WebSocket
             "status", "stop_captain", "stop_all", "stop_server",
             "list_fleets", "get_fleet", "create_fleet", "update_fleet", "delete_fleet",
             "list_vessels", "get_vessel", "create_vessel", "update_vessel", "update_vessel_context", "delete_vessel",
-            "list_voyages", "get_voyage", "create_voyage", "cancel_voyage", "purge_voyage",
+            "list_voyages", "list_voyage_progress", "get_voyage", "create_voyage", "cancel_voyage", "purge_voyage",
             "list_missions", "list_missions_summary", "get_mission", "create_mission", "update_mission", "transition_mission_status",
             "cancel_mission", "purge_mission", "restart_mission", "get_mission_diff", "get_mission_log",
             "list_captains", "get_captain", "create_captain", "update_captain", "delete_captain", "get_captain_log",
