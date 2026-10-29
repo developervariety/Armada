@@ -133,7 +133,7 @@ namespace Armada.Server.Mcp.Tools
                             return (object)new { Success = true, PageNumber = mepPageNumber, PageSize = mepPageSize, TotalRecords = allEndpoints.Count, Objects = mepPage };
                         case "inbox":
                             if (inbox == null) return (object)McpToolError.Unavailable("The inbox is not available on this server.");
-                            return (object)EnumerationResult<InboxItem>.Page(query, await inbox.GetInboxAsync(callerCtx).ConfigureAwait(false));
+                            return (object)await inbox.EnumerateAsync(callerCtx, query).ConfigureAwait(false);
                         case "cli_permission_rules":
                         case "cli-permission-rules":
                             if (cliPermissions == null) return (object)McpToolError.Unavailable("CLI permissions are not available on this server.");

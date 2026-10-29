@@ -257,6 +257,9 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/missions", "Mission", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("GET", "/api/v1/missions/{id}", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/missions/{id}/github/pull-request", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/missions/{id}/github/pull-request/reviews/enumerate", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/missions/{id}/github/pull-request/comments/enumerate", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/missions/{id}/github/pull-request/checks/enumerate", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/missions/{id}/landing-preview", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/missions/{id}/evaluate-autoland", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/missions/{id}", "Mission", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
@@ -503,6 +506,7 @@ namespace Armada.Core.Authorization
             // VoyageRoutes
             Add("GET", "/api/v1/voyages", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/voyages/enumerate", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/voyages/progress/enumerate", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/voyages", "Voyage", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("GET", "/api/v1/voyages/{id}", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("DELETE", "/api/v1/voyages/{id}", "Voyage", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);

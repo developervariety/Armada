@@ -2353,6 +2353,30 @@
     },
     {
       "kind": "api",
+      "key": "enumerateMissionPullRequestReviews",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMissionPullRequestReviewsAsync",
+      "workstream": "W0.2",
+      "notes": "Missions"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateMissionPullRequestComments",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMissionPullRequestCommentsAsync",
+      "workstream": "W0.2",
+      "notes": "Missions"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateMissionPullRequestChecks",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMissionPullRequestChecksAsync",
+      "workstream": "W0.2",
+      "notes": "Missions"
+    },
+    {
+      "kind": "api",
       "key": "getMissionHistory",
       "status": "implemented",
       "tui": "ArmadaClient.GetMissionHistoryAsync",
@@ -2700,6 +2724,14 @@
       "key": "getVoyageStatus",
       "status": "implemented",
       "tui": "ArmadaClient.GetVoyageStatusAsync",
+      "workstream": "W0.2",
+      "notes": "Voyages"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateVoyageProgress",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateVoyageProgressAsync",
       "workstream": "W0.2",
       "notes": "Voyages"
     },

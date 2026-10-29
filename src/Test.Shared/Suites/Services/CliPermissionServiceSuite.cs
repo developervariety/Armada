@@ -224,8 +224,8 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(events.Contains(CliPermissionService.ResolvedEvent + " " + outcome.Request!.Id), "the resolution is announced");
 
                 InboxService inbox = new InboxService(h.Db.Driver, h.Logging, h.Settings);
-                AssertFalse((await inbox.GetInboxAsync(TenantAdmin("usr_cpa14")).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "no inbox item for the admin");
-                AssertFalse((await inbox.GetInboxAsync(owner).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "no inbox item for the owner");
+                AssertFalse((await InboxTestPages.AllAsync(inbox, TenantAdmin("usr_cpa14")).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "no inbox item for the admin");
+                AssertFalse((await InboxTestPages.AllAsync(inbox, owner).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "no inbox item for the owner");
                 AskThreadDetail? detail = await h.Threads.GetThreadDetailAsync(owner, thread.Id).ConfigureAwait(false);
                 AssertEqual(0, detail!.PendingCliPermissions.Count, "nothing pending on the thread");
                 AssertEqual(0, await svc.SweepAsync().ConfigureAwait(false), "nothing left for the sweep");
@@ -583,20 +583,20 @@ namespace Test.Shared.Suites.Services
                 InboxService inbox = new InboxService(h.Db.Driver, h.Logging, h.Settings);
 
                 AuthContext admin = TenantAdmin("usr_cpa10");
-                InboxItem adminItem = (await inbox.GetInboxAsync(admin).ConfigureAwait(false)).Single(i => i.Kind == InboxItemKinds.CliPermission);
+                InboxItem adminItem = (await InboxTestPages.AllAsync(inbox, admin).ConfigureAwait(false)).Single(i => i.Kind == InboxItemKinds.CliPermission);
                 AssertEqual(InboxSeverityEnum.Warning, adminItem.Severity);
                 AssertEqual(pending.Id, adminItem.EntityId);
                 AssertTrue(adminItem.CliPermission!.CanDecide, "admin can decide");
                 AssertNotNull(adminItem.ExpiresUtc, "expiry for a countdown");
                 AssertEqual("/server?tab=cli-permissions&request=" + pending.Id, adminItem.Href);
-                InboxItem ownerItem = (await inbox.GetInboxAsync(owner).ConfigureAwait(false)).Single(i => i.Kind == InboxItemKinds.CliPermission);
+                InboxItem ownerItem = (await InboxTestPages.AllAsync(inbox, owner).ConfigureAwait(false)).Single(i => i.Kind == InboxItemKinds.CliPermission);
                 AssertFalse(ownerItem.CliPermission!.CanDecide, "owner sees it but cannot decide");
                 AssertEqual("/ask/" + thread.Id, ownerItem.Href);
-                AssertFalse((await inbox.GetInboxAsync(AskTestHarness.User("usr_cpq10", false)).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "other users do not see it");
+                AssertFalse((await InboxTestPages.AllAsync(inbox, AskTestHarness.User("usr_cpq10", false)).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "other users do not see it");
 
                 await svc.DecideAsync(admin, pending.Id, new CliPermissionDecisionRequest { Decision = CliPermissionDecisionEnum.Deny }).ConfigureAwait(false);
                 await prompt.ConfigureAwait(false);
-                AssertFalse((await inbox.GetInboxAsync(admin).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "gone once decided");
+                AssertFalse((await InboxTestPages.AllAsync(inbox, admin).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "gone once decided");
             }));
 
             cases.Add(Case("ask_turns_carry_the_policy", "Ask turns hand the runner the resolved policy, persist permission denials, and cancel pending prompts when the turn ends", async () =>

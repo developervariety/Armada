@@ -28,6 +28,11 @@ import type {
   GitHubActionsSyncResult,
   GitHubObjectiveImportRequest,
   GitHubPullRequestDetail,
+  GitHubPullRequestReview,
+  GitHubPullRequestComment,
+  GitHubPullRequestCheck,
+  VoyageProgress,
+  VoyageCancelResult,
   ObjectiveQuery,
   ObjectiveReorderRequest,
   ObjectiveUpsertRequest,
@@ -1142,6 +1147,15 @@ export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucke
   } : undefined)}`);
 export const getMissionLandingPreview = (id: string) => get<LandingPreviewResult>(`/api/v1/missions/${encodeURIComponent(id)}/landing-preview`);
 export const getMissionGitHubPullRequest = (id: string) => get<GitHubPullRequestDetail>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request`);
+/** One page (1 to 100, GitHub's largest page) of the mission pull request's reviews; newest first unless order is CreatedAscending. */
+export const enumerateMissionPullRequestReviews = (id: string, query?: { pageNumber?: number; pageSize?: number; order?: string }) =>
+  post<EnumerationResult<GitHubPullRequestReview>>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/reviews/enumerate`, query ?? {});
+/** One page of the mission pull request's issue comments. */
+export const enumerateMissionPullRequestComments = (id: string, query?: { pageNumber?: number; pageSize?: number; order?: string }) =>
+  post<EnumerationResult<GitHubPullRequestComment>>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/comments/enumerate`, query ?? {});
+/** One page of the provider checks on the mission pull request's head commit. */
+export const enumerateMissionPullRequestChecks = (id: string, query?: { pageNumber?: number; pageSize?: number; order?: string }) =>
+  post<EnumerationResult<GitHubPullRequestCheck>>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request/checks/enumerate`, query ?? {});
 export const createMission = (data: Partial<Mission>) => post<Mission>('/api/v1/missions', data);
 export const updateMission = (id: string, data: Partial<Mission>) => put<Mission>(`/api/v1/missions/${id}`, data);
 export const deleteMission = (id: string) => del<void>(`/api/v1/missions/${id}`);
@@ -1161,11 +1175,15 @@ export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/
 // ==================== Voyages ====================
 export const listVoyages = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Voyage>>(`/api/v1/voyages${buildQuery(params)}`);
-export const getVoyage = (id: string) => get<Voyage>(`/api/v1/voyages/${id}`);
-/** The voyage with its missions ({ Voyage, Missions }), as the status view shows it. */
+/** The voyage with its mission counts (VoyageProgress); the missions are paged with listMissions({ filters: { voyageId } }). */
+export const getVoyage = (id: string) => get<VoyageProgress>(`/api/v1/voyages/${id}`);
+/** The voyage with its mission counts, as raw JSON for the status view. */
 export const getVoyageStatus = (id: string) => get<Record<string, unknown>>(`/api/v1/voyages/${encodeURIComponent(id)}`);
+/** One page of voyages with progress; with no status filter, the active voyages (InProgress, then Open). */
+export const enumerateVoyageProgress = (query?: { pageNumber?: number; pageSize?: number; status?: string; order?: string }) =>
+  post<EnumerationResult<VoyageProgress>>('/api/v1/voyages/progress/enumerate', query ?? {});
 export const createVoyage = (data: VoyageCreateRequest) => post<Voyage>('/api/v1/voyages', data);
-export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);
+export const cancelVoyage = (id: string) => del<VoyageCancelResult>(`/api/v1/voyages/${id}`);
 export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purge`);
 
 // ==================== Planning Sessions ====================

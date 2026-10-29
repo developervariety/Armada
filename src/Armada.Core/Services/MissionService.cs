@@ -284,7 +284,7 @@ namespace Armada.Core.Services
             if (barrier.FailedMission != null)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.WaitingForVoyageWorkers;
-                blocker.BlockingMissionIds = new List<string> { barrier.FailedMission.Id };
+                blocker.SetBlockingMissions(new List<string> { barrier.FailedMission.Id });
                 blocker.Summary = "Mission '" + barrier.FailedMission.Title + "' in another slice ended " + barrier.FailedMission.Status
                     + "; this integration will not run without it and is cancelled on the next dispatch pass. Restart that mission to continue.";
                 return blocker;
@@ -304,7 +304,7 @@ namespace Armada.Core.Services
             if (broadMissions.Count > 0)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.VesselBroadScopeMissionActive;
-                blocker.BlockingMissionIds = broadMissions.Select(m => m.Id).ToList();
+                blocker.SetBlockingMissions(broadMissions.Select(m => m.Id));
                 blocker.Summary = "Broad-scope mission '" + broadMissions[0].Title + "' holds vessel " + vessel.Name + " until it finishes.";
                 return blocker;
             }
@@ -312,7 +312,7 @@ namespace Armada.Core.Services
             if (activeMissions.Count > 0 && IsBroadScope(mission))
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.BroadScopeWaitingForVessel;
-                blocker.BlockingMissionIds = activeMissions.Select(m => m.Id).ToList();
+                blocker.SetBlockingMissions(activeMissions.Select(m => m.Id));
                 blocker.Summary = "This is a broad-scope mission; it waits until vessel " + vessel.Name + " has no active missions (" + activeMissions.Count + " running).";
                 return blocker;
             }
@@ -321,7 +321,7 @@ namespace Armada.Core.Services
             if (sameBranch.Count > 0)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.BranchInUse;
-                blocker.BlockingMissionIds = sameBranch.Select(m => m.Id).ToList();
+                blocker.SetBlockingMissions(sameBranch.Select(m => m.Id));
                 blocker.Summary = "Branch " + mission.BranchName + " is in use by '" + sameBranch[0].Title + "'. This mission continues that branch and starts when it finishes.";
                 return blocker;
             }
@@ -329,7 +329,7 @@ namespace Armada.Core.Services
             if (activeMissions.Count > 0 && !vessel.AllowConcurrentMissions)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.VesselConcurrencyLimit;
-                blocker.BlockingMissionIds = activeMissions.Select(m => m.Id).ToList();
+                blocker.SetBlockingMissions(activeMissions.Select(m => m.Id));
                 blocker.Summary = "Vessel " + vessel.Name + " runs one mission at a time and is busy with '" + activeMissions[0].Title + "'. Turn on Allow Concurrent Missions on the vessel to run more at once.";
                 return blocker;
             }
@@ -380,8 +380,8 @@ namespace Armada.Core.Services
 
             blocker.Reason = MissionAssignmentBlockerReasonEnum.NoIdleCaptain;
             await DescribeCaptainsAsync(blocker, allCaptains, mission, token).ConfigureAwait(false);
-            List<DateTime> quarantineEnds = blocker.Captains
-                .Where(c => c.QuarantineUntilUtc.HasValue)
+            List<DateTime> quarantineEnds = allCaptains
+                .Where(c => c.State == CaptainStateEnum.Quarantined && c.QuarantineUntilUtc.HasValue)
                 .Select(c => c.QuarantineUntilUtc!.Value)
                 .ToList();
             if (allCaptains.All(c => c.State == CaptainStateEnum.Quarantined) && quarantineEnds.Count > 0)
@@ -389,7 +389,7 @@ namespace Armada.Core.Services
                 blocker.UntilUtc = quarantineEnds.Min();
             }
 
-            if (blocker.Captains.Count == 1)
+            if (blocker.CaptainCount == 1 && blocker.Captains.Count == 1)
             {
                 blocker.Summary = "Waiting for a captain: " + (blocker.Captains[0].CaptainName ?? blocker.Captains[0].CaptainId) + " is " + blocker.Captains[0].Detail + ".";
             }

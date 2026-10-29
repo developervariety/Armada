@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   getVoyage,
+  getMission,
   purgeVoyage,
   cancelVoyage,
   listMissions,
@@ -13,7 +14,7 @@ import {
   listCaptains,
 } from '../api/client';
 import { listAll } from '../api/paging';
-import type { Voyage, Mission, Vessel, Captain, MissionPlaybookSnapshot, SelectedPlaybook, CaptainAssignmentOverride } from '../types/models';
+import type { Voyage, VoyageProgress, Mission, Vessel, Captain, MissionPlaybookSnapshot, SelectedPlaybook, CaptainAssignmentOverride } from '../types/models';
 import CaptainRef from '../components/shared/CaptainRef';
 import StatusBadge from '../components/shared/StatusBadge';
 import EvaluationBadge from '../components/shared/EvaluationBadge';
@@ -28,7 +29,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useLiveRefresh } from '../lib/useLiveRefresh';
 import { findLandingMode, getVoyageLandingModes } from '../lib/vesselForm';
-import { formatDeliveryMode, isVoyageActive, parseCaptainOverrides, retryMissionPayload, splitVoyageResponse, voyageProgress } from '../lib/voyageDetail';
+import { formatDeliveryMode, isVoyageActive, parseCaptainOverrides, retryMissionPayload, splitVoyageResponse, voyageProgressFromDetail, VOYAGE_MISSION_PAGE_SIZE } from '../lib/voyageDetail';
 
 // ── Main component ──
 
@@ -39,7 +40,11 @@ export default function VoyageDetail() {
   const nav = useNavigate();
 
   const [voyage, setVoyage] = useState<Voyage | null>(null);
+  const [detail, setDetail] = useState<VoyageProgress | null>(null);
+  // One server page of the voyage's missions (oldest first); the voyage detail carries the counts.
   const [missions, setMissions] = useState<Mission[]>([]);
+  const [missionPage, setMissionPage] = useState({ pageNumber: 1, pageSize: VOYAGE_MISSION_PAGE_SIZE, totalPages: 0, totalRecords: 0 });
+  const [voyageSnapshots, setVoyageSnapshots] = useState<MissionPlaybookSnapshot[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,20 +78,21 @@ export default function VoyageDetail() {
     // Show the loading state only on a voyage's first load; live refreshes update the page in place.
     if (loadedVoyageIdRef.current !== id) setLoading(true);
     try {
-      // The API may return { voyage, missions } or just the voyage object
+      // The voyage detail carries counts only; the missions table reads one server page at a time.
       const parts = splitVoyageResponse(await getVoyage(id));
-      if (parts.missions) {
-        setVoyage(parts.voyage);
-        setMissions(parts.missions);
-      } else {
-        setVoyage(parts.voyage);
-        // Load missions separately
-        try {
-          const mResult = await listAll(listMissions, { filters: { voyageId: id } });
-          setMissions(mResult.objects || []);
-        } catch {
-          setMissions([]);
+      setVoyage(parts.voyage);
+      setDetail(parts.detail);
+      try {
+        const page = await listMissions({ pageNumber: missionPage.pageNumber, pageSize: missionPage.pageSize, filters: { voyageId: id, order: 'CreatedAscending' } });
+        setMissions(page.objects || []);
+        setMissionPage(p => ({ ...p, totalPages: page.totalPages, totalRecords: page.totalRecords }));
+        // List reads carry no playbook snapshots; any mission's detail does (each gets the voyage's selections).
+        const firstMission = (page.objects || [])[0];
+        if (missionPage.pageNumber === 1) {
+          setVoyageSnapshots(firstMission ? ((await getMission(firstMission.id).catch(() => null))?.playbookSnapshots || []) : []);
         }
+      } catch {
+        setMissions([]);
       }
       loadedVoyageIdRef.current = id;
     } catch (e: unknown) {
@@ -94,7 +100,7 @@ export default function VoyageDetail() {
     } finally {
       setLoading(false);
     }
-  }, [id, t]);
+  }, [id, t, missionPage.pageNumber, missionPage.pageSize]);
 
   // Follow the voyage and its missions as they run and land.
   useLiveRefresh(['mission.', 'voyage.'], loadVoyage);
@@ -106,11 +112,11 @@ export default function VoyageDetail() {
   }, [loadVoyage]);
 
   // Progress
-  const progress = voyageProgress(missions);
+  const progress = voyageProgressFromDetail(detail);
   const completedCount = progress.completed;
   const failedCount = progress.failed;
   const progressPct = progress.percent;
-  const voyageSnapshots: MissionPlaybookSnapshot[] = missions[0]?.playbookSnapshots || [];
+  const totalMissions = progress.total;
   const voyageSelections: SelectedPlaybook[] = voyage?.selectedPlaybooks || [];
 
   // Actions
@@ -156,16 +162,17 @@ export default function VoyageDetail() {
 
   function handleRetryFailed() {
     if (!voyage) return;
-    const failed = missions.filter(m => m.status === 'Failed');
-    if (failed.length === 0) return;
+    if (failedCount === 0) return;
     setConfirm({
       open: true,
       title: t('Retry Failed Missions'),
-      message: t('Retry {{count}} failed mission(s)? New missions will be created with the same parameters.', { count: failed.length }),
+      message: t('Retry {{count}} failed mission(s)? New missions will be created with the same parameters.', { count: failedCount }),
       danger: false,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
+          // Every failed mission, read explicitly in bounded pages (not only the page the table shows).
+          const failed = (await listAll(listMissions, { filters: { voyageId: voyage.id, status: 'Failed' } })).objects || [];
           for (const m of failed) {
             await createMission(retryMissionPayload(m));
           }
@@ -180,7 +187,7 @@ export default function VoyageDetail() {
 
   function handleViewJson() {
     if (!voyage) return;
-    setJsonData({ open: true, title: t('Voyage: {{title}}', { title: voyage.title || voyage.id }), data: voyage });
+    setJsonData({ open: true, title: t('Voyage: {{title}}', { title: voyage.title || voyage.id }), data: detail ?? voyage });
   }
 
   async function handleMissionDiff(missionId: string, title: string) {
@@ -239,15 +246,15 @@ export default function VoyageDetail() {
 
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-        <button className="btn-sm" onClick={() => nav('/checks', { state: { prefill: { vesselId: missions[0]?.vesselId || '', voyageId: voyage.id, branchName: missions[0]?.branchName || null, label: voyage.title } } })} title={t('Open Checks with this voyage and its first mission\'s vessel and branch filled in, to run a build, test or other check.')}>{t('Run Check')}</button>
+        <button className="btn-sm" onClick={() => nav('/checks', { state: { prefill: { vesselId: detail?.vesselId || missions[0]?.vesselId || '', voyageId: voyage.id, branchName: missions[0]?.branchName || null, label: voyage.title } } })} title={t('Open Checks with this voyage and its first mission\'s vessel and branch filled in, to run a build, test or other check.')}>{t('Run Check')}</button>
         <button
           className="btn-sm"
           onClick={() => nav('/releases/new', {
             state: {
               prefill: {
-                vesselId: missions[0]?.vesselId || null,
+                vesselId: detail?.vesselId || missions[0]?.vesselId || null,
+                // The release links the voyage; its missions follow from it.
                 voyageIds: [voyage.id],
-                missionIds: missions.map((mission) => mission.id),
                 title: voyage.title ? `${voyage.title} Release` : 'Voyage Release',
               },
             },
@@ -335,13 +342,13 @@ export default function VoyageDetail() {
       </div>
 
       {/* Progress bar */}
-      {missions.length > 0 && (
+      {totalMissions > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ height: 10, background: '#e0e0e8', borderRadius: 5, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--primary)', transition: 'width 0.3s' }} />
           </div>
           <span className="text-muted" style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }} title={t('The bar fills as missions finish successfully. Failed missions count toward the total but not toward complete.')}>
-            {t('{{completed}}/{{total}} complete, {{failed}} failed', { completed: completedCount, total: missions.length, failed: failedCount })}
+            {t('{{completed}}/{{total}} complete, {{failed}} failed', { completed: completedCount, total: totalMissions, failed: failedCount })}
           </span>
         </div>
       )}
@@ -388,13 +395,20 @@ export default function VoyageDetail() {
 
       {/* Missions table */}
       <h3 style={{ marginBottom: 12 }}>{t('Missions')}</h3>
-      {missions.length > 0 ? (
+      {missions.length > 0 || missionPage.totalRecords > 0 ? (
         <DataTable
           tableKey="voyage-detail-missions"
           className="table"
           rows={missions}
           rowKey={(m) => m.id}
-          recordCount={null}
+          pagination={{
+            pageNumber: missionPage.pageNumber,
+            pageSize: missionPage.pageSize,
+            totalPages: missionPage.totalPages,
+            totalRecords: missionPage.totalRecords,
+            onPageChange: (p) => setMissionPage(s => ({ ...s, pageNumber: p })),
+            onPageSizeChange: (size) => setMissionPage(s => ({ ...s, pageSize: size, pageNumber: 1 })),
+          }}
           onRowClick={(m) => nav(`/missions/${m.id}`)}
           columns={[
             {

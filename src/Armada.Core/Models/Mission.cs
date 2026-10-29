@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// An atomic unit of work assigned to a captain.
@@ -274,13 +275,16 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Selected playbooks supplied when creating or updating the mission.
-        /// This is request metadata and is not stored directly on the mission row.
+        /// This is request metadata and is not stored directly on the mission row. At most
+        /// <see cref="CollectionLimits.MaxConfigItems"/>; dispatch rejects more.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
 
         /// <summary>
-        /// Immutable snapshots of playbooks used for this mission.
+        /// Immutable snapshots of playbooks used for this mission: one per selected playbook.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems, Reason = "One snapshot per selected playbook; selections are limited to MaxConfigItems on every dispatch path")]
         public List<MissionPlaybookSnapshot> PlaybookSnapshots { get; set; } = new List<MissionPlaybookSnapshot>();
 
         /// <summary>

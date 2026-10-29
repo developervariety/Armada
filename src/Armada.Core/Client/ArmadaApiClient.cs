@@ -661,11 +661,30 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
-        /// Get a voyage by ID.
+        /// Get a voyage by ID (the voyage part of GET /api/v1/voyages/{id}).
         /// </summary>
         public async Task<Voyage?> GetVoyageAsync(string id, CancellationToken token = default)
         {
-            return await GetAsync<Voyage>("/api/v1/voyages/" + id, token).ConfigureAwait(false);
+            VoyageProgress? progress = await GetVoyageProgressAsync(id, token).ConfigureAwait(false);
+            return progress?.Voyage;
+        }
+
+        /// <summary>
+        /// Get a voyage with counts of its missions (GET /api/v1/voyages/{id}). The missions are read one page at a time
+        /// with <see cref="EnumerateMissionsAsync"/> and a VoyageId filter.
+        /// </summary>
+        public async Task<VoyageProgress?> GetVoyageProgressAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<VoyageProgress>("/api/v1/voyages/" + id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Enumerate voyage progress one page at a time (POST /api/v1/voyages/progress/enumerate). With no status filter,
+        /// the active voyages (InProgress, then Open).
+        /// </summary>
+        public async Task<EnumerationResult<VoyageProgress>?> EnumerateVoyageProgressAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<VoyageProgress>, EnumerationQuery>("/api/v1/voyages/progress/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
         }
 
         /// <summary>

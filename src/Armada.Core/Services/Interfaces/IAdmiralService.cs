@@ -247,10 +247,12 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="pipelineId">Optional explicit pipeline id.</param>
         /// <param name="pipelineName">Optional pipeline name to resolve (used when no id is supplied).</param>
         /// <param name="vesselId">Target vessel id.</param>
-        /// <param name="missionCount">Number of missions in the request.</param>
+        /// <param name="missionCount">Number of missions in the request. At most CollectionLimits.MaxRequestItems.</param>
         /// <param name="allowBareVoyage">Whether a missing vessel / zero missions should be treated as a bare voyage rather than an error.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The typed validation result.</returns>
+        /// <exception cref="Armada.Core.Services.CollectionLimitExceededException">Thrown when the request carries more than
+        /// CollectionLimits.MaxRequestItems missions.</exception>
         Task<DispatchValidationResult> ValidateDispatchAsync(
             string? objectiveId,
             string? pipelineId,

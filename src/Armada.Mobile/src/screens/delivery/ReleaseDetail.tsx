@@ -207,7 +207,7 @@ export function ReleaseDetailView({ id, embedded, onDeleted, onChanged }: Releas
           <ResourceRow
             key={`${pr.repository}-${pr.number}`}
             title={pr.title}
-            subtitle={`${pr.repository} #${pr.number} \u2022 ${t('Checks')}: ${pr.checks.length} \u2022 ${t('Reviews')}: ${pr.reviews.length} \u2022 ${t('Reviewers')}: ${pr.requestedReviewers.length > 0 ? pr.requestedReviewers.join(', ') : '-'}`}
+            subtitle={`${pr.repository} #${pr.number} \u2022 ${t('Checks')}: ${pr.checkCount} \u2022 ${t('Reviews')}: ${pr.reviewCount} \u2022 ${t('Reviewers')}: ${pr.requestedReviewers.length > 0 ? pr.requestedReviewers.join(', ') : '-'}`}
             badge={statusBadge(t, pr.state)}
             meta={`${t(pr.reviewStatus)}${pr.updatedUtc ? ` \u2022 ${formatRelativeTime(pr.updatedUtc)}` : ''}`}
             onPress={() => { confirmOpenExternalUrl(pr.url, t); }}

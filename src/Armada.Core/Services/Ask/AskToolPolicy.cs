@@ -34,6 +34,7 @@ namespace Armada.Core.Services.Ask
             "status",
             "enumerate",
             "voyage_status",
+            "list_voyage_progress",
             "mission_status",
             "fleet_action_run_status",
             "vessel_health",

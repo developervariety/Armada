@@ -6,7 +6,6 @@ import {
   deleteMission,
   denyMissionReview,
   getMission,
-  getMissionGitHubPullRequest,
   getMissionLandingPreview,
   listCheckRuns,
   listDeployments,
@@ -23,6 +22,7 @@ import {
   missionLandingState,
   type ReviewVerdict,
 } from '@dashboard/lib/missionActions';
+import { loadPullRequestEvidence } from '@dashboard/lib/pullRequestEvidence';
 import type { Mission } from '@dashboard/types/models';
 import { CliPermissionCountdown } from '../../components/cliPermissions/CliPermissionCountdown';
 import { EntityStatusBadge } from '../../components/app/EntityStatusBadge';
@@ -115,7 +115,7 @@ export function MissionDetail({ id, embedded, initialTab = 'overview', onDeleted
   }, [id]);
   const prUrl = mission?.prUrl ?? null;
   const prQuery = useQuery(
-    () => (prUrl ? getMissionGitHubPullRequest(id).catch(() => null) : Promise.resolve(null)),
+    () => (prUrl ? loadPullRequestEvidence(id).catch(() => null) : Promise.resolve(null)),
     [id, prUrl ?? ''],
   );
 
@@ -313,7 +313,7 @@ export function MissionDetail({ id, embedded, initialTab = 'overview', onDeleted
       <LandingPreviewCard preview={previewQuery.data ?? null} loading={previewQuery.loading} landing={state} branchName={mission.branchName} />
 
       {mission.prUrl ? (
-        <PullRequestCard prUrl={mission.prUrl} detail={prQuery.data ?? null} loading={prQuery.loading || prQuery.refreshing} onRefresh={() => void prQuery.refresh()} />
+        <PullRequestCard prUrl={mission.prUrl} evidence={prQuery.data ?? null} loading={prQuery.loading || prQuery.refreshing} onRefresh={() => void prQuery.refresh()} />
       ) : null}
 
       <Section title={t('Details')}>

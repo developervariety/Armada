@@ -63,6 +63,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
   - **Voyages**
     - [dispatch](#dispatch)
     - [voyage_status](#voyage_status)
+    - [list_voyage_progress](#list_voyage_progress)
     - [cancel_voyage](#cancel_voyage)
     - [purge_voyage](#purge_voyage)
     - [delete_voyages](#delete_voyages)
@@ -503,8 +504,9 @@ The stdio transport has no network attack surface -- the only caller is the pare
 
 ### status
 
-Get aggregate status of active work in Armada: captain counts by state, mission counts by status, active voyages with
-progress, and recent signals. A global administrator sees every tenant; any other caller sees only its own tenant (the
+Get aggregate status of active work in Armada: captain counts by state, mission counts by status, active voyage counts
+(`ActiveVoyages`, `InProgressVoyages`, `OpenVoyages`), and the 10 most recent signals. It embeds no voyage list; page the
+active voyages with progress through [list_voyage_progress](#list_voyage_progress). A global administrator sees every tenant; any other caller sees only its own tenant (the
 same scoping as `GET /api/v1/status`).
 
 **Input Schema:**
@@ -527,6 +529,8 @@ No parameters required.
   "WorkingCaptains": 2,
   "StalledCaptains": 1,
   "ActiveVoyages": 2,
+  "InProgressVoyages": 1,
+  "OpenVoyages": 1,
   "MemoryPressureDeferrals": 0,
   "MissionsByStatus": {
     "Pending": 3,
@@ -534,16 +538,6 @@ No parameters required.
     "Complete": 10,
     "Failed": 1
   },
-  "Voyages": [
-    {
-      "Voyage": { "Id": "vyg_...", "Title": "Feature batch 1", "...": "..." },
-      "TotalMissions": 5,
-      "CompletedMissions": 3,
-      "FailedMissions": 0,
-      "InProgressMissions": 2,
-      "VesselIds": ["vsl_..."]
-    }
-  ],
   "RecentSignals": [],
   "TimestampUtc": "2026-03-07T12:34:56.789Z",
   "RemoteTunnel": {
@@ -1709,7 +1703,8 @@ Optional `approvalOptions` has `approveAll` (default false), `timeoutSeconds` (1
 
 ### voyage_status
 
-Get status of a specific voyage. Returns summary with mission counts by default; opt-in to full mission details.
+Get status of a specific voyage: the voyage with its mission counts. Missions are never embedded; read them one page at a
+time with [enumerate](#enumerate) (`entityType` `missions`, `voyageId`).
 
 **Input Schema:**
 
@@ -1719,27 +1714,11 @@ Get status of a specific voyage. Returns summary with mission counts by default;
   "properties": {
     "voyageId": {
       "type": "string",
-      "description": "Voyage ID"
+      "description": "Voyage ID (vyg_ prefix)"
     },
     "summary": {
       "type": "boolean",
-      "description": "Return summary with mission counts only (default true)"
-    },
-    "includeMissions": {
-      "type": "boolean",
-      "description": "Include full mission objects in response (default false)"
-    },
-    "includeDescription": {
-      "type": "boolean",
-      "description": "Include full Description on voyage and missions (default false)"
-    },
-    "includeDiffs": {
-      "type": "boolean",
-      "description": "Include DiffSnapshot on missions (default false)"
-    },
-    "includeLogs": {
-      "type": "boolean",
-      "description": "Include session logs on missions (default false)"
+      "description": "Return a trimmed voyage with the counts (default true). Set false for the full voyage object with the counts."
     }
   },
   "required": ["voyageId"]
@@ -1749,14 +1728,12 @@ Get status of a specific voyage. Returns summary with mission counts by default;
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `voyageId` | string | Yes | -- | Voyage ID (prefix `vyg_`) |
-| `summary` | boolean | No | `true` | Return the summary shape with mission counts by status. Set `false` for the full voyage |
-| `includeMissions` | boolean | No | `false` | Include full mission objects. Only used when `summary` is `false` |
-| `includeDescription` | boolean | No | `false` | Include `Description` on the embedded missions |
-| `includeDiffs` | boolean | No | `false` | Include `DiffSnapshot` on the embedded missions |
-| `includeLogs` | boolean | No | `false` | Reserved; currently has no effect (logs live in files, use `get_mission_log`) |
+| `summary` | boolean | No | `true` | Trimmed voyage (`Id`, `Title`, `Description`, `Status`, `CreatedUtc`, `LastUpdateUtc`, `ApprovalOptions`, `IsEvaluation`) with the counts; `false` returns the full voyage with the counts |
 
-**Response (default summary mode):** the voyage's `Id`, `Title`, `Description`, `Status`, `CreatedUtc`, and
-`LastUpdateUtc`, the mission total, and counts by mission status.
+`includeMissions: true` is rejected with `ErrorCode` `InvalidArgument` naming the replacement; the former
+`includeDescription`, `includeDiffs` and `includeLogs` flags are gone.
+
+**Response:**
 
 ```json
 {
@@ -1777,43 +1754,39 @@ Get status of a specific voyage. Returns summary with mission counts by default;
 }
 ```
 
-**Response (`summary: false`):** `{ "Voyage": <full Voyage>, "TotalMissions": 5 }`.
-
-**Response (`summary: false, includeMissions: true`):**
-
-```json
-{
-  "Voyage": {
-    "Id": "vyg_abc123def456ghi789jk",
-    "Title": "Implement authentication",
-    "Status": "InProgress",
-    "...": "..."
-  },
-  "Missions": [
-    {
-      "Id": "msn_abc123def456ghi789jk",
-      "Title": "Add JWT middleware",
-      "Status": "Complete",
-      "...": "..."
-    },
-    {
-      "Id": "msn_def456ghi789jkl012mn",
-      "Title": "Add login endpoint",
-      "Status": "InProgress",
-      "...": "..."
-    }
-  ]
-}
-```
-
 | Field | Type | Description |
 |---|---|---|
 | `Voyage` | object | [Voyage](#voyage) object (a subset of its fields in summary mode) |
-| `TotalMissions` | int | Total number of missions in this voyage (absent when `Missions` is returned) |
-| `MissionCountsByStatus` | object | Map of status string to count (summary mode only) |
-| `Missions` | array | List of [Mission](#mission) objects (only with `summary: false` and `includeMissions: true`) |
+| `TotalMissions` | int | Total number of missions in this voyage |
+| `MissionCountsByStatus` | object | Map of status string to count (at most one entry per mission status) |
 
 An unknown voyage, or one outside the caller's scope, returns `{ "Error": "Voyage not found", "ErrorCode": "NotFound" }`.
+
+---
+
+### list_voyage_progress
+
+Page through voyages with their mission counts. With no `status` the view is the active voyages (the ones `status`
+counts in `ActiveVoyages`): InProgress first, then Open, newest first within each. A `status` selects one voyage status.
+Same scope as `enumerate` voyages.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
+    "pageSize": { "type": "integer", "description": "Page size (1 to 1000, default 10; out-of-range values are normalized)" },
+    "status": { "type": "string", "description": "Open, InProgress, Complete, Failed, or Cancelled" },
+    "order": { "type": "string", "description": "CreatedDescending (default) or CreatedAscending" }
+  }
+}
+```
+
+**Response:** `{ "PageNumber", "PageSize", "TotalPages", "TotalRecords", "Objects": [VoyageProgress] }`, each object the
+voyage with `TotalMissions`, `CompletedMissions`, `FailedMissions`, `InProgressMissions`, `MissionCountsByStatus`,
+`VesselId` and `VesselCount` (as `GET /api/v1/voyages/{id}`). An unknown `status` or `order` returns `InvalidArgument`.
 
 ---
 
@@ -2256,6 +2229,8 @@ Delete multiple events by ID. Returns a summary of deleted and skipped entries.
 |---|---|---|---|
 | `ids` | string[] | Yes | List of event IDs to delete (prefix `evt_`) |
 
+At most 1000 ids; more returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing, so `Skipped` holds at most 1000 entries.
+
 **Response:**
 
 ```json
@@ -2325,6 +2300,8 @@ Soft-delete multiple signals by marking them as read. Returns a summary of delet
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `ids` | string[] | Yes | List of signal IDs to soft-delete (prefix `sig_`) |
+
+At most 1000 ids; more returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing, so `Skipped` holds at most 1000 entries.
 
 **Response:**
 
@@ -2515,7 +2492,7 @@ Retry landing for a mission in `LandingFailed` status. Rebases the mission branc
 
 ### cancel_voyage
 
-Cancel an entire voyage and its `Pending`, `Assigned`, and `Blocked` missions, each the same way `cancel_mission` does (a running agent is stopped first). In-progress missions and missions that are already `Complete` or `Cancelled` are not affected. A mission whose agent did not confirm it stopped is left unchanged and listed in the response's `NotCancelled`.
+Cancel an entire voyage and its `Pending`, `Assigned`, and `Blocked` missions, each the same way `cancel_mission` does (a running agent is stopped first). In-progress missions and missions that are already `Complete` or `Cancelled` are not affected. A mission whose agent did not confirm it stopped is left unchanged and counted in `NotCancelledMissions`; read which missions remain with `enumerate` (missions, `voyageId`, `status`).
 
 **Input Schema:**
 
@@ -2548,14 +2525,18 @@ Returns `{ "Error": "Voyage not found", "ErrorCode": "NotFound" }` if the ID doe
     "Status": "Cancelled",
     "...": "..."
   },
-  "CancelledMissions": 3
+  "CancelledMissions": 3,
+  "NotCancelledMissions": 0,
+  "FirstNotCancelledReason": null
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `voyage` | object | The updated [Voyage](#voyage) object with status `Cancelled` |
-| `cancelledMissions` | int | Number of missions that were cancelled |
+| `Voyage` | object | The updated [Voyage](#voyage) object with status `Cancelled` |
+| `CancelledMissions` | int | Number of missions that were cancelled |
+| `NotCancelledMissions` | int | Number of Pending, Assigned, or Blocked missions that could not be cancelled |
+| `FirstNotCancelledReason` | string | The first such mission and why, or null |
 
 ---
 
@@ -2602,6 +2583,8 @@ Permanently delete multiple voyages and their associated missions from the datab
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `ids` | string[] | Yes | List of voyage IDs to delete (prefix `vyg_`) |
+
+At most 1000 ids; more returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing, so `Skipped` holds at most 1000 entries.
 
 **Response:**
 
@@ -3117,6 +3100,8 @@ Permanently delete multiple missions from the database by ID. Returns a summary 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `ids` | string[] | Yes | List of mission IDs to delete (prefix `msn_`) |
+
+At most 1000 ids; more returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing, so `Skipped` holds at most 1000 entries.
 
 **Response:**
 
@@ -5719,10 +5704,11 @@ Personas can carry a default captain, and a dispatch can dictate which captain r
 | `IdleCaptains` | int | Captains in Idle state |
 | `WorkingCaptains` | int | Captains in Working state |
 | `StalledCaptains` | int | Captains in Stalled state |
-| `ActiveVoyages` | int | Number of active (non-complete) voyages |
+| `ActiveVoyages` | int | Number of active (Open or InProgress) voyages; page them with `list_voyage_progress` |
+| `InProgressVoyages` | int | InProgress voyages |
+| `OpenVoyages` | int | Open voyages |
 | `MissionsByStatus` | object | Map of status string to count (e.g., `{"Pending": 3}`) |
-| `Voyages` | array | List of [VoyageProgress](#voyageprogress) objects |
-| `RecentSignals` | array | List of recent [Signal](#signal) objects |
+| `RecentSignals` | array | The 10 most recent [Signal](#signal) objects |
 | `RemoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `TimestampUtc` | string | ISO 8601 UTC timestamp |
 | `MemoryPressureDeferrals` | long | Cumulative number of dispatch attempts deferred because the host was under memory pressure (the resource-pressure admission gate declined to launch a captain). |
@@ -5754,7 +5740,9 @@ Personas can carry a default captain, and a dispatch can dictate which captain r
 | `CompletedMissions` | int | Missions with status Complete |
 | `FailedMissions` | int | Missions with status Failed |
 | `InProgressMissions` | int | Missions currently in progress |
-| `VesselIds` | array | Distinct vessel identifiers referenced by this voyage's missions. |
+| `MissionCountsByStatus` | object | Count per mission status (only statuses with missions) |
+| `VesselId` | string | Vessel of the earliest mission, or null |
+| `VesselCount` | int | Distinct vessels the missions target |
 
 #### EnumerationResult
 
