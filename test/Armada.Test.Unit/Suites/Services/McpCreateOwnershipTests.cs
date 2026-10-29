@@ -102,7 +102,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     AuthContext caller = await SeedCallerAsync(testDb).ConfigureAwait(false);
-                    Captain recipient = await testDb.Driver.Captains.CreateAsync(new Captain("signal-recipient")).ConfigureAwait(false);
+                    Captain recipient = await testDb.Driver.Captains.CreateAsync(new Captain("signal-recipient") { TenantId = caller.TenantId }).ConfigureAwait(false);
                     Func<JsonElement?, Task<object>> send = Capture(r => McpSignalTools.Register(r, testDb.Driver), "armada_send_signal");
 
                     Signal created = (Signal)await CallAsAsync(send, caller, new { captainId = recipient.Id, message = "hello" }).ConfigureAwait(false);
