@@ -2970,6 +2970,7 @@ namespace Armada.Server
             if (review.Length == 0 && !String.IsNullOrWhiteSpace(failedMission.ReviewComment))
                 review = RuntimeLogFormatter.RedactSecrets(failedMission.ReviewComment).Trim();
             string blocking = review.Length == 0 ? String.Empty : BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars);
+            if (blocking.Length > 0) blocking = NumberFindingsForBrief(blocking, out _);
             if (blocking.Length == 0)
             {
                 return "Confirm the revised branch resolves the failed " + persona + "'s review before it lands."
@@ -4173,6 +4174,7 @@ namespace Armada.Server
                 : TruncateForBrief(failedMission.FailureReason, _MaxRescueDiagnosticsChars)));
             if (!String.IsNullOrWhiteSpace(failedMission.BranchName))
                 sb.AppendLine("Original branch: " + failedMission.BranchName);
+            int numberedFindings = 0;
             if (!String.IsNullOrWhiteSpace(review))
             {
                 // A settled challenge replaces the extracted list: only the findings it upheld are to be
@@ -4196,6 +4198,7 @@ namespace Armada.Server
                 }
                 if (blocking.Length > 0)
                 {
+                    blocking = NumberFindingsForBrief(blocking, out numberedFindings);
                     sb.AppendLine();
                     sb.AppendLine(findingsComplete
                         ? "Blocking findings to fix (complete list from the full review):"
@@ -4259,6 +4262,14 @@ namespace Armada.Server
             {
                 sb.AppendLine();
                 sb.AppendLine(TruncateForBrief(essentials.Trim(), StageReportEssentials.DefaultMaxChars));
+            }
+
+            // The demands and the output contract come last, after the long description, so a long brief does not
+            // bury them.
+            if (!String.IsNullOrWhiteSpace(review))
+            {
+                sb.AppendLine();
+                sb.AppendLine(ReworkPromptBuilder.BuildDemands(numberedFindings));
             }
             return sb.ToString();
         }
@@ -4401,6 +4412,34 @@ namespace Armada.Server
         internal static string BuildBlockingFindingsForBrief(string review, int maxChars)
         {
             return StageReportEssentials.BlockingFindings(review, maxChars).Replace("\n", Environment.NewLine);
+        }
+
+        /// <summary>
+        /// Number the finding lines of a blocking-findings list in order, so a captain and a Challenger refer to
+        /// a finding by the same number. The omission line keeps its bullet.
+        /// </summary>
+        /// <param name="blocking">Lines from <see cref="BuildBlockingFindingsForBrief"/>.</param>
+        /// <param name="count">Number of findings numbered.</param>
+        /// <returns>The list with "N. " in place of each finding's bullet.</returns>
+        internal static string NumberFindingsForBrief(string blocking, out int count)
+        {
+            count = 0;
+            if (String.IsNullOrEmpty(blocking)) return blocking;
+            List<string> lines = new List<string>();
+            foreach (string line in blocking.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (line.StartsWith("- ", StringComparison.Ordinal)
+                    && !line.Contains(StageReportEssentials.IncompleteFindingsMarker, StringComparison.Ordinal))
+                {
+                    count++;
+                    lines.Add(count + ". " + line.Substring(2));
+                }
+                else
+                {
+                    lines.Add(line);
+                }
+            }
+            return String.Join(Environment.NewLine, lines);
         }
 
         // Reduce a prior mission's description to a bounded, low-filter-risk digest.

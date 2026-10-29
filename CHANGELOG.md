@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Rework prompt layout
+
+- A mission sent back for rework, by a review denial or by an autonomous rescue, receives its reviewer findings as a numbered list with one demand per finding. The demands, the fixed rework rules and the output contract (`[ARMADA:RESULT] COMPLETE` with a per-finding summary) come last. A review denial whose comment holds no structured findings carries the comment whole as finding 1. See [Pipelines](docs/PIPELINES.md).
+- A findings list that does not fit its bound drops whole lower-priority findings and states how many it dropped. It no longer cuts a finding short. A Judge review comment longer than the stored limit keeps whole blocking findings instead of a head cut.
+
 ### Mission captain tier
 
 - `armada_create_mission` accepts an optional `tier` (`Economy`, `Standard` or `Premium`). Only captains at or above that tier are assigned. Omitting it keeps the default routing. An unrecognized value is rejected and creates nothing. See [Captain Writes](docs/MCP_API.md#captain-writes).

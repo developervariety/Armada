@@ -438,9 +438,13 @@ source", "is otherwise sound", "unchanged", "tested implicitly") without naming 
 marked blocking or NOT MET. A bold label that names a defect ("**Source fidelity defect (blocking).**")
 marks a finding, and so does a paragraph under a lead-in that names defects ("Confirmed defect:"). In the
 Verdict, lead-in lines and `[ARMADA:` marker lines are not findings, and required changes written inline
-in one paragraph ("(1) replace ...; (2) add ...") become one finding each. When the list does not fit its 4,000-character bound, plain list items
-that name no defect are dropped before any named defect, Verdict change or NOT MET
-criterion is shortened, and the list says it is incomplete.
+in one paragraph ("(1) replace ...; (2) add ...") become one finding each. The brief numbers the findings in review order. When the list does not fit its
+4,000-character bound, the list keeps whole findings and drops whole ones, lowest priority first: plain list
+items that name no defect, then NOT MET criteria, then named defects. A finding is never cut. The list ends with
+a line that says how many findings it dropped and that it is incomplete.
+After the original description, the brief ends with a `Demands:` block: one demand per numbered finding, the fixed rework
+demands (keep the branch, change only what the findings require, rerun the checks, commit on the existing
+branch), and the output contract last.
 The embedded full-review
 cap is 12,000 characters. When the report fits, the brief carries it whole.
 When it does not, the brief keeps the protected sections whole after removing

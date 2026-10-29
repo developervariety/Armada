@@ -470,6 +470,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpObjectiveSchedulerToolsTests());
             runner.AddSuite(new VerifiedProductionSummaryServiceTests());
             runner.AddSuite(new MissionAttemptFactRecorderTests());
+            runner.AddSuite(new ReworkPromptBuilderTests());
             runner.AddSuite(new PreparationClaimObservationRecorderTests());
             runner.AddSuite(new LaneStateRecorderTests());
             runner.AddSuite(new McpProductionToolsTests());
