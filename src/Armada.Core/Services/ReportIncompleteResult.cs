@@ -66,10 +66,17 @@ namespace Armada.Core.Services
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
+        private const string _WithheldContent = @"(?:(?:copied|vendor|restricted)[\s-]+)+(?:body[\s-]+)?(?:bod(?:y|ies)|values?|cop(?:y|ies)|text)";
+
         private static readonly Regex _ProcessAssertion = new Regex(
-            @"\A(?:only\s+this\s+[A-Za-z]+\s+(?:artifact|report)\s+exists"
-            + @"|(?:the\s+)?(?:[A-Za-z]+\s+){0,2}(?:checkouts?|worktrees?)\s+shows?\s+no\s+(?:tracked\s+)?changes?"
-            + @"|this\s+report\s+contains\s+no\s+(?:(?:copied|vendor|restricted|body)[\s-]+)*(?:bod(?:y|ies)|values?|cop(?:y|ies)|text)(?:\s+or\s+(?:(?:copied|vendor|restricted|body)[\s-]+)*(?:bod(?:y|ies)|values?|cop(?:y|ies)|text))*)\z",
+            @"\A(?:only\s+this\s+(?:Worker|Research|Audit)\s+(?:artifact|report)\s+exists"
+            + @"|(?:the\s+)?(?:(?:all|both|two|three|four|five|six|\d+)\s+)?(?:checkouts?|worktrees?)\s+shows?\s+no\s+(?:tracked\s+)?changes?"
+            + @"|this\s+report\s+contains\s+no\s+" + _WithheldContent + @"(?:\s+or\s+" + _WithheldContent + @")*)\z",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _ClosingMarkerLine = new Regex(
+            @"\A[>*_`\-\s]*\[ARMADA:(?:RESULT|VERDICT)\]",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
@@ -266,9 +273,26 @@ namespace Armada.Core.Services
                 reason = StreamCaptureLimitReason;
                 return true;
             }
-            if (ProgressParser.TryFindFinalOutcome(agentOutput, out _, out _)) return false;
+            if (HasClosingMarker(agentOutput)) return false;
             reason = ClosingMarkerMissingReason;
             return true;
+        }
+
+        // A closing marker may carry Markdown decoration; a marker quoted inside a code fence is an example, not the close.
+        private static bool HasClosingMarker(string output)
+        {
+            bool fenced = false;
+            foreach (string raw in output.Split('\n'))
+            {
+                string line = raw.Trim();
+                if (line.StartsWith("```", StringComparison.Ordinal) || line.StartsWith("~~~", StringComparison.Ordinal))
+                {
+                    fenced = !fenced;
+                    continue;
+                }
+                if (!fenced && _ClosingMarkerLine.IsMatch(line)) return true;
+            }
+            return false;
         }
 
         /// <summary>
