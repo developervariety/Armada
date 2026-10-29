@@ -250,7 +250,8 @@ taken before the host slot and released after it, and a command holds at most
 one, so the order never deadlocks. A captain that runs a full suite takes the
 same slots through `armada_suite_lease` (`docs/MCP_API.md`). A wait for that
 lease records `captain.suite_lease_wait` and is not a stall. The lease is
-released when the captain releases it or the mission ends. A gate's one re-run after
+released when the captain releases it, when the captain process exits, or when
+the mission ends, before the mission's own gate queues for the slot. A gate's one re-run after
 a host-load time limit holds the whole host: it is granted when no slot is
 held, no other request is granted while it runs, and the requests behind it
 keep their order. Its holder entry reads `definition-of-done gate re-run, alone

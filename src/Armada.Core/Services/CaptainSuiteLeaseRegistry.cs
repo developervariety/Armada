@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Concurrent;
+    using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
@@ -31,6 +32,9 @@ namespace Armada.Core.Services
 
         private static readonly ConcurrentDictionary<string, Lazy<Task<IDisposable>>> _InFlight =
             new ConcurrentDictionary<string, Lazy<Task<IDisposable>>>(StringComparer.Ordinal);
+
+        private static readonly ConcurrentDictionary<string, CancellationTokenSource> _WaitCancels =
+            new ConcurrentDictionary<string, CancellationTokenSource>(StringComparer.Ordinal);
 
         #endregion
 
@@ -91,19 +95,24 @@ namespace Armada.Core.Services
         private static async Task<IDisposable> AcquireCoreAsync(string missionId, string? vesselKey, CancellationToken token)
         {
             _Waiting[missionId] = 0;
-            try
+            using (CancellationTokenSource wait = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
-                IDisposable lease = await HostWideCommandLock.AcquireAsync(
-                    missionId,
-                    "captain suite lease for mission " + missionId,
-                    vesselKey,
-                    token).ConfigureAwait(false);
-                _Held[missionId] = lease;
-                return lease;
-            }
-            finally
-            {
-                _Waiting.TryRemove(missionId, out byte _);
+                _WaitCancels[missionId] = wait;
+                try
+                {
+                    IDisposable lease = await HostWideCommandLock.AcquireAsync(
+                        missionId,
+                        "captain suite lease for mission " + missionId,
+                        vesselKey,
+                        wait.Token).ConfigureAwait(false);
+                    _Held[missionId] = lease;
+                    return lease;
+                }
+                finally
+                {
+                    _WaitCancels.TryRemove(new KeyValuePair<string, CancellationTokenSource>(missionId, wait));
+                    _Waiting.TryRemove(missionId, out byte _);
+                }
             }
         }
 
@@ -121,12 +130,19 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Release a lease the mission still holds when the mission ends. Waiting acquires are not cancelled
-        /// here; the tool call's cancellation token ends those.
+        /// End the mission's lease when its captain process exits or the mission ends: a waiting acquire is
+        /// cancelled and a held lease is released. A process that has exited can no longer run or release a
+        /// suite, so a lease it kept would hold the vessel slot its own definition-of-done gate needs.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>
         public static void ReleaseForMission(string? missionId)
         {
+            if (String.IsNullOrWhiteSpace(missionId)) return;
+            if (_WaitCancels.TryGetValue(missionId.Trim(), out CancellationTokenSource? wait))
+            {
+                try { wait.Cancel(); }
+                catch (ObjectDisposedException) { }
+            }
             Release(missionId);
         }
 

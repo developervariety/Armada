@@ -1,17 +1,23 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.IO;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Enums;
+    using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using SyslogLogging;
+    using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
 
     /// <summary>
     /// Captain suite lease: per-vessel and host-wide limits, wait position, named wait event, auto-release,
@@ -209,6 +215,119 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("A captain process exit releases its suite lease and frees the vessel slot for the gate", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver database = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    AdmiralService admiral = CreateAdmiralService(database, settings);
+                    Vessel vessel = await database.Vessels.CreateAsync(new Vessel("lease-exit-vessel", "https://example.invalid/lease-exit.git")).ConfigureAwait(false);
+                    Mission mission = await database.Missions.CreateAsync(new Mission("lease exit")
+                    {
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        ProcessId = 8201,
+                        StartedUtc = DateTime.UtcNow.AddMinutes(-2)
+                    }).ConfigureAwait(false);
+                    Captain captain = await database.Captains.CreateAsync(new Captain("lease-exit-captain")
+                    {
+                        State = CaptainStateEnum.Working,
+                        CurrentMissionId = mission.Id,
+                        ProcessId = 8201
+                    }).ConfigureAwait(false);
+                    mission.CaptainId = captain.Id;
+                    await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                    Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                    int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        HostWideCommandLock.SetSlotCount(2);
+                        HostWideCommandLock.SetVesselSlotCount(1);
+                        await CaptainSuiteLeaseRegistry.AcquireAsync(mission.Id, vessel.Id, CancellationToken.None).ConfigureAwait(false);
+
+                        await admiral.HandleProcessExitAsync(8201, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                        AssertFalse(CaptainSuiteLeaseRegistry.IsActive(mission.Id), "the exited captain holds no suite lease");
+                        Task<IDisposable> gate = HostWideCommandLock.AcquireAsync(mission.Id, "definition-of-done gate probe", vessel.Id, CancellationToken.None);
+                        AssertTrue(await Task.WhenAny(gate, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false) == gate,
+                            "the gate takes the vessel slot the exited captain held");
+                        (await gate.ConfigureAwait(false)).Dispose();
+                    }
+                    finally
+                    {
+                        CaptainSuiteLeaseRegistry.Release(mission.Id);
+                        RestoreLock(previousReader, previousFloor);
+                    }
+                }
+            });
+
+            await RunTest("Ending a mission cancels its waiting suite acquire, so no late grant holds the slot", async () =>
+            {
+                string vessel = "vsl_" + "lease_end_" + Guid.NewGuid().ToString("N");
+                string holder = "msn_" + "lease_end_hold_" + Guid.NewGuid().ToString("N");
+                string ended = "msn_" + "lease_end_wait_" + Guid.NewGuid().ToString("N");
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                try
+                {
+                    HostWideCommandLock.SetMemoryReader(() => null);
+                    HostWideCommandLock.SetMemoryFloorMb(0);
+                    HostWideCommandLock.SetSlotCount(2);
+                    HostWideCommandLock.SetVesselSlotCount(1);
+                    await CaptainSuiteLeaseRegistry.AcquireAsync(holder, vessel, CancellationToken.None).ConfigureAwait(false);
+                    Task<IDisposable> waiting = CaptainSuiteLeaseRegistry.AcquireAsync(ended, vessel, CancellationToken.None);
+                    await Task.Delay(50).ConfigureAwait(false);
+                    AssertTrue(CaptainSuiteLeaseRegistry.IsWaiting(ended), "the second mission waits");
+
+                    CaptainSuiteLeaseRegistry.ReleaseForMission(ended);
+                    bool cancelled = false;
+                    try { await waiting.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { cancelled = true; }
+                    AssertTrue(cancelled, "the waiting acquire ends cancelled");
+
+                    CaptainSuiteLeaseRegistry.Release(holder);
+                    AssertFalse(CaptainSuiteLeaseRegistry.IsActive(ended), "the ended mission is never granted the slot");
+                    Task<IDisposable> next = HostWideCommandLock.AcquireAsync("lease-end-probe", "probe", vessel, CancellationToken.None);
+                    AssertTrue(await Task.WhenAny(next, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false) == next,
+                        "the vessel slot is free once the holder releases");
+                    (await next.ConfigureAwait(false)).Dispose();
+                }
+                finally
+                {
+                    CaptainSuiteLeaseRegistry.Release(holder);
+                    CaptainSuiteLeaseRegistry.Release(ended);
+                    RestoreLock(previousReader, previousFloor);
+                }
+            });
+        }
+
+        private static ArmadaSettings CreateSettings()
+        {
+            string id = Guid.NewGuid().ToString("N");
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_suite_lease_docks_" + id);
+            settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_suite_lease_repos_" + id);
+            settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_suite_lease_logs_" + id);
+            settings.MinIdleCaptains = 0;
+            return settings;
+        }
+
+        private static AdmiralService CreateAdmiralService(SqliteDatabaseDriver database, ArmadaSettings settings)
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            StubGitService git = new StubGitService();
+            IDockService docks = new DockService(logging, database, settings, git);
+            CaptainService captains = new CaptainService(logging, database, settings, git, docks);
+            MissionService missions = new MissionService(logging, database, settings, docks, captains,
+                resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+            return new AdmiralService(logging, database, settings, captains, missions, new VoyageService(logging, database), docks);
         }
 
         private static void RestoreLock(Func<long?> previousReader, int previousFloor)

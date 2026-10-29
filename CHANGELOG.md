@@ -13,7 +13,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Captain suite lease
 
-- Captains acquire `armada_suite_lease` around a full-suite run. The lease takes the same per-vessel and host-wide slots the definition-of-done gate and armed checks use. Defaults: one per vessel (`definitionOfDone.vesselSuiteSlots`), host-wide equal to `hostCommandSlots`. A wait records `captain.suite_lease_wait` and is not a stall. The lease is released when the mission ends.
+- Captains acquire `armada_suite_lease` around a full-suite run. The lease takes the same per-vessel and host-wide slots the definition-of-done gate and armed checks use. Defaults: one per vessel (`definitionOfDone.vesselSuiteSlots`), host-wide equal to `hostCommandSlots`. A wait records `captain.suite_lease_wait` and is not a stall. When the captain process exits or the mission ends, a held lease is released and a waiting acquire is cancelled, so the mission's own definition-of-done gate never waits on it.
 
 ### Routing preview and planning storage
 

@@ -3019,6 +3019,10 @@ namespace Armada.Core.Services
             }
             if (mission == null) return;
 
+            // The captain's work is finished, so a suite lease it still holds is released before the
+            // definition-of-done gate queues for the same vessel slot.
+            CaptainSuiteLeaseRegistry.ReleaseForMission(mission.Id);
+
             // Idempotency guard: if the mission has already been processed (e.g. by a concurrent
             // health check or process exit handler), skip to avoid double-processing.
             if (mission.Status == MissionStatusEnum.WorkProduced ||

@@ -1419,8 +1419,8 @@ definition-of-done gate and armed checks use (`docs/reference/backend-dod.md`).
 A mission credential acts only for its own mission; a caller with no mission
 credential is refused (`mission_required`). `acquire` waits if the slots are
 held and records `captain.suite_lease_wait` with the wait position; that wait
-is not a stall. `release` frees the slots. The lease is also released when the
-mission ends.
+is not a stall. `release` frees the slots. When the captain process exits or the
+mission ends, a held lease is released and a waiting acquire is cancelled.
 
 ### armada_mission_change_summary
 
