@@ -363,7 +363,7 @@ namespace Armada.Core.Services
             string root = RequireRoot(rootPath);
             List<WorkspaceSearchMatch> matches = new List<WorkspaceSearchMatch>();
             bool truncated = false;
-            int limit = maxResults < 1 ? 1 : maxResults;
+            int limit = maxResults < 1 ? 1 : Math.Min(maxResults, CollectionLimits.MaxPageSize);
 
             foreach (string filePath in EnumerateVisibleFiles(root, token))
             {

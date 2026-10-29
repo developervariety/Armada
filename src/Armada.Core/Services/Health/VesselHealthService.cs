@@ -11,6 +11,7 @@ namespace Armada.Core.Services.Health
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
     using SyslogLogging;
 
@@ -110,6 +111,7 @@ namespace Armada.Core.Services.Health
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             Stopwatch watch = Stopwatch.StartNew();
+            CollectionBounds.Validate(request);
             EnumerationResult<VesselHealth> result = await _Database.VesselHealth.EnumerateAsync(tenantId, request ?? new VesselHealthEnumerateRequest(), token).ConfigureAwait(false);
             result.TotalMs = watch.Elapsed.TotalMilliseconds;
             return result;
@@ -329,6 +331,7 @@ namespace Armada.Core.Services.Health
         {
             if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (_Disposed) throw new ObjectDisposedException(nameof(VesselHealthService));
+            CollectionBounds.Validate(request);
             request = request ?? new VesselHealthEvaluateRequest();
             bool force = !scheduled && (request.Force ?? true);
 
