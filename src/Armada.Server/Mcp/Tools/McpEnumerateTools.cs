@@ -123,11 +123,7 @@ namespace Armada.Server.Mcp.Tools
                         case "model-endpoints":
                         case "model_endpoint":
                         case "endpoints":
-                            // The standard page shape (PageNumber, PageSize, TotalPages, TotalRecords, Objects). The endpoint
-                            // service still reads the caller's endpoints before paging; data-source paging for model
-                            // endpoints belongs to the model-endpoint migration.
-                            System.Collections.Generic.List<ModelEndpoint> allEndpoints = await new ModelEndpointService(database, new SyslogLogging.LoggingModule()).EnumerateAsync(callerCtx).ConfigureAwait(false);
-                            return (object)EnumerationResult<ModelEndpoint>.Page(query, allEndpoints);
+                            return (object)await new ModelEndpointService(database, new SyslogLogging.LoggingModule()).EnumeratePageAsync(callerCtx, query).ConfigureAwait(false);
                         case "inbox":
                             if (inbox == null) return (object)McpToolError.Unavailable("The inbox is not available on this server.");
                             return (object)EnumerationResult<InboxItem>.Page(query, await inbox.GetInboxAsync(callerCtx).ConfigureAwait(false));
@@ -139,7 +135,7 @@ namespace Armada.Server.Mcp.Tools
                                 VesselId = String.IsNullOrWhiteSpace(query.VesselId) ? null : query.VesselId,
                                 CaptainId = String.IsNullOrWhiteSpace(query.CaptainId) ? null : query.CaptainId
                             };
-                            return (object)EnumerationResult<CliPermissionRule>.Page(query, await cliPermissions.ListRulesAsync(callerCtx, ruleQuery).ConfigureAwait(false));
+                            return (object)await cliPermissions.EnumerateRulesAsync(callerCtx, ruleQuery, query.PageNumber, query.PageSize).ConfigureAwait(false);
                         case "cli_permission_requests":
                         case "cli-permission-requests":
                             if (cliPermissions == null) return (object)McpToolError.Unavailable("CLI permissions are not available on this server.");
@@ -164,9 +160,7 @@ namespace Armada.Server.Mcp.Tools
                             return (object)await cliPermissions.EnumerateAsync(callerCtx, requestFilter, query.PageNumber, query.PageSize).ConfigureAwait(false);
                         case "harbors":
                         case "harbor":
-                            // Standard page shape; data-source paging for harbors belongs to the harbor migration.
-                            System.Collections.Generic.List<Harbor> allHarbors = await new HarborService(database, new SyslogLogging.LoggingModule()).EnumerateAsync(callerCtx).ConfigureAwait(false);
-                            return (object)EnumerationResult<Harbor>.Page(query, allHarbors);
+                            return (object)await new HarborService(database, new SyslogLogging.LoggingModule()).EnumeratePageAsync(callerCtx, query).ConfigureAwait(false);
                         case "vessel_health":
                         case "vessel-health":
                         case "health":
@@ -478,9 +472,7 @@ namespace Armada.Server.Mcp.Tools
                             return (object)mqResult;
                         case "personas":
                         case "persona":
-                            EnumerationResult<Persona> personas = await database.Personas.EnumerateAsync(query).ConfigureAwait(false);
-                            if (!callerCtx.IsAdmin) personas.Objects = personas.Objects.Where(p => ScopedVisibility.CanView(callerCtx, p.Scope, p.TenantId, p.UserId)).ToList();
-                            return (object)personas;
+                            return (object)await database.Personas.EnumeratePageAsync(query, ScopedEnumerationFilter.ForScopedEntity(callerCtx)).ConfigureAwait(false);
                         case "memories":
                         case "memory":
                             MemoryEnumerateRequest memoryQuery = MemoryEnumerateRequest.FromQuery(query);
@@ -578,7 +570,8 @@ namespace Armada.Server.Mcp.Tools
                                 PageNumber = query.PageNumber,
                                 PageSize = query.PageSize,
                                 TenantId = callerCtx.IsAdmin ? null : (callerCtx.TenantId ?? Constants.DefaultTenantId),
-                                ViewerUserId = ViewerUserIdOf(callerCtx)
+                                RestrictToViewer = !callerCtx.IsAdmin && !callerCtx.IsTenantAdmin,
+                                ViewerUserId = callerCtx.IsAdmin || callerCtx.IsTenantAdmin ? null : callerCtx.UserId
                             }).ConfigureAwait(false);
                             return (object)skills;
                         case "check_runs":

@@ -13,8 +13,9 @@ import {
   updateCaptain,
   deleteCaptain,
   setCaptainCliPermissionPolicy,
-  listModelEndpoints,
+  enumerateModelEndpoints,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { CliPermissionPolicy, ModelEndpoint } from '../types/models';
 import type { Captain, Mission, MissionSummary, LogResult, FormattedLogEntry, CaptainToolAccessResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -131,8 +132,9 @@ export default function CaptainDetail() {
     // withEndpoint keeps an API-endpoint captain's inference endpoint (the form edits it below).
     setForm(captainFormFromCaptain(captain, { withEndpoint: true, withPersonas: true, defaultRuntime: 'ClaudeCode' }) as CaptainDetailFormState);
     setShowForm(true);
-    listModelEndpoints()
-      .then(result => setInferenceEndpoints((result ?? []).filter(e => e.kind === 'Inference')))
+    // A picker needs every endpoint: read the pages explicitly (bounded by listAll's safety stop).
+    listAll(enumerateModelEndpoints)
+      .then(result => setInferenceEndpoints((result?.objects ?? []).filter(e => e.kind === 'Inference')))
       .catch(() => setInferenceEndpoints([]));
   }
 
@@ -258,7 +260,8 @@ export default function CaptainDetail() {
     });
 
     try {
-      const result = await getCaptainTools(captain.id);
+      // Probe once (refresh) for the summary and sources; the viewer then reads each tool section a page at a time.
+      const result = await getCaptainTools(captain.id, { refresh: true, pageSize: 1 });
       setToolViewer({
         open: true,
         loading: false,
@@ -418,6 +421,7 @@ export default function CaptainDetail() {
       <CaptainToolViewer
         open={toolViewer.open}
         captainName={captain.name}
+        captainId={toolViewer.data ? captain.id : undefined}
         loading={toolViewer.loading}
         error={toolViewer.error}
         data={toolViewer.data}

@@ -213,12 +213,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 conditions.Add("user_id = @user_id");
                 parameters.Add(new MySqlParameter("@user_id", query.UserId));
             }
-            if (!String.IsNullOrWhiteSpace(query.ViewerUserId))
+            if (query.RestrictToViewer)
             {
-                // A regular user sees tenant-wide rows plus their own (ScopedVisibility.CanView), counted in the data source.
-                conditions.Add("(scope = @tenant_wide_scope OR user_id = @viewer_user_id)");
-                parameters.Add(new MySqlParameter("@tenant_wide_scope", Armada.Core.Enums.ScopeEnum.TenantWide.ToString()));
-                parameters.Add(new MySqlParameter("@viewer_user_id", query.ViewerUserId));
+                // Tenant-wide skills plus the viewer's own (ScopedVisibility.CanView); a missing scope reads as TenantWide.
+                conditions.Add("(scope IS NULL OR scope <> @scope_user_specific OR " + (query.ViewerUserId == null ? "user_id IS NULL" : "user_id = @viewer_user_id") + ")");
+                parameters.Add(new MySqlParameter("@scope_user_specific", Armada.Core.Enums.ScopeEnum.UserSpecific.ToString()));
+                if (query.ViewerUserId != null) parameters.Add(new MySqlParameter("@viewer_user_id", query.ViewerUserId));
             }
             if (!String.IsNullOrWhiteSpace(query.Category))
             {

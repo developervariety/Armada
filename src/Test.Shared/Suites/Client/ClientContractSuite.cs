@@ -161,6 +161,12 @@ namespace Test.Shared.Suites.Client
                 AssertTrue(((await c.ListPromptTemplatesAsync())?.Objects.Count ?? 0) > 0, "prompt templates");
                 AssertNotNull(await c.ListHarborsAsync(), "harbors");
                 AssertNotNull(await c.ListModelEndpointsAsync(), "model endpoints");
+                EnumerationResult<Harbor>? harborPage = await c.EnumerateHarborsAsync(new EnumerationQuery { PageSize = 1 });
+                AssertNotNull(harborPage, "harbor page");
+                AssertTrue(harborPage!.Objects.Count <= 1, "harbor page bounded");
+                EnumerationResult<ModelEndpoint>? endpointPage = await c.EnumerateModelEndpointsAsync(new EnumerationQuery { PageSize = 1 });
+                AssertNotNull(endpointPage, "endpoint page");
+                AssertTrue(endpointPage!.Objects.Count <= 1, "endpoint page bounded");
                 AssertNotNull(await c.ListMemoriesAsync(), "memories");
             }));
 

@@ -215,7 +215,7 @@ namespace Test.Shared.Suites.Database
                         expected.Add(seed, skill.Id);
                     }
 
-                    await ExpectPagesAsync("skills viewer", expected.ForViewer, (p, s) => db.Skills.EnumerateAsync(new SkillQuery { TenantId = world.TenantId, ViewerUserId = world.ViewerId, PageNumber = p, PageSize = s }), x => x.Id).ConfigureAwait(false);
+                    await ExpectPagesAsync("skills viewer", expected.ForViewer, (p, s) => db.Skills.EnumerateAsync(new SkillQuery { TenantId = world.TenantId, RestrictToViewer = true, ViewerUserId = world.ViewerId, PageNumber = p, PageSize = s }), x => x.Id).ConfigureAwait(false);
                     await ExpectPagesAsync("skills tenant", expected.ForTenant, (p, s) => db.Skills.EnumerateAsync(new SkillQuery { TenantId = world.TenantId, PageNumber = p, PageSize = s }), x => x.Id).ConfigureAwait(false);
                 }
             }));

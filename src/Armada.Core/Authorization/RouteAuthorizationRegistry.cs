@@ -117,6 +117,7 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/captains", "Captain", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("GET", "/api/v1/captains/{id}", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/captains/{id}/tools", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/captains/{id}/tools/enumerate", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/captains/{id}", "Captain", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
             Add("PUT", "/api/v1/captains/{id}/cli-permission-policy", "Captain", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
             Add("POST", "/api/v1/captains/{id}/unquarantine", "Captain", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
@@ -402,6 +403,7 @@ namespace Armada.Core.Authorization
 
             // RuntimeRoutes
             Add("GET", "/api/v1/runtimes/mux/endpoints", "Runtime", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/runtimes/mux/endpoints/enumerate", "Runtime", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/runtimes/mux/endpoints/{name}", "Runtime", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
 
             // SignalRoutes

@@ -395,7 +395,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/token-usage/delete/by-filter` | POST | Authenticated | Deletes matching records within the caller's scope |
 | `/api/v1/missions/{id}/github/pull-request` | GET | Authenticated | Read GitHub PR review, comment, and required-check evidence for one mission |
 | `/api/v1/missions/{id}/evaluate-autoland` | GET | Authenticated | Dry-run the vessel's auto-land predicate against the mission diff |
-| `/api/v1/runtimes/mux/endpoints` | GET | Authenticated | List saved Mux endpoints, optionally from `configDirectory` |
+| `/api/v1/runtimes/mux/endpoints`, `/api/v1/runtimes/mux/endpoints/enumerate` (POST) | GET/POST | Authenticated | One page of the saved Mux endpoints (`MuxEndpointPage`), optionally from `configDirectory` |
 | `/api/v1/runtimes/mux/endpoints/{name}` | GET | Authenticated | Show one saved Mux endpoint |
 | `/api/v1/playbooks`, `/api/v1/playbooks/{id}` | GET | Authenticated | Category B (`scope`). Reads return tenant-wide + own. |
 | `/api/v1/playbooks` (POST), `/api/v1/playbooks/{id}` (PUT/DELETE) | POST/PUT/DELETE | TenantAdmin | Writes require a tenant admin |
@@ -504,7 +504,7 @@ purpose-built wrapper. They are listed here so clients do not expect `Enumeratio
 
 | Route | Shape |
 |---|---|
-| Bounded: `GET /api/v1/ask/quick-actions` (fixed catalog), `GET /api/v1/runtimes/mux/endpoints` (one Mux configuration file), `GET /api/v1/doctor` | JSON array |
+| Bounded: `GET /api/v1/ask/quick-actions` (fixed catalog), `GET /api/v1/doctor` | JSON array |
 | `POST /api/v1/ask/threads/{id}/messages/enumerate` | `AskMessagePage { Messages, HasMore }` (cursor style) |
 | `GET /api/v1/workspace/vessels/{id}/search` | `WorkspaceSearchResult { Query, TotalMatches, Truncated, Matches }` |
 | `GET /api/v1/captains/{id}/log`, `GET /api/v1/missions/{id}/log` | `{ Log, Lines, TotalLines, ... }` (line offsets, not pages) |
@@ -3794,7 +3794,13 @@ Get a single captain by ID.
 
 #### GET /api/v1/captains/{id}/tools
 
-Describe the Armada MCP tools available through a specific captain, including runtime-specific availability notes.
+Describe the tool sources and tools available through a specific captain, including runtime-specific availability notes.
+`Servers` lists the tool sources (at most 256; a runtime configuration with more is a `400` with `Data.Code`
+`CollectionLimitExceeded`, never a silent cut). `Tools` is one page (`EnumerationResult<CaptainToolSummary>`) ordered by
+source kind, source, and name; `ToolCount`, `McpToolCount`, and `RuntimeBuiltInToolCount` count the whole inventory. The
+runtime is probed once and the snapshot (`SnapshotUtc`) is reused for 60 seconds so reading further pages does not
+probe again; `refresh=true` probes again. `POST /api/v1/captains/{id}/tools/enumerate` takes the same query
+(`CaptainToolsQuery`: `PageNumber`, `PageSize`, `SourceKind`, `Refresh`) in the JSON body.
 
 **Permission:** Authenticated
 
@@ -3802,6 +3808,9 @@ Describe the Armada MCP tools available through a specific captain, including ru
 | Parameter | Description |
 |---|---|
 | `id` | Captain ID (`cpt_` prefix) |
+
+**Query Parameters:** `pageNumber` (default 1), `pageSize` (1 to 1000, default 10), `sourceKind` (`McpServer`,
+`RuntimeBuiltIn`, or `Internal`; filters `Tools` before counting), `refresh` (`true` to probe again).
 
 **Response:** `200 OK`
 
@@ -3819,16 +3828,30 @@ Describe the Armada MCP tools available through a specific captain, including ru
   "effectiveToolCount": 42,
   "armadaToolCount": 37,
   "askApprovalGated": true,
-  "tools": [
-    {
-      "name": "get_status",
-      "description": "Get current Admiral status snapshot",
-      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{}}"
-    }
-  ]
+  "servers": [],
+  "toolCount": 37,
+  "mcpToolCount": 37,
+  "runtimeBuiltInToolCount": 0,
+  "snapshotUtc": "2026-10-28T12:00:00Z",
+  "tools": {
+    "pageNumber": 1,
+    "pageSize": 10,
+    "totalPages": 4,
+    "totalRecords": 37,
+    "objects": [
+      {
+        "name": "get_status",
+        "description": "Get current Admiral status snapshot",
+        "inputSchemaJson": "{\"type\":\"object\",\"properties\":{}}",
+        "registrationSource": "armada",
+        "sourceKind": "McpServer"
+      }
+    ]
+  }
 }
 ```
 
+**Error:** `400` - Unknown `sourceKind`, a malformed body (POST), or more than 256 tool sources (`CollectionLimitExceeded`)
 **Error:** `404` - Captain not found
 
 ---
@@ -4030,7 +4053,7 @@ Delete a captain. Blocked if the captain is currently working or has active miss
 
 #### `POST /api/v1/captains/delete/multiple`
 
-Batch delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+Batch delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. `Ids` may hold at most 1000 entries; more is a `400` with `Data.Code` `CollectionLimitExceeded` and nothing is deleted, which also bounds `Skipped`. **This cannot be undone.**
 
 **Permission:** TenantAdmin
 
@@ -5243,7 +5266,7 @@ Harbor records register host-side runners that let the Admiral run detached (in 
 
 #### POST /api/v1/harbors/enumerate
 
-One page of the Harbors visible to the caller. Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of the Harbors visible to the caller, counted and cut in the database (`TotalRecords` is exact for the caller), newest first (`Order` `CreatedAscending` for oldest first; ties break by id). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10, `CreatedAfter`, `CreatedBefore`) or the matching querystring parameters. Each Harbor's `Capabilities` holds at most 256 entries: a create (`POST /api/v1/harbors`) or a Harbor link handshake advertising more is rejected (`CollectionLimitExceeded`; the handshake is refused with the reason).
 
 **Permission:** Authenticated (tenant-scoped; this replaces the removed `GET /api/v1/harbors`)
 
@@ -5292,6 +5315,12 @@ Harbor in the tenant; another user only their own.
 
 - Query: `range` = `1h` (60 one-minute buckets), `24h` (48 thirty-minute buckets, the default), or `7d` (56 three-hour buckets)
 - Response: `200 OK` - `HarborMetrics`
+- Bounds: every per-bucket series has at most 60 entries. `LaunchSpeed` lists at most 16 runtimes: the 15 busiest one by
+  one and the rest in one entry with `IsOther` (`Runtime` "Other", `RuntimeCount`). Token `Series` (overall and in each
+  bucket) list at most 20 runtime and model pairs: the window's top 19 and one `IsOther` aggregate (`SeriesCount`).
+  `Link.Segments` holds at most 1000 stretches; a window with more is shown at bucket resolution with
+  `SegmentsCoalesced` true and `RawSegmentCount` (ConnectedPercent still uses every stretch). Aggregates carry the
+  totals, so nothing is dropped.
 - Errors: `400 Bad Request` (unknown range), `404 Not Found` (no such Harbor, or not visible to the caller)
 
 ```json
@@ -5408,7 +5437,7 @@ Run a one-off host command on a connected Harbor over its link and return the re
 
 #### GET /api/v1/harbors/{id}/jobs
 
-One page of the captain launches the Admiral recorded on a Harbor, newest launch first. Use it with the stop route below to find and stop an agent no mission or captain still points at.
+One page of the captain launches the Admiral recorded on a Harbor, newest launch first (`order=CreatedAscending` for oldest first; ties break by id), counted and cut in the database. Use it with the stop route below to find and stop an agent no mission or captain still points at.
 
 **Permission:** Authenticated (the Harbor must be visible to the caller)
 
@@ -5829,7 +5858,9 @@ Skills are Category B shared configuration entities (`scope`: `TenantWide` or `U
 
 #### GET /api/v1/skills
 
-List skills scoped to the authenticated tenant.
+One page of the skills visible to the caller (admins see all; tenant admins their tenant; others their tenant's
+tenant-wide skills plus their own), ordered by name with ties broken by id. Visibility applies in the database before
+counting, so `TotalRecords` is exact for the caller.
 
 **Permission:** Authenticated
 
@@ -6254,7 +6285,9 @@ A persona associates a name and description with a prompt template. Personas are
 
 #### GET /api/v1/personas
 
-List all personas with pagination.
+One page of the personas visible to the caller (admins see all; tenant admins their tenant; others their tenant's
+tenant-wide personas plus their own), counted and cut in the database so `TotalRecords` is exact for the caller, newest
+first with ties broken by id. `POST /api/v1/personas/enumerate` is the POST twin.
 
 **Permission:** Authenticated
 
@@ -6321,7 +6354,7 @@ Create a new persona.
 | `PromptTemplateName` | string | yes | Name of the prompt template to use |
 | `DefaultCaptainId` | string? | no | Legacy preferred captain (must be visible to the caller); superseded by a nonempty hierarchy |
 | `Scope` | enum? | no | TenantWide or UserSpecific; a regular user always gets UserSpecific, an administrator defaults to TenantWide |
-| `CaptainPriorities` | object[] | no | Ordered matching classes; defaults empty |
+| `CaptainPriorities` | object[] | no | Ordered matching classes (at most 256; more is a 400 with `Data.Code` `CollectionLimitExceeded`); defaults empty |
 | `PriorityAvailability` | enum | no | FallThrough (default) or WaitForFirstPriority |
 | `PriorityExhaustion` | enum | no | Wait (default) or UseEligibleCaptain; ignored by first-priority wait |
 
@@ -6362,7 +6395,7 @@ Update an existing persona. Omitted routing fields preserve their stored values;
 | `Description` | string | no | Updated description |
 | `PromptTemplateName` | string | no | Updated prompt template name |
 | `DefaultCaptainId` | string? | no | Legacy preferred captain (must be visible to the caller); omitted keeps it, explicit null or empty clears it |
-| `CaptainPriorities` | object[]? | no | Ordered matching classes described under POST; omitted/null preserves, empty clears |
+| `CaptainPriorities` | object[]? | no | Ordered matching classes described under POST (at most 256); omitted/null preserves, empty clears |
 | `PriorityAvailability` | enum? | no | FallThrough or WaitForFirstPriority; omitted/null preserves |
 | `PriorityExhaustion` | enum? | no | Wait or UseEligibleCaptain; omitted/null preserves |
 | `Scope` | enum? | no | TenantWide or UserSpecific; administrator-only change |
@@ -6605,7 +6638,7 @@ Duplication is deliberately absent from observed or historical tables: voyages (
 
 #### POST /api/v1/model-endpoints/enumerate
 
-One page of the model endpoints visible to the caller (API keys are never returned). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of the model endpoints visible to the caller (API keys are never returned), counted and cut in the database with the caller's visibility applied before counting, newest first with ties broken by id. Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10, `Order`, `CreatedAfter`, `CreatedBefore`) or the matching querystring parameters. Each endpoint embeds at most 500 `HealthHistory` records.
 
 **Permission:** Authenticated (tenant-wide endpoints plus the caller's own; this replaces the removed `GET /api/v1/model-endpoints`)
 
@@ -8320,14 +8353,17 @@ These helper routes support runtime-specific UX and validation: Mux endpoint dis
 
 #### GET /api/v1/runtimes/mux/endpoints
 
-List saved Mux endpoints, optionally from an explicit config directory.
+One page of the saved Mux endpoints, ordered by name, optionally from an explicit config directory. `mux` reads its
+whole configuration file and cannot page, so the Admiral pages its answer: `Objects` is one page and `TotalRecords`
+counts every saved endpoint. `POST /api/v1/runtimes/mux/endpoints/enumerate` is the POST twin (paging in the JSON body,
+`configDirectory` and `harborId` in the querystring).
 
 Mux runs where Mux captains run: on the caller's own connected Harbor, otherwise on another Harbor the tenant may use (unless `requireHarborForLaunch` restricts launches to the caller's own Harbors). Only an Admiral with no eligible Harbor runs `mux` itself. `configDirectory` is a path on that machine.
 
 **Permission:** Authenticated
 
-- Query: optional `configDirectory`; optional `harborId` to ask a specific connected Harbor
-- Response: `200 OK` - `MuxEndpointListResult`, with `HarborId` set to the Harbor that answered (null when the Admiral ran mux)
+- Query: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10); optional `configDirectory`; optional `harborId` to ask a specific connected Harbor
+- Response: `200 OK` - `MuxEndpointPage` (`EnumerationResult<MuxEndpointInfo>` plus `ContractVersion`, `ConfigDirectory`, `ErrorCode`, `ErrorMessage`), with `HarborId` set to the Harbor that answered (null when the Admiral ran mux). Each endpoint's `HeaderNames` and `Headers` hold at most 256 entries; mux reporting more is a `400` (`CollectionLimitExceeded`).
 - Errors: `503 Service Unavailable` with `ErrorCode` `harbor_unavailable` when Harbors are required and none of the caller's is connected; `400 Bad Request` when mux cannot be started on the chosen machine
 
 #### GET /api/v1/runtimes/mux/endpoints/{name}
@@ -9532,7 +9568,7 @@ A managed reference to an external embedding or inference model behind a provide
 | `LastHealthCheckUtc` | datetime? | null | Timestamp of the last probe (UTC) |
 | `LastHealthError` | string? | null | Error text from the last failed probe |
 | `LastLatencyMs` | int? | null | Latency of the last probe in milliseconds |
-| `HealthHistory` | array | [] | Rolling series of recent probes (oldest first), each `{ TimestampUtc, Success }`, capped at 500 records. Drives the dashboard health-history bar. |
+| `HealthHistory` | array | [] | Rolling series of recent probes (oldest first), each `{ TimestampUtc, Success }`, at most 500 records (the health check drops the oldest). Server-owned: a create or duplicate ignores a supplied history and an update leaves it unchanged. Drives the dashboard health-history bar. `Headers` and `InferenceOptions.AllowedTools` hold at most 256 entries each (400 `CollectionLimitExceeded`). |
 | `UptimePercentage` | double | 0 | Read-only. Percentage of retained probes that succeeded (0-100), derived from `HealthHistory`. |
 | `ConsecutiveSuccesses` | int | 0 | Read-only. Trailing run of successful probes, derived from `HealthHistory`. |
 | `ConsecutiveFailures` | int | 0 | Read-only. Trailing run of failed probes, derived from `HealthHistory`. |

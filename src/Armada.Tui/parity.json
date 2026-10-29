@@ -1937,6 +1937,14 @@
     },
     {
       "kind": "api",
+      "key": "enumerateCliPermissionRules",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateCliPermissionRulesAsync",
+      "workstream": "W0.2",
+      "notes": "CLI permissions | one page with the exact total"
+    },
+    {
+      "kind": "api",
       "key": "enumerateDeployments",
       "status": "implemented",
       "tui": "ArmadaClient.EnumerateDeploymentsAsync",
@@ -1977,6 +1985,14 @@
     },
     {
       "kind": "api",
+      "key": "enumerateHarbors",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateHarborsAsync",
+      "workstream": "W0.2",
+      "notes": "Harbors | one page with the exact total"
+    },
+    {
+      "kind": "api",
       "key": "enumerateHistoryTimeline",
       "status": "implemented",
       "tui": "ArmadaClient.EnumerateHistoryTimelineAsync",
@@ -1998,6 +2014,22 @@
       "tui": "ArmadaClient.EnumerateMemoriesAsync",
       "workstream": "W0.2",
       "notes": "Memories"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateModelEndpoints",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateModelEndpointsAsync",
+      "workstream": "W0.2",
+      "notes": "Model endpoints | one page with the exact total"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateMuxEndpoints",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMuxEndpointsAsync",
+      "workstream": "W0.2",
+      "notes": "Runtimes | one page of saved Mux endpoints"
     },
     {
       "kind": "api",
@@ -2790,6 +2822,14 @@
       "tui": "ArmadaClient.ImportVesselsAsync",
       "workstream": "W0.2",
       "notes": "Vessel Import"
+    },
+    {
+      "kind": "api",
+      "key": "listAllMuxEndpoints",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListAllMuxEndpointsAsync",
+      "workstream": "W0.2",
+      "notes": "Runtimes | explicit page iteration for pickers"
     },
     {
       "kind": "api",

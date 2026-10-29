@@ -49,6 +49,8 @@ namespace Test.Shared.Suites.Client
         private static readonly Dictionary<string, string> _DashboardExportsNotChecked = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["restartCaptain"] = "Composes deleteCaptain and createCaptain, which are checked themselves",
+            ["listAllMuxEndpoints"] = "Reads pages through enumerateMuxEndpoints, which is checked itself",
+            ["listMuxEndpoints"] = "Calls listAllMuxEndpoints (pages of enumerateMuxEndpoints, which is checked itself)",
             ["getEntity"] = "Generic lookup: the path's entity segment comes from a type map, so it has no single literal route"
         };
 

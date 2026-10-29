@@ -25,8 +25,15 @@ namespace Armada.Core.Models
         public string? UserId { get; set; } = null;
 
         /// <summary>
-        /// Server-set visibility for a regular user: when set, only tenant-wide rows and rows owned by this user are
-        /// returned, applied in the data source before counting. Never read from a request body.
+        /// When true, only tenant-wide skills plus the user-specific skills owned by <see cref="ViewerUserId"/> are
+        /// returned (the visibility rule for a caller who is neither a global nor a tenant admin), applied in the data source
+        /// before counting. Server-set; never read from a request body.
+        /// </summary>
+        [JsonIgnore]
+        public bool RestrictToViewer { get; set; } = false;
+
+        /// <summary>
+        /// Viewer whose user-specific skills are included when <see cref="RestrictToViewer"/> is true.
         /// </summary>
         [JsonIgnore]
         public string? ViewerUserId { get; set; } = null;

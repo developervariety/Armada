@@ -1,5 +1,6 @@
-namespace Armada.Core.Models
+namespace Armada.Core.Services
 {
+    using Armada.Core.Models;
     /// <summary>
     /// Machine-readable result returned by `mux endpoint list --output-format json`.
     /// </summary>

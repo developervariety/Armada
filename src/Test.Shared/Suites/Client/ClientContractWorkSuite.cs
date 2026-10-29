@@ -225,6 +225,11 @@ namespace Test.Shared.Suites.Client
                 captain.SystemInstructions = "Be brief.";
                 AssertEqual("Be brief.", (await c.UpdateCaptainAsync(captain.Id, captain))?.SystemInstructions, "update captain");
                 AssertEqual(captain.Id, (await c.GetCaptainToolsAsync(captain.Id))?.CaptainId, "tools");
+                CaptainToolAccessResult? toolPage = await c.EnumerateCaptainToolsAsync(captain.Id, 2, 1, CaptainToolSourceKindEnum.McpServer);
+                AssertNotNull(toolPage, "paged tools");
+                AssertEqual(2, toolPage!.Tools.PageNumber, "tools page number");
+                AssertEqual(1, toolPage.Tools.PageSize, "tools page size");
+                AssertTrue(toolPage.Tools.Objects.All(t => t.SourceKind == CaptainToolSourceKindEnum.McpServer), "source kind filter");
                 try
                 {
                     AssertNotNull(await c.GetCaptainLogAsync(captain.Id, 50), "log");

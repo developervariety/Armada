@@ -246,12 +246,12 @@ namespace Armada.Server.Routes
 
         private static void ApplyReadScope(AuthContext ctx, SkillQuery query)
         {
+            // Visibility applies in the database before counting, so TotalRecords is exact for the caller.
             if (ctx.IsAdmin) return;
             query.TenantId = ctx.TenantId;
-            query.UserId = null;
-            // A regular user sees tenant-wide rows plus their own; the data source applies it before counting, so
-            // TotalRecords and every page are exact for the caller.
+            query.RestrictToViewer = !ctx.IsTenantAdmin;
             query.ViewerUserId = ctx.IsTenantAdmin ? null : ctx.UserId;
+            query.UserId = null;
         }
 
         private static SkillQuery BuildScopedReadQuery(AuthContext ctx)
