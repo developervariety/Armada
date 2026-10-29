@@ -95,7 +95,7 @@ namespace Armada.Core.Services
                     m.Status == MissionStatusEnum.WorkProduced),
                 FailedMissions = missions.Count(m => m.Status == MissionStatusEnum.Failed || m.Status == MissionStatusEnum.LandingFailed),
                 InProgressMissions = missions.Count(m =>
-                    m.Status == MissionStatusEnum.InProgress ||
+                    m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Verifying ||
                     m.Status == MissionStatusEnum.Assigned ||
                     m.Status == MissionStatusEnum.Testing ||
                     m.Status == MissionStatusEnum.Review ||

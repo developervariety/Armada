@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dashboardItem, askArmadaItem, navSections, flattenNavCommands } from './navConfig';
+import { dashboardItem, askArmadaItem, navSections, flattenNavCommands, DEFAULT_EXPANDED_SECTIONS } from './navConfig';
 
 /**
  * Locks the consolidated navigation model so regressions cannot silently
@@ -20,16 +20,50 @@ describe('navConfig', () => {
 
   it('exposes exactly the consolidated destinations', () => {
     const present = [
-      '/', '/ask', '/inbox', '/planning', '/dispatch', '/missions',
+      '/', '/ask', '/inbox', '/dispatch', '/missions',
       '/delivery', '/fleet-actions', '/vessels', '/captains', '/configuration', '/activity',
-      '/jobs', '/cli-permissions', '/api-explorer', '/server', '/storage',
+      '/api-explorer', '/server',
     ];
-    for (const target of present) {
-      expect(allTargets).toContain(target);
+    const sidebarTargets = [dashboardItem, askArmadaItem, ...navSections.flatMap((s) => s.items)].map((i) => i.to);
+    expect(sidebarTargets).toEqual(expect.arrayContaining(present));
+    // 13 sidebar destinations; Planning, Jobs, Storage and CLI Tool Permissions are hub tabs since v1.2.0.
+    expect(sidebarTargets).toHaveLength(13);
+  });
+
+  it('lays out the v1.2.0 sections: Activity under Missions, Delivery in BUILD, no ACTIVITY or DELIVERY section', () => {
+    expect(navSections.map((s) => s.label)).toEqual(['OPERATIONS', 'BUILD', 'CONFIGURATION', 'SYSTEM']);
+    const byKey = Object.fromEntries(navSections.map((s) => [s.key, s.items.map((i) => i.to)]));
+    expect(byKey.operations).toEqual(['/inbox', '/dispatch', '/fleet-actions', '/missions', '/activity']);
+    expect(byKey.fleet).toEqual(['/vessels', '/captains', '/delivery']);
+    expect(byKey.system).toEqual(['/api-explorer', '/server']);
+    const operations = navSections.find((s) => s.key === 'operations')!;
+    // Old Activity and Delivery child routes still highlight the section that now hosts them.
+    for (const route of ['/activity', '/jobs', '/events', '/signals', '/requests', '/history', '/planning']) {
+      expect(operations.matchers).toContain(route);
     }
-    // 17 top-level destinations, including system administrator storage.
-    // admin lives as tabs under Settings.
-    expect(commands).toHaveLength(17);
+    expect(navSections.find((s) => s.key === 'fleet')!.matchers).toEqual(expect.arrayContaining(['/delivery', '/deployments', '/checks']));
+    expect(Object.keys(DEFAULT_EXPANDED_SECTIONS).sort()).toEqual(navSections.map((s) => s.key).sort());
+  });
+
+  it('mentions the new tabs in the Activity, Dispatch, and Settings tooltips', () => {
+    const items = navSections.flatMap((s) => s.items);
+    expect(items.find((i) => i.to === '/activity')!.tooltip).toContain('Jobs tab');
+    expect(items.find((i) => i.to === '/dispatch')!.tooltip).toContain('Planning tab');
+    const settings = items.find((i) => i.to === '/server')!.tooltip!;
+    expect(settings).toContain('Storage');
+    expect(settings).toContain('CLI Tool Permissions');
+  });
+
+  it('keeps the folded pages searchable in the command palette, pointing at their new tabs', () => {
+    expect(commands.slice(-4)).toEqual([
+      { to: '/dispatch?tab=planning', label: 'Planning', section: 'OPERATIONS' },
+      { to: '/activity?source=jobs', label: 'Jobs', section: 'OPERATIONS' },
+      { to: '/server?tab=storage', label: 'Storage', section: 'SYSTEM' },
+      { to: '/server?tab=cli-permissions', label: 'CLI Tool Permissions', section: 'SYSTEM' },
+    ]);
+    for (const old of ['/planning', '/jobs', '/storage', '/cli-permissions']) {
+      expect(allTargets).not.toContain(old);
+    }
   });
 
   it('no longer surfaces the folded-away pages as nav items', () => {

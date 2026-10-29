@@ -40,6 +40,33 @@ namespace Armada.Server.Routes
             Func<HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
+            app.Post("/api/v1/request-history/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                string body = req.Http.Request.DataAsString;
+                RequestHistoryQuery query = String.IsNullOrWhiteSpace(body)
+                    ? new RequestHistoryQuery()
+                    : JsonSerializer.Deserialize<RequestHistoryQuery>(body, _jsonOptions) ?? new RequestHistoryQuery();
+                ApplyQuerystringOverrides(req, query);
+                query.PageNumber = Math.Max(1, query.PageNumber);
+                query.PageSize = Math.Clamp(query.PageSize, 1, 500);
+                ApplyScope(ctx, query);
+
+                Stopwatch sw = Stopwatch.StartNew();
+                EnumerationResult<RequestHistoryEntry> result = await _database.RequestHistory.EnumerateAsync(query).ConfigureAwait(false);
+                result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
+                return result;
+            },
+            api => api
+                .WithTag("RequestHistory")
+                .WithSummary("Enumerate request-history entries")
+                .WithDescription("One page of request-history entries scoped to the authenticated caller. The JSON body (RequestHistoryQuery) carries the filters, PageNumber, and PageSize (1 to 500, default 25); querystring values override it.")
+                .WithRequestBody(OpenApiJson.BodyFor<RequestHistoryQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<RequestHistoryEntry>>("One page"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/request-history", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
@@ -248,8 +275,11 @@ namespace Armada.Server.Routes
 
         private static RequestHistoryQuery BuildQueryFromRequest(ApiRequest req)
         {
-            RequestHistoryQuery query = new RequestHistoryQuery();
+            return ApplyQuerystringOverrides(req, new RequestHistoryQuery());
+        }
 
+        private static RequestHistoryQuery ApplyQuerystringOverrides(ApiRequest req, RequestHistoryQuery query)
+        {
             if (int.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
             if (int.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
@@ -259,12 +289,12 @@ namespace Armada.Server.Routes
             if (int.TryParse(req.Query.GetValueOrDefault("bucketMinutes"), out int bucketMinutes))
                 query.BucketMinutes = Math.Max(1, bucketMinutes);
 
-            query.Method = NormalizeEmpty(req.Query.GetValueOrDefault("method"));
-            query.Route = NormalizeEmpty(req.Query.GetValueOrDefault("route"));
-            query.Principal = NormalizeEmpty(req.Query.GetValueOrDefault("principal"));
-            query.TenantId = NormalizeEmpty(req.Query.GetValueOrDefault("tenantId"));
-            query.UserId = NormalizeEmpty(req.Query.GetValueOrDefault("userId"));
-            query.CredentialId = NormalizeEmpty(req.Query.GetValueOrDefault("credentialId"));
+            query.Method = NormalizeEmpty(req.Query.GetValueOrDefault("method")) ?? query.Method;
+            query.Route = NormalizeEmpty(req.Query.GetValueOrDefault("route")) ?? query.Route;
+            query.Principal = NormalizeEmpty(req.Query.GetValueOrDefault("principal")) ?? query.Principal;
+            query.TenantId = NormalizeEmpty(req.Query.GetValueOrDefault("tenantId")) ?? query.TenantId;
+            query.UserId = NormalizeEmpty(req.Query.GetValueOrDefault("userId")) ?? query.UserId;
+            query.CredentialId = NormalizeEmpty(req.Query.GetValueOrDefault("credentialId")) ?? query.CredentialId;
 
             if (TryParseNullableBool(req.Query.GetValueOrDefault("isSuccess"), out bool? isSuccess)
                 || TryParseNullableBool(req.Query.GetValueOrDefault("successOnly"), out isSuccess))

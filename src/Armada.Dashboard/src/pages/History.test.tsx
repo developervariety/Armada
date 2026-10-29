@@ -155,12 +155,12 @@ describe('History', () => {
       expect(enumerateHistoryTimeline).toHaveBeenCalledTimes(2);
     });
 
-    // The export pages through the whole view at the route maximum (500); select it by that, not by call position.
-    const exportCalls = callsMatching(vi.mocked(enumerateHistoryTimeline), ([query]) => query?.pageSize === 500);
+    // The export pages through the view at the route maximum (1000); select it by that, not by call position.
+    const exportCalls = callsMatching(vi.mocked(enumerateHistoryTimeline), ([query]) => query?.pageSize === 1000);
     expect(exportCalls).toHaveLength(1);
     expect(exportCalls[0][0]).toMatchObject({
       pageNumber: 1,
-      pageSize: 500,
+      pageSize: 1000,
       text: 'deploy',
     });
     expect(createObjectUrlMock).toHaveBeenCalled();
@@ -249,5 +249,119 @@ describe('History', () => {
     fireEvent.click(screen.getByRole('button', { name: /Next/ }));
     expect(await screen.findByText('Entry 2')).toBeInTheDocument();
     expect(callsMatching(vi.mocked(enumerateHistoryTimeline), ([query]) => query?.pageNumber === 2)).toHaveLength(1);
+  });
+
+  const pagedEntry = (n: number) => ({
+    id: `his_${n}`, sourceType: 'Mission', sourceId: `msn_${n}`, entityType: 'Mission', entityId: `msn_${n}`,
+    objectiveId: null, vesselId: null, environmentId: null, deploymentId: null, incidentId: null, missionId: null,
+    voyageId: null, actorId: null, actorDisplay: null, title: `Entry ${n}`, description: null, status: null,
+    severity: null, route: null, occurredUtc: '2026-05-03T12:00:00Z', metadataJson: null,
+  });
+
+  function renderHistory() {
+    render(
+      <MemoryRouter initialEntries={['/history']}>
+        <Routes>
+          <Route path="/history" element={<History />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('orders on the server from the When header and returns to page 1', async () => {
+    vi.mocked(enumerateHistoryTimeline).mockImplementation(async (query) => ({
+      success: true, pageNumber: query?.pageNumber ?? 1, pageSize: 100, totalPages: 3, totalRecords: 300, totalMs: 1,
+      objects: [pagedEntry((query?.pageNumber ?? 1) + (query?.order === 'CreatedAscending' ? 100 : 0))],
+    }) as never);
+    renderHistory();
+
+    expect(await screen.findByText('Entry 1')).toBeInTheDocument();
+    expect(vi.mocked(enumerateHistoryTimeline).mock.calls[0][0]).toMatchObject({ order: 'CreatedDescending', pageNumber: 1 });
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    expect(await screen.findByText('Entry 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^When/ }));
+    expect(await screen.findByText('Entry 101')).toBeInTheDocument();
+    const calls = vi.mocked(enumerateHistoryTimeline).mock.calls;
+    expect(calls[calls.length - 1][0]).toMatchObject({ order: 'CreatedAscending', pageNumber: 1 });
+  });
+
+  it('returns to page 1 when filters are applied', async () => {
+    vi.mocked(enumerateHistoryTimeline).mockImplementation(async (query) => ({
+      success: true, pageNumber: query?.pageNumber ?? 1, pageSize: 100, totalPages: 3, totalRecords: 300, totalMs: 1,
+      objects: [pagedEntry(query?.pageNumber ?? 1)],
+    }) as never);
+    renderHistory();
+
+    expect(await screen.findByText('Entry 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    expect(await screen.findByText('Entry 2')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Search title, status, route, or metadata...'), { target: { value: 'deploy' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText('Entry 1')).toBeInTheDocument();
+    const calls = vi.mocked(enumerateHistoryTimeline).mock.calls;
+    expect(calls[calls.length - 1][0]).toMatchObject({ text: 'deploy', pageNumber: 1 });
+  });
+
+  it('shows the last page when the requested page is past the end, and the empty state for no results', async () => {
+    let total = 300;
+    vi.mocked(enumerateHistoryTimeline).mockImplementation(async (query) => {
+      const page = query?.pageNumber ?? 1;
+      const pages = Math.max(1, Math.ceil(total / 100));
+      return {
+        success: true, pageNumber: page, pageSize: 100, totalPages: total === 0 ? 0 : pages, totalRecords: total, totalMs: 1,
+        objects: total === 0 || page > pages ? [] : [pagedEntry(page)],
+      } as never;
+    });
+    renderHistory();
+
+    expect(await screen.findByText('Entry 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    expect(await screen.findByText('Entry 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    expect(await screen.findByText('Entry 3')).toBeInTheDocument();
+
+    total = 150; // entries went away: page 3 no longer exists
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh history' }));
+    expect(await screen.findByText('Entry 2')).toBeInTheDocument();
+    expect(callsMatching(vi.mocked(enumerateHistoryTimeline), ([query]) => query?.pageNumber === 3).length).toBeGreaterThanOrEqual(2);
+
+    total = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText('No history entries match the current filters.')).toBeInTheDocument();
+  });
+
+  it('reads one bounded page for each filter picker instead of looping over every page', async () => {
+    // Full first pages of a larger set: a fetch-all loop would keep requesting pages 2..5.
+    vi.mocked(listVessels).mockResolvedValue({
+      success: true, pageNumber: 1, pageSize: 1000, totalPages: 5, totalRecords: 5000, totalMs: 1,
+      objects: Array.from({ length: 1000 }, (_, i) => ({ id: `vsl_${i}`, name: `Vessel ${i}` })),
+    } as never);
+    vi.mocked(listObjectives).mockResolvedValue({
+      success: true, pageNumber: 1, pageSize: 1000, totalPages: 5, totalRecords: 5000, totalMs: 1,
+      objects: Array.from({ length: 1000 }, (_, i) => ({ id: `obj_${i}`, title: `Objective ${i}` })),
+    } as never);
+    renderHistory();
+    expect(await screen.findByText('Deploy finished')).toBeInTheDocument();
+    await waitFor(() => expect(listVessels).toHaveBeenCalledTimes(1));
+    expect(listObjectives).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(listVessels).mock.calls[0][0]).toMatchObject({ pageNumber: 1, pageSize: 1000 });
+    expect(vi.mocked(listObjectives).mock.calls[0][0]).toMatchObject({ pageNumber: 1, pageSize: 1000 });
+  });
+
+  it('bounds an export to ten pages and reports what was left out', async () => {
+    vi.mocked(enumerateHistoryTimeline).mockImplementation(async (query) => ({
+      success: true, pageNumber: query?.pageNumber ?? 1, pageSize: query?.pageSize ?? 100, totalPages: 50, totalRecords: 50000, totalMs: 1,
+      objects: Array.from({ length: query?.pageSize ?? 100 }, (_, i) => pagedEntry((query?.pageNumber ?? 1) * 100000 + i)),
+    }) as never);
+    renderHistory();
+    expect(await screen.findByText('Entry 100000')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await waitFor(() => expect(createObjectUrlMock).toHaveBeenCalled());
+    const exportCalls = callsMatching(vi.mocked(enumerateHistoryTimeline), ([query]) => query?.pageSize === 1000);
+    expect(exportCalls).toHaveLength(10);
+    expect(exportCalls.map(([query]) => query?.pageNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });

@@ -30,6 +30,18 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// POST /api/v1/request-history/enumerate: one page of the captured REST requests visible to the caller, with the total.
+        /// </summary>
+        /// <param name="query">Paging and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<RequestHistoryEntry>?> EnumerateRequestHistoryAsync(RequestHistoryQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<RequestHistoryEntry>>("/api/v1/request-history/enumerate", query ?? new RequestHistoryQuery(), null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>getRequestHistorySummary</c>: GET `/api/v1/request-history/summary${buildRequestHistoryQuery(params)}`.
         /// </summary>
         /// <param name="query">query.</param>

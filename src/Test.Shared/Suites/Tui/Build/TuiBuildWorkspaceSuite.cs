@@ -145,7 +145,7 @@ namespace Test.Shared.Suites.Tui.Build
                     AssertTrue(body.ModelContext != null && body.ModelContext.Contains("## Workspace Selection", StringComparison.Ordinal), "appended snippet saved: " + body.ModelContext);
                     AssertEqual("/work/DemoRepo", body.WorkingDirectory, "full record");
                     host.Press("P");
-                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.Path == "/planning"), "plan handoff");
+                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.Path == "/dispatch" && host.Tui.Context.Router.Current!.Tab?.Key == "planning"), "plan handoff: " + host.Tui.Context.Router.Current!.FullPath);
                     AssertEqual("Plan Program.cs", host.Tui.Context.Router.Current!.Query["title"], "plan title");
                     AssertEqual("flt_web", host.Tui.Context.Router.Current!.Query["fleetId"], "fleet");
                 }
