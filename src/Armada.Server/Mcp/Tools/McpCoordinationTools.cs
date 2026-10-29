@@ -363,7 +363,7 @@ namespace Armada.Server.Mcp.Tools
                         rootObjectiveId = new { type = "string", description = "Campaign root objective ID (obj_ prefix). Omit when tag is supplied." },
                         noteLimit = new { type = "integer", description = "Recent board notes to include (default 10)." },
                         includeFullContent = new { type = "boolean", description = "Return long free-text fields whole instead of previewing them (default false). Previewed fields carry a companion <name>Length, and the response carries TruncatedFieldCount." },
-                        includeSlices = new { type = "boolean", description = "Include the slice objectives under each lane (default false; each lane always carries sliceCount). The lane rollup is what fits in one response; ask for slices when you need them." }
+                        includeSlices = new { type = "boolean", description = "Include slice objectives and the full campaign closeout items/evidence review (default false). Summary closeout counts cover every descendant; its first ten remaining items are previewed by default." }
                     }
                 },
                 async (args) =>
@@ -520,7 +520,23 @@ namespace Armada.Server.Mcp.Tools
                         && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
                         && _full.ValueKind == JsonValueKind.True;
                     return McpResultPreview.Apply(
-                        new { Roots = rootIds, Tree = tree, ActiveClaims = claims, RecentNotes = notes, CampaignRooms = campaignRooms },
+                        new
+                        {
+                            Roots = rootIds, Tree = tree, ActiveClaims = claims, RecentNotes = notes, CampaignRooms = campaignRooms,
+                            Closeout = rootIds.Select(rootId =>
+                            {
+                                CampaignCloseoutReport closeout = CampaignCloseoutEvaluator.Evaluate(rootId, allObjectives);
+                                return new
+                                {
+                                    closeout.RootObjectiveId, ObjectiveCount = closeout.Objectives.Count,
+                                    closeout.ReadyForEvidenceReview, RemainingItemCount = closeout.Items.Count,
+                                    Items = includeSlices ? closeout.Items : closeout.Items.Take(10).ToList(),
+                                    ItemsTruncated = !includeSlices && closeout.Items.Count > 10,
+                                    EvidenceReview = includeSlices ? closeout.EvidenceReview : null,
+                                    closeout.EvidenceReviewRequirement
+                                };
+                            }).ToList()
+                        },
                         wantsFull);
                 });
 

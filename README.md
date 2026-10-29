@@ -340,6 +340,10 @@ captain override or the persona's default captain with its fallback tier floor,
 and the tier floor a pinned model no captain runs sets. A compatible captain
 does not have to be idle for the objective to be ready; idle state is capacity.
 Operator and autonomous objective dispatch use this same preflight.
+An objective saved as `ReadyForDispatch` must have complete recorded preflight answers. An incomplete row returns to `Triaged`; `objective.readiness_repaired` records its blocking question numbers. The first objective-service use repairs existing false ready labels without changing their rank, priority or dependencies.
+
+`armada_campaign_status` includes a closeout count over every descendant, including levels outside the summary tree. Open or cancelled scope and completed rows without direct or completed-child evidence prevent parent completion. `includeSlices=true` returns the full remaining items and criterion/evidence review. An empty structural check still requires verification of each acceptance criterion, its exact source and required checks; a link or main-branch ancestry alone is insufficient.
+
 The Jev text check can add blocking issues, but its Q4 dock-observability and Q13 owner-question findings are warnings. Deterministic preflight facts and recorded owner answers remain authoritative.
 Question 1 resolves ordinary citations at the target repository revision: the
 resolved `StartFromRef`, or the default branch tip. When the start commit is not

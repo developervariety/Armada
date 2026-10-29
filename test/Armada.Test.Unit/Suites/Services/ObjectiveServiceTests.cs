@@ -41,6 +41,96 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Campaign completion waits for all descendant rows and their evidence", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_campaign", "usr_campaign").ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated("ten_campaign", "usr_campaign", false, true, "UnitTest");
+                ObjectiveService service = new ObjectiveService(testDb.Driver);
+                Objective root = await service.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Campaign", Status = ObjectiveStatusEnum.InProgress,
+                    Tags = new List<string> { "campaign:example" }, AcceptanceCriteria = new List<string> { "Deliver every scoped item" }
+                }).ConfigureAwait(false);
+                Objective parent = root;
+                for (int depth = 0; depth < 3; depth++)
+                    parent = await service.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Nested delivery group", ParentObjectiveId = parent.Id, Status = ObjectiveStatusEnum.Completed
+                    }).ConfigureAwait(false);
+                Objective leaf = await service.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Unfinished leaf", ParentObjectiveId = parent.Id, Status = ObjectiveStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                await AssertThrowsAsync<InvalidOperationException>(async () => await service.UpdateAsync(auth, root.Id,
+                    new ObjectiveUpsertRequest { Status = ObjectiveStatusEnum.Completed }).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.InProgress, NotNull(await service.ReadAsync(auth, root.Id).ConfigureAwait(false)).Status);
+                await service.UpdateAsync(auth, leaf.Id, new ObjectiveUpsertRequest { Status = ObjectiveStatusEnum.Completed }).ConfigureAwait(false);
+                await AssertThrowsAsync<InvalidOperationException>(async () => await service.UpdateAsync(auth, root.Id,
+                    new ObjectiveUpsertRequest { Status = ObjectiveStatusEnum.Completed }).ConfigureAwait(false)).ConfigureAwait(false);
+                await service.UpdateAsync(auth, leaf.Id, new ObjectiveUpsertRequest
+                {
+                    EvidenceLinks = new List<string> { "https://example.test/verified-source-and-checks" }
+                }).ConfigureAwait(false);
+                Objective completed = await service.UpdateAsync(auth, root.Id,
+                    new ObjectiveUpsertRequest { Status = ObjectiveStatusEnum.Completed }).ConfigureAwait(false);
+                List<Objective> scope = await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false);
+                CampaignCloseoutReport report = CampaignCloseoutEvaluator.Evaluate(root.Id, scope);
+                AssertEqual(5, report.Objectives.Count, "closeout reaches beyond the summary tree's two levels");
+                AssertEqual(0, report.Items.Count, "completed-child proof can support the parent");
+                AssertEqual("Deliver every scoped item", completed.AcceptanceCriteria.Single(), "criteria are not removed to close the parent");
+                leaf.Status = ObjectiveStatusEnum.Cancelled;
+                await testDb.Driver.Objectives.UpdateAsync(leaf).ConfigureAwait(false);
+                report = CampaignCloseoutEvaluator.Evaluate(root.Id, await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false));
+                AssertTrue(report.Items.Any(item => item.ObjectiveId == leaf.Id && item.Reason == "objective_not_completed"),
+                    "cancelled scope cannot silently count as delivery");
+            }).ConfigureAwait(false);
+
+            await RunTest("Ready labels require complete preflight and stale repair preserves queue intent", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_ready", "usr_ready").ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated("ten_ready", "usr_ready", false, true, "UnitTest");
+                Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = "ten_ready", UserId = "usr_ready", Title = "Dependency"
+                }).ConfigureAwait(false);
+                Objective legacy = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = "ten_ready", UserId = "usr_ready", Title = "Stale ready row",
+                    Status = ObjectiveStatusEnum.Planned, BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                    Priority = ObjectivePriorityEnum.P0, Rank = 7, BlockedByObjectiveIds = new List<string> { blocker.Id }
+                }).ConfigureAwait(false);
+                ObjectiveService service = new ObjectiveService(testDb.Driver);
+                await service.ReadAsync(auth, legacy.Id).ConfigureAwait(false);
+                Objective repaired = NotNull(await testDb.Driver.Objectives.ReadAsync(legacy.Id).ConfigureAwait(false));
+                AssertEqual(ObjectiveBacklogStateEnum.Triaged, repaired.BacklogState, "legacy ready rows are repaired in storage");
+                AssertEqual(ObjectivePriorityEnum.P0, repaired.Priority);
+                AssertEqual(7, repaired.Rank);
+                AssertEqual(blocker.Id, repaired.BlockedByObjectiveIds.Single());
+                Objective saved = await service.UpdateAsync(auth, legacy.Id,
+                    new ObjectiveUpsertRequest { BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch }).ConfigureAwait(false);
+                AssertEqual(ObjectiveBacklogStateEnum.Triaged, saved.BacklogState, "a save cannot restore a false ready label");
+                ObjectivePreflight preflight = new ObjectivePreflight
+                {
+                    Questions = Enumerable.Range(1, ObjectivePreflight.QuestionCount).Select(number => new ObjectivePreflightAnswer
+                    {
+                        Number = number, Answer = number == ObjectivePreflight.OwnerQuestionNumber
+                            ? ObjectivePreflightAnswerEnum.No : ObjectivePreflightAnswerEnum.Yes,
+                        AnsweredBy = "operator", AnsweredUtc = DateTime.UtcNow, Note = "Verified input"
+                    }).ToList()
+                };
+                saved = await service.UpdateAsync(auth, legacy.Id, new ObjectiveUpsertRequest
+                {
+                    BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                    Preparation = new ObjectivePreparation { Preflight = preflight }
+                }).ConfigureAwait(false);
+                AssertEqual(ObjectiveBacklogStateEnum.ReadyForDispatch, saved.BacklogState, "complete recorded preflight admits the label");
+                AssertEqual(blocker.Id, saved.BlockedByObjectiveIds.Single(), "the label does not waive dependencies");
+                saved = await service.UpdateAsync(auth, legacy.Id, new ObjectiveUpsertRequest { Preparation = new ObjectivePreparation() }).ConfigureAwait(false);
+                AssertEqual(ObjectiveBacklogStateEnum.Triaged, saved.BacklogState, "clearing preflight revokes the label");
+            }).ConfigureAwait(false);
+
             await RunTest("DeleteAsync reports the deleted objective to the deletion callback", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Campaign closeout and objective readiness
+
+- Campaign status reports unresolved scope and missing completion evidence across the full descendant tree. Objective updates refuse premature parent completion and retain the acceptance criteria for evidence review.
+- Objective saves and legacy-row repair move incomplete preflight rows out of ReadyForDispatch without changing their rank, priority or dependencies. A readiness event records why the label changed.
+
 ### Battery result isolation
 
 - Battery waits for completion handling before grading and checks out the recorded result in a separate temporary workspace. Hidden grader overlays cannot change the captain's worktree or race its final checks.
