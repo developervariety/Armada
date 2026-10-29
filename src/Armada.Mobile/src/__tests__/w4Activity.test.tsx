@@ -10,9 +10,10 @@ import {
 import { computeYTicks, formatTokens } from '@dashboard/lib/tokenUsage';
 import { isJobTerminal } from '@dashboard/lib/jobs';
 import MoreLayout from '../app/(app)/(more)/_layout';
-import ActivityRoute from '../app/(app)/(more)/activity';
-import JobsRoute from '../app/(app)/(more)/jobs';
-import RequestRoute from '../app/(app)/(more)/requests/[id]';
+import WorkLayout from '../app/(app)/(work)/_layout';
+import ActivityRoute from '../app/(app)/(work)/activity';
+import JobsRoute from '../app/(app)/(work)/jobs';
+import RequestRoute from '../app/(app)/(work)/requests/[id]';
 import { replayHref } from '../screens/activity/RequestDetail';
 import { usageSeries } from '../screens/activity/TokenUsageTab';
 import { emit, page, renderW4Routes, resetW4 } from '../test/w4';
@@ -72,10 +73,12 @@ const SUMMARY = { totalCount: 4, successCount: 3, failureCount: 1, successRate: 
 const ROUTES = {
   '(more)/_layout': MoreLayout,
   '(more)/more': () => null,
-  '(more)/activity': ActivityRoute,
-  '(more)/requests/[id]': RequestRoute,
-  '(more)/jobs': JobsRoute,
-  '(more)/events/[id]': () => <Text>Event screen</Text>,
+  '(work)/_layout': WorkLayout,
+  '(work)/home': () => null,
+  '(work)/activity': ActivityRoute,
+  '(work)/requests/[id]': RequestRoute,
+  '(work)/jobs': JobsRoute,
+  '(work)/events/[id]': () => <Text>Event screen</Text>,
   '(more)/api-explorer/index': () => <Text>API Explorer</Text>,
   '(work)/missions/[id]': () => <Text>Mission screen</Text>,
 };
@@ -319,7 +322,8 @@ describe('Jobs', () => {
   it('lists jobs and opens one with its full record', async () => {
     api.listJobs.mockResolvedValue(page(JOBS) as never);
     api.getJob.mockResolvedValue(JOBS[0]);
-    await renderW4Routes(ROUTES, '/jobs');
+    await renderW4Routes(ROUTES, '/activity?source=jobs');
+    await waitFor(() => expect(screen.getByTestId('activity-tab-jobs')).toBeTruthy());
     await waitFor(() => expect(screen.getByText('Import vessels')).toBeTruthy());
     expect(screen.queryByTestId('job-row-job_1-swipe')).toBeNull();
     await fireEvent.press(screen.getByTestId('job-row-job_1'));
@@ -334,5 +338,22 @@ describe('Jobs', () => {
     await waitFor(() => expect(screen.getByText('Health scan')).toBeTruthy());
     await act(async () => { await fireEvent(rowActionTarget(screen.getByTestId('job-row-job_2-swipe'), 'cancel'), 'accessibilityAction', { nativeEvent: { actionName: 'cancel' } }); });
     expect(api.cancelJob).toHaveBeenCalledWith('job_2');
+  });
+
+  it('redirects the old /jobs route to the Activity hub Jobs tab', async () => {
+    api.listJobs.mockResolvedValue(page(JOBS) as never);
+    const h = await renderW4Routes(ROUTES, '/jobs');
+    await waitFor(() => expect(h.getPathname()).toBe('/activity'));
+    expect(h.getSearchParams()).toEqual(expect.objectContaining({ source: 'jobs' }));
+    await waitFor(() => expect(screen.getByText('Import vessels')).toBeTruthy());
+    expect(screen.getByTestId('jobs')).toBeTruthy();
+  });
+
+  it('switches to the Jobs tab from another Activity source', async () => {
+    api.listJobs.mockResolvedValue(page(JOBS) as never);
+    const h = await renderW4Routes(ROUTES, '/activity?source=signals');
+    await fireEvent.press(await screen.findByTestId('activity-tab-jobs'));
+    await waitFor(() => expect(h.getSearchParams()).toEqual(expect.objectContaining({ source: 'jobs' })));
+    await waitFor(() => expect(screen.getByText('Health scan')).toBeTruthy());
   });
 });

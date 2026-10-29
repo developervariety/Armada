@@ -260,6 +260,118 @@ describe('AskArmada thread list', () => {
     await waitFor(() => expect(screen.queryByText('Checkout tests')).not.toBeInTheDocument());
   });
 
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  async function settleDelete() {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+  }
+
+  const DELETING_TEXT = 'This conversation is being deleted. This may take a few moments.';
+
+  it('keeps the progress modal up until a slow delete completes', async () => {
+    const pending = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValue(pending.promise);
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const confirm = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
+
+    const progress = await screen.findByRole('alertdialog', { name: 'Deleting conversation' });
+    expect(progress).toHaveTextContent(DELETING_TEXT);
+    expect(progress).toHaveAttribute('aria-busy', 'true');
+    expect(within(progress).queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryByText(/Work it started keeps running/)).not.toBeInTheDocument();
+    // Escape and the backdrop do not hide it while the request is in flight.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(progress.parentElement as HTMLElement);
+    await settleDelete();
+    expect(screen.getByText(DELETING_TEXT)).toBeInTheDocument();
+    expect(screen.getByText('Checkout tests')).toBeInTheDocument();
+
+    await act(async () => { pending.resolve(undefined); await pending.promise; });
+    await waitFor(() => expect(screen.queryByText(DELETING_TEXT)).not.toBeInTheDocument());
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('Checkout tests')).not.toBeInTheDocument();
+    expect(deleteAskThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('submits a delete only once while it is pending', async () => {
+    const pending = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValue(pending.promise);
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const confirm = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    const button = within(confirm).getByRole('button', { name: 'Delete' });
+    // A double click lands both clicks on the confirm button before React re-renders.
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await screen.findByText(DELETING_TEXT);
+    // Opening the row menu again while pending cannot start a second delete.
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    const again = screen.queryByRole('menuitem', { name: 'Delete' });
+    if (again) fireEvent.click(again);
+    await settleDelete();
+    expect(screen.queryByText('Delete conversation')).not.toBeInTheDocument();
+    expect(deleteAskThread).toHaveBeenCalledTimes(1);
+
+    await act(async () => { pending.resolve(undefined); await pending.promise; });
+    await waitFor(() => expect(screen.queryByText(DELETING_TEXT)).not.toBeInTheDocument());
+    expect(deleteAskThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns a failed delete into an error with Dismiss and Retry', async () => {
+    const first = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValueOnce(first.promise);
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    let confirm = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
+    await screen.findByText(DELETING_TEXT);
+
+    await act(async () => { first.reject(new ApiError('Database is locked', 500, null)); await first.promise.catch(() => undefined); });
+    const failure = await screen.findByRole('alertdialog', { name: 'Error' });
+    expect(failure).toHaveTextContent('Database is locked');
+    expect(failure).toHaveAttribute('aria-busy', 'false');
+    expect(screen.queryByText(DELETING_TEXT)).not.toBeInTheDocument();
+    expect(within(failure).getByRole('button', { name: 'Dismiss' })).toHaveFocus();
+    expect(screen.getByText('Checkout tests')).toBeInTheDocument();
+
+    // Retry shows the progress state again and removes the row once it succeeds.
+    const second = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValueOnce(second.promise);
+    fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(DELETING_TEXT)).toBeInTheDocument();
+    expect(deleteAskThread).toHaveBeenCalledTimes(2);
+    await act(async () => { second.resolve(undefined); await second.promise; });
+    await waitFor(() => expect(screen.queryByText('Checkout tests')).not.toBeInTheDocument());
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    // Dismiss after a failure clears the pending state and allows deleting again.
+    vi.mocked(deleteAskThread).mockRejectedValueOnce(new ApiError('Still locked', 500, null));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    confirm = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
+    const again = await screen.findByRole('alertdialog', { name: 'Error' });
+    fireEvent.click(within(again).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByText('Billing fix')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    expect(screen.getByText('Delete conversation')).toBeInTheDocument();
+  });
+
   it('badges another thread from an ask.thread event and re-sorts it', async () => {
     renderAt('/ask/ath_1');
     await screen.findByText('Checkout tests');
@@ -915,6 +1027,43 @@ describe('AskArmada mark read and unread', () => {
     expect(markAskThreadRead).not.toHaveBeenCalled();
   });
 
+  it('Mark unread on the open conversation survives an ask.thread event that arrives before the page re-renders', async () => {
+    // The server emits ask.thread from MarkUnreadAsync; deliver it synchronously, before React re-renders after the navigation.
+    vi.mocked(markAskThreadUnread).mockImplementation(async () => {
+      handlers.forEach((h) => h({ type: 'ask.thread', data: { threadId: 'ath_1', thread: { ...threads[0], unreadCount: 1 } } }));
+      return { ...threads[0], unreadCount: 1 };
+    });
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    vi.mocked(markAskThreadRead).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark unread' }));
+    await waitFor(() => expect(markAskThreadUnread).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    const row = threadRows().find((r) => r.getAttribute('title') === 'Billing fix')!;
+    await waitFor(() => expect(within(row).getByLabelText('1 unread')).toBeInTheDocument());
+    expect(markAskThreadRead).not.toHaveBeenCalled();
+    // A list refresh after closing keeps the server's unread count too.
+    emit('ask.thread', { threadId: 'ath_1', thread: { ...threads[0], unreadCount: 1 } });
+    expect(within(row).getByLabelText('1 unread')).toBeInTheDocument();
+    expect(markAskThreadRead).not.toHaveBeenCalled();
+  });
+
+  it('reopening a conversation marked unread marks it read again', async () => {
+    vi.mocked(markAskThreadUnread).mockResolvedValue({ ...threads[0], unreadCount: 1 });
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark unread' }));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    const row = threadRows().find((r) => r.getAttribute('title') === 'Billing fix')!;
+    await waitFor(() => expect(within(row).getByLabelText('1 unread')).toBeInTheDocument());
+    vi.mocked(markAskThreadRead).mockClear();
+    fireEvent.click(row);
+    await waitFor(() => expect(currentPath()).toBe('/ask/ath_1'));
+    await waitFor(() => expect(markAskThreadRead).toHaveBeenCalledWith('ath_1'));
+  });
+
   it('Mark read clears the badge and calls the server', async () => {
     renderAt('/ask');
     await screen.findByText('Dependency sweep');
@@ -945,5 +1094,87 @@ describe('AskArmada mark read and unread', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark read' }));
     expect(await screen.findByText('read failed')).toBeInTheDocument();
     await waitFor(() => expect(enumerateAskThreads).toHaveBeenCalled());
+  });
+});
+
+describe('AskArmada conversation cards survive navigating away and back', () => {
+  function chipNamed(name: string): HTMLElement[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('details.chat-tool')).filter((d) => d.querySelector('.chat-tool-name')?.textContent === name);
+  }
+
+  it('a turn still running restores its tool calls (expandable), text, and thinking, without duplicates when it completes', async () => {
+    vi.mocked(sendAskMessage).mockResolvedValue({ messageId: 'amg_20', turnId: 'turn_live' });
+    const first = renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    const input = screen.getByRole('combobox', { name: 'Message' });
+    fireEvent.change(input, { target: { value: 'How is it going?' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(sendAskMessage).toHaveBeenCalled());
+    emit('ask.tool', { threadId: 'ath_1', turnId: 'turn_live', phase: 'started', id: 'c9', name: 'mcp__armada__status', arguments: '{"verbose":true}' });
+    emit('ask.tool', { threadId: 'ath_1', turnId: 'turn_live', phase: 'completed', id: 'c9', name: 'mcp__armada__status', ok: true, result: '{"health":"ok"}', elapsedMs: 40 });
+    emit('ask.chunk', { threadId: 'ath_1', turnId: 'turn_live', delta: 'Two of four ' });
+    expect(chipNamed('mcp__armada__status')).toHaveLength(1);
+    first.unmount();
+
+    // Back on the page while the turn is still running: the reply is not persisted yet, the detail carries its progress.
+    const user: AskMessage = { id: 'amg_20', threadId: 'ath_1', sequence: 9, role: 'User', kind: 'Text', contentText: 'How is it going?' };
+    const reservedReply: AskMessage = { id: 'amg_21', threadId: 'ath_1', sequence: 10, role: 'Assistant', kind: 'Text', contentText: '', toolCalls: [] };
+    const liveCall = { id: 'atc_9', callId: 'c9', toolName: 'mcp__armada__status', argumentsText: '{"verbose":true}', resultText: '{"health":"ok"}', ok: true, elapsedMs: 40 };
+    vi.mocked(enumerateAskMessages).mockResolvedValue({ messages: [...messages, user, reservedReply], hasMore: false });
+    vi.mocked(getAskThread).mockResolvedValue({
+      ...detail,
+      thread: { ...threads[0], activeTurnId: 'turn_live' },
+      activeTurn: { turnId: 'turn_live', messageId: 'amg_21', text: 'Two of four ', thinkingText: 'Counting missions.', toolCalls: [liveCall] },
+    });
+    renderAt('/ask');
+    await waitFor(() => expect(currentPath()).toBe('/ask/ath_1'));
+    await waitFor(() => expect(chipNamed('mcp__armada__status')).toHaveLength(1));
+    const chip = chipNamed('mcp__armada__status')[0];
+    expect(chip).toHaveClass('chat-tool-success');
+    fireEvent.click(chip.querySelector('summary')!);
+    expect(chip).toHaveAttribute('open');
+    expect(chip.querySelector('.chat-tool-detail')!.textContent).toContain('"verbose": true');
+    expect(chip.querySelector('.chat-tool-detail')!.textContent).toContain('"health": "ok"');
+    expect(screen.getByText('Two of four')).toBeInTheDocument();
+    expect(screen.getByText('Counting missions.')).toBeInTheDocument();
+    // The other cards are back too.
+    expect(screen.getByText('enumerate')).toBeInTheDocument();
+    expect(screen.getByText('Dispatch voyage "Billing fix"')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Voyage: Billing fix voyage' })).toBeInTheDocument();
+
+    // A tool event the page sees after returning updates the same card; the persisted reply then replaces the stream.
+    emit('ask.tool', { threadId: 'ath_1', turnId: 'turn_live', phase: 'completed', id: 'c9', name: 'mcp__armada__status', ok: true, result: '{"health":"ok"}', elapsedMs: 40 });
+    expect(chipNamed('mcp__armada__status')).toHaveLength(1);
+    const finalReply: AskMessage = { ...reservedReply, contentText: 'Two of four missions are done.', toolCalls: [liveCall] };
+    vi.mocked(enumerateAskMessages).mockResolvedValue({ messages: [...messages, user, finalReply], hasMore: false });
+    emit('ask.message', { threadId: 'ath_1', message: finalReply });
+    emit('ask.turn', { threadId: 'ath_1', turnId: 'turn_live', state: 'completed', messageId: 'amg_21' });
+    expect(await screen.findByText('Two of four missions are done.')).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.is-streaming')).toBeNull());
+    expect(chipNamed('mcp__armada__status')).toHaveLength(1);
+  });
+
+  it('switching to another conversation and back shows the persisted tool call, confirm, and work cards again', async () => {
+    const other: AskMessage[] = [{ id: 'amg_90', threadId: 'ath_2', sequence: 1, role: 'User', kind: 'Text', contentText: 'Sweep the dependencies' }];
+    vi.mocked(getAskThread).mockImplementation(async (id: string) => (id === 'ath_2' ? { thread: threads[1], trackedWork: [], pendingProposals: [] } : detail));
+    vi.mocked(enumerateAskMessages).mockImplementation(async (id: string) => ({ messages: id === 'ath_2' ? other : messages, hasMore: false }));
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(chipNamed('enumerate')).toHaveLength(1);
+
+    fireEvent.click(within(threadRows()[1]).getByText('Dependency sweep'));
+    await screen.findByText('Sweep the dependencies');
+    expect(chipNamed('enumerate')).toHaveLength(0);
+
+    fireEvent.click(within(threadRows()[0]).getByText('Billing fix'));
+    await screen.findByText('Fix the billing retry bug');
+    expect(chipNamed('enumerate')).toHaveLength(1);
+    const chip = chipNamed('enumerate')[0];
+    fireEvent.click(chip.querySelector('summary')!);
+    expect(chip).toHaveAttribute('open');
+    expect(screen.getAllByText('Dispatch voyage "Billing fix"')).toHaveLength(1);
+    expect(screen.getByText('Approval needed')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Voyage: Billing fix voyage' })).toBeInTheDocument();
+    expect(screen.getByText('Captain runtime crashed.')).toBeInTheDocument();
   });
 });

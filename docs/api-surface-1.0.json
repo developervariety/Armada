@@ -469,23 +469,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/backlog/{id}/refinement-sessions",
-      "auth": "Authenticated",
-      "resource": "ObjectiveRefinementSession:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<ObjectiveRefinementSession>",
-        "404": ""
-      },
-      "tags": [
-        "Objectives"
-      ],
-      "summary": "[Deprecated] List backlog refinement sessions Use POST /api/v1/backlog/{id}/refinement-sessions/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/backlog/{id}/refinement-sessions",
       "auth": "TenantAdmin",
@@ -553,6 +536,23 @@
         "Battery"
       ],
       "summary": "List battery packs",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/battery/packs/enumerate",
+      "auth": "Authenticated",
+      "resource": "BatteryPack:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<BatteryPackInfo>",
+        "400": ""
+      },
+      "tags": [
+        "Battery"
+      ],
+      "summary": "Enumerate fixture battery packs",
       "experimental": false
     },
     {
@@ -981,20 +981,20 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/cli-permissions/requests",
+      "method": "POST",
+      "route": "/api/v1/cli-permissions/requests/enumerate",
       "auth": "Authenticated",
       "resource": "CliPermission:Read",
-      "requestType": null,
+      "requestType": "CliPermissionRequestEnumerateRequest",
       "requestRequired": false,
       "responses": {
-        "200": "List<CliPermissionRequest>",
+        "200": "EnumerationResult<CliPermissionRequest>",
         "400": ""
       },
       "tags": [
         "CliPermissions"
       ],
-      "summary": "List CLI permission requests",
+      "summary": "Enumerate CLI permission requests",
       "experimental": false
     },
     {
@@ -1031,22 +1031,6 @@
         "CliPermissions"
       ],
       "summary": "Decide a CLI permission request",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/cli-permissions/rules",
-      "auth": "Authenticated",
-      "resource": "CliPermission:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<CliPermissionRule>"
-      },
-      "tags": [
-        "CliPermissions"
-      ],
-      "summary": "[Deprecated] List CLI permission rules Use POST /api/v1/cli-permissions/rules/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -1141,7 +1125,9 @@
       "resource": "Credential:Read",
       "requestType": null,
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<Credential>"
+      },
       "tags": [
         "Credentials"
       ],
@@ -1163,6 +1149,22 @@
         "Credentials"
       ],
       "summary": "Create credential",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/credentials/enumerate",
+      "auth": "Authenticated",
+      "resource": "Credential:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<Credential>"
+      },
+      "tags": [
+        "Credentials"
+      ],
+      "summary": "Enumerate credentials",
       "experimental": false
     },
     {
@@ -1746,6 +1748,23 @@
       "experimental": false
     },
     {
+      "method": "POST",
+      "route": "/api/v1/failure-cause-rules/enumerate",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<FailureCauseRule>",
+        "400": ""
+      },
+      "tags": [
+        "FailureCauseRules"
+      ],
+      "summary": "Enumerate failure-cause rules",
+      "experimental": false
+    },
+    {
       "method": "DELETE",
       "route": "/api/v1/failure-cause-rules/{id}",
       "auth": "Authenticated",
@@ -2118,20 +2137,20 @@
     },
     {
       "method": "GET",
-      "route": "/api/v1/harbors",
+      "route": "/api/v1/handoff-artifacts/{id}",
       "auth": "Authenticated",
-      "resource": "Harbor:Read",
+      "resource": "HandoffArtifact:Read",
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "List<Harbor>"
+        "200": "HandoffArtifact",
+        "404": ""
       },
       "tags": [
-        "Experimental",
-        "Harbors"
+        "HandoffArtifacts"
       ],
-      "summary": "[Experimental] [Deprecated] List Harbors Use POST /api/v1/harbors/enumerate instead; removed in 2.0.",
-      "experimental": true
+      "summary": "Get a handoff artifact",
+      "experimental": false
     },
     {
       "method": "POST",
@@ -2279,6 +2298,24 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/harbors/{id}/jobs/enumerate",
+      "auth": "Authenticated",
+      "resource": "Harbor:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<HarborJobRecord>",
+        "404": ""
+      },
+      "tags": [
+        "Experimental",
+        "Harbors"
+      ],
+      "summary": "[Experimental] Enumerate a Harbor's jobs",
+      "experimental": true
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/harbors/{id}/jobs/{jobId}/stop",
       "auth": "TenantAdmin",
       "resource": "Harbor:Execute",
@@ -2365,22 +2402,6 @@
         "History"
       ],
       "summary": "Enumerate historical timeline entries",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/inbox",
-      "auth": "Authenticated",
-      "resource": "Inbox:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<InboxItem>"
-      },
-      "tags": [
-        "Inbox"
-      ],
-      "summary": "[Deprecated] Get the needs-you inbox Use POST /api/v1/inbox/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -2512,7 +2533,24 @@
       "tags": [
         "Jobs"
       ],
-      "summary": "List background jobs",
+      "summary": "List one page of background jobs",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/jobs/enumerate",
+      "auth": "Authenticated",
+      "resource": "Job:Read",
+      "requestType": "JobQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<Job>",
+        "400": ""
+      },
+      "tags": [
+        "Jobs"
+      ],
+      "summary": "Enumerate background jobs",
       "experimental": false
     },
     {
@@ -2581,6 +2619,22 @@
         "Memories"
       ],
       "summary": "Create or upsert a memory",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/memories/enumerate",
+      "auth": "Authenticated",
+      "resource": "Memory:Read",
+      "requestType": "MemoryEnumerateRequest",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<Memory>"
+      },
+      "tags": [
+        "Memories"
+      ],
+      "summary": "Enumerate memories",
       "experimental": false
     },
     {
@@ -2999,6 +3053,41 @@
     },
     {
       "method": "GET",
+      "route": "/api/v1/missions/{id}/handoff-artifacts",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<HandoffArtifact>",
+        "404": ""
+      },
+      "tags": [
+        "HandoffArtifacts"
+      ],
+      "summary": "List a mission's handoff artifacts",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/missions/{id}/handoff-artifacts/enumerate",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<HandoffArtifact>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "HandoffArtifacts"
+      ],
+      "summary": "Enumerate a mission's handoff artifacts",
+      "experimental": false
+    },
+    {
+      "method": "GET",
       "route": "/api/v1/missions/{id}/instructions",
       "auth": "Authenticated",
       "resource": "Mission:Read",
@@ -3081,7 +3170,7 @@
       "tags": [
         "Missions"
       ],
-      "summary": "Restart a failed or cancelled mission",
+      "summary": "Restart a failed or cancelled mission, or start a pending one",
       "experimental": false
     },
     {
@@ -3155,22 +3244,6 @@
         "Missions"
       ],
       "summary": "Transition mission status",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/model-endpoints",
-      "auth": "Authenticated",
-      "resource": "ModelEndpoint:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<ModelEndpoint>"
-      },
-      "tags": [
-        "Model Endpoints"
-      ],
-      "summary": "[Deprecated] List model endpoints Use POST /api/v1/model-endpoints/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -3344,6 +3417,23 @@
         "ModelProbes"
       ],
       "summary": "List Evaluate runs",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/model-probe-runs/enumerate",
+      "auth": "Authenticated",
+      "resource": "ModelProbeRun:Read",
+      "requestType": "ModelProbeRunQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<ModelProbeRun>",
+        "400": ""
+      },
+      "tags": [
+        "ModelProbes"
+      ],
+      "summary": "Enumerate model probe runs",
       "experimental": false
     },
     {
@@ -3605,23 +3695,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/objectives/{id}/refinement-sessions",
-      "auth": "Authenticated",
-      "resource": "ObjectiveRefinementSession:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<ObjectiveRefinementSession>",
-        "404": ""
-      },
-      "tags": [
-        "Objectives"
-      ],
-      "summary": "[Deprecated] List objective refinement sessions Use POST /api/v1/objectives/{id}/refinement-sessions/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/objectives/{id}/refinement-sessions",
       "auth": "TenantAdmin",
@@ -3873,23 +3946,6 @@
         "Pipelines"
       ],
       "summary": "Update a pipeline",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/planning-sessions",
-      "auth": "Authenticated",
-      "resource": "PlanningSession:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<PlanningSession>",
-        "501": "ApiStatusErrorResponse"
-      },
-      "tags": [
-        "Planning"
-      ],
-      "summary": "[Deprecated] List planning sessions Use POST /api/v1/planning-sessions/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -4404,23 +4460,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/push/devices",
-      "auth": "Authenticated",
-      "resource": "PushDevice:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<PushDevice>",
-        "403": "ApiErrorResponse"
-      },
-      "tags": [
-        "Push"
-      ],
-      "summary": "[Deprecated] List push devices Use POST /api/v1/push/devices/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/push/devices",
       "auth": "Authenticated",
@@ -4608,23 +4647,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/releases/{id}/github/pull-requests",
-      "auth": "Authenticated",
-      "resource": "Release:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<GitHubPullRequestDetail>",
-        "404": ""
-      },
-      "tags": [
-        "Releases"
-      ],
-      "summary": "[Deprecated] Get GitHub pull-request evidence for a release Use POST /api/v1/releases/{id}/github/pull-requests/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/releases/{id}/github/pull-requests/enumerate",
       "auth": "Authenticated",
@@ -4705,6 +4727,22 @@
         "RequestHistory"
       ],
       "summary": "Delete multiple request-history entries",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/request-history/enumerate",
+      "auth": "Authenticated",
+      "resource": "RequestHistory:Read",
+      "requestType": "RequestHistoryQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<RequestHistoryEntry>"
+      },
+      "tags": [
+        "RequestHistory"
+      ],
+      "summary": "Enumerate request-history entries",
       "experimental": false
     },
     {
@@ -5193,38 +5231,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/signals/recent",
-      "auth": "Authenticated",
-      "resource": "Signal:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<Signal>"
-      },
-      "tags": [
-        "Signals"
-      ],
-      "summary": "Get recent signals",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/signals/recipient/{captainId}",
-      "auth": "Authenticated",
-      "resource": "Signal:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<Signal>"
-      },
-      "tags": [
-        "Signals"
-      ],
-      "summary": "[Deprecated] Enumerate signals by recipient Use POST /api/v1/signals/enumerate (toCaptainId, unreadOnly) instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "DELETE",
       "route": "/api/v1/signals/{id}",
       "auth": "TenantAdmin",
@@ -5394,6 +5400,23 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/stage-outcomes/enumerate",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Read",
+      "requestType": "StageOutcomeQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<StageOutcome>",
+        "400": ""
+      },
+      "tags": [
+        "StageOutcomes"
+      ],
+      "summary": "Enumerate stage outcomes",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/stage-outcomes/reclassify",
       "auth": "TenantAdmin",
       "resource": "StageOutcome:Execute",
@@ -5537,7 +5560,9 @@
       "resource": "Tenant:Read",
       "requestType": null,
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<TenantMetadata>"
+      },
       "tags": [
         "Tenants"
       ],
@@ -5559,6 +5584,22 @@
         "Tenants"
       ],
       "summary": "Create tenant (admin only)",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/tenants/enumerate",
+      "auth": "AdminOnly",
+      "resource": "Tenant:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<TenantMetadata>"
+      },
+      "tags": [
+        "Tenants"
+      ],
+      "summary": "Enumerate tenants (admin only)",
       "experimental": false
     },
     {
@@ -5663,6 +5704,22 @@
       "experimental": false
     },
     {
+      "method": "POST",
+      "route": "/api/v1/token-usage/enumerate",
+      "auth": "Authenticated",
+      "resource": "TokenUsage:Read",
+      "requestType": "TokenUsageQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<TokenUsageRecord>"
+      },
+      "tags": [
+        "TokenUsage"
+      ],
+      "summary": "Enumerate token-usage records",
+      "experimental": false
+    },
+    {
       "method": "GET",
       "route": "/api/v1/token-usage/summary",
       "auth": "Authenticated",
@@ -5703,7 +5760,9 @@
       "resource": "User:Read",
       "requestType": null,
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<UserMaster>"
+      },
       "tags": [
         "Users"
       ],
@@ -5726,6 +5785,22 @@
         "Users"
       ],
       "summary": "Create user (admin only)",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/users/enumerate",
+      "auth": "Authenticated",
+      "resource": "User:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<UserMaster>"
+      },
+      "tags": [
+        "Users"
+      ],
+      "summary": "Enumerate users",
       "experimental": false
     },
     {
@@ -6101,24 +6176,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/vessels/{id}/branches",
-      "auth": "Authenticated",
-      "resource": "Vessel:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "",
-        "404": "",
-        "503": "ApiStatusErrorResponse"
-      },
-      "tags": [
-        "Vessels"
-      ],
-      "summary": "[Deprecated] List vessel branches Use POST /api/v1/vessels/{id}/branches/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/vessels/{id}/branches/enumerate",
       "auth": "Authenticated",
@@ -6193,6 +6250,41 @@
         "Vessels"
       ],
       "summary": "Build or refine the vessel Model Context",
+      "experimental": false
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/vessels/{id}/cleanup",
+      "auth": "Authenticated",
+      "resource": "Vessel:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "VesselCleanupInventory",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "Vessel cleanup inventory",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/vessels/{id}/cleanup",
+      "auth": "TenantAdmin",
+      "resource": "Vessel:Delete",
+      "requestType": "VesselCleanupRequest",
+      "requestRequired": true,
+      "responses": {
+        "200": "VesselCleanupResult",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "Clean up vessel resources",
       "experimental": false
     },
     {
@@ -6515,6 +6607,23 @@
         "WorkflowProfiles"
       ],
       "summary": "Create a workflow profile",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/workflow-profiles/delete/multiple",
+      "auth": "TenantAdmin",
+      "resource": "WorkflowProfile:Delete",
+      "requestType": "DeleteMultipleRequest",
+      "requestRequired": true,
+      "responses": {
+        "200": "DeleteMultipleResult",
+        "400": ""
+      },
+      "tags": [
+        "WorkflowProfiles"
+      ],
+      "summary": "Batch delete multiple workflow profiles",
       "experimental": false
     },
     {
@@ -6879,6 +6988,11 @@
           "required": false
         },
         {
+          "name": "auditCommand",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "autoApprove",
           "type": "boolean",
           "required": false
@@ -6909,6 +7023,11 @@
           "required": false
         },
         {
+          "name": "lintCommand",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "name",
           "type": "string",
           "required": true
@@ -6925,6 +7044,11 @@
         },
         {
           "name": "styleGuide",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "testCommand",
           "type": "string",
           "required": false
         },
@@ -7770,6 +7894,11 @@
           "required": false
         },
         {
+          "name": "commandWindows",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "defaultConcurrency",
           "type": "integer",
           "required": false
@@ -7777,6 +7906,11 @@
         {
           "name": "description",
           "type": "string",
+          "required": false
+        },
+        {
+          "name": "inputs",
+          "type": "array<object>",
           "required": false
         },
         {
@@ -7788,6 +7922,11 @@
           "name": "name",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "outputParser",
+          "type": "string",
+          "required": false
         },
         {
           "name": "persona",
@@ -7805,8 +7944,23 @@
           "required": false
         },
         {
+          "name": "requiredTools",
+          "type": "array<string>",
+          "required": false
+        },
+        {
           "name": "requiresCleanWorkingTree",
           "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "requiresNetwork",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "scanSourceActionKey",
+          "type": "string",
           "required": false
         },
         {
@@ -8439,6 +8593,155 @@
       "experimental": false
     },
     {
+      "name": "create_workflow_profile",
+      "auth": "TenantAdmin",
+      "resource": "WorkflowProfile:Create",
+      "arguments": [
+        {
+          "name": "abbreviatedUnitTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "buildCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "changelogGenerationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "deploymentVerificationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "e2eTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "environments",
+          "type": "array<object>",
+          "required": false
+        },
+        {
+          "name": "expectedArtifacts",
+          "type": "array<string>",
+          "required": false
+        },
+        {
+          "name": "fleetId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "integrationTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "isDefault",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "languageHints",
+          "type": "array<string>",
+          "required": false
+        },
+        {
+          "name": "lintCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "migrationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "ownershipScope",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "packageCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "performanceCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "publishArtifactCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "releaseVersioningCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "requiredInputs",
+          "type": "array<object>",
+          "required": false
+        },
+        {
+          "name": "rollbackVerificationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "securityScanCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "tenantId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "unitTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "vesselId",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Create a workflow profile. At least one command is required. Scope Fleet needs fleetId and scope Vessel needs vesselId. Setting isDefault clears the default flag on the other profiles at the same scope. Tenant admins only, as over REST.",
+      "experimental": false
+    },
+    {
       "name": "decide_cli_permission_request",
       "auth": "Authenticated",
       "resource": "CliPermission:Execute",
@@ -8851,6 +9154,34 @@
       "experimental": false
     },
     {
+      "name": "delete_workflow_profile",
+      "auth": "TenantAdmin",
+      "resource": "WorkflowProfile:Delete",
+      "arguments": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Delete a workflow profile by ID. This cannot be undone. Tenant admins only, as over REST.",
+      "experimental": false
+    },
+    {
+      "name": "delete_workflow_profiles",
+      "auth": "TenantAdmin",
+      "resource": "WorkflowProfile:Delete",
+      "arguments": [
+        {
+          "name": "ids",
+          "type": "array<string>",
+          "required": true
+        }
+      ],
+      "description": "Permanently delete multiple workflow profiles by ID. Ids that are missing, outside your scope, or not editable by you are skipped with a reason. Returns a summary of deleted and skipped entries. This cannot be undone. Tenant admins only, as over REST.",
+      "experimental": false
+    },
+    {
       "name": "deny_mission_review",
       "auth": "TenantAdmin",
       "resource": "Mission:Update",
@@ -9184,6 +9515,11 @@
           "required": false
         },
         {
+          "name": "threadId",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "toCaptainId",
           "type": "string",
           "required": false
@@ -9204,7 +9540,7 @@
           "required": false
         }
       ],
-      "description": "Find and browse entities with paginated, filtered, sorted access to: inbox (the needs-you items, most urgent first), cli_permission_rules, objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+      "description": "Find and browse entities with paginated, filtered, sorted access to: inbox (the needs-you items, most urgent first), cli_permission_rules, cli_permission_requests, objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
       "experimental": false
     },
     {
@@ -9509,6 +9845,20 @@
       "experimental": false
     },
     {
+      "name": "get_handoff_artifact",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "arguments": [
+        {
+          "name": "artifactId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Get the complete handoff artifact of a stage attempt: numbered findings (file, line, severity, required fix), acceptance criteria, required actions, check results (passed, failed, skipped with reason, could not run), commit references, the full stage output and the full diff (or where to regenerate it). The prior-stage section of a mission brief names the artifact id.",
+      "experimental": false
+    },
+    {
       "name": "get_harbor",
       "auth": "Authenticated",
       "resource": "Harbor:Read",
@@ -9781,6 +10131,20 @@
       "experimental": false
     },
     {
+      "name": "get_workflow_profile",
+      "auth": "Authenticated",
+      "resource": "WorkflowProfile:Read",
+      "arguments": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Get a workflow profile by ID, including every command stage checks run (build, unit test, integration, e2e, migration, security scan, performance, package, release, deploy verification) and its environments.",
+      "experimental": false
+    },
+    {
       "name": "health_check_model_endpoints",
       "auth": "Authenticated",
       "resource": "ModelEndpoint:Execute",
@@ -9845,14 +10209,6 @@
         }
       ],
       "description": "Import candidates from a discover_vessels batch as vessels. Pass the candidate paths to import, or allNew=true to import every candidate with status New. Each vessel gets RepoUrl = origin URL (or the local path), WorkingDirectory = the discovered path, and no LocalPath. Paths that already have a vessel are skipped. Large selections run as a background job (returns jobId; poll the batch with enumerate entityType vessel_import_batch or get the job). Requires tenant admin.",
-      "experimental": false
-    },
-    {
-      "name": "inbox",
-      "auth": "Authenticated",
-      "resource": "Inbox:Read",
-      "arguments": [],
-      "description": "[Deprecated] Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Use this to answer questions like \"Is there anything waiting on me?\", \"Is there anything that needs my attention?\", or \"Do I have any action items from Armada work?\". It surfaces two kinds of item: (a) work awaiting your decision (human-in-the-loop) -- missions in Review to approve or reject, deployments pending approval, and Ask Armada action proposals waiting for the caller's approval; and (b) autonomous work that failed and needs intervention (human-out-of-the-loop) -- failed missions, missions whose work could not land (landing failed), failed merges, failed or verification-failed deployments, and stalled captains. Purely informational events such as completions or normal progress are deliberately excluded. Each item has: kind, severity (Critical, Warning, or Info), title, detail, the related entity (entityType and entityId), and a dashboard href. Deployment items also carry environmentName and deploymentTitle, and a deployment approval is titled with the environment first and the deployment title second (\"Deploy to production: Release 2.3 hotfix\"). An empty items list means nothing currently needs the operator's attention. Use enumerate with entityType inbox instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -10039,69 +10395,6 @@
       "experimental": false
     },
     {
-      "name": "list_cli_permission_requests",
-      "auth": "Authenticated",
-      "resource": "CliPermission:Read",
-      "arguments": [
-        {
-          "name": "captainId",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "limit",
-          "type": "integer",
-          "required": false
-        },
-        {
-          "name": "missionId",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "status",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "threadId",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "vesselId",
-          "type": "string",
-          "required": false
-        }
-      ],
-      "description": "List CLI permission requests (a CLI captain asking to run one of its own tools, for example a shell command) visible to the caller, newest first. Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Each request has the tool name, a redacted input summary, captain, vessel, mission or thread, status, expiry, and canDecide. The result has count (rows returned), limit (the cap applied, default 100, at most 1000), and truncated (true when the limit was reached, so more requests exist).",
-      "experimental": false
-    },
-    {
-      "name": "list_cli_permission_rules",
-      "auth": "Authenticated",
-      "resource": "CliPermission:Read",
-      "arguments": [
-        {
-          "name": "captainId",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "scope",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "vesselId",
-          "type": "string",
-          "required": false
-        }
-      ],
-      "description": "[Deprecated] List CLI permission rules visible to the caller (the caller's tenant plus rules for every tenant). Rules use Claude Code permission rule syntax, for example Bash(git status:*), WebFetch(domain:example.com), or Edit(//repo/src/**); deny rules win over allow rules. Use enumerate with entityType cli_permission_rules instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "name": "list_failure_cause_rules",
       "auth": "Authenticated",
       "resource": "FailureCauseRule:Read",
@@ -10118,6 +10411,30 @@
         }
       ],
       "description": "List the failure-cause rules visible to the caller in evaluation order (priority ascending, then name), one page at a time: the caller's tenant plus the rules for every tenant, built-in rules included. The first enabled matching rule assigns a stage outcome's suspected cause.",
+      "experimental": false
+    },
+    {
+      "name": "list_handoff_artifacts",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "arguments": [
+        {
+          "name": "missionId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        }
+      ],
+      "description": "List the handoff artifacts of a mission (one per stage attempt), newest first, one page at a time. Output and diff text are left out (their lengths stay); use get_handoff_artifact for them. Returns an enumeration result (objects, totalRecords, totalPages).",
       "experimental": false
     },
     {
@@ -10443,6 +10760,25 @@
       "experimental": false
     },
     {
+      "name": "preview_workflow_profile",
+      "auth": "Authenticated",
+      "resource": "WorkflowProfile:Read",
+      "arguments": [
+        {
+          "name": "vesselId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "workflowProfileId",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Preview the workflow commands a vessel would run: resolves the profile as resolve_workflow_profile does and returns resolvedProfile, resolutionMode, availableCheckTypes, and commandPreviews.",
+      "experimental": false
+    },
+    {
       "name": "process_merge_entry",
       "auth": "TenantAdmin",
       "resource": "MergeQueue:Execute",
@@ -10727,6 +11063,25 @@
       "experimental": false
     },
     {
+      "name": "resolve_workflow_profile",
+      "auth": "Authenticated",
+      "resource": "WorkflowProfile:Read",
+      "arguments": [
+        {
+          "name": "vesselId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "workflowProfileId",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Resolve the workflow profile that applies to a vessel: an explicit workflowProfileId when given, otherwise the vessel's assigned profile, then vessel, fleet, and global precedence. Returns the profile.",
+      "experimental": false
+    },
+    {
       "name": "restart_mission",
       "auth": "TenantAdmin",
       "resource": "Mission:Execute",
@@ -10747,7 +11102,7 @@
           "required": false
         }
       ],
-      "description": "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. Optionally update title and description (instructions) before restarting.",
+      "description": "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch, or start a Pending mission as it is. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. The mission is then dispatched at once when a captain is available; otherwise it stays Pending for the regular dispatcher. Optionally update title and description (instructions) before restarting.",
       "experimental": false
     },
     {
@@ -10851,6 +11206,11 @@
           "required": true
         },
         {
+          "name": "promptVariant",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "runCount",
           "type": "integer",
           "required": false
@@ -10944,8 +11304,23 @@
           "required": false
         },
         {
+          "name": "commandWindows",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "concurrency",
           "type": "integer",
+          "required": false
+        },
+        {
+          "name": "inputValues",
+          "type": "object",
+          "required": false
+        },
+        {
+          "name": "inputs",
+          "type": "array<object>",
           "required": false
         },
         {
@@ -10955,6 +11330,11 @@
         },
         {
           "name": "name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "outputParser",
           "type": "string",
           "required": false
         },
@@ -10969,8 +11349,23 @@
           "required": false
         },
         {
+          "name": "requiredTools",
+          "type": "array<string>",
+          "required": false
+        },
+        {
           "name": "requiresCleanWorkingTree",
           "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "requiresNetwork",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "scanSourceActionKey",
+          "type": "string",
           "required": false
         },
         {
@@ -11408,7 +11803,7 @@
           "required": true
         }
       ],
-      "description": "Transition a mission to a new status with validation (the same rules as PUT /api/v1/missions/{id}/status). Valid transitions: Pending->Assigned/Cancelled/Blocked, Assigned->InProgress/Cancelled, InProgress->WorkProduced/Testing/Review/Complete/Failed/Cancelled, WorkProduced->PullRequestOpen/Complete/LandingFailed/Cancelled, PullRequestOpen->Complete/LandingFailed/Cancelled, Testing->InProgress/Review/Complete/Failed, Review->InProgress/Complete/Failed, LandingFailed->WorkProduced/Failed/Cancelled, Blocked->Pending/Cancelled. Complete, Failed, and Cancelled are terminal.",
+      "description": "Transition a mission to a new status with validation (the same rules as PUT /api/v1/missions/{id}/status). Valid transitions: Pending->Assigned/Cancelled/Blocked, Assigned->InProgress/Cancelled, InProgress->WorkProduced/Testing/Review/Complete/Failed/Cancelled, WorkProduced->PullRequestOpen/Complete/LandingFailed/Cancelled, PullRequestOpen->Complete/LandingFailed/Cancelled, Testing->InProgress/Review/Complete/Failed, Review->InProgress/Complete/Failed, LandingFailed->WorkProduced/Failed/Cancelled, Blocked->Pending/Cancelled, Verifying->InProgress/WorkProduced/Complete/Failed/Cancelled. Complete, Failed, and Cancelled are terminal.",
       "experimental": false
     },
     {
@@ -11860,6 +12255,11 @@
           "required": false
         },
         {
+          "name": "commandWindows",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "defaultConcurrency",
           "type": "integer",
           "required": false
@@ -11870,12 +12270,22 @@
           "required": false
         },
         {
+          "name": "inputs",
+          "type": "array<object>",
+          "required": false
+        },
+        {
           "name": "kind",
           "type": "string",
           "required": false
         },
         {
           "name": "name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "outputParser",
           "type": "string",
           "required": false
         },
@@ -11895,8 +12305,23 @@
           "required": false
         },
         {
+          "name": "requiredTools",
+          "type": "array<string>",
+          "required": false
+        },
+        {
           "name": "requiresCleanWorkingTree",
           "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "requiresNetwork",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "scanSourceActionKey",
+          "type": "string",
           "required": false
         },
         {
@@ -12465,6 +12890,11 @@
           "required": false
         },
         {
+          "name": "auditCommand",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "autoApprove",
           "type": "boolean",
           "required": false
@@ -12540,6 +12970,11 @@
           "required": false
         },
         {
+          "name": "lintCommand",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "modelContext",
           "type": "string",
           "required": false
@@ -12561,6 +12996,11 @@
         },
         {
           "name": "styleGuide",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "testCommand",
           "type": "string",
           "required": false
         },
@@ -12608,6 +13048,155 @@
       "experimental": false
     },
     {
+      "name": "update_workflow_profile",
+      "auth": "TenantAdmin",
+      "resource": "WorkflowProfile:Update",
+      "arguments": [
+        {
+          "name": "abbreviatedUnitTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "buildCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "changelogGenerationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "deploymentVerificationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "e2eTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "environments",
+          "type": "array<object>",
+          "required": false
+        },
+        {
+          "name": "expectedArtifacts",
+          "type": "array<string>",
+          "required": false
+        },
+        {
+          "name": "fleetId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "integrationTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "isDefault",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "languageHints",
+          "type": "array<string>",
+          "required": false
+        },
+        {
+          "name": "lintCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "migrationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "ownershipScope",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "packageCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "performanceCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "publishArtifactCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "releaseVersioningCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "requiredInputs",
+          "type": "array<object>",
+          "required": false
+        },
+        {
+          "name": "rollbackVerificationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "securityScanCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "unitTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "vesselId",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Update a workflow profile. Only the fields you pass change; omitted fields keep their stored values. Pass an empty string to clear a command, fleetId, or vesselId. Lists (languageHints, requiredInputs, expectedArtifacts, environments) replace the stored list when passed. The updated profile is validated before it is saved. Tenant admins only, as over REST.",
+      "experimental": false
+    },
+    {
       "name": "validate_model_endpoint",
       "auth": "Authenticated",
       "resource": "ModelEndpoint:Execute",
@@ -12619,6 +13208,150 @@
         }
       ],
       "description": "Validate a model endpoint by issuing a real request (an embedding for embedding endpoints, a short completion for inference endpoints) and update its health status.",
+      "experimental": false
+    },
+    {
+      "name": "validate_workflow_profile",
+      "auth": "TenantAdmin",
+      "resource": "WorkflowProfile:Read",
+      "arguments": [
+        {
+          "name": "abbreviatedUnitTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "buildCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "changelogGenerationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "deploymentVerificationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "e2eTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "environments",
+          "type": "array<object>",
+          "required": false
+        },
+        {
+          "name": "expectedArtifacts",
+          "type": "array<string>",
+          "required": false
+        },
+        {
+          "name": "fleetId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "integrationTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "isDefault",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "languageHints",
+          "type": "array<string>",
+          "required": false
+        },
+        {
+          "name": "lintCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "migrationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "ownershipScope",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "packageCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "performanceCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "publishArtifactCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "releaseVersioningCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "requiredInputs",
+          "type": "array<object>",
+          "required": false
+        },
+        {
+          "name": "rollbackVerificationCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "securityScanCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "unitTestCommand",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "vesselId",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Validate a workflow-profile definition without saving it. Returns isValid, errors, warnings, the available check types, and the resolved command previews. Tenant admins only, as over REST.",
       "experimental": false
     },
     {
@@ -18921,7 +19654,7 @@
     },
     {
       "key": "agents[].runtime",
-      "type": "enum AgentRuntimeEnum (ClaudeCode|Codex|Gemini|Cursor|Mux|OpenCode|ApiEndpoint|Custom)",
+      "type": "enum AgentRuntimeEnum (ClaudeCode|Codex|Gemini|Cursor|Mux|OpenCode|ApiEndpoint|Custom|Pi)",
       "default": "\"ClaudeCode\"",
       "experimental": false,
       "enumName": "AgentRuntimeEnum",
@@ -18933,7 +19666,8 @@
         "Mux",
         "OpenCode",
         "ApiEndpoint",
-        "Custom"
+        "Custom",
+        "Pi"
       ]
     },
     {
@@ -19358,6 +20092,18 @@
       "experimental": false
     },
     {
+      "key": "fleetActions.offline",
+      "type": "bool",
+      "default": "false",
+      "experimental": false
+    },
+    {
+      "key": "fleetActions.offlineHarborIds",
+      "type": "array<string>",
+      "default": "[]",
+      "experimental": false
+    },
+    {
       "key": "fleetActions.runRetentionDays",
       "type": "int",
       "default": "30",
@@ -19367,6 +20113,12 @@
       "key": "gitHubToken",
       "type": "string",
       "default": "null",
+      "experimental": false
+    },
+    {
+      "key": "handoffBudgetTokens",
+      "type": "int",
+      "default": "4000",
       "experimental": false
     },
     {
@@ -20091,6 +20843,12 @@
       "experimental": false
     },
     {
+      "key": "stageCheckConcurrencyPerHarbor",
+      "type": "int",
+      "default": "1",
+      "experimental": false
+    },
+    {
       "key": "stageCheckTimeoutMinutes",
       "type": "int",
       "default": "15",
@@ -20196,6 +20954,12 @@
       "key": "terminalBell",
       "type": "bool",
       "default": "true",
+      "experimental": false
+    },
+    {
+      "key": "toolWaitHardLimitMinutes",
+      "type": "int",
+      "default": "60",
       "experimental": false
     },
     {
