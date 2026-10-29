@@ -137,6 +137,15 @@ A new database seeds a default administrator. The Admiral refuses to start on a 
 
 - **Docker:** [docs/DOCKER.md](docs/DOCKER.md)
 - **System startup (systemd, launchd, scheduled task):** [docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md)
+
+Run the Admiral at login with the helper for your platform. Each installer publishes the server and registers it; each updater republishes and restarts it; each health check probes the running server.
+
+| Platform | Install | Update | Health check |
+|---|---|---|---|
+| Linux (systemd user unit) | `scripts/linux/install-systemd-user.sh` | `scripts/linux/update-systemd-user.sh` | `scripts/linux/healthcheck-server.sh` |
+| macOS (launchd agent) | `scripts/macos/install-launchd-agent.sh` | `scripts/macos/update-launchd-agent.sh` | `scripts/macos/healthcheck-server.sh` |
+| Windows (current-user Run entry) | `scripts/windows/install-windows-task.bat` | `scripts/windows/update-windows-task.bat` | `scripts/windows/healthcheck-server.bat` |
+
 - **Remote access and proxy:** [docs/REMOTE_MGMT.md](docs/REMOTE_MGMT.md)
 - **Upgrading an existing server:** [docs/UPGRADING.md](docs/UPGRADING.md)
 
