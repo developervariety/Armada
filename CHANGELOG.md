@@ -9,7 +9,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Review inbox items
 
-- The inbox `review` item and the `approval-needed` WebSocket broadcast list a mission in Review only when its stage requires review, the same rule approve and deny apply. A captain that reports Review as progress on a stage without a review gate no longer produces an "Awaiting your review" item.
+- The inbox `review` item lists a mission in Review only when its stage requires review, the same rule approve and deny apply. A captain that reports Review as progress on a stage without a review gate no longer produces an "Awaiting your review" item.
 
 ### Architect slice Judge acceptance scope
 

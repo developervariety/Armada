@@ -281,7 +281,7 @@ namespace Armada.Server
             if (_WebSocketHub != null)
             {
                 _WebSocketHub.BroadcastMissionChange(mission);
-                if (MissionStateMachine.AwaitsReviewDecision(mission))
+                if (newStatus == MissionStatusEnum.Review)
                     _WebSocketHub.BroadcastApprovalNeeded(mission);
             }
 
