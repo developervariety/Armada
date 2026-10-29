@@ -44,6 +44,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import AskDeleteProgressDialog from '../components/ask/AskDeleteProgressDialog';
 import { ErrorState, LoadingState } from '../components/shared/StateBlocks';
 import ImportWizard from '../components/vessels/import/ImportWizard';
 import AskThreadList from '../components/ask/AskThreadList';
@@ -157,6 +158,13 @@ export default function AskArmada() {
   const [conv, dispatch] = useReducer(conversationReducer, routeThreadId, initialConversation);
   const convRef = useRef(conv);
   convRef.current = conv;
+  // Conversations closed by Mark unread: convRef keeps the old id until the next render, so nothing may mark them read
+  // (socket events, list loads, a load in flight) until the user opens them again.
+  const markedUnreadRef = useRef(new Set<string>());
+  const openThreadId = useCallback((): string | null => {
+    const id = convRef.current.threadId;
+    return id && !markedUnreadRef.current.has(id) ? id : null;
+  }, []);
   const [convLoading, setConvLoading] = useState(false);
   const [convError, setConvError] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -170,6 +178,10 @@ export default function AskArmada() {
   // Dialogs and announcements.
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AskThread | null>(null);
+  // Single delete in flight (or just failed): the progress modal stays up until the server answers. The ref blocks a
+  // second submission before React re-renders.
+  const [deleteProgress, setDeleteProgress] = useState<{ thread: AskThread; error: string } | null>(null);
+  const deletingRef = useRef(false);
   // Bulk delete: the rows ticked in the list, and the confirmation dialog they open.
   const [selectedThreadIds, setSelectedThreadIds] = useState<string[]>([]);
   const [deleteManyOpen, setDeleteManyOpen] = useState(false);
@@ -237,7 +249,7 @@ export default function AskArmada() {
     setListError(null);
     try {
       const result = await enumerateAskThreads({ pageNumber: page, pageSize: THREAD_PAGE_SIZE, search: filterRef.current.search, includeArchived: filterRef.current.includeArchived });
-      const openId = convRef.current.threadId;
+      const openId = openThreadId();
       const incoming = (result.objects || []).map((th) => (th.id === openId ? { ...th, unreadCount: 0 } : th));
       setThreads((prev) => (page === 1 ? incoming : sortThreads([...prev.filter((p) => !incoming.some((i) => i.id === p.id)), ...incoming])));
       setListPage(page);
@@ -247,7 +259,7 @@ export default function AskArmada() {
     } finally {
       setListLoading(false);
     }
-  }, [t]);
+  }, [openThreadId, t]);
 
   useEffect(() => { void loadThreads(1); }, [query, includeArchived, reconnectCount, loadThreads]);
 
@@ -261,6 +273,7 @@ export default function AskArmada() {
 
   const markRead = useCallback((id: string) => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (markedUnreadRef.current.has(id)) return;
     setThreads((prev) => prev.map((th) => (th.id === id && th.unreadCount ? { ...th, unreadCount: 0 } : th)));
     markAskThreadRead(id).catch(() => { /* best effort; the badge resyncs on the next ask.thread */ });
   }, []);
@@ -283,7 +296,7 @@ export default function AskArmada() {
         getAskThread(id),
         enumerateAskMessages(id, { pageSize: MESSAGE_PAGE_SIZE }),
       ]);
-      if (convRef.current.threadId !== id) return;
+      if (openThreadId() !== id) return;
       if (restoringThreadIdRef.current === id) restoringThreadIdRef.current = null;
       if (detail?.thread?.archived && !filterRef.current.includeArchived) forgetLastThread([id]);
       else writeStored(lastThreadKeyRef.current, id);
@@ -305,7 +318,7 @@ export default function AskArmada() {
     } finally {
       if (convRef.current.threadId === id) setConvLoading(false);
     }
-  }, [fetchSnapshots, markRead, navigate, t]);
+  }, [fetchSnapshots, markRead, navigate, openThreadId, t]);
 
   const refreshLatest = useCallback(async (id: string) => {
     try {
@@ -363,6 +376,7 @@ export default function AskArmada() {
     }
     setConvError(null);
     setStopping(false);
+    if (routeThreadId) markedUnreadRef.current.delete(routeThreadId);
     if (routeThreadId) void loadConversation(routeThreadId);
     else setConvLoading(false);
   }, [routeThreadId, loadConversation, saveDraft, draftFor]);
@@ -408,7 +422,7 @@ export default function AskArmada() {
       const event = parseAskEvent(msg);
       if (!event) return;
       setActivity((prev) => applyActivityEvent(prev, event));
-      const openId = convRef.current.threadId;
+      const openId = openThreadId();
 
       if (event.type === 'ask.thread') {
         setThreads((prev) => applyThreadUpdate(prev, event.thread, filterRef.current, openId));
@@ -438,7 +452,7 @@ export default function AskArmada() {
         if (!prior) void refreshDetail(event.threadId);
       }
     });
-  }, [subscribe, markRead, refreshLatest, refreshDetail, t]);
+  }, [subscribe, markRead, openThreadId, refreshLatest, refreshDetail, t]);
 
   // ---------------------------------------------------------------- actions
 
@@ -555,6 +569,7 @@ export default function AskArmada() {
   /** Mark a conversation unread. The open one would be marked read again at once, so it is closed first. */
   async function markThreadUnread(target: AskThread) {
     if (target.id === convRef.current.threadId) {
+      markedUnreadRef.current.add(target.id);
       forgetLastThread([target.id]);
       navigate('/ask', { state: NEW_CONVERSATION_STATE });
     }
@@ -642,19 +657,33 @@ export default function AskArmada() {
     writeStored(THINKING_STORAGE_KEY, value ? 'true' : 'false');
   }
 
-  async function confirmDelete() {
+  function requestDelete(target: AskThread) {
+    if (deletingRef.current) return;
+    setDeleteTarget(target);
+  }
+
+  function confirmDelete() {
     const target = deleteTarget;
     setDeleteTarget(null);
-    if (!target) return;
+    if (target) void runDelete(target);
+  }
+
+  async function runDelete(target: AskThread) {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setDeleteProgress({ thread: target, error: '' });
     try {
       await deleteAskThread(target.id);
       setThreads((prev) => prev.filter((th) => th.id !== target.id));
+      setDeleteProgress(null);
       pushToast('success', t('Conversation deleted.'));
       forgetLastThread([target.id]);
       saveDraft(target.id, '');
       if (target.id === convRef.current.threadId) navigate('/ask', { state: NEW_CONVERSATION_STATE });
     } catch (err: unknown) {
-      setError(errorText(err, t('The conversation could not be deleted.')));
+      setDeleteProgress({ thread: target, error: errorText(err, t('The conversation could not be deleted.')) });
+    } finally {
+      deletingRef.current = false;
     }
   }
 
@@ -774,7 +803,7 @@ export default function AskArmada() {
           onToggleArchive={(th) => void updateThread(th, { archived: !th.archived })}
           onMarkRead={(th) => void markThreadRead(th)}
           onMarkUnread={(th) => void markThreadUnread(th)}
-          onDelete={(th) => setDeleteTarget(th)}
+          onDelete={(th) => requestDelete(th)}
           selectedIds={selectedThreadIds}
           onToggleSelected={toggleSelected}
           onSelectAll={selectAllThreads}
@@ -820,7 +849,7 @@ export default function AskArmada() {
           onSummarize={() => { if (thread) void summarize(thread); }}
           onTogglePin={() => { if (thread) void updateThread(thread, { pinned: !thread.pinned }); }}
           onToggleArchive={() => { if (thread) void updateThread(thread, { archived: !thread.archived }); }}
-          onDelete={() => { if (thread) setDeleteTarget(thread); }}
+          onDelete={() => { if (thread) requestDelete(thread); }}
           onOpenList={() => setDrawerOpen(true)}
           busy={conv.turnActive}
           onCliPolicyChange={(policy) => { if (thread) void changeCliPolicy(thread, policy); }}
@@ -914,7 +943,7 @@ export default function AskArmada() {
         confirmLabel={t('Delete')}
         cancelLabel={t('Cancel')}
         danger
-        onConfirm={() => void confirmDelete()}
+        onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
       <ConfirmDialog
@@ -928,6 +957,12 @@ export default function AskArmada() {
         danger
         onConfirm={() => void confirmDeleteMany()}
         onCancel={() => setDeleteManyOpen(false)}
+      />
+      <AskDeleteProgressDialog
+        open={!!deleteProgress}
+        error={deleteProgress?.error ?? ''}
+        onRetry={() => { if (deleteProgress) void runDelete(deleteProgress.thread); }}
+        onDismiss={() => { if (!deletingRef.current) setDeleteProgress(null); }}
       />
       <ImportWizard open={importOpen} onClose={() => setImportOpen(false)} tenantId={user?.user?.tenantId ?? null} />
     </div>

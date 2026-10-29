@@ -39,7 +39,7 @@ describe('workspace context save', () => {
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const onSaved = jest.fn();
-    render(
+    await render(
       <BuildProviders>
         <WorkspaceContextSheet
           vessel={vessel}
@@ -56,7 +56,7 @@ describe('workspace context save', () => {
 
     const url = String(fetchMock.mock.calls[0][0]);
     const init = fetchMock.mock.calls[0][1] as { method?: string; body?: string };
-    expect(url).toBe('http://example.test/api/v1/vessels/vsl_ctx/context');
+    expect(url).toBe('/api/v1/vessels/vsl_ctx/context');
     expect(init.method).toBe('PATCH');
     expect(JSON.parse(init.body ?? '{}')).toEqual({
       projectContext: 'old project',

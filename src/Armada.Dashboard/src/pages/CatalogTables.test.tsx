@@ -120,7 +120,7 @@ describe('catalog list tables on the shared DataTable', () => {
   it('Playbooks: File and ID locked; the ID is its own column instead of a line under the file name', async () => {
     renderPage(<Playbooks />);
     await screen.findByText('CSHARP_RULES.md');
-    expect(headers()).toEqual(['File', 'ID', 'Description', 'Visibility', 'Status', 'Content', 'Last Updated', 'Actions']);
+    expect(headers()).toEqual(['ID', 'File', 'Description', 'Visibility', 'Status', 'Content', 'Last Updated', 'Actions']);
     expect(screen.getByText('CSHARP_RULES.md').closest('td')).not.toHaveTextContent('pbk_1');
     expectOneLine('pbk_1', 'id');
     await expectChooser(['File', 'ID'], 'Refresh playbooks');

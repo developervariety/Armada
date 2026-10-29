@@ -63,8 +63,6 @@ namespace Test.Shared.Suites.Client
             ["DELETE /api/v1/signals/{id}"] = "Single delete; the dashboard deletes through POST /api/v1/signals/delete/multiple (DeleteSignalsBatchAsync)",
             ["GET /api/v1/credentials/{id}"] = "The dashboard reads credentials from the list",
             ["GET /api/v1/missions/{id}/evaluate-autoland"] = "Auto-land evaluation, also the MCP tool evaluate_autoland; no dashboard function",
-            ["GET /api/v1/signals/recent"] = "Captain-facing feed; the dashboard uses the signal list",
-            ["GET /api/v1/signals/recipient/{captainId}"] = "Captain-facing feed; the dashboard uses the signal list",
             ["GET /api/v1/tenants/{id}"] = "The dashboard reads tenants from the list",
             ["GET /api/v1/token-usage"] = "Raw token-usage records; the dashboard uses the summary (GetTokenUsageAsync)",
             ["GET /api/v1/users/{id}"] = "The dashboard reads users from the list",
@@ -96,8 +94,7 @@ namespace Test.Shared.Suites.Client
             ["POST /api/v1/vessels/delete/multiple"] = "Batch delete not offered by the dashboard (vessels are deleted one at a time)",
             ["POST /api/v1/vessels/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters",
             ["POST /api/v1/voyages/delete/multiple"] = "Batch delete not offered by the dashboard (voyages are purged one at a time)",
-            ["POST /api/v1/voyages/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters",
-            ["POST /api/v1/workflow-profiles/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters"
+            ["POST /api/v1/voyages/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters"
         };
 
         #endregion
@@ -144,8 +141,13 @@ namespace Test.Shared.Suites.Client
 
                 foreach (string route in routes.OrderBy(r => r, StringComparer.Ordinal))
                 {
-                    // A deprecated route keeps working for other callers, but first-party clients use its replacement.
-                    bool listed = _RoutesWithoutClientMethod.ContainsKey(route) || Armada.Core.ApiSurface.DeprecatedSurface.RouteReplacement(route.Split(' ')[0], route.Split(' ')[1]) != null;
+                    // A deprecated route keeps working for other callers, but first-party clients use its replacement. A retired
+                    // route (still in an older baseline until it is regenerated) answers 410, so no client method calls it.
+                    string routeMethod = route.Split(' ')[0];
+                    string routeTemplate = route.Split(' ')[1];
+                    bool listed = _RoutesWithoutClientMethod.ContainsKey(route)
+                        || Armada.Core.ApiSurface.DeprecatedSurface.RouteReplacement(routeMethod, routeTemplate) != null
+                        || Armada.Core.ApiSurface.RetiredSurface.RouteReplacement(routeMethod, routeTemplate) != null;
                     if (!called.Contains(route) && !listed) problems.Append("route without a client method: ").Append(route).Append('\n');
                     if (called.Contains(route) && listed) problems.Append("stale entry (a client method calls it now): ").Append(route).Append('\n');
                 }
@@ -236,15 +238,19 @@ namespace Test.Shared.Suites.Client
             {
                 ApiSurfaceDocument surface = ApiSurfaceFiles.LoadBaseline();
                 List<string> routes = surface.Rest.Select(r => r.Method.ToUpperInvariant() + " " + r.Route).Distinct().ToList();
+                // Deprecated routes still work; retired routes answer 410 Gone. First-party clients may call neither. Retired
+                // routes are matched too, so a call to one is caught even after it leaves the regenerated baseline.
                 HashSet<string> deprecated = new HashSet<string>(Armada.Core.ApiSurface.DeprecatedSurface.Routes(), StringComparer.OrdinalIgnoreCase);
-                AssertTrue(deprecated.Count > 0, "deprecated routes listed");
+                deprecated.UnionWith(Armada.Core.ApiSurface.RetiredSurface.Routes());
+                AssertTrue(deprecated.Count > 0, "deprecated or retired routes listed");
+                routes = routes.Union(Armada.Core.ApiSurface.RetiredSurface.Routes(), StringComparer.Ordinal).ToList();
                 StringBuilder problems = new StringBuilder();
 
                 void Check(string who, string request, bool hasQuery)
                 {
                     string? route = ClientRouteMap.Match(request, routes);
-                    if (route != null && deprecated.Contains(route)) problems.Append(who).Append(" calls deprecated ").Append(route).Append('\n');
-                    // GET /api/v1/jobs without paging returns every job (a deprecated behavior, DEPRECATION.md).
+                    if (route != null && deprecated.Contains(route)) problems.Append(who).Append(" calls deprecated or retired ").Append(route).Append('\n');
+                    // GET /api/v1/jobs without paging returns only the first page; a caller must page explicitly.
                     if (!hasQuery && String.Equals(request, "GET /api/v1/jobs", StringComparison.Ordinal)) problems.Append(who).Append(" lists jobs without paging\n");
                 }
 

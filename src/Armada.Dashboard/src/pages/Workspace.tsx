@@ -54,6 +54,7 @@ import {
   remapWorkspaceStringMap,
   sortWorkspacePathsByDepth,
 } from '../lib/workspace';
+import { PLANNING_PATH } from '../lib/navTargets';
 
 interface PersistedWorkspaceState {
   expandedPaths: Record<string, boolean>;
@@ -694,7 +695,7 @@ export default function Workspace() {
       title: draft.title,
       initialPrompt: draft.prompt,
     };
-    navigate('/planning', { state });
+    navigate(PLANNING_PATH, { state });
   }
 
   function handleDispatchSelection() {

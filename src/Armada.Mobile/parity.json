@@ -19,7 +19,7 @@
       "kind": "route",
       "key": "/activity",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/activity.tsx",
+      "mobile": "src/app/(app)/(work)/activity.tsx",
       "workstream": "W4.3",
       "notes": ""
     },
@@ -133,7 +133,7 @@
       "status": "implemented",
       "mobile": "src/app/(app)/(more)/cli-permissions.tsx",
       "workstream": "W4.4",
-      "notes": ""
+      "notes": "CliPermissionsRedirect (navigation/legacyRedirects): to /server?tab=cli-permissions, the old ?tab= becomes ?section=, ?request= and other params kept"
     },
     {
       "kind": "route",
@@ -227,7 +227,7 @@
       "kind": "route",
       "key": "/events",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/events/index.tsx",
+      "mobile": "src/app/(app)/(work)/events/index.tsx",
       "workstream": "W0.5",
       "notes": "redirect to /activity?source=events"
     },
@@ -235,7 +235,7 @@
       "kind": "route",
       "key": "/events/:id",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/events/[id].tsx",
+      "mobile": "src/app/(app)/(work)/events/[id].tsx",
       "workstream": "W2.4",
       "notes": "EventDetail"
     },
@@ -275,7 +275,7 @@
       "kind": "route",
       "key": "/history",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/history.tsx",
+      "mobile": "src/app/(app)/(work)/history.tsx",
       "workstream": "W0.5",
       "notes": "redirect to /activity?source=history"
     },
@@ -307,9 +307,9 @@
       "kind": "route",
       "key": "/jobs",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/jobs.tsx",
-      "workstream": "W4.3",
-      "notes": ""
+      "mobile": "src/app/(app)/(work)/jobs.tsx",
+      "workstream": "W0.5",
+      "notes": "redirect to /activity?source=jobs (Jobs became an Activity source in the v1.2.0 nav consolidation)"
     },
     {
       "kind": "route",
@@ -349,7 +349,7 @@
       "status": "extension",
       "mobile": "src/app/(app)/(more)/more.tsx",
       "workstream": "W0.5",
-      "notes": "More tab root: CONFIGURATION, ACTIVITY, SYSTEM, and app settings (phone navigation)"
+      "notes": "More tab root: CONFIGURATION, SYSTEM, and app settings (phone navigation)"
     },
     {
       "kind": "route",
@@ -429,7 +429,7 @@
       "status": "implemented",
       "mobile": "src/app/(app)/(work)/planning/index.tsx",
       "workstream": "W3.3",
-      "notes": "PlanningScreen: session list, start session in a sheet, iPad split view; ?new=1 plus prefill params"
+      "notes": "PlanningRedirect (navigation/legacyRedirects): to /dispatch?tab=planning, keeping ?new=1 and the prefill params"
     },
     {
       "kind": "route",
@@ -437,7 +437,7 @@
       "status": "implemented",
       "mobile": "src/app/(app)/(work)/planning/[id].tsx",
       "workstream": "W3.3",
-      "notes": "PlanningSessionScreen: own route on phones, beside the list on tablets; replies have the (i) Turn statistics of the dashboard's ChatMetricsInfo (time to first token, streaming, tokens/sec, tokens, total, tool calls, tool time; shared lib/chatMetrics)"
+      "notes": "PlanningRedirect (navigation/legacyRedirects): to /dispatch?tab=planning&session=:id, keeping ?prompt= and other params"
     },
     {
       "kind": "route",
@@ -539,7 +539,7 @@
       "kind": "route",
       "key": "/requests",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/requests/index.tsx",
+      "mobile": "src/app/(app)/(work)/requests/index.tsx",
       "workstream": "W0.5",
       "notes": "redirect to /activity?source=requests"
     },
@@ -547,7 +547,7 @@
       "kind": "route",
       "key": "/requests/:id",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/requests/[id].tsx",
+      "mobile": "src/app/(app)/(work)/requests/[id].tsx",
       "workstream": "W4.3",
       "notes": ""
     },
@@ -603,7 +603,7 @@
       "kind": "route",
       "key": "/signals",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/signals/index.tsx",
+      "mobile": "src/app/(app)/(work)/signals/index.tsx",
       "workstream": "W0.5",
       "notes": "redirect to /activity?source=signals"
     },
@@ -611,7 +611,7 @@
       "kind": "route",
       "key": "/signals/:id",
       "status": "implemented",
-      "mobile": "src/app/(app)/(more)/signals/[id].tsx",
+      "mobile": "src/app/(app)/(work)/signals/[id].tsx",
       "workstream": "W2.4",
       "notes": "SignalDetail"
     },
@@ -636,8 +636,8 @@
       "key": "/storage",
       "status": "implemented",
       "mobile": "src/app/(app)/(more)/storage.tsx",
-      "workstream": "W4.4",
-      "notes": "Read-only global-administrator storage inventory and explicit bounded collection, using the shared API client."
+      "workstream": "W0.5",
+      "notes": "redirect to /server?tab=storage (Storage became a Settings tab in the v1.2.0 nav consolidation)"
     },
     {
       "kind": "route",
@@ -769,6 +769,14 @@
     },
     {
       "kind": "tab",
+      "key": "Activity:jobs",
+      "status": "implemented",
+      "mobile": "src/screens/activity/JobsScreen.tsx",
+      "workstream": "W4.3",
+      "notes": "JobsScreen embedded: name, kind, status, progress, error, Cancel, full record in a sheet; /jobs redirects here"
+    },
+    {
+      "kind": "tab",
       "key": "Activity:requests",
       "status": "implemented",
       "mobile": "/activity?source=requests",
@@ -811,7 +819,7 @@
       "kind": "tab",
       "key": "CliPermissions:requests",
       "status": "implemented",
-      "mobile": "/cli-permissions?tab=requests",
+      "mobile": "/server?tab=cli-permissions&section=requests",
       "workstream": "W4.4",
       "notes": "Requests"
     },
@@ -819,7 +827,7 @@
       "kind": "tab",
       "key": "CliPermissions:rules",
       "status": "implemented",
-      "mobile": "/cli-permissions?tab=rules",
+      "mobile": "/server?tab=cli-permissions&section=rules",
       "workstream": "W4.4",
       "notes": "Rules"
     },
@@ -969,6 +977,14 @@
     },
     {
       "kind": "tab",
+      "key": "DispatchHub:planning",
+      "status": "implemented",
+      "mobile": "src/screens/planning/PlanningTab.tsx",
+      "workstream": "W3.3",
+      "notes": "PlanningScreen embedded under the hub tabs; ?session= opens a session (own screen on phones, beside the list on tablets); /planning and /planning/:id redirect here"
+    },
+    {
+      "kind": "tab",
       "key": "FleetActions:actions",
       "status": "implemented",
       "mobile": "src/screens/fleetActions/FleetActionsTab.tsx",
@@ -1006,6 +1022,14 @@
       "mobile": "VoyagesList",
       "workstream": "W2.2",
       "notes": "Voyages"
+    },
+    {
+      "kind": "tab",
+      "key": "ServerHub:cli-permissions",
+      "status": "implemented",
+      "mobile": "src/screens/system/CliPermissionsHub.tsx",
+      "workstream": "W4.4",
+      "notes": "CliPermissionsTab: Requests and Rules sub-sections in ?section=, ?request= highlights one request; /cli-permissions redirects here"
     },
     {
       "kind": "tab",
@@ -1833,6 +1857,14 @@
     },
     {
       "kind": "api",
+      "key": "deleteWorkflowProfilesBatch",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.2",
+      "notes": "Workflow Profiles: API-parity batch delete for MCP/SDK callers; neither the dashboard nor mobile has a multi-select delete for profiles"
+    },
+    {
+      "kind": "api",
       "key": "deleteWorkspaceEntry",
       "status": "implemented",
       "mobile": "src/screens/workspace",
@@ -2009,6 +2041,14 @@
     },
     {
       "kind": "api",
+      "key": "enumerateMemories",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.2",
+      "notes": "the Memories tab already pages, filters and searches on the server through listMemories (GET /api/v1/memories takes the same query fields); it has no sortable column headers, the dashboard table uses this enumerate twin"
+    },
+    {
+      "kind": "api",
       "key": "enumerateObjectives",
       "status": "not-applicable",
       "mobile": "",
@@ -2054,6 +2094,14 @@
       "mobile": "src/screens/vessels/import",
       "workstream": "W3.1",
       "notes": "Vessel Import"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateWorkflowProfiles",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.2",
+      "notes": "Workflow Profiles: API-parity filtered enumerate for SDK callers; mobile pages through listWorkflowProfiles as the dashboard does"
     },
     {
       "kind": "api",
@@ -2614,6 +2662,14 @@
       "mobile": "src/screens/vessels",
       "workstream": "W3.1",
       "notes": "Vessels"
+    },
+    {
+      "kind": "api",
+      "key": "getVesselCleanupInventory",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W3.1",
+      "notes": "Vessels | vessel Cleanup (dock, worktree and branch garbage collection) is a dashboard operator workflow; the app does not offer destructive repository cleanup"
     },
     {
       "kind": "api",
@@ -3486,6 +3542,14 @@
       "mobile": "src/screens/fleetActions",
       "workstream": "W3.2",
       "notes": "Fleet Actions"
+    },
+    {
+      "kind": "api",
+      "key": "runVesselCleanup",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W3.1",
+      "notes": "Vessels | vessel Cleanup (dock, worktree and branch garbage collection) is a dashboard operator workflow; the app does not offer destructive repository cleanup"
     },
     {
       "kind": "api",

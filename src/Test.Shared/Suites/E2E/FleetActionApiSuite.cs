@@ -9,6 +9,8 @@ namespace Test.Shared.Suites.E2E
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
+    using Armada.Runtimes.Mcp;
+    using McpToolCallResult = Armada.Runtimes.Mcp.McpToolCallResult;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -173,6 +175,44 @@ namespace Test.Shared.Suites.E2E
                 await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
                 HttpResponseMessage response = await _AdminA!.PostAsync("/api/v1/fleet-action-runs/" + _RunId + "/cancel", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false);
                 AssertStatusCode(HttpStatusCode.Conflict, response);
+            }));
+
+            cases.Add(CaseAsync("typed_inputs_rest_contract", "REST saves input definitions and rejects invalid run inputs with 400", TestTags.Positive, async () =>
+            {
+                await E2EServerFixture.AcquireAsync(this);
+                HttpResponseMessage create = await _AdminA!.PostAsync("/api/v1/fleet-actions", JsonHelper.ToJsonContent(new FleetActionUpsertRequest {
+                    Name = "typed inputs", CommandText = "echo {{input.version}}", CommandWindows = "Write-Output '{{input.version}}'", OutputParser = "npm-audit-json", RequiredTools = new() { "npm" }, RequiresNetwork = true,
+                    Inputs = new() { new() { Name = "version", Type = "semver", Required = true } }
+                }));
+                AssertStatusCode(HttpStatusCode.Created, create);
+                FleetAction action = await JsonHelper.DeserializeAsync<FleetAction>(create);
+                AssertEqual("version", action.Inputs[0].Name); AssertEqual("npm", action.RequiredTools[0]); AssertTrue(action.RequiresNetwork, "requires network");
+                foreach (var values in new[] { new Dictionary<string, string>(), new() { ["version"] = "not-semver" } })
+                {
+                    HttpResponseMessage invalid = await _AdminA.PostAsync("/api/v1/fleet-actions/" + action.Id + "/run", JsonHelper.ToJsonContent(new FleetActionRunRequest { VesselIds = new() { _VesselAId }, InputValues = values }));
+                    AssertStatusCode(HttpStatusCode.BadRequest, invalid);
+                    AssertContains("version", await invalid.Content.ReadAsStringAsync());
+                }
+                HttpResponseMessage valid = await _AdminA.PostAsync("/api/v1/fleet-actions/" + action.Id + "/run", JsonHelper.ToJsonContent(new FleetActionRunRequest { VesselIds = new() { _VesselAId }, InputValues = new() { ["version"] = "1.2.3" } }));
+                AssertStatusCode(HttpStatusCode.Accepted, valid);
+                HttpResponseMessage unknown = await _AdminA.PostAsync("/api/v1/fleet-actions", JsonHelper.ToJsonContent(new FleetActionUpsertRequest { Name = "unknown", CommandText = "{{input.unknown}}" }));
+                AssertStatusCode(HttpStatusCode.BadRequest, unknown);
+            }));
+
+            cases.Add(CaseAsync("typed_inputs_mcp_contract", "MCP create and run preserve action options and validate supplied inputs", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                using McpToolClient client = new("http://127.0.0.1:" + fx.McpPort + "/mcp", null, new Dictionary<string, string> { ["Authorization"] = _AdminA!.DefaultRequestHeaders.Authorization!.ToString() });
+                await client.InitializeAsync();
+                McpToolCallResult create = await client.CallToolResultAsync("create_fleet_action", JsonHelper.Serialize(new { name = "mcp inputs", kind = "Mission", promptTemplate = "Release {{input.version}} {{scan.summary}}", scanSourceActionKey = "scan", inputs = new[] { new { name = "version", type = "semver", required = true } } }));
+                FleetAction action = JsonHelper.Deserialize<FleetAction>(create.Text);
+                AssertEqual("version", action.Inputs[0].Name); AssertEqual("scan", action.ScanSourceActionKey);
+                McpToolCallResult invalid = await client.CallToolResultAsync("run_fleet_action", JsonHelper.Serialize(new { actionId = action.Id, vesselIds = new[] { _VesselAId }, inputValues = new { version = "bad" } }));
+                AssertContains("version", invalid.Text); AssertContains("semantic version", invalid.Text);
+                McpToolCallResult valid = await client.CallToolResultAsync("run_fleet_action", JsonHelper.Serialize(new { actionId = action.Id, vesselIds = new[] { _VesselAId }, inputValues = new { version = "1.2.3" } }));
+                AssertFalse(valid.IsError, "valid MCP run accepted");
+                AssertFalse(valid.Text.Contains("errorCode", StringComparison.OrdinalIgnoreCase), "no contract error");
+                AssertContains("RunId", valid.Text);
             }));
 
             return new TestSuiteDescriptor(

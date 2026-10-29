@@ -54,7 +54,12 @@ namespace Test.Shared.Suites.Tui
                     string page = tab.Split(':')[0];
                     string key = tab.Split(':')[1];
                     RouteMatch m = Router.Resolve(DashboardSource.HubPages[page] + key);
-                    AssertEqual(key, m.Tab?.Key, "TUI hub tab for " + tab);
+                    string? actual = m.Tab?.Key;
+                    // CLI Tool Permissions is a Settings tab whose Requests and Rules are nested sections; its old
+                    // /cli-permissions?tab= links redirect there with the old tab carried as the section.
+                    if (m.Tab?.ScreenName == "CliPermissionsScreen" && m.Query.TryGetValue("section", out string? section))
+                        actual = RouteTable.CliPermissionSections.Find(section)?.Key;
+                    AssertEqual(key, actual, "TUI hub tab for " + tab);
                 }
             }));
 
@@ -62,7 +67,7 @@ namespace Test.Shared.Suites.Tui
             {
                 ParityManifest manifest = Load();
                 List<string> exports = DashboardSource.ApiExports();
-                AssertEqual(355, exports.Count, "server-calling exports");
+                AssertEqual(360, exports.Count, "server-calling exports");
                 Missing(manifest, "api", exports);
                 HashSet<string> methods = new HashSet<string>(typeof(ArmadaClient).GetMethods(BindingFlags.Public | BindingFlags.Instance).Select(m => m.Name), StringComparer.Ordinal);
                 List<string> missing = exports.Where(e => !methods.Contains(Char.ToUpperInvariant(e[0]) + e.Substring(1) + "Async")).ToList();
