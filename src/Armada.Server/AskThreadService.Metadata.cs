@@ -29,5 +29,29 @@ namespace Armada.Server
             return await _Database.AskThreads.UpdateAsync(thread, token).ConfigureAwait(false);
         }
 
+
+        /// <summary>Clear the unread count of an owned thread.</summary>
+        /// <param name="caller">Authenticated human owner.</param>
+        /// <param name="id">Thread identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The owned thread after the change, or null when it is absent.</returns>
+        public async Task<AskThread?> MarkThreadReadAsync(AuthContext caller, string id, CancellationToken token = default)
+        {
+            RequireOwner(caller);
+            if (!await _Database.AskThreads.MarkReadAsync(caller.TenantId!, caller.UserId!, id, token).ConfigureAwait(false)) return null;
+            return await GetThreadAsync(caller, id, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Set the unread count of an owned thread to one.</summary>
+        /// <param name="caller">Authenticated human owner.</param>
+        /// <param name="id">Thread identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The owned thread after the change, or null when it is absent.</returns>
+        public async Task<AskThread?> MarkThreadUnreadAsync(AuthContext caller, string id, CancellationToken token = default)
+        {
+            RequireOwner(caller);
+            if (!await _Database.AskThreads.MarkUnreadAsync(caller.TenantId!, caller.UserId!, id, token).ConfigureAwait(false)) return null;
+            return await GetThreadAsync(caller, id, token).ConfigureAwait(false);
+        }
     }
 }

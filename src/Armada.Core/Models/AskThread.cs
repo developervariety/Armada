@@ -25,5 +25,7 @@ namespace Armada.Core.Models
         public DateTime LastActivityUtc { get; set; } = DateTime.UtcNow;
         /// <summary>Request id for the durable active turn, or null.</summary>
         public string? ActiveTurnId { get; set; } = null;
+        /// <summary>Replies that finished since the owner last opened the thread. Zero when read.</summary>
+        public int UnreadCount { get; set; } = 0;
     }
 }

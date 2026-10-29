@@ -1331,6 +1331,10 @@ export const getAskThread = (id: string) =>
   get<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`);
 export const updateAskThread = (id: string, data: AskThreadUpdateRequest) =>
   put<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`, data);
+export const markAskThreadRead = (id: string) =>
+  post<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}/read`);
+export const markAskThreadUnread = (id: string) =>
+  post<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}/unread`);
 export const listAskTurns = (threadId: string, beforeSequence?: number, pageSize = 100) => {
   const query = new URLSearchParams({ pageSize: String(pageSize) });
   if (beforeSequence !== undefined) query.set('beforeSequence', String(beforeSequence));

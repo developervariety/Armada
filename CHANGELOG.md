@@ -7,6 +7,26 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Ask tool-call cards after a reload
+
+- A saved Ask turn keeps the tool calls the captain made, including the calls made before a failed turn. Reopening or reloading a conversation shows the cards again, and a conversation reopened mid-turn shows the calls made so far. See [saved conversations](docs/ASK_CONVERSATIONS.md#tool-call-cards-unread-replies-and-browser-state).
+
+### Ask unread replies, drafts and list width
+
+- Each saved Ask thread counts the replies that finished since its owner last opened it. `POST /api/v1/ask/threads/{id}/read` and `/unread` clear and set the count, and the Ask sidebar entry shows how many conversations hold unread replies. The Dashboard also keeps one unsent draft per conversation, reopens the conversation last open, and lets the operator drag the conversation list to a new width. Schema migrations 135 (SQLite), 139 (PostgreSQL), 128 (MySQL) and 131 (SQL Server) add the `unread_count` column.
+
+### Ask composer prompt history
+
+- In the Ask message box, ArrowUp with the caret at the start of the text recalls earlier sent prompts, and ArrowDown with the caret at the end walks forward to the draft. History is per browser and holds 100 prompts.
+
+### Ask work-card links
+
+- Work cards in an Ask conversation link to the mission or voyage page, and the parent and rescue mission ids link to their missions.
+
+### Ask recap
+
+- The default `ask.system` prompt asks for a one or two sentence recap of finished and remaining work at the end of a multi-step answer. A built-in row that still holds the earlier default is upgraded; an edited row is kept.
+
 ### Ask recap
 
 - The default `ask.system` prompt asks for a one or two sentence recap of finished and remaining work at the end of a multi-step answer. A built-in row that still holds the earlier default is upgraded; an edited row is kept.

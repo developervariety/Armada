@@ -41,6 +41,7 @@ namespace Test.Shared.Suites.E2E
                 AskThread thread = await JsonHelper.DeserializeAsync<AskThread>(createdResponse).ConfigureAwait(false);
                 AssertStartsWith(Constants.AskThreadIdPrefix, thread.Id);
                 await VerifyOtherOwnersCannotReadAsync(fx, thread.Id).ConfigureAwait(false);
+                await VerifyUnreadRoutesAsync(fx, thread.Id).ConfigureAwait(false);
                 await VerifyTurnAndLegacyRoutesAsync(fx, thread.Id).ConfigureAwait(false);
                 await VerifyMalformedBodiesAsync(fx, thread.Id).ConfigureAwait(false);
             }
@@ -65,6 +66,30 @@ namespace Test.Shared.Suites.E2E
             using (HttpClient missionCaller = AskThreadApiTestClients.CreateBearerClient(fx.BaseUrl, missionToken))
             using (HttpResponseMessage missionRead = await missionCaller.GetAsync("/api/v1/ask/threads/" + threadId).ConfigureAwait(false))
                 AssertEqual(HttpStatusCode.Forbidden, missionRead.StatusCode);
+        }
+
+        private static async Task VerifyUnreadRoutesAsync(E2EServerFixture fx, string threadId)
+        {
+            using (HttpResponseMessage unread = await fx.AuthClient.PostAsync("/api/v1/ask/threads/" + threadId + "/unread", null).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.OK, unread.StatusCode);
+                AssertEqual(1, (await JsonHelper.DeserializeAsync<AskThread>(unread).ConfigureAwait(false)).UnreadCount);
+            }
+            using (HttpClient otherAdmin = await AskThreadApiTestClients.CreateOtherAdminAsync(fx).ConfigureAwait(false))
+            using (HttpResponseMessage foreign = await otherAdmin.PostAsync("/api/v1/ask/threads/" + threadId + "/read", null).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.NotFound, foreign.StatusCode);
+            using (HttpResponseMessage stillUnread = await fx.AuthClient.GetAsync("/api/v1/ask/threads/" + threadId).ConfigureAwait(false))
+                AssertEqual(1, (await JsonHelper.DeserializeAsync<AskThread>(stillUnread).ConfigureAwait(false)).UnreadCount);
+            using (HttpResponseMessage read = await fx.AuthClient.PostAsync("/api/v1/ask/threads/" + threadId + "/read", null).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.OK, read.StatusCode);
+                AssertEqual(0, (await JsonHelper.DeserializeAsync<AskThread>(read).ConfigureAwait(false)).UnreadCount);
+            }
+            using (HttpResponseMessage missing = await fx.AuthClient.PostAsync("/api/v1/ask/threads/ask_missing/read", null).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.NotFound, missing.StatusCode);
+            using (HttpClient regular = await AskThreadApiTestClients.CreateBearerUserAsync(fx, false).ConfigureAwait(false))
+            using (HttpResponseMessage refused = await regular.PostAsync("/api/v1/ask/threads/" + threadId + "/unread", null).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.Forbidden, refused.StatusCode);
         }
 
         private static async Task VerifyTurnAndLegacyRoutesAsync(E2EServerFixture fx, string threadId)

@@ -74,6 +74,20 @@ namespace Armada.Core.Database.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True when this pending active turn was claimed for execution.</returns>
         Task<bool> MarkRunningAsync(string tenantId, string userId, string threadId, string requestId, CancellationToken token = default);
+        /// <summary>Clear the unread count of an owned thread.</summary>
+        /// <param name="tenantId">Tenant id.</param>
+        /// <param name="userId">User id.</param>
+        /// <param name="threadId">Thread id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the owner has this thread.</returns>
+        Task<bool> MarkReadAsync(string tenantId, string userId, string threadId, CancellationToken token = default);
+        /// <summary>Set the unread count of an owned thread to one so the owner finds it again.</summary>
+        /// <param name="tenantId">Tenant id.</param>
+        /// <param name="userId">User id.</param>
+        /// <param name="threadId">Thread id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the owner has this thread.</returns>
+        Task<bool> MarkUnreadAsync(string tenantId, string userId, string threadId, CancellationToken token = default);
         /// <summary>Persist the terminal response and release the matching active turn atomically.</summary>
         /// <param name="tenantId">Tenant id.</param>
         /// <param name="userId">User id.</param>

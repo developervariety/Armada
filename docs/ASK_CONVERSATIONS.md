@@ -37,6 +37,35 @@ an interrupted request produced a reply. Use a new conversation to continue
 while the old request is investigated. There is no automatic retry or history
 purge.
 
+## Tool-call cards, unread replies and browser state
+
+A response keeps the tool calls the captain made (`response.toolCalls`: `id`, `name`,
+`status` of `running`, `success` or `failed`, `arguments`, `result`, `elapsedMs`).
+A failed response keeps the calls made before it failed. Arguments are kept to 4,000
+characters and results to 8,000 characters, and a turn keeps at most 100 calls.
+While a turn runs in this service, `turn.liveToolCalls` lists the calls made so far,
+so a conversation reopened or reloaded mid-turn shows its cards. A turn this service
+did not run, and a turn whose runtime was cancelled, report no live calls. The
+Dashboard replaces a card by its call `id`, so a card never appears twice.
+
+Each thread has an `unreadCount`. The same transaction that stores a turn's outcome
+adds one to it, and a completion the request fence rejects adds nothing.
+`POST .../read` sets it to zero and `POST .../unread` sets it to one. Both routes
+return the thread and apply the same owner scope as the other thread routes. The
+Dashboard reads a conversation when it opens or when a reply finishes in it, marks
+the Ask sidebar entry with the number of conversations that hold unread replies,
+and keeps a conversation marked unread while it stays open.
+
+The Dashboard keeps three more things in the browser only: one unsent draft per
+conversation and the last open conversation (both keyed by the signed-in user), the
+width of the conversation list (drag the splitter, or focus it and use the arrow
+keys, Home, End; Enter or a double click restores the default), and the prompts
+sent from this browser. In the message box, ArrowUp with the caret at the start of
+the text recalls earlier prompts, ArrowDown with the caret at the end walks forward
+to the draft, and modifiers, a selection and IME composition leave the keys alone.
+Work cards link to the mission or voyage page, and a parent or rescue mission id
+links to its mission.
+
 ## API contracts
 
 The saved-thread API uses these routes:
@@ -50,6 +79,8 @@ The saved-thread API uses these routes:
 | GET | `/api/v1/ask/threads/{id}/turns` | Read stored turns in pages. |
 | POST | `/api/v1/ask/threads/{id}/turns` | Send or replay one request. |
 | GET | `/api/v1/ask/threads/{id}/turns/{turnId}` | Read a stored request. |
+| POST | `/api/v1/ask/threads/{id}/read` | Clear the thread's unread count. |
+| POST | `/api/v1/ask/threads/{id}/unread` | Set the thread's unread count to one. |
 
 Core request and response models define the saved-thread API. The Dashboard uses
 matching typed contracts. Clients must retain the request identifier until they

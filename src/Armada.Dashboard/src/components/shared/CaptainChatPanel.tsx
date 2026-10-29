@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import type { CaptainChatMetrics } from '../../types/models';
 import Markdown from './Markdown';
 import ChatMetricsInfo from './ChatMetricsInfo';
@@ -43,6 +43,8 @@ interface CaptainChatPanelProps {
   inputDisabled?: boolean;
   /** Optional maximum message length for persisted chat services with a bounded request contract. */
   inputMaxLength?: number;
+  /** Key handler for the message box, for example prompt history. */
+  onInputKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
   /** Optional per-turn footer (e.g. Planning's "Open in Dispatch" action) rendered under the bubble. */
   renderTurnFooter?: (turn: ChatTurn, index: number) => ReactNode;
   /** Optional runtime label shown on each tool card (e.g. "ApiEndpoint", "Mux"). */
@@ -80,6 +82,7 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
     inputPlaceholder,
     inputDisabled,
     inputMaxLength,
+    onInputKeyDown,
     renderTurnFooter,
     windowRef,
     notice,
@@ -226,6 +229,7 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
           onChange={(e) => onInputChange(e.target.value)}
           placeholder={inputPlaceholder ?? t('Message the captain...')}
           maxLength={inputMaxLength}
+          onKeyDown={onInputKeyDown}
           style={{ flex: 1 }}
           disabled={busy || inputDisabled}
         />

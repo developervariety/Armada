@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import AskActionCards from './AskActionCards';
 import { decideAskProposal, listAskProposals, listAskWorkReports } from '../../api/client';
 
@@ -21,7 +22,7 @@ describe('AskActionCards', () => {
   it('shows canonical arguments and sends the stored fingerprint once for a manual decision', async () => {
     vi.mocked(decideAskProposal).mockResolvedValue({ statusCode: 200, proposal: { ...proposal, state: 'Executing' }, message: null });
     vi.mocked(listAskProposals).mockResolvedValueOnce([proposal]).mockResolvedValue([{ ...proposal, state: 'Executing' }]);
-    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
     expect(await screen.findByText(proposal.argumentsJson)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(decideAskProposal).toHaveBeenCalledTimes(1));
@@ -30,7 +31,7 @@ describe('AskActionCards', () => {
   });
 
   it('titles the card with the summary that names the vessel and keeps the saved arguments untouched', async () => {
-    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
     expect(await screen.findByText('Create mission "Repair item" on vessel Harbor Alpha')).toBeTruthy();
     expect(screen.getByText('create_mission')).toBeTruthy();
     expect(screen.getByText(proposal.argumentsJson)).toBeTruthy();
@@ -38,13 +39,13 @@ describe('AskActionCards', () => {
 
   it('falls back to the tool name when a proposal has no summary', async () => {
     vi.mocked(listAskProposals).mockResolvedValue([{ ...proposal, summary: '' }]);
-    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
     expect(await screen.findByText('create_mission')).toBeTruthy();
   });
 
   it('keeps a refused decision visible and does not retry it', async () => {
     vi.mocked(decideAskProposal).mockResolvedValue({ statusCode: 409, proposal, message: 'Fingerprint changed.' });
-    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Fingerprint changed.');
     expect(decideAskProposal).toHaveBeenCalledTimes(1);
@@ -54,7 +55,7 @@ describe('AskActionCards', () => {
   it('treats a successful informational decision message as status and refreshes both views', async () => {
     vi.mocked(decideAskProposal).mockResolvedValue({ statusCode: 200, proposal: { ...proposal, state: 'Executing' }, message: 'Job accepted.' });
     vi.mocked(listAskProposals).mockResolvedValueOnce([proposal]).mockResolvedValue([{ ...proposal, state: 'Executing' }]);
-    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
     expect(await screen.findByText('Job accepted.')).toHaveAttribute('role', 'status');
     await waitFor(() => expect(listAskWorkReports).toHaveBeenCalledTimes(2));
@@ -64,7 +65,7 @@ describe('AskActionCards', () => {
 
   it.each(['Executing', 'Uncertain'] as const)('does not offer approval or retry for %s', async (state) => {
     vi.mocked(listAskProposals).mockResolvedValue([{ ...proposal, state }]);
-    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
     expect(await screen.findByRole('status')).toHaveTextContent('will not retry');
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
@@ -77,7 +78,7 @@ describe('AskActionCards', () => {
       parentMissionId: null, rescueMissionId: null, producedWork: false, delivered: false,
       summary: 'The accepted job completed.', updatedUtc: null,
     }]);
-    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
     expect(await screen.findByText(/Job: Succeeded/)).toBeTruthy();
     expect(screen.queryByText('The job outcome is unknown. Armada will not retry it automatically.')).toBeNull();
   });
@@ -92,13 +93,29 @@ describe('AskActionCards', () => {
         parentMissionId: 'm1', rescueMissionId: 'm2', producedWork: true, delivered: false,
         summary: 'Changes exist in the dock.', updatedUtc: null,
       }]));
-    const view = render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
-    view.rerender(<AskActionCards threadId="thread-b" busy={false} t={t} />);
+    const view = render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
+    view.rerender(<MemoryRouter><AskActionCards threadId="thread-b" busy={false} t={t} /></MemoryRouter>);
     expect(await screen.findByText('Work was produced; delivery is not confirmed.')).toBeTruthy();
     release?.([]);
     await waitFor(() => expect(screen.getByText('Rescue')).toBeTruthy());
-    expect(screen.getByText('Parent mission: m1')).toBeTruthy();
-    expect(screen.getByText('Rescue mission: m2')).toBeTruthy();
+    expect(screen.getByText('Parent mission:', { exact: false })).toHaveTextContent('Parent mission: m1');
+    expect(screen.getByText('Rescue mission:', { exact: false })).toHaveTextContent('Rescue mission: m2');
     expect(screen.getByText(/LandingFailed/)).toBeTruthy();
+  });
+
+  it('links work cards to the mission and voyage pages and the parent and rescue ids to their missions', async () => {
+    vi.mocked(listAskProposals).mockResolvedValue([]);
+    const base = { deliveryState: 'Observed', parentMissionId: null, rescueMissionId: null, producedWork: false, delivered: false, summary: 's', updatedUtc: null };
+    vi.mocked(listAskWorkReports).mockResolvedValue([
+      { ...base, kind: 'Mission', id: 'msn_1', title: 'Mission work', status: 'Completed', parentMissionId: 'msn_0', rescueMissionId: 'msn_2' },
+      { ...base, kind: 'Voyage', id: 'vyg_1', title: 'Voyage work', status: 'Running' },
+      { ...base, kind: 'Job', id: 'job_1', title: 'Job work', status: 'Running' },
+    ]);
+    render(<MemoryRouter><AskActionCards threadId="thread-a" busy={false} t={t} /></MemoryRouter>);
+    expect(await screen.findByRole('link', { name: 'Mission work' })).toHaveAttribute('href', '/missions/msn_1');
+    expect(screen.getByRole('link', { name: 'Voyage work' })).toHaveAttribute('href', '/voyages/vyg_1');
+    expect(screen.getByRole('link', { name: 'msn_0' })).toHaveAttribute('href', '/missions/msn_0');
+    expect(screen.getByRole('link', { name: 'msn_2' })).toHaveAttribute('href', '/missions/msn_2');
+    expect(screen.queryByRole('link', { name: 'Job work' })).toBeNull();
   });
 });

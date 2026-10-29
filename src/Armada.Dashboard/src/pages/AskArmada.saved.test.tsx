@@ -2,13 +2,13 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import AskArmada from './AskArmada';
-import { createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAskThreads, listAskTurns, listCaptains, sendAskTurn, updateAskThread } from '../api/client';
+import { createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAskThreads, listAskTurns, listCaptains, markAskThreadRead, markAskThreadUnread, sendAskTurn, updateAskThread } from '../api/client';
 import type { AskThread, AskTurn, Captain, CaptainChatMetrics, CaptainToolAccessResult } from '../types/models';
 import type { ChatTurn } from '../components/shared/CaptainChatPanel';
 
 vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   createAskThread: vi.fn(), getAskThread: vi.fn(), getAskTurn: vi.fn(), getCaptainAskTools: vi.fn(),
-  listAskThreads: vi.fn(), listAskTurns: vi.fn(), listCaptains: vi.fn(), sendAskTurn: vi.fn(), updateAskThread: vi.fn(),
+  listAskThreads: vi.fn(), listAskTurns: vi.fn(), listCaptains: vi.fn(), markAskThreadRead: vi.fn(), markAskThreadUnread: vi.fn(), sendAskTurn: vi.fn(), updateAskThread: vi.fn(),
 }));
 vi.mock('../context/LocaleContext', () => {
   const context = { t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v };
@@ -35,7 +35,7 @@ interface MockPanelProps {
 }
 
 const captain = { id: 'cpt_test', name: 'Test captain', runtime: 'ClaudeCode', model: 'test' } as Captain;
-const thread: AskThread = { id: 'ath_test', tenantId: 'ten_test', userId: 'usr_test', title: 'Fleet status', captainId: captain.id, pinned: false, archived: false, createdUtc: '', lastActivityUtc: '', activeTurnId: null };
+const thread: AskThread = { id: 'ath_test', tenantId: 'ten_test', userId: 'usr_test', title: 'Fleet status', captainId: captain.id, pinned: false, archived: false, createdUtc: '', lastActivityUtc: '', activeTurnId: null, unreadCount: 0 };
 const metrics: CaptainChatMetrics = { timeToFirstTokenMs: 10, streamingMs: 20, totalMs: 30, promptTokens: 4, completionTokens: 5, totalTokens: 9, tokensPerSecond: 2 };
 const page = { success: true, pageNumber: 1, pageSize: 100, totalPages: 1, totalRecords: 1, totalMs: 1, objects: [captain] };
 const turn: AskTurn = { threadId: thread.id, requestId: 'ask_req_1', sequence: 1, captainId: captain.id, content: 'Which captains are stalled?', showThinking: false, state: 'Completed', response: { success: true, reply: 'No captains are stalled.', model: 'test', metrics, error: null, thinking: 'I checked.' }, createdUtc: '', completedUtc: '' };
@@ -74,7 +74,7 @@ function setup() {
 }
 
 describe('Ask Armada saved conversations', () => {
-  beforeEach(() => { vi.clearAllMocks(); setup(); });
+  beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); setup(); });
 
   it('loads saved turns and keeps thread metadata edits in the service', async () => {
     await renderSavedPage();
@@ -214,5 +214,54 @@ describe('Ask Armada saved conversations', () => {
     fireEvent.click(retry);
     await waitFor(() => expect(sendAskTurn).toHaveBeenCalledTimes(2));
     expect(vi.mocked(sendAskTurn).mock.calls[1][1].requestId).toBe(requestId);
+  });
+
+  it('keeps one unsent draft per conversation and reopens the conversation last open', async () => {
+    vi.mocked(listAskThreads).mockResolvedValue([thread, secondThread] as never);
+    vi.mocked(getAskThread).mockImplementation(async (id: string) => (id === secondThread.id ? secondThread : thread) as never);
+    vi.mocked(listAskTurns).mockResolvedValue([] as never);
+    const first = renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Saved conversations' }));
+    fireEvent.change(await screen.findByLabelText('Message'), { target: { value: 'draft for the first' } });
+    fireEvent.click(screen.getByText(secondThread.title));
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(''));
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'draft for the second' } });
+    fireEvent.click(screen.getByText(thread.title));
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('draft for the first'));
+    fireEvent.click(screen.getByText(secondThread.title));
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('draft for the second'));
+
+    first.unmount();
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Saved conversations' }));
+    await waitFor(() => expect(getAskThread).toHaveBeenLastCalledWith(secondThread.id));
+    expect(await screen.findByLabelText('Message')).toHaveValue('draft for the second');
+  });
+
+  it('reads a conversation when it opens, and a conversation marked unread stays unread while it is open', async () => {
+    const unread = { ...thread, unreadCount: 2 };
+    vi.mocked(listAskThreads).mockResolvedValue([unread] as never);
+    vi.mocked(getAskThread).mockResolvedValue(unread as never);
+    vi.mocked(listAskTurns).mockResolvedValue([] as never);
+    vi.mocked(markAskThreadRead).mockResolvedValue({ ...thread, unreadCount: 0 } as never);
+    vi.mocked(markAskThreadUnread).mockResolvedValue({ ...thread, unreadCount: 1 } as never);
+    await renderSavedPage();
+    await waitFor(() => expect(markAskThreadRead).toHaveBeenCalledWith(thread.id));
+    expect(await screen.findByLabelText('Mark conversation unread')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Mark conversation unread'));
+    await waitFor(() => expect(markAskThreadUnread).toHaveBeenCalledWith(thread.id));
+    expect(await screen.findByLabelText('Unread reply')).toBeInTheDocument();
+
+    // A reply that finishes in the open conversation leaves it unread.
+    vi.mocked(getAskThread).mockResolvedValue({ ...thread, unreadCount: 1 } as never);
+    vi.mocked(sendAskTurn).mockResolvedValue({ statusCode: 200, turn, message: null } as never);
+    const threadReads = vi.mocked(getAskThread).mock.calls.length;
+    fireEvent.change(await screen.findByLabelText('Message'), { target: { value: 'Another question' } });
+    fireEvent.click(screen.getByText('Send'));
+    await screen.findByText('No captains are stalled.');
+    await waitFor(() => expect(vi.mocked(getAskThread).mock.calls.length).toBeGreaterThan(threadReads));
+    await act(async () => { await Promise.resolve(); });
+    expect(markAskThreadRead).toHaveBeenCalledTimes(1);
   });
 });

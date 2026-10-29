@@ -26,7 +26,7 @@ namespace Test.Shared.Suites.Database
                     AssertTrue(await database.AskThreads.MarkRunningAsync(thread.TenantId, thread.UserId, thread.Id, requestId).ConfigureAwait(false));
                     CaptainChatResponse response = index == 4
                         ? new CaptainChatResponse { Success = false, Error = "failed" }
-                        : new CaptainChatResponse { Success = true, Reply = "Answer " + index, Model = "test-model", Thinking = "trace", Metrics = new CaptainChatMetrics { PromptTokens = 20 + index, TotalMs = 5.5 } };
+                        : new CaptainChatResponse { Success = true, Reply = "Answer " + index, Model = "test-model", Thinking = "trace", ToolCalls = new List<ChatToolCall> { new ChatToolCall { Id = "call-" + index, Name = "read", Status = "success", Arguments = "{\"path\":\"a\"}", Result = "ok", ElapsedMs = 12 } }, Metrics = new CaptainChatMetrics { PromptTokens = 20 + index, TotalMs = 5.5 } };
                     AssertTrue(await database.AskThreads.CompleteTurnAsync(thread.TenantId, thread.UserId, thread.Id, requestId, response).ConfigureAwait(false));
                 }
 
@@ -48,6 +48,11 @@ namespace Test.Shared.Suites.Database
                 AssertEqual("Answer 3", history[1].Response!.Reply);
                 AssertEqual("test-model", history[1].Response.Model);
                 AssertEqual("trace", history[1].Response.Thinking);
+                AssertEqual(1, history[1].Response.ToolCalls.Count);
+                AssertEqual("call-3", history[1].Response.ToolCalls[0].Id);
+                AssertEqual("success", history[1].Response.ToolCalls[0].Status);
+                AssertEqual("{\"path\":\"a\"}", history[1].Response.ToolCalls[0].Arguments);
+                AssertEqual(12.0, history[1].Response.ToolCalls[0].ElapsedMs!.Value);
                 AssertEqual(23, history[1].Response.Metrics.PromptTokens);
                 AssertEqual(5.5, history[1].Response.Metrics.TotalMs);
             }
@@ -70,6 +75,42 @@ namespace Test.Shared.Suites.Database
                 AskTurnReservation third = await database.AskThreads.TryReserveTurnAsync(thread.TenantId, thread.UserId, NewTurn(thread.Id, "turn-third")).ConfigureAwait(false);
                 AssertEqual(AskTurnReservationResultEnum.ThreadBusy, third.Result);
                 AssertEqual("turn-second", third.Turn!.RequestId);
+            }
+        }
+
+        private static async Task UnreadLifecycleAsync()
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+            {
+                DatabaseDriver database = testDb.Driver;
+                AskThread thread = NewThread();
+                await database.AskThreads.CreateAsync(thread).ConfigureAwait(false);
+                AssertEqual(0, (await database.AskThreads.ReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false))!.UnreadCount);
+
+                await database.AskThreads.TryReserveTurnAsync(thread.TenantId, thread.UserId, NewTurn(thread.Id, "unread-first")).ConfigureAwait(false);
+                AssertTrue(await database.AskThreads.CompleteTurnAsync(thread.TenantId, thread.UserId, thread.Id, "unread-first", new CaptainChatResponse { Success = true, Reply = "one" }).ConfigureAwait(false));
+                AssertEqual(1, (await database.AskThreads.ReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false))!.UnreadCount);
+
+                // A completion the request fence rejects is not a new reply.
+                AssertFalse(await database.AskThreads.CompleteTurnAsync(thread.TenantId, thread.UserId, thread.Id, "unread-first", new CaptainChatResponse { Success = true, Reply = "replay" }).ConfigureAwait(false));
+                AssertEqual(1, (await database.AskThreads.ReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false))!.UnreadCount);
+
+                await database.AskThreads.TryReserveTurnAsync(thread.TenantId, thread.UserId, NewTurn(thread.Id, "unread-second")).ConfigureAwait(false);
+                AssertTrue(await database.AskThreads.CompleteTurnAsync(thread.TenantId, thread.UserId, thread.Id, "unread-second", new CaptainChatResponse { Success = false, Error = "failed" }).ConfigureAwait(false));
+                AssertEqual(2, (await database.AskThreads.ReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false))!.UnreadCount);
+
+                AssertFalse(await database.AskThreads.MarkReadAsync(thread.TenantId, "usr_other", thread.Id).ConfigureAwait(false));
+                AssertEqual(2, (await database.AskThreads.ReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false))!.UnreadCount);
+                AssertTrue(await database.AskThreads.MarkReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false));
+                AssertEqual(0, (await database.AskThreads.ReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false))!.UnreadCount);
+                AssertTrue(await database.AskThreads.MarkUnreadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false));
+                AssertEqual(1, (await database.AskThreads.ReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false))!.UnreadCount);
+                AssertFalse(await database.AskThreads.MarkUnreadAsync(thread.TenantId, thread.UserId, "ask_missing").ConfigureAwait(false));
+
+                // Metadata edits leave the unread count alone.
+                thread.Title = "Renamed";
+                await database.AskThreads.UpdateAsync(thread).ConfigureAwait(false);
+                AssertEqual(1, (await database.AskThreads.ReadAsync(thread.TenantId, thread.UserId, thread.Id).ConfigureAwait(false))!.UnreadCount);
             }
         }
     }

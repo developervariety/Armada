@@ -24,7 +24,10 @@ namespace Test.Shared.Suites.Services
                 Case("new_turn_after_completed_fence_is_not_stranded_by_runtime_cleanup", CompletionFenceWindowAsync),
                 Case("human_owner_scope_is_required_before_runtime", OwnerAsync),
                 Case("failed_response_is_saved_and_replayed", FailureAsync),
-                Case("orphan_pending_turn_remains_fenced_after_recreation", RecoveryAsync)
+                Case("orphan_pending_turn_remains_fenced_after_recreation", RecoveryAsync),
+                Case("tool_calls_are_saved_with_the_turn_and_survive_a_failed_turn", ToolCallsSavedAsync),
+                Case("running_turn_reports_the_tool_calls_made_so_far", ToolCallsLiveAsync),
+                Case("finished_reply_is_unread_until_the_owner_reads_it", UnreadAsync)
             });
         }
 

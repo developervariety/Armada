@@ -1,6 +1,8 @@
 namespace Armada.Server
 {
     using System;
+    using System.Collections.Concurrent;
+    using System.Collections.Generic;
     using System.IO;
     using System.Text;
     using System.Text.Json;
@@ -37,6 +39,7 @@ namespace Armada.Server
         private readonly string _Header = "[CaptainChatService] ";
         private readonly ArmadaSettings _Settings;
         private readonly ISessionTokenService? _SessionTokens;
+        private readonly ConcurrentDictionary<string, ChatToolCallRecorder> _LiveToolCalls = new ConcurrentDictionary<string, ChatToolCallRecorder>(StringComparer.Ordinal);
 
         // A chat turn spawns a real agent process; bound how long we wait and how much stdout we retain.
         private const int _DefaultTimeoutMs = 300000;
@@ -126,6 +129,17 @@ namespace Armada.Server
         }
 
         private async Task<CaptainChatResponse> ChatWithScopeAsync(AuthContext? caller, string captainId, CaptainChatRequest request, Armada.Server.WebSocket.WebSocketDeliveryScope? liveScope, AskTurn? savedTurn, CancellationToken token)
+        {
+            ChatToolCallRecorder toolRecorder = new ChatToolCallRecorder();
+            // A saved turn publishes its recorder so a reader can see the calls of a turn that is still running.
+            if (savedTurn != null) _LiveToolCalls[LiveToolCallKey(savedTurn.ThreadId, savedTurn.RequestId)] = toolRecorder;
+            CaptainChatResponse response = await RunChatTurnAsync(caller, captainId, request, liveScope, savedTurn, toolRecorder, token).ConfigureAwait(false);
+            // A failed turn keeps the calls it made before it failed.
+            if (response.ToolCalls.Count == 0) response.ToolCalls = toolRecorder.Snapshot();
+            return response;
+        }
+
+        private async Task<CaptainChatResponse> RunChatTurnAsync(AuthContext? caller, string captainId, CaptainChatRequest request, Armada.Server.WebSocket.WebSocketDeliveryScope? liveScope, AskTurn? savedTurn, ChatToolCallRecorder toolRecorder, CancellationToken token)
         {
             Armada.Server.WebSocket.WebSocketDeliveryScope turnScope = liveScope ?? (caller == null || !caller.IsAuthenticated
                 ? Armada.Server.WebSocket.WebSocketDeliveryScope.AdminOnly
@@ -378,6 +392,7 @@ namespace Armada.Server
                                     string? toolId = proposed.TryGetProperty("id", out JsonElement propId) && propId.ValueKind == JsonValueKind.String ? propId.GetString() : null;
                                     string? toolName = proposed.TryGetProperty("name", out JsonElement pnm) && pnm.ValueKind == JsonValueKind.String ? pnm.GetString() : null;
                                     string? argsJson = proposed.TryGetProperty("arguments", out JsonElement parg) ? Truncate(parg.GetRawText(), 4000) : null;
+                                    toolRecorder.Record("started", toolId, toolName, argsJson, null, null, null);
                                     EmitTool(turnId, turnScope, new { turnId, phase = "started", id = toolId, name = toolName, arguments = argsJson });
                                 }
                                 else if (eventType == "tool_call_completed")
@@ -394,6 +409,7 @@ namespace Armada.Server
                                         JsonElement resultBody = res.TryGetProperty("content", out JsonElement content) ? content : res;
                                         resultJson = Truncate(resultBody.GetRawText(), 16000);
                                     }
+                                    toolRecorder.Record("completed", toolId, toolName, null, ok, elapsedMs, resultJson);
                                     EmitTool(turnId, turnScope, new { turnId, phase = "completed", id = toolId, name = toolName, ok, elapsedMs, result = resultJson });
                                 }
                             }
@@ -415,6 +431,7 @@ namespace Armada.Server
                         {
                             ChatToolActivityEvent toolEvent;
                             lock (outputLock) toolEvent = activityTracker.Next(activity);
+                            toolRecorder.Record(toolEvent.Phase, toolEvent.Id, toolEvent.Name, toolEvent.Arguments, toolEvent.Ok, null, null);
                             EmitTool(turnId, turnScope, new { turnId, phase = toolEvent.Phase, id = toolEvent.Id, name = toolEvent.Name, arguments = toolEvent.Arguments, ok = toolEvent.Ok });
                         }
                         return;

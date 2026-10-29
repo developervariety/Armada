@@ -13,6 +13,7 @@ import NotificationBell from './shared/NotificationBell';
 import CommandPalette from './shared/CommandPalette';
 import { dashboardItem, askArmadaItem, navSections, DEFAULT_EXPANDED_SECTIONS, type NavItem } from './navConfig';
 import { useInboxCount } from '../lib/useInboxCount';
+import { useAskUnreadCount } from '../lib/useAskUnreadCount';
 import { classifyHealth, type HealthStatus } from '../lib/healthStatus';
 
 export default function Layout() {
@@ -23,6 +24,7 @@ export default function Layout() {
   const { connected } = useWebSocket();
   // The inbox route is administrator-only; other roles would receive 403 on every poll.
   const inboxAttention = useInboxCount(isAdmin);
+  const askUnread = useAskUnreadCount(isAdmin);
   const { toasts, dismissToast } = useNotifications();
   const [showWizard, setShowWizard] = useState(false);
   const [wizardHighlights, setWizardHighlights] = useState<string[]>([]);
@@ -308,6 +310,15 @@ export default function Layout() {
           >
             {askArmadaItem.icon}
             <span className="sidebar-label">{t(askArmadaItem.label)}</span>
+            {askUnread > 0 && (
+              <span
+                className="sidebar-nav-badge"
+                title={t('{{count}} conversations have unread replies', { count: askUnread })}
+                aria-label={t('{{count}} conversations have unread replies', { count: askUnread })}
+              >
+                {askUnread > 99 ? '99+' : askUnread}
+              </span>
+            )}
           </NavLink>
 
           {filteredSections.map((section) => (
