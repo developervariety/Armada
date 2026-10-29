@@ -9,13 +9,13 @@ describe('setup wizard landing modes', () => {
 
   it('says Local Merge pushes nothing and Merge and Push needs an origin remote', () => {
     expect(setupLandingModeHint('LocalMerge')).toBe('Finished work is merged into the working directory. Nothing is pushed.');
-    expect(setupLandingModeHint('MergeAndPush')).toBe('Finished work is merged into the working directory and pushed to its origin remote, so the checkout needs one.');
+    expect(setupLandingModeHint('MergeAndPush')).toBe('Finished work is integrated and verified in its dock, then pushed to the target branch. Your checkout is left untouched if it has changes.');
     expect(setupLandingModeHint('Unknown')).toBe(setupLandingModeHint(''));
   });
 
-  it('requires a working directory for both Local Merge and Merge and Push', () => {
+  it('requires a working directory only for Local Merge', () => {
     expect(setupLandingWorkingDirectoryError('LocalMerge', '')).toBe('Local Merge needs a working directory to merge into.');
-    expect(setupLandingWorkingDirectoryError('MergeAndPush', '   ')).toBe('Merge and Push needs a working directory to merge into.');
+    expect(setupLandingWorkingDirectoryError('MergeAndPush', '   ')).toBeNull();
     expect(setupLandingWorkingDirectoryError('MergeAndPush', '/work/svc')).toBeNull();
     expect(setupLandingWorkingDirectoryError('LocalMerge', '/work/svc')).toBeNull();
     for (const mode of ['', 'None', 'PullRequest', 'MergeQueue']) {

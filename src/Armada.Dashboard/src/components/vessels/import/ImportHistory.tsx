@@ -43,13 +43,13 @@ export default function ImportHistory({ onOpen }: ImportHistoryProps) {
 
   const columns: DataTableColumn<VesselImportBatch>[] = [
     {
-      key: 'createdUtc', label: t('Created'), headerTitle: t('When the discovery for this batch was started. Hover a cell for the exact time.'), cellClassName: 'nowrap',
-      cellTitle: (b) => formatDateTime(b.createdUtc), render: (b) => formatRelativeTime(b.createdUtc),
-    },
-    {
       // The batch ID used to be a second line under the date; it is its own one-line column now.
       key: 'id', label: t('ID'), headerTitle: t('Import batch identifier.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (b) => <span className="cell-one-line" title={b.id}>{b.id}</span>,
+    },
+    {
+      key: 'createdUtc', label: t('Created'), headerTitle: t('When the discovery for this batch was started. Hover a cell for the exact time.'), cellClassName: 'nowrap',
+      cellTitle: (b) => formatDateTime(b.createdUtc), render: (b) => formatRelativeTime(b.createdUtc),
     },
     { key: 'status', label: t('Status'), headerTitle: t('Where the batch is: discovering, waiting for review, importing, or finished. Hover a badge for details.'), cellClassName: 'cell-nowrap', render: (b) => <CodeStatusBadge {...batchStatusBadge(t, b.status)} /> },
     {

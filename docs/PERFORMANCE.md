@@ -95,7 +95,7 @@ measured (finished jobs are now pruned after `retention.jobRetentionDays`, defau
 `GET /api/v1/jobs` now accepts `status`, `kind`, `pageNumber`, and `pageSize` and returns one page when any of them is
 present, backed by a paged, filtered query on all four database providers. The indicator asks for
 `status=Queued,Running`, which is 102 bytes when nothing runs. The unparameterized call is unchanged, so existing
-clients keep working; the Jobs page still uses it.
+clients keep working; the Jobs tab of Activity still uses it.
 
 The same full-table read happened server side. `JobService.MaintainAsync` (every health-loop pass) and the vessel
 health service's orphan and last-scheduled lookups loaded the whole jobs table to find a few rows. They now query only
