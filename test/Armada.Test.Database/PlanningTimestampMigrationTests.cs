@@ -21,7 +21,7 @@ namespace Armada.Test.Database
     {
         private const int _ConversionVersion = 114;
         private const int _CreationVersion = 108;
-        private const int _ObjectiveLinkVersion = 141;
+        private const int _ObjectiveLinkVersion = 145;
         private readonly DatabaseSettings _Settings;
         private sealed class StopAfterConversionException : Exception { }
 

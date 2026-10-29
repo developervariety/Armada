@@ -1241,7 +1241,7 @@ $convert$;"),
                 new SchemaMigration(139, "Persist the unread reply count of saved Ask threads",
                     @"ALTER TABLE ask_threads ADD COLUMN IF NOT EXISTS unread_count INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(140, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.PostgresqlStatements),
-                new SchemaMigration(141, "Persist objective links on existing planning sessions",
+                new SchemaMigration(145, "Persist objective links on existing planning sessions",
                     @"ALTER TABLE planning_sessions ADD COLUMN IF NOT EXISTS objective_id TEXT NULL;")
             };
         }
