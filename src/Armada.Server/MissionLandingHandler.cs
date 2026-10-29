@@ -27,6 +27,9 @@ namespace Armada.Server
 
         #endregion
 
+        /// <summary>Optional executor override for local landing checks.</summary>
+        public IHostCommandExecutor? LocalVerificationCommands { get; set; }
+
         #region Private-Members
 
         private string _Header = "[MissionLanding] ";
@@ -205,6 +208,7 @@ namespace Armada.Server
             _Logging.Debug(_Header + "acquiring merge lock for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
             await vesselLock.WaitAsync().ConfigureAwait(false);
 
+            DateTime landingVersion = mission.LastUpdateUtc;
             bool landingSucceeded = false;
             bool landingAttempted = false;
             string? landingFailureReason = null;
@@ -214,7 +218,70 @@ namespace Armada.Server
             {
                 _Logging.Debug(_Header + "merge lock acquired for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
 
-                if (effectivePr)
+                Mission? owner = await _Database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                if (owner == null || owner.Status != MissionStatusEnum.WorkProduced || owner.StartedUtc != mission.StartedUtc || owner.ProcessId != mission.ProcessId)
+                    return;
+                landingVersion = owner.LastUpdateUtc;
+                bool synchronizationFailed = false;
+                if (!landingModeIsNone && vessel != null && (!String.IsNullOrEmpty(targetWorkDir) || effectivePr || landingModeIsMergeQueue)
+                    && await git.BranchExistsAsync(dock.WorktreePath, dock.BranchName).ConfigureAwait(false))
+                {
+                    try
+                    {
+                        bool advanced = await LandingTargetSynchronization.SynchronizeAsync(git, dock.WorktreePath, vessel.DefaultBranch, effectivePush ? null : targetWorkDir).ConfigureAwait(false);
+                        mission.CommitHash = await git.GetHeadCommitHashAsync(dock.WorktreePath).ConfigureAwait(false);
+                        if (effectivePush && !String.IsNullOrEmpty(targetWorkDir))
+                            await git.ValidatePublishedAncestryAsync(dock.WorktreePath!, targetWorkDir, vessel.DefaultBranch, mission.CommitHash!).ConfigureAwait(false);
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, landingVersion, new[] { MissionStatusEnum.WorkProduced }).ConfigureAwait(false)) return;
+                        landingVersion = mission.LastUpdateUtc;
+                        if (advanced)
+                        {
+                            await _Database.Events.CreateAsync(new ArmadaEvent("mission.landing_target_advanced",
+                                "Integrated the current target; landing verifies the resulting commit before publishing.")
+                            {
+                                TenantId = mission.TenantId, UserId = mission.UserId, EntityType = "mission", EntityId = mission.Id,
+                                MissionId = mission.Id, VesselId = mission.VesselId, VoyageId = mission.VoyageId
+                            }).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        synchronizationFailed = true;
+                        landingAttempted = true;
+                        landingFailureReason = "Current-target integration failed: " + ex.Message;
+                        if (ex is GitUnpublishedCommitsException) landingFailureKind = MissionFailureKindEnum.Infra;
+                    }
+                }
+
+                if (!synchronizationFailed && !landingModeIsNone && !landingModeIsMergeQueue)
+                {
+                    try
+                    {
+                        WorkflowProfile? profile = vessel == null ? null : await new WorkflowProfileService(_Database, _Logging)
+                            .ResolveForVesselAsync(new AuthContext { IsAuthenticated = true, IsAdmin = true, TenantId = vessel.TenantId }, vessel).ConfigureAwait(false);
+                        IHostCommandExecutor commands = harborDock ? DockHosts!.ForDock(dock).Commands
+                            : LocalVerificationCommands ?? new LocalHostCommandExecutor();
+                        Harbor? harbor = harborDock ? await _Database.Harbors.ReadAsync(dock.HarborId!).ConfigureAwait(false) : null;
+                        bool windows = harborDock ? FleetActionShellCommandBuilder.IsWindowsPlatform(harbor?.OsPlatform) : OperatingSystem.IsWindows();
+                        mission.CommitHash = await LandingVerification.VerifyAsync(_Database, git, commands, dock.WorktreePath!, windows,
+                            LandingVerification.Commands(profile, vessel), _Settings.StageCheckTimeoutMinutes, mission).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        synchronizationFailed = true;
+                        landingAttempted = true;
+                        landingFailureKind = MissionFailureKindEnum.Infra;
+                        landingFailureReason = "Landing verification refused publication: " + ex.Message;
+                    }
+                }
+
+                Mission? publishOwner = await _Database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                if (publishOwner == null || publishOwner.Status != MissionStatusEnum.WorkProduced || publishOwner.LastUpdateUtc != landingVersion)
+                    return;
+
+                if (synchronizationFailed) { /* Record LandingFailed through the common path below. */ }
+                else if (effectivePr)
                 {
                     // Push + PR flow
                     landingAttempted = true;
@@ -249,14 +316,13 @@ namespace Armada.Server
                             prBody).ConfigureAwait(false);
 
                         mission.PrUrl = prUrl;
-                        await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                         _Logging.Info(_Header + "created PR: " + prUrl);
 
                         // PR created -- transition to PullRequestOpen (not Complete).
                         // Complete is reserved for when the PR is actually merged.
                         mission.Status = MissionStatusEnum.PullRequestOpen;
                         mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, landingVersion, new[] { MissionStatusEnum.WorkProduced }).ConfigureAwait(false)) return;
                         _Logging.Info(_Header + "mission " + mission.Id + " PR created, status set to PullRequestOpen");
 
                         // Emit mission.pull_request_open event
@@ -325,7 +391,7 @@ namespace Armada.Server
                 }
                 else if (!landingModeIsNone
                     && !landingModeIsMergeQueue
-                    && vessel != null && !String.IsNullOrEmpty(targetWorkDir) && !String.IsNullOrEmpty(sourceRepoPath))
+                    && vessel != null && (effectivePush || !String.IsNullOrEmpty(targetWorkDir)) && !String.IsNullOrEmpty(sourceRepoPath))
                 {
                     // Local merge runs for LocalMerge and MergeAndPush. An explicit None (manual landing)
                     // or MergeQueue must never merge into the user's working directory, even when one is configured.
@@ -359,68 +425,36 @@ namespace Armada.Server
 
                     if (!hasChanges)
                     {
-                        // No code changes -- skip merge and mark as complete.
-                        // If the branch still exists, clean it up so successful no-op
-                        // missions do not leak stale local or remote branches.
-                        landingAttempted = true;
-                        landingSucceeded = true;
-                        if (branchExists && !String.IsNullOrEmpty(dock.BranchName))
-                        {
-                            await CleanupMissionBranchAsync(
-                                git,
-                                sourceRepoPath,
-                                targetWorkDir,
-                                dock.BranchName,
-                                cleanupPolicy,
-                                "after successful no-op landing",
-                                dock.WorktreePath).ConfigureAwait(false);
-                        }
+                        // Missing diff/branch information is not proof that the work landed. In particular,
+                        // a stale completion racing a resume can arrive before a diff is available.
+                        // Keep the branch and the mission recoverable instead of reporting a successful merge.
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.CompletedUtc = null;
+                        mission.FailureReason = !branchExists
+                            ? "Landing was not attempted: the source branch could not be confirmed. Work remains unlanded."
+                            : "Landing was not attempted: the mission diff snapshot is unavailable. Work remains unlanded.";
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        _Logging.Warn(_Header + "mission " + mission.Id + " remains WorkProduced: " + mission.FailureReason);
                     }
                     else
                     {
                     // Local merge flow: fetch captain's branch from bare repo and merge into user's working directory
                     landingAttempted = true;
-                    string? pushBlocker = null;
                     try
                     {
-                        // Render merge commit message from template
-                        string? mergeMessage = null;
-                        Dictionary<string, string> mergeContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
-                        mergeMessage = _TemplateService.RenderMergeCommitMessage(_Settings.MessageTemplates, mergeContext);
-
-                        // MergeAndPush: refuse before merging when the checkout's target branch has commits that are not on
-                        // origin (the push would publish them too, or be rejected); a target that is only behind is
-                        // fast-forwarded by the merge itself.
-                        if (effectivePush) pushBlocker = await TargetPushBlockerAsync(git, targetWorkDir, vessel.DefaultBranch).ConfigureAwait(false);
-                        if (pushBlocker != null) throw new InvalidOperationException(pushBlocker);
-
-                        // The checkout is often the user's own: the merge switches it to the target branch and back to
-                        // the branch it was on.
-                        await git.MergeBranchLocalAsync(targetWorkDir, sourceRepoPath, dock.BranchName, vessel.DefaultBranch, mergeMessage).ConfigureAwait(false);
-                        _Logging.Debug(_Header + "merged branch " + dock.BranchName + " into " + targetWorkDir + (harborDock ? " on Harbor " + dock.HarborId : ""));
-
-                        landingSucceeded = true;
-
-                        // Push the merged changes to the remote BEFORE branch cleanup,
-                        // so the branch is preserved for retry if push fails.
                         if (effectivePush)
                         {
-                            try
-                            {
-                                // Push the target branch itself: the checkout may be back on another branch now.
-                                string? checkedOut = await git.GetCurrentBranchAsync(targetWorkDir).ConfigureAwait(false);
-                                if (String.Equals(checkedOut, vessel.DefaultBranch, StringComparison.Ordinal))
-                                    await git.PushBranchAsync(targetWorkDir).ConfigureAwait(false);
-                                else
-                                    await git.PushLocalBranchAsync(targetWorkDir, vessel.DefaultBranch).ConfigureAwait(false);
-                                _Logging.Debug(_Header + "pushed merged " + vessel.DefaultBranch + " from " + targetWorkDir);
-                            }
-                            catch (Exception pushEx)
-                            {
-                                _Logging.Warn(_Header + "local merge succeeded but push failed for mission " + mission.Id + ": " + pushEx.Message);
-                                landingSucceeded = false;
-                                landingFailureReason = "Local merge succeeded but push failed: " + pushEx.Message;
-                            }
+                            // Publish from the isolated mission dock. The developer checkout may be dirty or on another branch.
+                            await git.PushVerifiedCommitAsync(dock.WorktreePath!, mission.CommitHash!, vessel.DefaultBranch).ConfigureAwait(false);
+                            landingSucceeded = true;
+                            if (!String.IsNullOrEmpty(targetWorkDir))
+                                await SyncCheckoutAfterPrMergeAsync(git, targetWorkDir, vessel.DefaultBranch).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await git.FastForwardVerifiedCommitAsync(targetWorkDir!, sourceRepoPath, mission.CommitHash!, vessel.DefaultBranch).ConfigureAwait(false);
+                            landingSucceeded = true;
                         }
 
                         // Only clean up the mission branch after confirmed success (merge + push).
@@ -430,7 +464,7 @@ namespace Armada.Server
                             await CleanupMissionBranchAsync(
                                 git,
                                 sourceRepoPath,
-                                targetWorkDir,
+                                targetWorkDir ?? dock.WorktreePath!,
                                 dock.BranchName,
                                 cleanupPolicy,
                                 "after successful landing",
@@ -449,15 +483,15 @@ namespace Armada.Server
                     {
                         _Logging.Warn(_Header + "error merging locally for mission " + mission.Id + ": " + ex.ToString() + " -- branch " + dock.BranchName + " is still available in the bare repo");
                         landingSucceeded = false;
-                        landingFailureReason = pushBlocker ?? ("Error merging locally: " + ex.Message);
+                        landingFailureReason = "Error " + (effectivePush ? "publishing verified commit" : "merging locally") + ": " + ex.Message;
 
                         // A dirty checkout or unpushed target commits are the operator's to resolve; a rescue mission cannot
                         // fix them, so record them as an environment failure rather than a landing conflict.
-                        if (ex is GitDirtyCheckoutException || pushBlocker != null)
+                        if (ex is GitDirtyCheckoutException)
                         {
                             landingFailureKind = MissionFailureKindEnum.Infra;
                             if (ex is GitDirtyCheckoutException)
-                                landingFailureReason += ". Commit or stash those changes, then retry landing; the branch " + dock.BranchName + " is kept.";
+                                landingFailureReason += ". Resolve those changes, then retry landing; the branch " + dock.BranchName + " is kept.";
                         }
                     }
                     } // end hasChanges else
@@ -516,15 +550,22 @@ namespace Armada.Server
                 _Logging.Debug(_Header + "merge lock released for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
             }
 
+            // The landing operation can outlive cancellation or another owner. Never overwrite its newer state.
+            Mission? latest = await _Database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+            if (latest == null || latest.Status != MissionStatusEnum.WorkProduced || latest.StartedUtc != mission.StartedUtc || latest.LastUpdateUtc != landingVersion)
+                return;
+
             // Transition mission status based on landing result
             if (landingAttempted)
             {
                 if (landingSucceeded)
                 {
                     mission.Status = MissionStatusEnum.Complete;
+                    mission.FailureKind = null;
+                    mission.FailureReason = null;
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, landingVersion, new[] { MissionStatusEnum.WorkProduced }).ConfigureAwait(false)) return;
                     _Logging.Info(_Header + "mission " + mission.Id + " landed successfully, status set to Complete");
 
                     // Emit mission.completed event
@@ -550,7 +591,7 @@ namespace Armada.Server
                     mission.FailureReason = landingFailureReason;
                     mission.FailureKind = landingFailureKind;
                     mission.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, landingVersion, new[] { MissionStatusEnum.WorkProduced }).ConfigureAwait(false)) return;
                     _Logging.Warn(_Header + "mission " + mission.Id + " landing failed, status set to LandingFailed");
 
                     // Emit mission.landing_failed event
@@ -814,41 +855,6 @@ namespace Armada.Server
             {
                 _Logging.Warn(_Header + "error polling/pulling after merge for mission " + missionId + ": " + ex.ToString());
             }
-        }
-
-        /// <summary>
-        /// Why MergeAndPush must not merge into a checkout: its target branch has commits that are not on origin's copy,
-        /// so the push would publish them too, or be rejected as a non-fast-forward after the merge was already made
-        /// locally. Null when landing may go ahead (including when the comparison cannot be made).
-        /// </summary>
-        private async Task<string?> TargetPushBlockerAsync(IGitService git, string targetWorkDir, string targetBranch)
-        {
-            try
-            {
-                await git.FetchRemotesAsync(targetWorkDir).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "could not fetch in " + targetWorkDir + " before landing: " + ex.Message);
-                return null;
-            }
-
-            GitDivergenceCounts? divergence = null;
-            try
-            {
-                divergence = await git.GetDivergenceAsync(targetWorkDir, "refs/remotes/origin/" + targetBranch, "refs/heads/" + targetBranch).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Debug(_Header + "could not compare " + targetBranch + " with origin in " + targetWorkDir + ": " + ex.Message);
-            }
-
-            if (divergence == null || divergence.Ahead <= 0) return null;
-
-            return "Not merged: " + targetBranch + " in " + targetWorkDir + " has " + divergence.Ahead + " commit(s) that are not on origin/" + targetBranch
-                + (divergence.Behind > 0 ? " and is " + divergence.Behind + " commit(s) behind it" : "")
-                + ", so merging and pushing would publish those commits too or be rejected. Push or reconcile " + targetBranch
-                + " in that checkout, then retry the landing.";
         }
 
         /// <summary>

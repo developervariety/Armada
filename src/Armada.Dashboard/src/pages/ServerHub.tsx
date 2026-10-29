@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 const Server = lazy(() => import('./Server'));
 const Storage = lazy(() => import('./Storage'));
+const CliPermissions = lazy(() => import('./CliPermissions'));
 const Doctor = lazy(() => import('./Doctor'));
 const Tenants = lazy(() => import('./admin/Tenants'));
 const Users = lazy(() => import('./admin/Users'));
@@ -15,9 +16,10 @@ function panel(node: ReactNode): ReactNode {
 
 /**
  * Settings hub. System-level administration belongs together: server settings,
- * one-screen Diagnostics (formerly Doctor), and the tenant/user/credential admin
- * surfaces as tabs. The admin tabs are role-gated (client-side UI only; the
- * backend still enforces authorization).
+ * Storage, CLI Tool Permissions, one-screen Diagnostics (formerly Doctor), and
+ * the tenant/user/credential admin surfaces as tabs. The admin tabs are
+ * role-gated (client-side UI only; the backend still enforces authorization).
+ * /storage and /cli-permissions redirect to their tabs.
  */
 export default function ServerHub() {
   const { isAdmin, isTenantAdmin } = useAuth();
@@ -26,6 +28,7 @@ export default function ServerHub() {
   const tabs: TabDef[] = [
     { key: 'server', label: 'Server', tooltip: 'Server settings, version, health, backups, and stopping the Admiral.', render: () => panel(<Server />) },
     { key: 'storage', label: 'Storage', tooltip: 'Inspect storage utilization, database sizes and record counts.', hidden: !isAdmin, render: () => panel(<Storage />) },
+    { key: 'cli-permissions', label: 'CLI Tool Permissions', tooltip: 'Approve or deny CLI tool requests from captains, and manage the allow and deny rules that answer them.', render: () => panel(<CliPermissions />) },
     { key: 'diagnostics', label: 'Diagnostics', tooltip: 'Checks that find configuration and connectivity problems, with how to fix each one.', render: () => panel(<Doctor />) },
     { key: 'tenants', label: 'Tenants', tooltip: 'Organizations on this server. Each tenant\'s data is kept separate from the others.', hidden: !isAdmin, render: () => panel(<Tenants />) },
     { key: 'users', label: 'Users', tooltip: 'People who can sign in, their tenant, and whether they are an admin.', hidden: !admin, render: () => panel(<Users />) },

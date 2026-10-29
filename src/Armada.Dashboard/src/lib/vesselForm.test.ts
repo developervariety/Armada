@@ -21,14 +21,14 @@ describe('getLandingModes', () => {
   it('offers Merge and Push with its own labels', () => {
     const push = findLandingMode(modes, 'MergeAndPush');
     expect(push.value).toBe('MergeAndPush');
-    expect(push.label).toBe('Merge and Push -- local merge, then push to the remote');
+    expect(push.label).toBe('Merge and Push -- verify and push to the remote');
     expect(push.short).toBe('local + push');
-    expect(push.description).toBe("Merges the mission branch into the default branch in your local working directory, then pushes it to the working directory's remote. Requires the vessel to have a working directory and local path configured, and the working directory needs a remote.");
+    expect(push.description).toBe("Integrates and verifies the mission in its dock, then pushes the verified commit to the remote target branch. A dirty working directory does not block publication.");
   });
 
   it('translates every label through t', () => {
     const tagged = getLandingModes((text) => `[${text}]`);
-    expect(findLandingMode(tagged, 'MergeAndPush').label).toBe('[Merge and Push -- local merge, then push to the remote]');
+    expect(findLandingMode(tagged, 'MergeAndPush').label).toBe('[Merge and Push -- verify and push to the remote]');
     expect(findLandingMode(tagged, 'MergeAndPush').short).toBe('[local + push]');
   });
 });

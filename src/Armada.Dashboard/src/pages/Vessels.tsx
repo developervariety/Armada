@@ -6,6 +6,7 @@ import { listVessels, listFleets, listPipelines, createVessel, deleteVessel } fr
 import { useVesselSyncStatus } from '../lib/useVesselSyncStatus';
 import { listAll } from '../api/paging';
 import BranchesModal from '../components/vessels/BranchesModal';
+import VesselCleanupModal from '../components/vessels/VesselCleanupModal';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -60,6 +61,7 @@ export default function Vessels() {
   const [userScope, setUserScope] = useState('');
   const [error, setError] = useState('');
   const [branchesModal, setBranchesModal] = useState<{ vesselId: string; vesselName: string } | null>(null);
+  const [cleanupModal, setCleanupModal] = useState<{ vesselId: string; vesselName: string } | null>(null);
 
   // Modal
   const [showForm, setShowForm] = useState(false);
@@ -218,11 +220,6 @@ export default function Vessels() {
 
   const columns: DataTableColumn<Vessel>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Vessel name. Click to sort; type in the box below to filter.'), cellClassName: 'cell-nowrap',
-      filter: <input type="text" className="col-filter" aria-label={t('Filter vessels by name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} />,
-      render: (v) => <strong>{v.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), headerTitle: t('Vessel ID (vsl_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (v) => (
         <span className="id-display">
@@ -230,6 +227,11 @@ export default function Vessels() {
           <CopyButton text={v.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Vessel name. Click to sort; type in the box below to filter.'), cellClassName: 'cell-nowrap',
+      filter: <input type="text" className="col-filter" aria-label={t('Filter vessels by name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} />,
+      render: (v) => <strong>{v.name}</strong>,
     },
     {
       key: 'fleet', label: t('Fleet'), sortKey: 'fleetId', headerTitle: t('Fleet the vessel belongs to. Click a fleet name to open it; use the box below to show one fleet.'), cellClassName: 'cell-nowrap',
@@ -307,6 +309,7 @@ export default function Vessels() {
         <ActionMenu id={`vessel-${v.id}`} items={[
           { label: 'Dispatch', title: 'Go to Dispatch with this vessel selected, to send a captain a new mission.', onClick: () => navigate('/dispatch', { state: { fromVessel: true, vesselId: v.id } }) },
           { label: 'Manage Branches', title: 'List branches with ahead/behind counts, push a branch, or merge one branch into another.', onClick: () => setBranchesModal({ vesselId: v.id, vesselName: v.name }) },
+          { label: 'Cleanup', title: "Inspect this vessel's docks, worktrees and Armada branches, see which are safe, in use or unknown, and remove safe ones after you confirm. Opening it deletes nothing.", onClick: () => setCleanupModal({ vesselId: v.id, vesselName: v.name }) },
           { label: 'View History', title: 'Open the commit history and activity heatmap for this vessel.', onClick: () => navigate(`/vessels/${v.id}/history`) },
           { label: 'Manage Objectives', title: 'Open the objectives (backlog) filtered to this vessel and its fleet.', onClick: () => manageObjectives(v) },
           { label: 'Manage Fleet', title: 'Open the fleet this vessel belongs to. Unavailable when the vessel has no fleet.', onClick: () => navigate(`/fleets/${v.fleetId}`), disabled: !v.fleetId },
@@ -432,6 +435,14 @@ export default function Vessels() {
         )}
       />
 
+      {cleanupModal && (
+        <VesselCleanupModal
+          vesselId={cleanupModal.vesselId}
+          vesselName={cleanupModal.vesselName}
+          open
+          onClose={() => setCleanupModal(null)}
+        />
+      )}
       {branchesModal && (
         <BranchesModal
           vesselId={branchesModal.vesselId}

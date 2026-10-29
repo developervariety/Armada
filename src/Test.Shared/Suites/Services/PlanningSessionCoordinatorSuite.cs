@@ -98,7 +98,7 @@ namespace Test.Shared.Suites.Services
                             vessel,
                             new PlanningSessionCreateRequest())).ConfigureAwait(false);
 
-                    AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, Mux, and OpenCode runtimes", ex.Message);
+                    AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, and Pi runtimes", ex.Message);
                 }
             }));
 

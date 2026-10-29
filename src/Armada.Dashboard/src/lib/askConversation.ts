@@ -4,10 +4,12 @@ import type {
   AskThread,
   AskThreadDetail,
   AskTrackedWork,
+  AskTurnProgress,
   AskWorkSnapshot,
   CliPermissionRequest,
 } from '../types/models';
 import { applyToolEvent, type ToolEvent } from './toolEvents';
+import { toolCallsToEvents } from './askFormat';
 import type { AskEvent } from './askEvents';
 import { applySnapshotToWork } from './askWork';
 import { mergeCliRequest } from './cliPermissions';
@@ -168,6 +170,56 @@ function emptyStream(turnId: string): StreamingTurn {
   return { turnId, text: '', thinking: '', tools: [], finished: false, finalMessageId: null };
 }
 
+/** Longest overlap searched when joining a snapshot with text streamed after it (chunks arriving during one load). */
+const STREAM_OVERLAP_LIMIT = 4096;
+
+/**
+ * Join text the server had streamed when it took a snapshot with the text this page received over the socket for the
+ * same turn. The socket copy is a contiguous run of chunks that started arriving before the snapshot was requested, so
+ * it either lies inside the snapshot, or overlaps its end and continues past it.
+ */
+export function mergeStreamText(snapshot: string, live: string): string {
+  if (!live) return snapshot;
+  if (!snapshot) return live;
+  if (live.startsWith(snapshot)) return live;
+  if (snapshot.endsWith(live) || snapshot.startsWith(live)) return snapshot;
+  for (let k = Math.min(live.length - 1, snapshot.length, STREAM_OVERLAP_LIMIT); k > 0; k--) {
+    if (snapshot.endsWith(live.slice(0, k))) return snapshot + live.slice(k);
+  }
+  if (snapshot.includes(live)) return snapshot;
+  return snapshot + live;
+}
+
+/** Merge a snapshot's tool calls with the socket's copies (by call id); a finished call never goes back to running. */
+export function mergeStreamTools(snapshot: ToolEvent[], live: ToolEvent[]): ToolEvent[] {
+  const merged = [...snapshot];
+  for (const tool of live) {
+    const idx = merged.findIndex((t) => t.id === tool.id);
+    if (idx === -1) { merged.push(tool); continue; }
+    const prior = merged[idx];
+    if (tool.status === 'running' && prior.status !== 'running') continue;
+    merged[idx] = { ...prior, ...tool, arguments: tool.arguments ?? prior.arguments ?? null, result: tool.result ?? prior.result ?? null, elapsedMs: tool.elapsedMs ?? prior.elapsedMs ?? null };
+  }
+  return merged;
+}
+
+/**
+ * Restore what a running turn streamed before this page was opened (navigating away and back, a reload, a reconnect)
+ * from the server's snapshot, merged with whatever the socket already delivered. Nothing is restored when the reply is
+ * already persisted (its message carries the text and tool calls), so the cards are never shown twice.
+ */
+function hydrateStream(stream: StreamingTurn, progress: AskTurnProgress, messages: AskMessage[]): StreamingTurn {
+  if (progress.turnId !== stream.turnId || stream.finished) return stream;
+  const reply = progress.messageId ? messages.find((m) => m.id === progress.messageId) : undefined;
+  if (reply && ((reply.contentText ?? '').trim() || (reply.toolCalls?.length ?? 0) > 0)) return stream;
+  return {
+    ...stream,
+    text: mergeStreamText(progress.text ?? '', stream.text),
+    thinking: mergeStreamText(progress.thinkingText ?? '', stream.thinking),
+    tools: mergeStreamTools(toolCallsToEvents(progress.toolCalls), stream.tools),
+  };
+}
+
 function isClosedTurn(state: ConversationState, turnId: string | null | undefined): boolean {
   return !!turnId && state.closedTurnIds.includes(turnId);
 }
@@ -202,6 +254,8 @@ export function conversationReducer(state: ConversationState, action: Conversati
         turnActive = !!activeTurn;
         streaming = activeTurn ? (streaming?.turnId === activeTurn ? streaming : emptyStream(activeTurn)) : null;
       }
+      const progress = action.detail.activeTurn;
+      if (streaming && progress?.turnId && !isClosedTurn(state, progress.turnId)) streaming = hydrateStream(streaming, progress, messages);
       return {
         ...state,
         thread,

@@ -233,6 +233,7 @@ namespace Armada.Runtimes
             // isolation is disabled the behavior below is identical to a non-isolated launch.
             Armada.Core.Services.CaptainLaunchIsolationPlan isolationPlan = new Armada.Core.Services.CaptainLaunchIsolationPlan();
             string? perLaunchConfigDirectory = null;
+            List<Armada.Core.Services.IsolationConfigFile> removeAfterExit = new List<Armada.Core.Services.IsolationConfigFile>();
             if (isolateLaunch && mcpPort > 0)
             {
                 string scopedConfigDirectory = Path.Combine(Path.GetTempPath(), "armada", "isolation", (captain?.Id ?? Guid.NewGuid().ToString("N")));
@@ -275,8 +276,11 @@ namespace Armada.Runtimes
                     {
                         string baseDirectory = file.RelativeToWorkingDirectory ? workingDirectory : scopedConfigDirectory;
                         string absolutePath = Path.Combine(baseDirectory, file.RelativePath);
+                        if (file.RelativeToWorkingDirectory && file.ExcludeFromGit)
+                            await ExcludeFromGitAsync(workingDirectory, file.RelativePath, token).ConfigureAwait(false);
                         Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
                         File.WriteAllText(absolutePath, file.Contents);
+                        if (file.RelativeToWorkingDirectory && file.RemoveAfterExit) removeAfterExit.Add(file);
                     }
                     AppendLaunchArguments(args, isolationPlan.ExtraArguments);
                     _Logging.Debug(_Header + (String.IsNullOrEmpty(McpSessionToken) ? "isolated" : "thread-scoped MCP") + " launch for " + RuntimeType + " using scoped config " + scopedConfigDirectory);
@@ -482,6 +486,10 @@ namespace Armada.Runtimes
                     catch (ObjectDisposedException) { }
                     logWriter?.Dispose();
 
+                    // Launch files written into the working directory (pi's .pi/mcp.json) go before the exit is reported, so
+                    // the dock's git status is clean when completion and landing look at it.
+                    RemoveLaunchFiles(workingDirectory, removeAfterExit);
+
                     // Notify subscribers that the process has exited BEFORE disposing.
                     // Disposing first invalidates the PID, which can cause the health check
                     // to race with the exit handler and trigger spurious recovery.
@@ -518,13 +526,17 @@ namespace Armada.Runtimes
                 // "File not found" is reported for a missing executable and for a missing working directory alike; tell
                 // them apart so the caller can say which one (the CLI not installed on this host, or a bad directory).
                 logWriter?.Dispose();
+                RemoveLaunchFiles(workingDirectory, removeAfterExit);
                 if (!Directory.Exists(workingDirectory))
                     throw new DirectoryNotFoundException("The working directory '" + workingDirectory + "' does not exist on this host.", startFailure);
                 throw new Armada.Core.Services.AgentRuntimeNotInstalledException(RuntimeType, command, startFailure);
             }
 
             if (!started)
+            {
+                RemoveLaunchFiles(workingDirectory, removeAfterExit);
                 throw new InvalidOperationException("Failed to start agent process: " + command);
+            }
             launchedPid = process.Id;
 
             try { OnProcessStarted?.Invoke(launchedPid); }
@@ -918,6 +930,65 @@ namespace Armada.Runtimes
 
             try { OnProviderError?.Invoke(processId, error); }
             catch (Exception ex) { _Logging.Warn(_Header + "error in OnProviderError handler for process " + processId + ": " + ex.ToString()); }
+        }
+
+        /// <summary>
+        /// Add a working-directory file to the git exclude file (<c>info/exclude</c>) of the repository the directory
+        /// belongs to, so it is never committed. A directory outside git is left alone. Never throws except on cancellation.
+        /// </summary>
+        /// <param name="workingDirectory">The launch's working directory.</param>
+        /// <param name="relativePath">The file, relative to the working directory.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A task.</returns>
+        protected static async Task ExcludeFromGitAsync(string workingDirectory, string relativePath, CancellationToken token)
+        {
+            try
+            {
+                string? excludePath = Armada.Core.Services.GitExcludeFile.ResolvePath(workingDirectory);
+                if (String.IsNullOrEmpty(excludePath)) return;
+                await Armada.Core.Services.GitExcludeFile.AddEntryAsync(excludePath, "/" + relativePath.Replace('\\', '/'), token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+            }
+        }
+
+        /// <summary>
+        /// Remove the files a launch wrote into its working directory for the CLI's own use (or restore the contents they
+        /// replaced), and their directory when it is then empty and did not exist before. Never throws.
+        /// </summary>
+        /// <param name="workingDirectory">The launch's working directory.</param>
+        /// <param name="files">Files marked <see cref="Armada.Core.Services.IsolationConfigFile.RemoveAfterExit"/>.</param>
+        protected static void RemoveLaunchFiles(string workingDirectory, List<Armada.Core.Services.IsolationConfigFile> files)
+        {
+            if (files == null) return;
+            foreach (Armada.Core.Services.IsolationConfigFile file in files)
+            {
+                try
+                {
+                    string path = Path.Combine(workingDirectory, file.RelativePath);
+                    if (file.OriginalContents != null)
+                    {
+                        File.WriteAllText(path, file.OriginalContents);
+                        continue;
+                    }
+
+                    if (File.Exists(path)) File.Delete(path);
+                    string? directory = Path.GetDirectoryName(path);
+                    if (directory != null
+                        && !String.Equals(Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(workingDirectory).TrimEnd(Path.DirectorySeparatorChar), StringComparison.Ordinal)
+                        && Directory.Exists(directory)
+                        && Directory.GetFileSystemEntries(directory).Length == 0)
+                    {
+                        Directory.Delete(directory);
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            files.Clear();
         }
 
         /// <summary>

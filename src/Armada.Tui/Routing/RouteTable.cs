@@ -23,6 +23,14 @@ namespace Armada.Tui.Routing
         /// </summary>
         public static IReadOnlyList<RouteDefinition> All { get; } = Build();
 
+        /// <summary>
+        /// The sections of Settings, CLI Tool Permissions (query parameter <c>section</c>): pending and past Requests,
+        /// and allow and deny Rules. Mirrors the dashboard's CLI permissions sub-sections.
+        /// </summary>
+        public static HubDefinition CliPermissionSections { get; } = new HubDefinition(TabLinks.SectionParam,
+            new HubTab("requests", "Requests", "CliPermissionRequestsScreen", "W3.3"),
+            new HubTab("rules", "Rules", "CliPermissionRulesScreen", "W3.3"));
+
         #endregion
 
         #region Public-Methods
@@ -47,6 +55,7 @@ namespace Armada.Tui.Routing
 
             HubDefinition dispatch = new HubDefinition("tab",
                 new HubTab("dispatch", "Dispatch", "DispatchScreen", "W3.5"),
+                new HubTab("planning", "Planning", "PlanningScreen", "W3.4"),
                 new HubTab("backlog", "Backlog", "BacklogScreen", "W3.6"));
             HubDefinition vessels = new HubDefinition("tab",
                 new HubTab("vessels", "Vessels", "VesselsScreen", "W4.1"),
@@ -65,7 +74,8 @@ namespace Armada.Tui.Routing
                 new HubTab("requests", "API Requests", "RequestHistoryScreen", "W7.2"),
                 new HubTab("events", "Events", "EventsScreen", "W7.3"),
                 new HubTab("signals", "Signals", "SignalsScreen", "W7.4"),
-                new HubTab("tokens", "Token Usage", "TokenUsageScreen", "W7.5"));
+                new HubTab("tokens", "Token Usage", "TokenUsageScreen", "W7.5"),
+                new HubTab("jobs", "Jobs", "JobsScreen", "W3.11"));
             HubDefinition configuration = new HubDefinition("tab",
                 new HubTab("workflow-profiles", "Workflow Profiles", "WorkflowProfilesScreen", "W6.1"),
                 new HubTab("project-profiles", "Project Profiles", "ProjectProfilesScreen", "W6.2"),
@@ -90,18 +100,16 @@ namespace Armada.Tui.Routing
             HubDefinition server = new HubDefinition("tab",
                 new HubTab("server", "Server", "ServerSettingsScreen", "W7.7"),
                 new HubTab("storage", "Storage", "StorageScreen", "Storage", true, false),
+                new HubTab("cli-permissions", "CLI Tool Permissions", "CliPermissionsScreen", "W3.3"),
                 new HubTab("diagnostics", "Diagnostics", "DiagnosticsScreen", "W7.8"),
                 new HubTab("tenants", "Tenants", "TenantsScreen", "W7.9", true, false),
                 new HubTab("users", "Users", "UsersScreen", "W7.9", false, true),
                 new HubTab("credentials", "Credentials", "CredentialsScreen", "W7.9", false, true));
-            HubDefinition cliPermissions = new HubDefinition("tab",
-                new HubTab("requests", "Requests", "CliPermissionRequestsScreen", "W3.3"),
-                new HubTab("rules", "Rules", "CliPermissionRulesScreen", "W3.3"));
 
             r.Add(Screen("/", "Dashboard", "HomeScreen", "W3.1"));
             r.Add(Redirect("/dashboard", "/"));
-            r.Add(Screen("/planning", "Planning", "PlanningScreen", "W3.4"));
-            r.Add(Screen("/planning/:id", "Planning", "PlanningScreen", "W3.4"));
+            r.Add(Redirect("/planning", TabLinks.PlanningPath));
+            r.Add(Redirect("/planning/:id", TabLinks.PlanningPath + "&" + TabLinks.SessionParam + "=:id"));
             r.Add(Hub("/dispatch", "Dispatch", dispatch));
             r.Add(Redirect("/backlog", "/dispatch?tab=backlog"));
             r.Add(Screen("/backlog/:id", "Backlog Item", "BacklogItemScreen", "W3.6"));
@@ -135,7 +143,7 @@ namespace Armada.Tui.Routing
             r.Add(Screen("/docks/:id", "Dock", "DockScreen", "W4.8"));
             r.Add(Redirect("/merge-queue", "/missions?tab=merge-queue"));
             r.Add(Screen("/merge-queue/:id", "Merge Entry", "MergeEntryScreen", "W3.10"));
-            r.Add(Screen("/jobs", "Jobs", "JobsScreen", "W3.11"));
+            r.Add(Redirect("/jobs", TabLinks.JobsPath));
             r.Add(Hub("/configuration", "Configuration", configuration));
             r.Add(Redirect("/personas", "/configuration?tab=personas"));
             r.Add(Screen("/personas/:name", "Persona", "PersonaScreen", "W6.4"));
@@ -175,11 +183,12 @@ namespace Armada.Tui.Routing
             r.Add(Screen("/api-explorer", "API Explorer", "ApiExplorerScreen", "W7.6"));
             r.Add(Screen("/api-explorer/:operationId", "API Explorer", "ApiExplorerScreen", "W7.6"));
             r.Add(Redirect("/notifications", "/inbox"));
-            r.Add(Hub("/cli-permissions", "CLI Tool Permissions", cliPermissions));
+            r.Add(new RouteDefinition("/cli-permissions", "", "", "", TabLinks.CliPermissionsPath, null, false, null,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["tab"] = TabLinks.SectionParam }));
             r.Add(Redirect("/admin/tenants", "/server?tab=tenants"));
             r.Add(Redirect("/admin/users", "/server?tab=users"));
             r.Add(Redirect("/admin/credentials", "/server?tab=credentials"));
-            r.Add(Screen("/storage", "Storage", "StorageScreen", "Storage"));
+            r.Add(Redirect("/storage", TabLinks.StoragePath));
             r.Add(Hub("/server", "Settings", server));
             r.Add(Redirect("/doctor", "/server?tab=diagnostics"));
             r.Add(Redirect("/settings", "/server"));

@@ -39,7 +39,7 @@ export interface HubScreenProps {
 }
 
 /**
- * A dashboard hub page (Delivery, Configuration, Activity, Settings, CLI Tool Permissions): scrolling tabs with the
+ * A dashboard hub page (Delivery, Configuration, Activity, Settings): scrolling tabs with the
  * active tab in the URL (`?tab=` or `?source=`), so dashboard links and deep links land on the same tab.
  */
 export function HubScreen({ title, tabs, defaultKey, param = 'tab', label, testID }: HubScreenProps) {

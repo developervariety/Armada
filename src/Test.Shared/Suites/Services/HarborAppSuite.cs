@@ -92,6 +92,20 @@ namespace Test.Shared.Suites.Services
                     List<HarborMenuCommandEnum> harborMenu = Commands(HarborMenuLayout.WindowMenu(isMacOS)[0].Children!);
                     AssertEqual(!isMacOS, harborMenu.Contains(HarborMenuCommandEnum.Settings), "Settings in the Harbor menu only without an app menu");
                     AssertEqual(!isMacOS, harborMenu.Contains(HarborMenuCommandEnum.Quit), "Quit in the Harbor menu only without an app menu");
+
+                    List<HarborMenuEntry> harborEntries = HarborMenuLayout.WindowMenu(isMacOS)[0].Children!;
+                    int folderIndex = harborEntries.FindIndex(e => e.Command == HarborMenuCommandEnum.OpenHarborFolder);
+                    AssertTrue(folderIndex >= 0 && folderIndex + 1 < harborEntries.Count, "the Harbor menu has Open Harbor Folder (macOS " + isMacOS + ")");
+                    HarborMenuEntry dashboard = harborEntries[folderIndex + 1];
+                    AssertEqual(HarborMenuCommandEnum.OpenDashboard, dashboard.Command, "Open Dashboard follows Open Harbor Folder in the Harbor menu (macOS " + isMacOS + ")");
+                    AssertEqual("Open Dashboard", dashboard.Header, "the Harbor menu item is labeled Open Dashboard");
+                    AssertEqual(HarborMenuKeyEnum.D, dashboard.Key, "Open Dashboard is Command/Control+D");
+                    AssertEqual(1, entries.Count(e => e.Command == HarborMenuCommandEnum.OpenDashboard), "Open Dashboard appears once in the menu bar (macOS " + isMacOS + ")");
+
+                    List<HarborMenuEntry> viewEntries = Flatten(HarborMenuLayout.WindowMenu(isMacOS).First(e => e.Header == "View").Children!);
+                    AssertFalse(viewEntries.Any(e => e.Command == HarborMenuCommandEnum.OpenDashboard), "the View menu no longer has Open Dashboard (macOS " + isMacOS + ")");
+                    List<HarborMenuEntry> viewTop = HarborMenuLayout.WindowMenu(isMacOS).First(e => e.Header == "View").Children!;
+                    AssertFalse(viewTop[viewTop.Count - 1].IsSeparator, "the View menu does not end with a separator (macOS " + isMacOS + ")");
                 }
 
                 List<HarborMenuEntry> edit = HarborMenuLayout.WindowMenu(true).First(e => e.Header == "Edit").Children!;
