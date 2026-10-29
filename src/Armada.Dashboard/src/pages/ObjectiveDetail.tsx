@@ -81,6 +81,7 @@ import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
 import { refinementSummaryFromEvent } from '../lib/refinementSummary';
 import { mergeSessionDetail, newerOf } from '../lib/liveMerge';
 import { sortByName } from '../lib/sortByName';
+import { PLANNING_PATH, planningHref } from '../lib/navTargets';
 
 /** Fields the backlog editor hydrates. A live event uses this to tell an unsaved edit from the last loaded copy. */
 interface ObjectiveEditorSnapshot {
@@ -965,7 +966,7 @@ export default function ObjectiveDetail() {
               className="btn btn-sm"
               disabled={!primaryVesselId}
               title={actionHelp.planning}
-              onClick={() => navigate('/planning', {
+              onClick={() => navigate(PLANNING_PATH, {
                 state: {
                   fromObjective: true,
                   objectiveId: objective.id,
@@ -1386,7 +1387,7 @@ export default function ObjectiveDetail() {
               {objective.planningSessionIds.length > 0 && (
                 <div>
                   <h4 title={t('Planning sessions started from this item.')}>{t('Planning Sessions')}</h4>
-                  {renderRouteLinks(objective.planningSessionIds, '/planning/')}
+                  {renderRouteLinks(objective.planningSessionIds, (id) => planningHref(id))}
                 </div>
               )}
               {objective.refinementSessionIds.length > 0 && (

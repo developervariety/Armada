@@ -117,6 +117,33 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>getVesselCleanupInventory</c>: GET /api/v1/vessels/{id}/cleanup. Read-only inventory of the vessel's
+        /// docks, orphaned worktrees, and Armada-managed branches, classified Safe, InUse, or Unknown.
+        /// </summary>
+        /// <param name="id">Vessel id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The inventory.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<VesselCleanupInventory?> GetVesselCleanupInventoryAsync(string id, CancellationToken token = default)
+        {
+            return GetAsync<VesselCleanupInventory>($"/api/v1/vessels/{E(id)}/cleanup", ArmadaRequestOptions.WithTimeout(300000), token);
+        }
+
+        /// <summary>
+        /// Dashboard <c>runVesselCleanup</c>: POST /api/v1/vessels/{id}/cleanup. Removes the selected inventory resources
+        /// that are still safe after server-side revalidation.
+        /// </summary>
+        /// <param name="id">Vessel id.</param>
+        /// <param name="keys">Resource keys from the inventory.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Per-item outcomes and the refreshed inventory.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<VesselCleanupResult?> RunVesselCleanupAsync(string id, List<string> keys, CancellationToken token = default)
+        {
+            return PostAsync<VesselCleanupResult>($"/api/v1/vessels/{E(id)}/cleanup", new VesselCleanupRequest { Keys = keys ?? new List<string>() }, ArmadaRequestOptions.WithTimeout(600000), token);
+        }
+
+        /// <summary>
         /// Dashboard <c>getVesselGitStatus</c>: GET /api/v1/vessels/{id}/git-status.
         /// </summary>
         /// <param name="id">Vessel id.</param>

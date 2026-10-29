@@ -132,9 +132,9 @@ export function filterRecentMissions(missions: MissionSummary[], filters: Recent
   });
 }
 
-/** Whether a mission can be restarted from the Home row menu. */
+/** Whether a mission can be restarted (or, when Pending, started) from a row menu; matches the server's restart rule. */
 export function canRestartFromHome(status: string): boolean {
-  return status === 'Failed' || status === 'Cancelled' || status === 'LandingFailed';
+  return status === 'Pending' || status === 'Failed' || status === 'Cancelled' || status === 'LandingFailed';
 }
 
 /** Fleet action runs link from the Home KPI: Pending when nothing runs but some wait, else Running. */

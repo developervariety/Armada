@@ -54,6 +54,22 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("pi_captain_roundtrips", "A Pi captain round-trips its runtime and model", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    Captain captain = new Captain("pi-1", AgentRuntimeEnum.Pi);
+                    captain.Model = "anthropic/claude-opus-4-8";
+                    await db.Captains.CreateAsync(captain);
+                    Captain? read = await db.Captains.ReadAsync(captain.Id);
+
+                    AssertNotNull(read);
+                    AssertEqual(AgentRuntimeEnum.Pi, read!.Runtime);
+                    AssertEqual("anthropic/claude-opus-4-8", read.Model);
+                }
+            }));
+
             cases.Add(CaseAsync("read_async_returns_created_captain", "ReadAsync returns created captain", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

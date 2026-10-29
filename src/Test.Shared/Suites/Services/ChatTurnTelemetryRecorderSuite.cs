@@ -152,6 +152,34 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(m.CostUsd.HasValue && Math.Abs(m.CostUsd.Value - 0.03) < 1e-9, "cost summed");
             }));
 
+            cases.Add(Case("pi_message_end_usage_sums_responses", "pi: each assistant message_end adds its usage and cost; message_update usage and reasoning are not added again", TestTags.Positive, () =>
+            {
+                ChatTurnTelemetryRecorder fixture = new ChatTurnTelemetryRecorder(new ManualMonotonicTimeProvider());
+                foreach (string line in PiStreamFixtures.ToolCalls) AssertTrue(fixture.ObserveLine(AgentRuntimeEnum.Pi, line), "typed pi record");
+                CaptainChatMetrics captured = fixture.Build("DONE", null);
+                AssertEqual(10639, captured.PromptTokens, "input summed over the four responses");
+                AssertEqual(261, captured.CompletionTokens, "output summed over the four responses");
+                AssertTrue(captured.CostUsd.HasValue && Math.Abs(captured.CostUsd.Value - 0.011944) < 1e-9, "cost summed: " + captured.CostUsd);
+                AssertEqual("claude-haiku-4-5-20251001", fixture.Model, "the provider's response model");
+
+                ManualMonotonicTimeProvider clock = new ManualMonotonicTimeProvider();
+                ChatTurnTelemetryRecorder recorder = new ChatTurnTelemetryRecorder(clock);
+                clock.AdvanceMs(100);
+                recorder.ObserveLine(AgentRuntimeEnum.Pi, "{\"type\":\"message_update\",\"usage\":{\"input\":10,\"output\":4,\"cacheRead\":100,\"cacheWrite\":3,\"totalTokens\":117,\"cost\":{\"total\":0.5}},\"assistantMessageEvent\":{\"type\":\"thinking_delta\",\"contentIndex\":0,\"delta\":\"hmm\"}}");
+                recorder.ObserveLine(AgentRuntimeEnum.Pi, "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[],\"usage\":{\"input\":10,\"output\":5,\"reasoning\":2,\"cacheRead\":100,\"cacheWrite\":3,\"totalTokens\":118,\"cost\":{\"total\":0.01}},\"stopReason\":\"toolUse\"}}");
+                clock.AdvanceMs(400);
+                recorder.ObserveLine(AgentRuntimeEnum.Pi, "{\"type\":\"message_update\",\"usage\":{\"input\":20,\"output\":8,\"cacheRead\":200,\"cacheWrite\":0,\"totalTokens\":228,\"cost\":{\"total\":0.5}},\"assistantMessageEvent\":{\"type\":\"text_delta\",\"contentIndex\":0,\"delta\":\"Done\"}}");
+                recorder.ObserveLine(AgentRuntimeEnum.Pi, "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Done\"}],\"usage\":{\"input\":20,\"output\":8,\"cacheRead\":200,\"cacheWrite\":0,\"totalTokens\":228,\"cost\":{\"total\":0.02}},\"stopReason\":\"stop\"}}");
+
+                CaptainChatMetrics m = recorder.Build("Done", null);
+                AssertEqual(100.0, m.TimeToFirstTokenMs, "thinking was the first output");
+                AssertEqual(500.0, m.TimeToFirstTextMs);
+                AssertEqual(333, m.PromptTokens, "10+100+3 + 20+200+0");
+                AssertEqual(300, m.CachedTokens, "cache reads");
+                AssertEqual(13, m.CompletionTokens, "output only: reasoning is already part of it");
+                AssertTrue(m.CostUsd.HasValue && Math.Abs(m.CostUsd.Value - 0.03) < 1e-9, "message_update cost is not summed");
+            }));
+
             cases.Add(Case("mux_context_estimate_not_usage", "Mux: its whole-context token estimate is never taken as the reply's usage", TestTags.Negative, () =>
             {
                 ManualMonotonicTimeProvider clock = new ManualMonotonicTimeProvider();
