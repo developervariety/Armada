@@ -91,6 +91,20 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual(Token, record.Token);
             }));
 
+            cases.Add(Case("pi_launch_writes_project_mcp_json", "pi thread launch sees a .pi/mcp.json bound to ${ARMADA_MCP_TOKEN}, runs with --approve, and the file is gone after exit", async () =>
+            {
+                LaunchRecord? record = await LaunchAsync((LoggingModule logging, string stub) => new PiRuntime(logging) { ExecutablePath = stub }).ConfigureAwait(false);
+                if (record == null) return;
+                AssertTrue(record.Arguments.Contains("--approve"), "expected --approve: " + String.Join(" ", record.Arguments));
+                AssertFalse(String.IsNullOrEmpty(record.PiMcp), "the project file existed during the launch");
+                PiMcpConfigFile pi = JsonSerializer.Deserialize<PiMcpConfigFile>(record.PiMcp)!;
+                AssertEqual("${" + CaptainThreadMcpPlanner.TokenEnvironmentVariable + "}", pi.McpServers!["armada"].Headers!["X-Token"]);
+                AssertFalse(record.PiMcp.Contains(Token, StringComparison.Ordinal), "the token is not on disk");
+                AssertFalse(record.Arguments.Exists(a => a.Contains(Token, StringComparison.Ordinal)), "the token is not in argv");
+                AssertEqual(Token, record.Token);
+                AssertFalse(record.PiMcpLeftAfterExit, "the generated file and its directory are removed when pi exits");
+            }));
+
             cases.Add(Case("mux_launch_inserts_strict_config_before_prompt", "Mux thread launch inserts --mcp-config/--strict-mcp-config before the positional prompt", async () =>
             {
                 LaunchRecord? record = await LaunchAsync((LoggingModule logging, string stub) => new MuxRuntime(logging) { ExecutablePath = stub }).ConfigureAwait(false);
@@ -162,6 +176,62 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual(Token, record.Token);
             }));
 
+            cases.Add(Case("isolated_mission_pi_carries_token", "Isolated mission launch: pi binds the token through its project .pi/mcp.json", async () =>
+            {
+                LaunchRecord? record = await LaunchAsync((LoggingModule logging, string stub) => new PiRuntime(logging) { ExecutablePath = stub }, true).ConfigureAwait(false);
+                if (record == null) return;
+                AssertFalse(String.IsNullOrEmpty(record.PiMcp), "expected .pi/mcp.json for the mission launch");
+                AssertEqual(Token, record.Token);
+                AssertFalse(record.PiMcpLeftAfterExit, "removed after exit");
+            }));
+
+            cases.Add(Case("pi_mission_dock_git_status_clean", "A pi launch in a git dock excludes .pi/mcp.json from git, and git status is clean during and after the launch; a repository file is restored", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string root = Path.Combine(Path.GetTempPath(), "armada-pi-dock-" + Guid.NewGuid().ToString("N"));
+                string work = Path.Combine(root, "dock");
+                Directory.CreateDirectory(work);
+                try
+                {
+                    Git(work, "init", "-q");
+                    File.WriteAllText(Path.Combine(work, "README.md"), "x\n");
+                    Git(work, "add", "README.md");
+                    Git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init");
+                    string stub = Path.Combine(root, "stub.sh");
+                    string status = Path.Combine(root, "status.txt");
+                    File.WriteAllText(stub, "#!/bin/sh\ncat > /dev/null\ngit status --porcelain > '" + status + "'\n");
+                    File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    PiRuntime runtime = new PiRuntime(logging) { ExecutablePath = stub, McpSessionToken = Token, McpTokenWithFullIsolation = true, McpAllowWorkingDirectoryFiles = false };
+                    TaskCompletionSource<bool> exited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    runtime.OnProcessExited += (int pid, int? code) => exited.TrySetResult(File.Exists(Path.Combine(work, ".pi", "mcp.json")));
+                    await runtime.StartAsync(work, "go", isolateLaunch: true, mcpPort: 7891).ConfigureAwait(false);
+                    AssertTrue(await Task.WhenAny(exited.Task, Task.Delay(15000)).ConfigureAwait(false) == exited.Task, "stub did not exit");
+                    AssertFalse(await exited.Task.ConfigureAwait(false), "the file is gone before the exit is reported");
+                    AssertEqual(String.Empty, File.ReadAllText(status).Trim(), "git status was clean while the file existed");
+                    AssertEqual(String.Empty, Git(work, "status", "--porcelain").Trim(), "git status is clean after the launch");
+                    string excludePath = Git(work, "rev-parse", "--git-path", "info/exclude").Trim();
+                    if (!Path.IsPathRooted(excludePath)) excludePath = Path.Combine(work, excludePath);
+                    AssertContains("/.pi/mcp.json", File.ReadAllText(excludePath), "the file is git-excluded");
+
+                    Directory.CreateDirectory(Path.Combine(work, ".pi"));
+                    string repoFile = "{ \"mcpServers\": { \"docs\": { \"url\": \"https://docs.example.com/mcp\" } } }";
+                    File.WriteAllText(Path.Combine(work, ".pi", "mcp.json"), repoFile);
+                    PiRuntime again = new PiRuntime(logging) { ExecutablePath = stub, McpSessionToken = Token };
+                    TaskCompletionSource<bool> exitedAgain = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    again.OnProcessExited += (int pid, int? code) => exitedAgain.TrySetResult(true);
+                    await again.StartAsync(work, "go", isolateLaunch: true, mcpPort: 7891).ConfigureAwait(false);
+                    AssertTrue(await Task.WhenAny(exitedAgain.Task, Task.Delay(15000)).ConfigureAwait(false) == exitedAgain.Task, "stub did not exit");
+                    AssertEqual(repoFile, File.ReadAllText(Path.Combine(work, ".pi", "mcp.json")), "a repository's own .pi/mcp.json is restored");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Thread-Scoped Runtime Launch",
@@ -197,6 +267,7 @@ namespace Test.Shared.Suites.Runtimes
                 + "printf 'OPENCODE:%s\\n' \"$OPENCODE_CONFIG_CONTENT\" >> \"$out\"\n"
                 + "if [ -f .gemini/settings.json ]; then printf 'GEMINI:%s\\n' \"$(tr -d '\\n' < .gemini/settings.json)\" >> \"$out\"; fi\n"
                 + "if [ -f .cursor/mcp.json ]; then printf 'CURSOR:%s\\n' \"$(tr -d '\\n' < .cursor/mcp.json)\" >> \"$out\"; fi\n"
+                + "if [ -f .pi/mcp.json ]; then printf 'PIMCP:%s\\n' \"$(tr -d '\\n' < .pi/mcp.json)\" >> \"$out\"; fi\n"
                 + "if [ -n \"$CODEX_HOME\" ] && [ -f \"$CODEX_HOME/config.toml\" ]; then printf 'CODEXHOME:%s\\n' \"$(tr -d '\\n' < \"$CODEX_HOME/config.toml\")\" >> \"$out\"; fi\n"
                 + "if [ -f \"$HOME/.gemini/settings.json\" ]; then printf 'HOMEGEMINI:%s\\n' \"$(tr -d '\\n' < \"$HOME/.gemini/settings.json\")\" >> \"$out\"; fi\n"
                 + "if [ -f \"$HOME/.cursor/mcp.json\" ]; then printf 'HOMECURSOR:%s\\n' \"$(tr -d '\\n' < \"$HOME/.cursor/mcp.json\")\" >> \"$out\"; fi\n"
@@ -228,6 +299,7 @@ namespace Test.Shared.Suites.Runtimes
 
                 string[] lines = await File.ReadAllLinesAsync(outFile).ConfigureAwait(false);
                 LaunchRecord record = new LaunchRecord();
+                record.PiMcpLeftAfterExit = File.Exists(Path.Combine(work, ".pi", "mcp.json")) || Directory.Exists(Path.Combine(work, ".pi"));
                 foreach (string line in lines)
                 {
                     if (line.StartsWith("ARG:", StringComparison.Ordinal)) record.Arguments.Add(line.Substring(4));
@@ -238,6 +310,7 @@ namespace Test.Shared.Suites.Runtimes
                     else if (line.StartsWith("OPENCODE:", StringComparison.Ordinal)) record.OpenCodeContent = line.Substring(9);
                     else if (line.StartsWith("GEMINI:", StringComparison.Ordinal)) record.GeminiSettings = line.Substring(7);
                     else if (line.StartsWith("CURSOR:", StringComparison.Ordinal)) record.CursorMcp = line.Substring(7);
+                    else if (line.StartsWith("PIMCP:", StringComparison.Ordinal)) record.PiMcp = line.Substring(6);
                     else if (line.StartsWith("MUX:", StringComparison.Ordinal)) record.MuxConfig = line.Substring(4);
                     else if (line.StartsWith("CODEXHOME:", StringComparison.Ordinal)) record.CodexHomeConfig = line.Substring(10);
                     else if (line.StartsWith("HOMEGEMINI:", StringComparison.Ordinal)) record.HomeGeminiSettings = line.Substring(11);
@@ -251,6 +324,17 @@ namespace Test.Shared.Suites.Runtimes
             {
                 try { Directory.Delete(root, true); } catch { }
             }
+        }
+
+        private static string Git(string workingDirectory, params string[] args)
+        {
+            System.Diagnostics.ProcessStartInfo info = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = workingDirectory, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (string arg in args) info.ArgumentList.Add(arg);
+            using System.Diagnostics.Process process = System.Diagnostics.Process.Start(info)!;
+            string output = process.StandardOutput.ReadToEnd();
+            process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            return output;
         }
 
         private static TestCaseDescriptor Case(string caseId, string displayName, Func<Task> body)
@@ -277,6 +361,8 @@ namespace Test.Shared.Suites.Runtimes
             public string OpenCodeContent { get; set; } = String.Empty;
             public string GeminiSettings { get; set; } = String.Empty;
             public string CursorMcp { get; set; } = String.Empty;
+            public string PiMcp { get; set; } = String.Empty;
+            public bool PiMcpLeftAfterExit { get; set; } = false;
             public string MuxConfig { get; set; } = String.Empty;
             public string CodexHomeConfig { get; set; } = String.Empty;
             public string HomeGeminiSettings { get; set; } = String.Empty;

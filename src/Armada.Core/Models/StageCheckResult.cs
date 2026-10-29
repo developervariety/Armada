@@ -27,6 +27,11 @@ namespace Armada.Core.Models
         public List<string> Commands { get; set; } = new List<string>();
 
         /// <summary>
+        /// Which unit-test command the check chose (full or abbreviated), or null when the profile had no unit-test command.
+        /// </summary>
+        public Armada.Core.Enums.UnitTestScopeEnum? UnitTestScope { get; set; } = null;
+
+        /// <summary>
         /// The command that failed or timed out, or null.
         /// </summary>
         public string? FailedCommand { get; set; } = null;
@@ -42,7 +47,7 @@ namespace Armada.Core.Models
         public List<string> PreExistingFailures { get; set; } = new List<string>();
 
         /// <summary>
-        /// The note sent back to the captain when the check blocks the stage (failed or could not run), or null.
+        /// The note sent back to the captain describing a failure or an unverified check, or null.
         /// </summary>
         public string? FailureMessage { get; set; } = null;
 
@@ -57,11 +62,11 @@ namespace Armada.Core.Models
         public DateTime CheckedUtc { get; set; } = DateTime.UtcNow;
 
         /// <summary>
-        /// Whether the check blocks the stage (the captain is sent back with <see cref="FailureMessage"/>).
+        /// Whether the check blocks the stage. Only a confirmed Failed result blocks, even without a failure message; CouldNotRun and TimedOut are unverified warnings that never count as passing.
         /// </summary>
         public bool IsBlocking
         {
-            get { return FailureMessage != null; }
+            get { return Status == StageCheckStatusEnum.Failed; }
         }
 
         #endregion

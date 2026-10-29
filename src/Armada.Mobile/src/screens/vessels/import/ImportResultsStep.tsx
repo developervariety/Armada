@@ -5,6 +5,7 @@ import type { VesselImportBatch, VesselImportItem, VesselImportOutcome } from '@
 import { OUTCOMES, OUTCOME_META, batchStatusBadge, outcomeBadge, outcomeReasonLabel } from '@dashboard/lib/vesselImportLabels';
 import { AppText, Banner, Button, StatusBadge } from '../../../components/ui';
 import { useLocale } from '../../../i18n/LocaleContext';
+import { JOBS_PATH } from '../../../navigation/legacyRedirects';
 import { useTheme } from '../../../theme/ThemeContext';
 import { radius, spacing, typography } from '../../../theme/typography';
 import { ChipGroup } from '../health/ChipGroup';
@@ -53,7 +54,7 @@ export function ImportResultsStep({ batch, items, selectedCount, polling = false
           <AppText>{t('{count, plural, one {Importing # repository in the background.} other {Importing # repositories in the background.}}', { count: selectedCount ?? 0 })}</AppText>
           <View style={[styles.track, { backgroundColor: colors.track }]}><View style={[styles.bar, { width: `${percent}%`, backgroundColor: colors.primary }]} /></View>
           <AppText variant="caption" muted>{`${t('{{processed}} of {{total}} processed', { processed, total: target })}${jobId ? ` - ${jobId}` : ''}`}</AppText>
-          {jobId ? <AppText variant="caption" color="primary" accessibilityRole="link" onPress={() => router.push('/jobs' as Href)}>{t('Open the Jobs page')}</AppText> : null}
+          {jobId ? <AppText variant="caption" color="primary" accessibilityRole="link" onPress={() => router.push(JOBS_PATH as Href)}>{t('Open the Jobs page')}</AppText> : null}
           <AppText variant="caption" muted>{t('You can leave this screen; the import keeps running and appears in the import history.')}</AppText>
         </View>
       ) : null}

@@ -32,5 +32,5 @@ export function applyAutoApprove(runtimeOptionsJson: string | null, autoApprove:
 
 /** Runtimes launched as a CLI process with an auto-approve flag (ApiEndpoint captains run tools in-process). */
 export function supportsAutoApproveSwitch(runtime: string | null | undefined): boolean {
-  return ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode'].includes((runtime ?? '').trim());
+  return ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'Pi'].includes((runtime ?? '').trim());
 }

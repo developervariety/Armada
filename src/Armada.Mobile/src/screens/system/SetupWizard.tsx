@@ -30,6 +30,7 @@ import { SelectField } from '../../components/ui/SelectSheet';
 import { SwitchField } from '../../components/ui/SwitchField';
 import { TextField } from '../../components/ui/TextField';
 import { useLocale } from '../../i18n/LocaleContext';
+import { planningHref } from '../../navigation/legacyRedirects';
 import { prefillQuery } from '../../resource/links';
 import { ALL } from '../../resource/lookups';
 import { errorText } from '../../resource/useLoad';
@@ -525,13 +526,13 @@ export function SetupWizard() {
                 label={t('Open Planning')}
                 variant="secondary"
                 style={styles.inline}
-                onPress={() => finishAt(`/planning${prefillQuery({
+                onPress={() => finishAt(planningHref(null, {
                   fromSetupWizard: '1',
                   fleetId: handoffFleetId,
                   vesselId: activeVessel.id,
                   title: t('Repository onboarding follow-up'),
                   initialPrompt: t('Use the onboarding findings for this vessel to produce a safe first execution plan. Summarize the setup gaps, pick one small follow-up task, and outline how Armada should approach it.'),
-                })}`)}
+                }))}
               />
               <Button label={t('Open Workspace')} variant="secondary" onPress={() => finishAt(`/workspace/${activeVessel.id}`)} style={styles.inline} />
               <Button
