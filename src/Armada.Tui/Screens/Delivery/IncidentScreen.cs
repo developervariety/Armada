@@ -138,7 +138,7 @@ namespace Armada.Tui.Screens.Delivery
         {
             Func<bool> manage = () => Context.Session.IsTenantAdmin;
             AddAction("create", "Create Incident", () => IncidentForms.Open(Context, null, NavigationPrefill.Take<IncidentUpsertRequest>(Context, PrefillSlots.CreateIncident), true, Created), () => IsCreateMode && manage());
-            AddAction("plan-hotfix", "Plan Hotfix", () => Context.Navigate("/planning"), () => HotfixVessel() != null);
+            AddAction("plan-hotfix", "Plan Hotfix", () => Context.Navigate(TabLinks.PlanningPath), () => HotfixVessel() != null);
             AddAction("dispatch-hotfix", "Dispatch Hotfix", () => Context.Navigate("/dispatch"), () => HotfixVessel() != null);
             AddAction("runbook", "Runbook", OpenRunbooks, () => Entity != null);
             AddAction("rollback", "Rollback Deployment", Rollback, () => !String.IsNullOrEmpty(Entity?.DeploymentId));

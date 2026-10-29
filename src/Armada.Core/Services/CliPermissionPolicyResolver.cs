@@ -25,7 +25,7 @@ namespace Armada.Core.Services
     /// </list>
     /// A vessel AutoApprove of false caps a mission's result below Bypass (Bypass becomes Refuse). Finally,
     /// ApproveInArmada falls back to Refuse when the runtime has no prompt hook (see <see cref="SupportsPromptHook"/>), a
-    /// Claude Code or Mux launch has no scoped MCP token, or the launch runs on a Harbor that cannot send the runtime's
+    /// Claude Code, Mux or Pi launch has no scoped MCP token, or the launch runs on a Harbor that cannot send the runtime's
     /// prompts to Armada (it advertises <see cref="Armada.Core.Harbor.HarborProtocol.CliPermissionPromptCapability"/>
     /// when it can).
     /// </summary>
@@ -61,14 +61,15 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Whether a runtime has a permission prompt hook Armada drives (ApproveInArmada is honored): Claude Code and Mux
-        /// (1.5.0 or later, see <see cref="MuxCapabilities"/>) through --permission-prompt-tool, and API-endpoint
-        /// captains, whose built-in shell tool runs in-process behind Armada's own gate.
+        /// (1.5.0 or later, see <see cref="MuxCapabilities"/>) through --permission-prompt-tool, pi through Armada's
+        /// permission gate extension (<c>--extension armada-permission-gate.ts</c>, whose tool_call hook calls the prompt
+        /// tool), and API-endpoint captains, whose built-in shell tool runs in-process behind Armada's own gate.
         /// </summary>
         /// <param name="runtime">Runtime.</param>
-        /// <returns>True for Claude Code, ApiEndpoint, and a Mux CLI that supports --permission-prompt-tool.</returns>
+        /// <returns>True for Claude Code, Pi, ApiEndpoint, and a Mux CLI that supports --permission-prompt-tool.</returns>
         public static bool SupportsPromptHook(AgentRuntimeEnum runtime)
         {
-            if (runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint) return true;
+            if (runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint || runtime == AgentRuntimeEnum.Pi) return true;
             return runtime == AgentRuntimeEnum.Mux && MuxCapabilities.SupportsPermissionPromptTool();
         }
 
@@ -77,10 +78,10 @@ namespace Armada.Core.Services
         /// needs a scoped session token.
         /// </summary>
         /// <param name="runtime">Runtime.</param>
-        /// <returns>True for Claude Code and Mux.</returns>
+        /// <returns>True for Claude Code, Mux and Pi.</returns>
         public static bool PromptsOverMcp(AgentRuntimeEnum runtime)
         {
-            return runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.Mux;
+            return runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.Mux || runtime == AgentRuntimeEnum.Pi;
         }
 
         /// <summary>
@@ -244,7 +245,7 @@ namespace Armada.Core.Services
             resolution.FallbackReason = null;
             if (resolution.Requested != CliPermissionPolicyEnum.ApproveInArmada) return;
 
-            // A Harbor prompts only over the scoped MCP connection (Claude Code, Mux); an API-endpoint captain's in-process
+            // A Harbor prompts only over the scoped MCP connection (Claude Code, Mux, Pi); an API-endpoint captain's in-process
             // gate exists only on the Admiral.
             bool harborPrompts = harborCanPrompt && PromptsOverMcp(runtime);
             if (remoteHarbor && !harborPrompts) resolution.FallbackReason = CliPermissionFallbackReasonEnum.RemoteHarbor;

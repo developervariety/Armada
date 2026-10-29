@@ -37,7 +37,8 @@ namespace Test.Shared.Suites.Tui
                     TuiCase.Contains(frame, "40%", "progress value");
                     TuiCase.Contains(frame, "(disk full)", "error reason");
                     TuiCase.Contains(frame, "~ Running", "status badge");
-                    JobsScreen screen = (JobsScreen)host.Tui.Shell.Screen!;
+                    JobsScreen screen = TuiEntityFixtures.Screen<JobsScreen>(host);
+                    AssertEqual("/activity?source=jobs", host.Tui.Context.Router.Current!.FullPath, "/jobs redirects to the Activity Jobs tab");
                     AssertEqual("job_run", screen.Grid.Current!.Id, "newest first");
                     host.Press("x");
                     AssertTrue(host.PumpUntil(() => stub.CountFor("POST", "/api/v1/jobs/job_run/cancel") == 1), "cancel call");
