@@ -35,6 +35,7 @@ import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildIncidentPrompt, INCIDENT_SEVERITIES, INCIDENT_STATUSES, toInputDateTime, toUtcValue } from '../lib/deliveryForms';
 import { PLANNING_PATH } from '../lib/navTargets';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 
 interface IncidentPrefillState {
@@ -48,6 +49,7 @@ export default function IncidentDetail() {
   const { isAdmin, isTenantAdmin } = useAuth();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
 
   const createMode = id === 'new';
   const canManage = isAdmin || isTenantAdmin;
@@ -296,13 +298,9 @@ export default function IncidentDetail() {
       message: t('Delete "{{title}}"? This removes only the incident record.', { title: incident.title }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteIncident(incident.id);
-          pushToast('warning', t('Incident "{{title}}" deleted.', { title: incident.title }));
-          navigate('/incidents');
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'incident', action: () => deleteIncident(incident.id), errorMessage: (err) => (err instanceof Error ? err.message : t('Delete failed.')) }))) return;
+        pushToast('warning', t('Incident "{{title}}" deleted.', { title: incident.title }));
+        navigate('/incidents');
       },
     });
   }
@@ -425,6 +423,7 @@ export default function IncidentDetail() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+      {deletion.dialog}
 
       <div className="detail-grid">
         <section className="card detail-panel">

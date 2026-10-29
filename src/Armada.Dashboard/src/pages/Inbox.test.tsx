@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import Inbox from './Inbox';
-import { decideCliPermissionRequest, getInbox } from '../api/client';
+import { decideCliPermissionRequest, getInbox, retryMissionLanding } from '../api/client';
 import type { CliPermissionRequest, InboxItem, WebSocketMessage } from '../types/models';
 
-vi.mock('../api/client', () => ({ getInbox: vi.fn(), decideCliPermissionRequest: vi.fn() }));
+vi.mock('../api/client', () => ({ getInbox: vi.fn(), decideCliPermissionRequest: vi.fn(), retryMissionLanding: vi.fn(), apiErrorMessage: (_e: unknown, f: string) => f }));
 const handlers = new Set<(msg: WebSocketMessage) => void>();
 vi.mock('../context/WebSocketContext', () => ({
   useWebSocket: () => ({
@@ -23,7 +23,7 @@ vi.mock('../context/LocaleContext', () => ({
 }));
 const notificationState: { notifications: Array<Record<string, unknown>>; unreadCount: number } = { notifications: [], unreadCount: 0 };
 vi.mock('../context/NotificationContext', () => ({
-  useNotifications: () => ({ ...notificationState, markRead: vi.fn(), markAllRead: vi.fn() }),
+  useNotifications: () => ({ ...notificationState, markRead: vi.fn(), markAllRead: vi.fn(), pushToast: vi.fn() }),
 }));
 
 function item(kind: string, title: string, href: string, severity: 'Critical' | 'Warning' = 'Warning'): InboxItem {
@@ -155,5 +155,30 @@ describe('Recent alerts preview', () => {
     notificationState.unreadCount = 2;
     render(<MemoryRouter><Inbox /></MemoryRouter>);
     expect(await screen.findByRole('heading', { name: 'Recent alerts (2)' })).toBeInTheDocument();
+  });
+});
+
+describe('Needs You landing failures (A4)', () => {
+  it('shows the full failure reason preformatted and retries landing in one click', async () => {
+    const reason = 'Landing was blocked: the checkout at /Users/dev/Code/app has uncommitted changes.\n M src/app.ts\n?? notes.txt';
+    vi.mocked(getInbox).mockResolvedValue([
+      { ...item('landing_failed', 'Landing failed: Append line', '/missions/msn_9', 'Critical'), detail: reason, entityId: 'msn_9' },
+    ]);
+    vi.mocked(retryMissionLanding).mockResolvedValue({} as never);
+    render(
+      <MemoryRouter initialEntries={['/inbox']}>
+        <Routes>
+          <Route path="*" element={<><Inbox /><Probe /></>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText('Landing failed: Append line');
+    const block = document.querySelector('pre.inbox-failure-reason') as HTMLElement;
+    expect(block).not.toBeNull();
+    expect(block.textContent).toBe(reason);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Landing' }));
+    await waitFor(() => expect(retryMissionLanding).toHaveBeenCalledWith('msn_9'));
+    // The button acts in place; it does not open the mission.
+    expect(screen.getByTestId('location')).toHaveTextContent('/inbox');
   });
 });

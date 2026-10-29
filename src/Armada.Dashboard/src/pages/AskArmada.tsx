@@ -44,7 +44,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
-import AskDeleteProgressDialog from '../components/ask/AskDeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import { ErrorState, LoadingState } from '../components/shared/StateBlocks';
 import ImportWizard from '../components/vessels/import/ImportWizard';
 import AskThreadList from '../components/ask/AskThreadList';
@@ -178,10 +178,9 @@ export default function AskArmada() {
   // Dialogs and announcements.
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AskThread | null>(null);
-  // Single delete in flight (or just failed): the progress modal stays up until the server answers. The ref blocks a
-  // second submission before React re-renders.
-  const [deleteProgress, setDeleteProgress] = useState<{ thread: AskThread; error: string } | null>(null);
-  const deletingRef = useRef(false);
+  // Delete in flight (or just failed): the progress modal stays up until the server answers and blocks a second
+  // submission before React re-renders.
+  const deletion = useDeleteProgress();
   // Bulk delete: the rows ticked in the list, and the confirmation dialog they open.
   const [selectedThreadIds, setSelectedThreadIds] = useState<string[]>([]);
   const [deleteManyOpen, setDeleteManyOpen] = useState(false);
@@ -658,7 +657,7 @@ export default function AskArmada() {
   }
 
   function requestDelete(target: AskThread) {
-    if (deletingRef.current) return;
+    if (deletion.isBusy()) return;
     setDeleteTarget(target);
   }
 
@@ -669,46 +668,45 @@ export default function AskArmada() {
   }
 
   async function runDelete(target: AskThread) {
-    if (deletingRef.current) return;
-    deletingRef.current = true;
-    setDeleteProgress({ thread: target, error: '' });
-    try {
-      await deleteAskThread(target.id);
-      setThreads((prev) => prev.filter((th) => th.id !== target.id));
-      setDeleteProgress(null);
-      pushToast('success', t('Conversation deleted.'));
-      forgetLastThread([target.id]);
-      saveDraft(target.id, '');
-      if (target.id === convRef.current.threadId) navigate('/ask', { state: NEW_CONVERSATION_STATE });
-    } catch (err: unknown) {
-      setDeleteProgress({ thread: target, error: errorText(err, t('The conversation could not be deleted.')) });
-    } finally {
-      deletingRef.current = false;
-    }
+    const done = await deletion.run({
+      kind: 'conversation',
+      message: t('This conversation is being deleted. This may take a few moments.'),
+      action: () => deleteAskThread(target.id),
+      errorMessage: (err) => errorText(err, t('The conversation could not be deleted.')),
+    });
+    if (!done) return;
+    setThreads((prev) => prev.filter((th) => th.id !== target.id));
+    pushToast('success', t('Conversation deleted.'));
+    forgetLastThread([target.id]);
+    saveDraft(target.id, '');
+    if (target.id === convRef.current.threadId) navigate('/ask', { state: NEW_CONVERSATION_STATE });
   }
 
   async function confirmDeleteMany() {
     const ids = selectedThreadIds.slice();
     setDeleteManyOpen(false);
     if (ids.length === 0) return;
-    try {
-      const result = await deleteAskThreads(ids);
-      const skipped = result?.skipped ?? [];
-      const deleted = result?.deletedIds && result.deletedIds.length > 0
-        ? result.deletedIds
-        : ids.filter((id) => !skipped.some((entry) => entry.id === id));
-      setThreads((prev) => prev.filter((th) => !deleted.includes(th.id)));
-      setSelectedThreadIds([]);
-      if (skipped.length > 0) pushToast('warning', t('{{count}} conversations were not deleted.', { count: skipped.length }));
-      else pushToast('success', t('Conversations deleted.'));
-      forgetLastThread(deleted);
-      for (const id of deleted) saveDraft(id, '');
-      if (convRef.current.threadId && deleted.includes(convRef.current.threadId)) navigate('/ask', { state: NEW_CONVERSATION_STATE });
-      void loadThreads(1);
-    } catch (err: unknown) {
-      setSelectedThreadIds([]);
-      setError(errorText(err, t('The conversations could not be deleted.')));
-    }
+    const box: { result: Awaited<ReturnType<typeof deleteAskThreads>> | null } = { result: null };
+    const done = await deletion.run({
+      kind: 'conversation',
+      count: ids.length,
+      action: async () => { box.result = await deleteAskThreads(ids); },
+      errorMessage: (err) => errorText(err, t('The conversations could not be deleted.')),
+    });
+    setSelectedThreadIds([]);
+    if (!done) return;
+    const result = box.result;
+    const skipped = result?.skipped ?? [];
+    const deleted = result?.deletedIds && result.deletedIds.length > 0
+      ? result.deletedIds
+      : ids.filter((id) => !skipped.some((entry) => entry.id === id));
+    setThreads((prev) => prev.filter((th) => !deleted.includes(th.id)));
+    if (skipped.length > 0) pushToast('warning', t('{{count}} conversations were not deleted.', { count: skipped.length }));
+    else pushToast('success', t('Conversations deleted.'));
+    forgetLastThread(deleted);
+    for (const id of deleted) saveDraft(id, '');
+    if (convRef.current.threadId && deleted.includes(convRef.current.threadId)) navigate('/ask', { state: NEW_CONVERSATION_STATE });
+    void loadThreads(1);
   }
 
   function toggleSelected(target: AskThread, selected: boolean) {
@@ -958,12 +956,7 @@ export default function AskArmada() {
         onConfirm={() => void confirmDeleteMany()}
         onCancel={() => setDeleteManyOpen(false)}
       />
-      <AskDeleteProgressDialog
-        open={!!deleteProgress}
-        error={deleteProgress?.error ?? ''}
-        onRetry={() => { if (deleteProgress) void runDelete(deleteProgress.thread); }}
-        onDismiss={() => { if (!deletingRef.current) setDeleteProgress(null); }}
-      />
+      {deletion.dialog}
       <ImportWizard open={importOpen} onClose={() => setImportOpen(false)} tenantId={user?.user?.tenantId ?? null} />
     </div>
   );
