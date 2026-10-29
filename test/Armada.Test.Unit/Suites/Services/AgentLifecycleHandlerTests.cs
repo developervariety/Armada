@@ -2563,7 +2563,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
             {
-                foreach (string scenario in new[] { "pending-reviews", "canonical-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle" })
+                foreach (string scenario in new[] { "pending-reviews", "canonical-reviews", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -2589,12 +2589,12 @@ namespace Armada.Test.Unit.Suites.Services
                         }
                         rig.JudgeStage!.DependsOnMissionId = parentId;
                         await testDb.Driver.Missions.UpdateAsync(rig.JudgeStage).ConfigureAwait(false);
-                        if (scenario == "cancelled-middle")
+                        if (scenario.EndsWith("cancelled-middle", StringComparison.Ordinal))
                         {
                             futureStages[1].Status = MissionStatusEnum.Cancelled;
                             await testDb.Driver.Missions.UpdateAsync(futureStages[1]).ConfigureAwait(false);
                         }
-                        if (scenario == "foreign-middle")
+                        if (scenario.EndsWith("foreign-middle", StringComparison.Ordinal))
                         {
                             UserMaster reviewer = new UserMaster(rig.Mission.TenantId!, "other-report-owner@armada.test", "password");
                             await testDb.Driver.Users.CreateAsync(reviewer).ConfigureAwait(false);
@@ -2603,13 +2603,17 @@ namespace Armada.Test.Unit.Suites.Services
                         }
                         await rig.RunCaptainAsync(
                             "## Research report",
-                            scenario == "unfinished-current" ? "Acceptance criterion 2 is NOT MET because the source study is unfinished." : "The current source study and matrix are complete.",
-                            scenario == "unfinished-earlier" ? "Acceptance criterion 2 is NOT MET because the earlier analyst omitted required source pages." : "Current-stage criteria 1 and 2 are MET.",
-                            "Acceptance criterion 3 is honestly NOT MET at this Worker precursor stage because the " + (scenario == "wrong-count" ? "three" : "four") + " later role reviews do not yet exist.",
+                            scenario.EndsWith("unfinished-current", StringComparison.Ordinal) ? "Acceptance criterion 2 is NOT MET because the source study is unfinished." : "The current source study and matrix are complete.",
+                            scenario.EndsWith("unfinished-earlier", StringComparison.Ordinal) ? "Acceptance criterion 2 is NOT MET because the earlier analyst omitted required source pages." : "Current-stage criteria 1 and 2 are MET.",
+                            scenario == "pending-future-reviews" ? "Criterion 3 is NOT MET because downstream reviews are still pending."
+                                : scenario == "mixed-obligation" ? "Criterion 3 is NOT MET because the later reviews have not run and the source study is unfinished."
+                                : scenario == "earlier-reviews" ? "Criterion 3 is NOT MET because the earlier reviews have not run."
+                                : scenario.StartsWith("generic-", StringComparison.Ordinal) ? "Criterion 3 is NOT MET because the later reviews have not run."
+                                : "Acceptance criterion 3 is honestly NOT MET at this Worker precursor stage because the " + (scenario == "wrong-count" ? "three" : "four") + " later role reviews do not yet exist.",
                             "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
                         Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
                         Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
-                        if (scenario is "pending-reviews" or "canonical-reviews")
+                        if (scenario is "pending-reviews" or "canonical-reviews" or "generic-reviews" or "pending-future-reviews")
                         {
                             AssertTrue(worker.Status is MissionStatusEnum.WorkProduced or MissionStatusEnum.Complete, "Complete current work reaches its configured review chain: " + worker.FailureReason);
                             foreach (Mission stage in futureStages)
