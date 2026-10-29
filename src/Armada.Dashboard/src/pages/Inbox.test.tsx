@@ -2,10 +2,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Inbox from './Inbox';
-import { getInbox, retryMissionLanding } from '../api/client';
+import { getInbox, retryMissionLanding, transitionMission } from '../api/client';
 import type { InboxItem } from '../types/models';
 
-vi.mock('../api/client', () => ({ getInbox: vi.fn(), retryMissionLanding: vi.fn() }));
+vi.mock('../api/client', () => ({ getInbox: vi.fn(), retryMissionLanding: vi.fn(), transitionMission: vi.fn() }));
 vi.mock('../context/LocaleContext', () => {
   const context = { t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v };
   return { useLocale: () => context };
@@ -86,5 +86,34 @@ describe('Inbox landing failures', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry Landing' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('still conflicted');
     expect(screen.queryByTestId('where')).toBeNull();
+  });
+});
+
+describe('Inbox landing proposals', () => {
+  const proposalItem: InboxItem = {
+    kind: 'landing_reconcile', severity: 'Warning', title: 'Landing looks complete: Fix it',
+    detail: 'Its commit abc123abc123 is already on origin/main.', entityType: 'mission', entityId: 'msn_9', href: '/missions/msn_9',
+  };
+  beforeEach(() => { vi.clearAllMocks(); vi.mocked(getInbox).mockResolvedValue([proposalItem]); });
+
+  it('confirms the landing by completing the mission, then reloads the list', async () => {
+    vi.mocked(transitionMission).mockResolvedValue({} as never);
+    renderInbox();
+    await screen.findByText(proposalItem.title);
+    expect(screen.queryByRole('button', { name: 'Retry Landing' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Landed' }));
+    await waitFor(() => expect(transitionMission).toHaveBeenCalledWith('msn_9', { status: 'Complete' }));
+    await waitFor(() => expect(getInbox).toHaveBeenCalledTimes(2));
+    expect(pushToast).toHaveBeenCalledWith('success', expect.stringContaining('Landing confirmed'));
+  });
+
+  it('shows the refusal in place when the confirmation is refused', async () => {
+    vi.mocked(transitionMission).mockRejectedValue(new Error('manual_completion_failed_check'));
+    renderInbox();
+    await screen.findByText(proposalItem.title);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Landed' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('manual_completion_failed_check');
   });
 });

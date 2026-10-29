@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Landing proposals
+
+- A health-loop sweep checks a bounded rotating page of `LandingFailed` missions per cycle, fetching each vessel once. When a mission's commit is an ancestor of `origin/<default branch>`, or a commit on that branch carries its exact `Armada-Mission-Id` trailer, the sweep records one `mission.landing_reconcile_proposed` event and the Needs You inbox shows one `landing_reconcile` item with the evidence. Landing refusals and a recorded commit equal to the stage start commit are never proposed. The sweep never completes a mission.
+- Confirming the item is a status transition to `Complete` on REST, MCP or WebSocket. It reads the proof again after a fresh fetch, runs the manual completion gates, then records `mission.landing_reconciled`, applies voyage completion and closes the mission's active incidents. `LandingFailed` has no other route to `Complete`.
+
 ### Dock reclaim audit
 
 - Every dock reclaim that completes records a `dock.reclaimed` event naming the calling code path, the dock's mission and the mission's status. A reclaim never removes unlanded work: committed work stays on the branch and under the dock, mission and preserved-branch anchor refs, and uncommitted work is saved to a `recover/` ref, whatever the mission status. Reclaim therefore does not refuse by mission status.

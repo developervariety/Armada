@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getInbox, retryMissionLanding } from '../api/client';
+import { getInbox, retryMissionLanding, transitionMission } from '../api/client';
 import type { InboxItem, InboxSeverity } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -17,6 +17,9 @@ const CONVERSATION_KIND = 'ask_proposal';
 
 /** A mission whose landing failed. The row shows the reason as written and retries the landing in place. */
 const LANDING_FAILED_KIND = 'landing_failed';
+
+/** A failed landing whose work the landing sweep found on the default branch. The row confirms it, which completes the mission. */
+const LANDING_RECONCILE_KIND = 'landing_reconcile';
 
 function severityColor(severity: InboxSeverity): string {
   if (severity === 'Critical') return 'var(--danger, #ff6b6b)';
@@ -47,19 +50,25 @@ export default function Inbox() {
     }
   }
 
-  async function retryLanding(item: InboxItem) {
+  async function runLandingAction(item: InboxItem, action: (id: string) => Promise<unknown>, success: string, fallbackFailure: string) {
     if (!item.entityId) return;
     let failure = '';
     try {
-      await retryMissionLanding(item.entityId);
-      pushToast('success', t('Landing succeeded for "{{title}}"', { title: item.title }));
+      await action(item.entityId);
+      pushToast('success', success);
     } catch (err: unknown) {
-      failure = err instanceof Error ? err.message : t('Retry landing failed.');
+      failure = err instanceof Error ? err.message : fallbackFailure;
     }
-    // The reload clears the dialog, so the landing error is shown after it.
+    // The reload clears the dialog, so the error is shown after it.
     await load();
     if (failure) setError(failure);
   }
+
+  const retryLanding = (item: InboxItem) => runLandingAction(
+    item, retryMissionLanding, t('Landing succeeded for "{{title}}"', { title: item.title }), t('Retry landing failed.'));
+
+  const confirmLanding = (item: InboxItem) => runLandingAction(
+    item, (id) => transitionMission(id, { status: 'Complete' }), t('Landing confirmed for "{{title}}"', { title: item.title }), t('Confirm landing failed.'));
 
   useEffect(() => { load(); }, []);
 
@@ -123,7 +132,7 @@ export default function Inbox() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                 <div>
                   <strong>{item.title}</strong>
-                  {item.kind === LANDING_FAILED_KIND ? (
+                  {item.kind === LANDING_FAILED_KIND || item.kind === LANDING_RECONCILE_KIND ? (
                     <pre className="text-dim" style={{ marginTop: '0.2rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit' }}>{item.detail}</pre>
                   ) : (
                     <div className="text-dim" style={{ marginTop: '0.2rem' }}>{item.detail}</div>
@@ -152,6 +161,15 @@ export default function Inbox() {
                       onClick={(e) => { e.stopPropagation(); void retryLanding(item); }}
                     >
                       {t('Retry Landing')}
+                    </button>
+                  )}
+                  {item.kind === LANDING_RECONCILE_KIND && (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={(e) => { e.stopPropagation(); void confirmLanding(item); }}
+                    >
+                      {t('Confirm Landed')}
                     </button>
                   )}
                 </div>

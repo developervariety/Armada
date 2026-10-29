@@ -2125,6 +2125,16 @@ commit the reason is `manual_completion_ancestry_unavailable`. Audit and Researc
 missions keep their report-only completion contract. A refused request leaves the
 mission unchanged.
 
+**Confirming a landing proposal:** a `LandingFailed` mission moves to `Complete` only
+when the landing sweep has proposed it (see [Landing proposals](MERGING.md#landing-proposals))
+and the request confirms it. The request reads the proof again after a fresh fetch, runs
+the review, Judge, captain-process and Check gates above, and writes `Complete` only when
+all pass. It then records `mission.landing_reconciled`, applies voyage completion and
+closes the mission's active incidents. A mission with no proposal returns `400`; a lost
+proof (`landing_reconcile_proof_unavailable`), a failed fetch
+(`landing_reconcile_fetch_failed`), or a failed gate returns `409` and leaves the mission
+unchanged.
+
 **Valid Status Transitions:**
 
 | From | Allowed Targets |
@@ -5309,6 +5319,8 @@ A recorded event representing a state change in the system.
 - `mission.stopped_by_operator` - An operator stop from REST, MCP or WebSocket ended the captain's running mission Cancelled; the message carries the `operator_stopped:` reason (who, surface, UTC time, and the `recover/<missionId>-<n>` ref when one was written) and the payload repeats them
 - `mission.branch_verified` - At completion capture, the mission branch holds the captured commit
 - `mission.branch_unverified` - At completion capture, the mission branch does not hold the captured commit, or git could not answer; the payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch
+- `mission.landing_reconcile_proposed` - The landing sweep found proof that a `LandingFailed` mission's work is on the vessel's default branch; the payload carries the evidence (kind, commit, ref, failure reason). The sweep records one per mission and never changes the mission
+- `mission.landing_reconciled` - An operator confirmed a landing proposal and the mission moved from `LandingFailed` to `Complete`; the payload repeats the evidence and the failure reason the landing had
 - `dock.reclaimed` - A dock was reclaimed. The message and payload name the caller (`<source file>.<member>`), the dock's mission and the mission's status at reclaim, so a reclaim of a dock whose mission still has unlanded work can be traced to the code path that requested it. A reclaim that is deferred or finds the dock already inactive records nothing
 - `voyage.dispatched` - A voyage was created: by a dispatch with all of its missions, by an autonomous rescue with its missions, or without missions (the message then counts 0 missions)
 - `voyage.completed` - The voyage completion rule wrote the voyage Complete: every mission done without failure, a cancelled stage only beside a `Complete` mission, and its Checks green or absent
@@ -5578,7 +5590,7 @@ A single actionable item in the operator's "needs you" inbox.
 
 | Field | Type | Description |
 |---|---|---|
-| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `failed`, `stalled_captain`, `ask_proposal`) |
+| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `landing_reconcile`, `failed`, `stalled_captain`, `ask_proposal`) |
 | `Severity` | [InboxSeverityEnum](#inboxseverityenum) | Severity of the item |
 | `Title` | string | Human-readable title |
 | `Detail` | string | Additional detail |

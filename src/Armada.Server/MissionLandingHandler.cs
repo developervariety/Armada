@@ -1235,7 +1235,7 @@ namespace Armada.Server
         {
             if (result == null || result.Findings.Count == 0)
             {
-                return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "'.";
+                return LandingRefusalReasons.DockBoundaryPrefix + " for vessel '" + (vesselName ?? "") + "'.";
             }
 
             DockBoundaryFinding first = result.Findings[0];
@@ -1244,7 +1244,7 @@ namespace Armada.Server
                 return ProtectedPathsValidator.FormatFailureReason(first.Path ?? first.FindingLabel, vesselName);
             }
 
-            return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "': " + first.Message;
+            return LandingRefusalReasons.DockBoundaryPrefix + " for vessel '" + (vesselName ?? "") + "': " + first.Message;
         }
 
         /// <summary>

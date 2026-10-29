@@ -429,6 +429,8 @@ using WatsonWebserver.Core.Routing;
             admiralService.SetProviderProgress(_ProviderProgress);
             admiralService.SetTerminalMarkers(_TerminalMarkers);
             _Admiral = admiralService;
+            LandingReconcileSweep landingReconcileSweep = new LandingReconcileSweep(_Database, _Git, _Logging, _Settings.LogDirectory);
+            admiralService.OnReconcileLandingFailures = () => landingReconcileSweep.SweepAsync();
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
             ((MergeQueueService)_MergeQueue).SetHarborCheckouts(_HarborCheckouts);
@@ -802,7 +804,7 @@ using WatsonWebserver.Core.Routing;
             // meets the same gates on every entry point.
             _StatusTransitions = new MissionStatusTransitionService(
                 _Database, _Admiral, _MissionService, _Git, _AgentLifecycle.IsMissionProcessActiveAsync,
-                _MissionLanding.HandleMissionCompleteAsync, EmitEventAsync, _Logging);
+                _MissionLanding.HandleMissionCompleteAsync, EmitEventAsync, _Logging, _Settings.LogDirectory);
             _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _AuthenticationService, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); }, _StatusTransitions);
             _WebSocketHub.AuthenticationWindow = _WebSocketAuthenticationWindow;
             _StatusTransitions.SetWebSocketHub(_WebSocketHub);

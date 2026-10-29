@@ -548,7 +548,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_transition_mission_status",
-                "Transition a mission to a new status with validation. Valid transitions: Pending->Assigned, Assigned->InProgress, InProgress->Testing/Review/Complete/Failed, Testing->Review/InProgress/Complete/Failed, Review->Complete/InProgress/Failed. Most states allow ->Cancelled.",
+                "Transition a mission to a new status with validation. Valid transitions: Pending->Assigned, Assigned->InProgress, InProgress->Testing/Review/Complete/Failed, Testing->Review/InProgress/Complete/Failed, Review->Complete/InProgress/Failed. Most states allow ->Cancelled. LandingFailed->Complete is accepted only to confirm a landing proposal.",
                 new
                 {
                     type = "object",

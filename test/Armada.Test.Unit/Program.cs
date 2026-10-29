@@ -134,6 +134,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new GitServiceIsPrMergedTests());
             runner.AddSuite(new GitServiceCommitCountTests());
             runner.AddSuite(new ManualCompletionProofServiceTests());
+            runner.AddSuite(new LandingReconcileTests());
             runner.AddSuite(new DockServiceTests());
             runner.AddSuite(new DockPathOccupantsTests());
             runner.AddSuite(new PathContainmentTests());
