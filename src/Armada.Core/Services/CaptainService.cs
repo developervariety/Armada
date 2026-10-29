@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -30,6 +31,7 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
+        private const int _WipPreserveTimeoutMs = 60000;
         private string _Header = "[CaptainService] ";
         // Captains whose recovery relaunch was refused while their dock's Harbor was offline, keyed to that Harbor.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _AwaitingHarbor = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -70,9 +72,16 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
-        public async Task RecallAsync(string captainId, string? tenantId = null, CancellationToken token = default)
+        public Task RecallAsync(string captainId, string? tenantId = null, CancellationToken token = default)
+        {
+            return RecallAsync(captainId, tenantId, null, token);
+        }
+
+        /// <inheritdoc />
+        public async Task RecallAsync(string captainId, string? tenantId, OperatorStopContext? stop, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+            OperatorStopContext stopContext = stop ?? new OperatorStopContext();
 
             Captain? captain = !String.IsNullOrEmpty(tenantId)
                 ? await _Database.Captains.ReadAsync(tenantId, captainId, token).ConfigureAwait(false)
@@ -109,7 +118,8 @@ namespace Armada.Core.Services
             // Update state
             await _Database.Captains.UpdateStateAsync(captainId, CaptainStateEnum.Stopping, token).ConfigureAwait(false);
 
-            // Mark the current mission as failed
+            // An operator stop cancels the current mission (it is not a failure of the work), records who stopped it and
+            // how, and preserves uncommitted work on the mission branch before the dock is reclaimed.
             if (!String.IsNullOrEmpty(captain.CurrentMissionId))
             {
                 Mission? currentMission = !String.IsNullOrEmpty(tenantId)
@@ -119,12 +129,7 @@ namespace Armada.Core.Services
                     (currentMission.Status == MissionStatusEnum.InProgress ||
                      currentMission.Status == MissionStatusEnum.Assigned))
                 {
-                    currentMission.Status = MissionStatusEnum.Failed;
-                    currentMission.FailureKind = MissionFailureKindEnum.OperatorAction;
-                    currentMission.ProcessId = null;
-                    currentMission.CompletedUtc = DateTime.UtcNow;
-                    currentMission.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Missions.UpdateAsync(currentMission, token).ConfigureAwait(false);
+                    await RecordOperatorStopAsync(captain, currentMission, stopContext, token).ConfigureAwait(false);
                 }
             }
 
@@ -386,6 +391,130 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private async Task RecordOperatorStopAsync(Captain captain, Mission mission, OperatorStopContext stop, CancellationToken token)
+        {
+            OperatorStopEventPayload payload = new OperatorStopEventPayload
+            {
+                Source = stop.Source,
+                UserId = stop.UserId,
+                StoppedUtc = stop.RequestedUtc,
+                PreviousStatus = mission.Status.ToString()
+            };
+
+            string? dockId = !String.IsNullOrEmpty(captain.CurrentDockId) ? captain.CurrentDockId : mission.DockId;
+            Dock? dock = null;
+            if (!String.IsNullOrEmpty(dockId))
+            {
+                try
+                {
+                    dock = await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    _Logging.Warn(_Header + "could not read dock " + dockId + " of stopped mission " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            if (dock != null)
+            {
+                payload.DockId = dock.Id;
+                payload.BranchName = !String.IsNullOrEmpty(dock.BranchName) ? dock.BranchName : mission.BranchName;
+                await PreserveWorkInProgressAsync(captain, mission, dock, payload, token).ConfigureAwait(false);
+            }
+
+            string reason = stop.Describe() + ".";
+            if (!String.IsNullOrEmpty(payload.WipCommitHash))
+            {
+                reason += " Uncommitted work was preserved as WIP commit " + payload.WipCommitHash
+                    + (String.IsNullOrEmpty(payload.BranchName) ? "" : " on branch " + payload.BranchName)
+                    + (payload.WipPushed ? " (pushed)." : " (not pushed).");
+            }
+            else if (!String.IsNullOrEmpty(payload.WipError))
+            {
+                reason += " Uncommitted work could not be preserved: " + payload.WipError;
+            }
+
+            mission.Status = MissionStatusEnum.Cancelled;
+            mission.FailureKind = MissionFailureKindEnum.OperatorAction;
+            mission.FailureReason = reason;
+            mission.ProcessId = null;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "mission " + mission.Id + " cancelled: " + reason);
+
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("mission.stopped_by_operator", "Mission " + mission.Id + ": " + reason);
+                evt.TenantId = mission.TenantId;
+                // The event is owned (and scoped) like the mission; the operator who stopped it is in the message and payload.
+                evt.UserId = mission.UserId;
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.CaptainId = captain.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(payload);
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Warn(_Header + "error emitting mission.stopped_by_operator for " + mission.Id + ": " + ex.Message);
+            }
+        }
+
+        private async Task PreserveWorkInProgressAsync(Captain captain, Mission mission, Dock dock, OperatorStopEventPayload payload, CancellationToken token)
+        {
+            // A judge reports through its verdict and an architect through its plan: neither should change the branch.
+            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect)) return;
+            if (String.IsNullOrEmpty(dock.WorktreePath)) return;
+
+            bool harborDock = DockHostResolver.IsHarborDock(dock);
+            if (!harborDock && !Directory.Exists(dock.WorktreePath)) return;
+
+            // Best effort and bounded: preserving work never blocks or fails the stop.
+            using (CancellationTokenSource bounded = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                bounded.CancelAfter(_WipPreserveTimeoutMs);
+                try
+                {
+                    IGitService git = harborDock && DockHosts != null ? DockHosts.ForDock(dock).Git : _Git;
+                    if (harborDock && DockHosts == null) throw new InvalidOperationException("the dock is on Harbor " + dock.HarborId + " and Harbor delegation is not available");
+
+                    GitWorkingTreeStatus status = await git.GetWorkingTreeStatusAsync(dock.WorktreePath!, bounded.Token).ConfigureAwait(false);
+                    if (status.IsClean) return;
+
+                    string message = "WIP: preserved on operator stop\n\n"
+                        + mission.Title + "\n\n"
+                        + "Armada committed the changes " + captain.Name + " left uncommitted when " + payload.Source + " stopped mission " + mission.Id + ".\n"
+                        + "\nArmada-Mission-Id: " + mission.Id
+                        + "\nArmada-Voyage-Id: " + (mission.VoyageId ?? "")
+                        + "\nArmada-Captain-Id: " + captain.Id
+                        + "\nArmada-Vessel-Id: " + (mission.VesselId ?? dock.VesselId ?? "");
+                    if (!await git.CommitAllAsync(dock.WorktreePath!, message, bounded.Token).ConfigureAwait(false)) return;
+
+                    payload.WipCommitHash = await git.GetHeadCommitHashAsync(dock.WorktreePath!, bounded.Token).ConfigureAwait(false) ?? "(unknown)";
+                    _Logging.Info(_Header + "preserved uncommitted work of stopped mission " + mission.Id + " as " + payload.WipCommitHash + " in dock " + dock.Id);
+
+                    try
+                    {
+                        await git.PushBranchAsync(dock.WorktreePath!, token: bounded.Token).ConfigureAwait(false);
+                        payload.WipPushed = true;
+                    }
+                    catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                    {
+                        _Logging.Warn(_Header + "could not push WIP commit of stopped mission " + mission.Id + ": " + ex.Message);
+                    }
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    payload.WipError = ex is OperationCanceledException ? "timed out" : ex.Message;
+                    _Logging.Warn(_Header + "could not preserve uncommitted work of stopped mission " + mission.Id + " in dock " + dock.Id + ": " + payload.WipError);
+                }
+            }
+        }
 
         /// <summary>
         /// Mark the mission as failed and return the captain to Idle when auto-recovery cannot continue.
