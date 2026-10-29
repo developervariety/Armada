@@ -4,21 +4,20 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Runtime.CompilerServices;
-    using System.Text.Json;
-    using System.Text.Json.Serialization;
     using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
-    /// Event-backed incident records tied to the existing deployment and release lifecycle.
+    /// Incident records, kept as snapshot events and read from their projection, tied to the existing deployment and release lifecycle.
     /// </summary>
     public class IncidentService
     {
         /// <summary>
-        /// Event type of an incident snapshot. Incidents are stored only as these events, and the
-        /// newest snapshot of an incident is its current record.
+        /// Event type of an incident snapshot. Every change to an incident is written as one of these events,
+        /// and the newest snapshot of an incident is its current record; the incident projection holds that
+        /// record for reads.
         /// </summary>
         public const string SnapshotEventType = "incident.snapshot";
 
@@ -32,11 +31,6 @@ namespace Armada.Core.Services
 
         private readonly DatabaseDriver _Database;
         private static readonly ConditionalWeakTable<DatabaseDriver, SemaphoreSlim> _WriteLocks = new ConditionalWeakTable<DatabaseDriver, SemaphoreSlim>();
-        private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            Converters = { new JsonStringEnumConverter() }
-        };
 
         /// <summary>
         /// Instantiate.
@@ -48,25 +42,14 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Count the incidents visible to the caller by status, and the open ones by severity. The counts
-        /// equal the totals of <see cref="EnumerateAsync"/> filtered on each value, from one read of the
-        /// incident snapshots instead of one read per value.
+        /// equal the totals of <see cref="EnumerateAsync"/> filtered on each value, and are computed in the
+        /// database.
         /// </summary>
         public async Task<IncidentCountSummary> CountAsync(AuthContext auth, CancellationToken token = default)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
 
-            List<Incident> incidents = await ReadAllIncidentsAsync(auth, token).ConfigureAwait(false);
-            IncidentCountSummary summary = new IncidentCountSummary();
-            foreach (Incident incident in incidents)
-            {
-                summary.ByStatus.TryGetValue(incident.Status, out int statusCount);
-                summary.ByStatus[incident.Status] = statusCount + 1;
-                if (incident.Status != IncidentStatusEnum.Open) continue;
-                summary.OpenBySeverity.TryGetValue(incident.Severity, out int severityCount);
-                summary.OpenBySeverity[incident.Severity] = severityCount + 1;
-            }
-
-            return summary;
+            return await _Database.Incidents.CountAsync(ScopeOf(auth), token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -80,80 +63,7 @@ namespace Armada.Core.Services
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (query == null) throw new ArgumentNullException(nameof(query));
 
-            List<Incident> incidents = await ReadAllIncidentsAsync(auth, token).ConfigureAwait(false);
-            IEnumerable<Incident> filtered = incidents;
-            if (query.FromUtc.HasValue)
-            {
-                DateTime fromUtc = query.FromUtc.Value.ToUniversalTime();
-                filtered = filtered.Where(item => item.DetectedUtc >= fromUtc);
-            }
-            if (query.ToUtc.HasValue)
-            {
-                DateTime toUtc = query.ToUtc.Value.ToUniversalTime();
-                filtered = filtered.Where(item => item.DetectedUtc <= toUtc);
-            }
-
-            if (!String.IsNullOrWhiteSpace(query.VesselId))
-                filtered = filtered.Where(item => String.Equals(item.VesselId, query.VesselId, StringComparison.OrdinalIgnoreCase));
-            if (!String.IsNullOrWhiteSpace(query.EnvironmentId))
-                filtered = filtered.Where(item => String.Equals(item.EnvironmentId, query.EnvironmentId, StringComparison.OrdinalIgnoreCase));
-            if (!String.IsNullOrWhiteSpace(query.CheckRunId))
-                filtered = filtered.Where(item => String.Equals(item.CheckRunId, query.CheckRunId, StringComparison.OrdinalIgnoreCase));
-            if (!String.IsNullOrWhiteSpace(query.DeploymentId))
-                filtered = filtered.Where(item => String.Equals(item.DeploymentId, query.DeploymentId, StringComparison.OrdinalIgnoreCase));
-            if (!String.IsNullOrWhiteSpace(query.ReleaseId))
-                filtered = filtered.Where(item => String.Equals(item.ReleaseId, query.ReleaseId, StringComparison.OrdinalIgnoreCase));
-            if (!String.IsNullOrWhiteSpace(query.MissionId))
-                filtered = filtered.Where(item => String.Equals(item.MissionId, query.MissionId, StringComparison.OrdinalIgnoreCase));
-            if (!String.IsNullOrWhiteSpace(query.VoyageId))
-                filtered = filtered.Where(item => String.Equals(item.VoyageId, query.VoyageId, StringComparison.OrdinalIgnoreCase));
-            if (query.Status.HasValue)
-                filtered = filtered.Where(item => item.Status == query.Status.Value);
-            if (query.Severity.HasValue)
-                filtered = filtered.Where(item => item.Severity == query.Severity.Value);
-
-            string? search = Normalize(query.Search);
-            if (!String.IsNullOrWhiteSpace(search))
-            {
-                filtered = filtered.Where(item =>
-                    ContainsIgnoreCase(item.Title, search)
-                    || ContainsIgnoreCase(item.Summary, search)
-                    || ContainsIgnoreCase(item.Impact, search)
-                    || ContainsIgnoreCase(item.RootCause, search)
-                    || ContainsIgnoreCase(item.RecoveryNotes, search)
-                    || ContainsIgnoreCase(item.Postmortem, search)
-                    || ContainsIgnoreCase(item.EnvironmentName, search));
-            }
-
-            if (query.ExcludeTerminal)
-                filtered = filtered.Where(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack);
-
-            List<Incident> ordered;
-            if (query.OldestFirst)
-            {
-                if (query.AfterLastUpdateUtc.HasValue)
-                {
-                    DateTime afterUtc = query.AfterLastUpdateUtc.Value;
-                    string afterId = query.AfterId ?? String.Empty;
-                    filtered = filtered.Where(item =>
-                        item.LastUpdateUtc > afterUtc
-                        || (item.LastUpdateUtc == afterUtc && String.CompareOrdinal(item.Id, afterId) > 0));
-                }
-
-                ordered = filtered
-                    .OrderBy(item => item.LastUpdateUtc)
-                    .ThenBy(item => item.Id, StringComparer.Ordinal)
-                    .ToList();
-            }
-            else
-            {
-                ordered = filtered
-                    .OrderByDescending(item => item.LastUpdateUtc)
-                    .ThenByDescending(item => item.Id, StringComparer.Ordinal)
-                    .ToList();
-            }
-
-            return EnumerationResult<Incident>.Page(ordered, query.PageNumber, query.PageSize);
+            return await _Database.Incidents.EnumerateAsync(ScopeOf(auth), query, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -195,8 +105,7 @@ namespace Armada.Core.Services
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
 
-            List<ArmadaEvent> snapshots = await ReadIncidentSnapshotEventsAsync(auth, id, token).ConfigureAwait(false);
-            return ProjectLatestIncident(snapshots);
+            return await _Database.Incidents.ReadAsync(ScopeOf(auth), id, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -462,97 +371,18 @@ namespace Armada.Core.Services
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
 
-            List<ArmadaEvent> snapshots = await ReadIncidentSnapshotEventsAsync(auth, id, token).ConfigureAwait(false);
-            if (snapshots.Count == 0)
+            if (!await _Database.Incidents.DeleteAsync(ScopeOf(auth), id, token).ConfigureAwait(false))
                 throw new InvalidOperationException("Incident not found.");
-
-            foreach (ArmadaEvent snapshot in snapshots)
-            {
-                await DeleteEventAsync(auth, snapshot.Id, token).ConfigureAwait(false);
-            }
         }
 
-        private async Task<List<Incident>> ReadAllIncidentsAsync(AuthContext auth, CancellationToken token)
-        {
-            List<ArmadaEvent> snapshots = await ReadIncidentSnapshotEventsAsync(auth, null, token).ConfigureAwait(false);
-            Dictionary<string, ArmadaEvent> latestByIncidentId = new Dictionary<string, ArmadaEvent>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (ArmadaEvent snapshot in snapshots)
-            {
-                if (String.IsNullOrWhiteSpace(snapshot.EntityId))
-                    continue;
-
-                if (!latestByIncidentId.TryGetValue(snapshot.EntityId, out ArmadaEvent? existing)
-                    || IsSnapshotNewer(snapshot, existing))
-                {
-                    latestByIncidentId[snapshot.EntityId] = snapshot;
-                }
-            }
-
-            List<Incident> incidents = new List<Incident>();
-            foreach (ArmadaEvent snapshot in latestByIncidentId.Values)
-            {
-                Incident? incident = DeserializeIncident(snapshot);
-                if (incident != null)
-                    incidents.Add(incident);
-            }
-
-            return incidents;
-        }
-
-        private async Task<List<ArmadaEvent>> ReadIncidentSnapshotEventsAsync(
-            AuthContext auth,
-            string? incidentId,
-            CancellationToken token)
+        // Operators see every incident, or every incident of their tenant; every other caller sees the
+        // incidents it owns.
+        private static IncidentReadScope ScopeOf(AuthContext auth)
         {
             bool operatorScope = String.IsNullOrWhiteSpace(auth.MissionId);
-            if (!String.IsNullOrWhiteSpace(incidentId))
-            {
-                if (operatorScope && auth.IsAdmin)
-                    return (await _Database.Events.EnumerateByEntityAsync(IncidentEntityType, incidentId, 500, token).ConfigureAwait(false))
-                        .Where(IsIncidentSnapshotEvent)
-                        .ToList();
-                if (operatorScope && auth.IsTenantAdmin)
-                    return (await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, IncidentEntityType, incidentId, 500, token).ConfigureAwait(false))
-                        .Where(IsIncidentSnapshotEvent)
-                        .ToList();
-                return (await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, new EnumerationQuery
-                {
-                    PageNumber = 1,
-                    PageSize = 500
-                }, token).ConfigureAwait(false)).Objects
-                    .Where(item =>
-                        String.Equals(item.EntityType, IncidentEntityType, StringComparison.OrdinalIgnoreCase)
-                        && String.Equals(item.EntityId, incidentId, StringComparison.OrdinalIgnoreCase)
-                        && String.Equals(item.EventType, SnapshotEventType, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-            }
-
-            EnumerationQuery query = new EnumerationQuery
-            {
-                PageNumber = 1,
-                PageSize = 500,
-                EventType = SnapshotEventType
-            };
-
-            List<ArmadaEvent> results = new List<ArmadaEvent>();
-            while (true)
-            {
-                EnumerationResult<ArmadaEvent> page;
-                if (operatorScope && auth.IsAdmin)
-                    page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
-                else if (operatorScope && auth.IsTenantAdmin)
-                    page = await _Database.Events.EnumerateAsync(auth.TenantId!, query, token).ConfigureAwait(false);
-                else
-                    page = await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, query, token).ConfigureAwait(false);
-
-                results.AddRange(page.Objects.Where(item => String.Equals(item.EntityType, IncidentEntityType, StringComparison.OrdinalIgnoreCase)));
-                if (page.Objects.Count < query.PageSize)
-                    break;
-                query.PageNumber += 1;
-            }
-
-            return results;
+            if (operatorScope && auth.IsAdmin) return IncidentReadScope.All();
+            if (operatorScope && auth.IsTenantAdmin) return IncidentReadScope.Tenant(auth.TenantId);
+            return IncidentReadScope.User(auth.TenantId, auth.UserId);
         }
 
         private async Task WriteSnapshotAsync(AuthContext auth, Incident incident, CancellationToken token)
@@ -566,50 +396,11 @@ namespace Armada.Core.Services
                 MissionId = incident.MissionId,
                 VesselId = incident.VesselId,
                 VoyageId = incident.VoyageId,
-                Payload = JsonSerializer.Serialize(incident, _JsonOptions),
+                Payload = IncidentSnapshotCodec.Serialize(incident),
                 CreatedUtc = incident.LastUpdateUtc
             };
 
-            await _Database.Events.CreateAsync(snapshot, token).ConfigureAwait(false);
-        }
-
-        private async Task DeleteEventAsync(AuthContext auth, string id, CancellationToken token)
-        {
-            if (auth.IsAdmin)
-                await _Database.Events.DeleteAsync(id, token).ConfigureAwait(false);
-            else if (auth.IsTenantAdmin)
-                await _Database.Events.DeleteAsync(auth.TenantId!, id, token).ConfigureAwait(false);
-            else
-                await _Database.Events.DeleteAsync(auth.TenantId!, auth.UserId!, id, token).ConfigureAwait(false);
-        }
-
-        private static Incident? ProjectLatestIncident(List<ArmadaEvent> snapshots)
-        {
-            ArmadaEvent? latest = snapshots
-                .OrderByDescending(item => item.CreatedUtc)
-                .ThenByDescending(item => item.Id, StringComparer.Ordinal)
-                .FirstOrDefault();
-            return latest != null ? DeserializeIncident(latest) : null;
-        }
-
-        private static Incident? DeserializeIncident(ArmadaEvent snapshot)
-        {
-            if (String.IsNullOrWhiteSpace(snapshot.Payload))
-                return null;
-
-            Incident? incident = JsonSerializer.Deserialize<Incident>(snapshot.Payload, _JsonOptions);
-            if (incident == null)
-                return null;
-
-            incident.TenantId = incident.TenantId ?? snapshot.TenantId;
-            incident.UserId = incident.UserId ?? snapshot.UserId;
-            incident.LastUpdateUtc = incident.LastUpdateUtc == default ? snapshot.CreatedUtc : incident.LastUpdateUtc;
-
-            // A snapshot written before opened reasons were kept carries only its root cause. Unless a
-            // person is recorded as its author, that cause is the text the incident was opened with.
-            if (incident.OpenedReason == null && incident.RootCauseWrittenBy == null)
-                incident.OpenedReason = incident.RootCause;
-            return incident;
+            await _Database.Incidents.WriteSnapshotAsync(snapshot, incident, token).ConfigureAwait(false);
         }
 
         // A criterion-review incident stands for a Judge verdict held for an operator ruling. Closing it by hand would
@@ -624,24 +415,6 @@ namespace Armada.Core.Services
             throw new InvalidOperationException(JudgeCriterionConflicts.IncidentCloseRefusedCode + ": mission " + mission.Id
                 + " is still held for an operator ruling on this criterion conflict. Rule with armada_review_hold (clear lands the work, "
                 + "fail ends it Failed with no rescue); the ruling closes this incident.");
-        }
-
-        private static bool IsSnapshotNewer(ArmadaEvent candidate, ArmadaEvent existing)
-        {
-            if (candidate.CreatedUtc > existing.CreatedUtc)
-                return true;
-            if (candidate.CreatedUtc < existing.CreatedUtc)
-                return false;
-
-            string candidateId = candidate.Id ?? String.Empty;
-            string existingId = existing.Id ?? String.Empty;
-            return StringComparer.Ordinal.Compare(candidateId, existingId) > 0;
-        }
-
-        private static bool IsIncidentSnapshotEvent(ArmadaEvent item)
-        {
-            return String.Equals(item.EntityType, IncidentEntityType, StringComparison.OrdinalIgnoreCase)
-                && String.Equals(item.EventType, SnapshotEventType, StringComparison.OrdinalIgnoreCase);
         }
 
         private static void ApplyRootCauseAuthorship(
@@ -710,13 +483,6 @@ namespace Armada.Core.Services
             {
                 incident.ClosedUtc = DateTime.UtcNow;
             }
-        }
-
-        private static bool ContainsIgnoreCase(string? value, string? search)
-        {
-            if (String.IsNullOrWhiteSpace(value) || String.IsNullOrWhiteSpace(search))
-                return false;
-            return value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static string? Normalize(string? value)

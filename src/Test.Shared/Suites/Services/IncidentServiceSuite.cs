@@ -267,6 +267,7 @@ namespace Test.Shared.Suites.Services
 
                 await testDb.Driver.Events.CreateAsync(originalSnapshot).ConfigureAwait(false);
                 await testDb.Driver.Events.CreateAsync(updatedSnapshot).ConfigureAwait(false);
+                await testDb.Driver.Incidents.BackfillFromEventsAsync().ConfigureAwait(false);
 
                 Incident? loaded = await incidents.ReadAsync(auth, original.Id).ConfigureAwait(false);
                 loaded = NotNull(loaded);

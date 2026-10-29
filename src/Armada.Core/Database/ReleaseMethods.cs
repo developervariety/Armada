@@ -32,7 +32,7 @@ namespace Armada.Core.Database
         /// <summary>
         /// Most recently published or updated first, newest first among equals.
         /// </summary>
-        internal const string Order = "COALESCE(published_utc, last_update_utc) DESC, created_utc DESC";
+        internal const string Order = "COALESCE(published_utc, last_update_utc) DESC, created_utc DESC, id DESC";
 
         #endregion
 
