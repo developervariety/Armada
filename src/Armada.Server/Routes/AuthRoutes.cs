@@ -242,7 +242,7 @@ namespace Armada.Server.Routes
                 .WithTag("Authentication")
                 .WithSummary("Look up tenants by email")
                 .WithDescription("Unauthenticated and rate-limited. Returns one page of the active tenants in which a user with the email exists, ordered by tenant name then id, with PageNumber, PageSize, TotalPages and TotalRecords. Paging comes from the body (PageNumber, PageSize 1 to 1000, default 10) or the querystring, which overrides it.")
-                .WithRequestBody(OpenApiJson.BodyFor<TenantLookupRequest>("Email and paging", true))
+                .WithRequestBody(OpenApiJson.BodyFor<TenantLookupRequest>("Email and paging", false))
                 .WithResponse(200, OpenApiJson.For<TenantLookupResult>("One page of tenants"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest()));
 

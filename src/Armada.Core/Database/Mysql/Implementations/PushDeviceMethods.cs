@@ -196,9 +196,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                long total = await MysqlCommandHelper.CountAsync(conn, "SELEMySqlConnection COUNT(*) FROM push_devices" + where + ";", bind, token).ConfigureAwait(false);
+                long total = await MysqlCommandHelper.CountAsync(conn, "SELECT COUNT(*) FROM push_devices" + where + ";", bind, token).ConfigureAwait(false);
                 List<PushDevice> rows = await MysqlCommandHelper.QueryAsync(conn,
-                    "SELEMySqlConnection * FROM push_devices" + where + " ORDER BY created_utc ASC, id ASC" + MysqlCommandHelper.Page(page.Offset, page.PageSize) + ";",
+                    "SELECT * FROM push_devices" + where + " ORDER BY created_utc ASC, id ASC" + MysqlCommandHelper.Page(page.Offset, page.PageSize) + ";",
                     bind, FromReader, token).ConfigureAwait(false);
                 return EnumerationResult<PushDevice>.Create(page, rows, total);
             }

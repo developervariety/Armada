@@ -82,6 +82,9 @@ namespace Armada.Core.Database.Mysql
             BatteryRuns = new BatteryRunMethods(_ConnectionString);
             BatteryTaskResults = new BatteryTaskResultMethods(_ConnectionString);
             PushDevices = new PushDeviceMethods(_ConnectionString);
+            Incidents = new IncidentMethods(_ConnectionString);
+            RunbookExecutions = new RunbookExecutionMethods(_ConnectionString);
+            Runbooks = new RunbookMethods(_ConnectionString);
             HarborJobs = new HarborJobMethods(_ConnectionString);
             HarborLinkSamples = new HarborLinkSampleMethods(_ConnectionString);
             HarborLinkEvents = new HarborLinkEventMethods(_ConnectionString);
@@ -1021,7 +1024,45 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE fleet_action_runs ADD COLUMN inputs_json LONGTEXT NULL;",
                     @"ALTER TABLE fleet_action_runs ADD COLUMN input_values_json LONGTEXT NULL;",
                     @"ALTER TABLE fleet_action_runs ADD COLUMN findings_count INT NOT NULL DEFAULT 0;",
-                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary LONGTEXT NULL;")
+                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary LONGTEXT NULL;"),
+                new SchemaMigration(102, "Add incidents and runbook_executions: one row per incident and per runbook execution holding its current state, so their lists page and count in the database (the snapshot events stay as history)",
+                    @"CREATE TABLE IF NOT EXISTS incidents (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id VARCHAR(64),
+                        user_id VARCHAR(64),
+                        title LONGTEXT NOT NULL,
+                        status VARCHAR(32) NOT NULL,
+                        severity VARCHAR(32) NOT NULL,
+                        vessel_id VARCHAR(64),
+                        environment_id VARCHAR(64),
+                        deployment_id VARCHAR(64),
+                        release_id VARCHAR(64),
+                        mission_id VARCHAR(64),
+                        voyage_id VARCHAR(64),
+                        failure_kind VARCHAR(64),
+                        search_text LONGTEXT,
+                        payload LONGTEXT NOT NULL,
+                        detected_utc TEXT NOT NULL,
+                        last_update_utc DATETIME(6) NOT NULL
+                    );",
+                    @"CREATE INDEX idx_incidents_tenant_user ON incidents(tenant_id, user_id);",
+                    @"CREATE INDEX idx_incidents_last_update ON incidents(last_update_utc, id);",
+                    @"CREATE TABLE IF NOT EXISTS runbook_executions (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id VARCHAR(64),
+                        user_id VARCHAR(64),
+                        runbook_id VARCHAR(64) NOT NULL,
+                        deployment_id VARCHAR(64),
+                        incident_id VARCHAR(64),
+                        status VARCHAR(32) NOT NULL,
+                        search_text LONGTEXT,
+                        payload LONGTEXT NOT NULL,
+                        started_utc TEXT NOT NULL,
+                        last_update_utc DATETIME(6) NOT NULL
+                    );",
+                    @"CREATE INDEX idx_runbook_executions_tenant_user ON runbook_executions(tenant_id, user_id);",
+                    @"CREATE INDEX idx_runbook_executions_runbook ON runbook_executions(runbook_id);",
+                    @"CREATE INDEX idx_runbook_executions_last_update ON runbook_executions(last_update_utc, id);")
 
 
             };

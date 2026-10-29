@@ -394,6 +394,13 @@ namespace Armada.Server
             _Logging.Debug(_Header + "persona and pipeline seeding completed");
 
             await _EnvironmentService.SeedDefaultsAsync().ConfigureAwait(false);
+
+            // Incidents and runbook executions recorded only as snapshot events (before their tables existed) are
+            // imported once, so their lists page in the database.
+            int importedIncidents = await _IncidentService.ImportLegacySnapshotsAsync().ConfigureAwait(false);
+            int importedExecutions = await _RunbookService.ImportLegacyExecutionSnapshotsAsync().ConfigureAwait(false);
+            if (importedIncidents > 0 || importedExecutions > 0)
+                _Logging.Info(_Header + "imported " + importedIncidents + " incident(s) and " + importedExecutions + " runbook execution(s) from snapshot events");
             _Logging.Debug(_Header + "deployment environment seeding completed");
 
             _StageOutcomeService = new StageOutcomeService(_Database, _Logging);

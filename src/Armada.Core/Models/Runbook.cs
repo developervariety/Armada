@@ -101,6 +101,19 @@ namespace Armada.Core.Models
         public List<RunbookStep> Steps { get; set; } = new List<RunbookStep>();
 
         /// <summary>
+        /// Number of parameters beyond the first 256 that the playbook defines or references but that are not listed in
+        /// <see cref="Parameters"/> (only possible for a playbook written outside the runbook API). Zero normally.
+        /// </summary>
+        public int OmittedParameterCount { get; set; } = 0;
+
+        /// <summary>
+        /// Number of steps beyond the first 256 that the playbook defines but that are not listed in <see cref="Steps"/>
+        /// (only possible for a playbook written outside the runbook API; the text is still in
+        /// <see cref="OverviewMarkdown"/>). Zero normally.
+        /// </summary>
+        public int OmittedStepCount { get; set; } = 0;
+
+        /// <summary>
         /// Operator-facing markdown overview and instructions.
         /// </summary>
         public string OverviewMarkdown { get; set; } = String.Empty;

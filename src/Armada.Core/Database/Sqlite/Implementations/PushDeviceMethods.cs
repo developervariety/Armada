@@ -203,9 +203,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteProviderConnection(_ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                long total = await SqliteCommandHelper.CountAsync(conn, "SELESqliteConnection COUNT(*) FROM push_devices" + where + ";", bind, token).ConfigureAwait(false);
+                long total = await SqliteCommandHelper.CountAsync(conn, "SELECT COUNT(*) FROM push_devices" + where + ";", bind, token).ConfigureAwait(false);
                 List<PushDevice> rows = await SqliteCommandHelper.QueryAsync(conn,
-                    "SELESqliteConnection * FROM push_devices" + where + " ORDER BY created_utc ASC, id ASC" + SqliteCommandHelper.Page(page.Offset, page.PageSize) + ";",
+                    "SELECT * FROM push_devices" + where + " ORDER BY created_utc ASC, id ASC" + SqliteCommandHelper.Page(page.Offset, page.PageSize) + ";",
                     bind, FromReader, token).ConfigureAwait(false);
                 return EnumerationResult<PushDevice>.Create(page, rows, total);
             }

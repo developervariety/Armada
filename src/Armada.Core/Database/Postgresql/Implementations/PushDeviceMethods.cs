@@ -203,9 +203,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
             using (NpgsqlConnection conn = new NpgsqlConnection(_ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                long total = await PostgresqlCommandHelper.CountAsync(conn, "SELENpgsqlConnection COUNT(*) FROM push_devices" + where + ";", bind, token).ConfigureAwait(false);
+                long total = await PostgresqlCommandHelper.CountAsync(conn, "SELECT COUNT(*) FROM push_devices" + where + ";", bind, token).ConfigureAwait(false);
                 List<PushDevice> rows = await PostgresqlCommandHelper.QueryAsync(conn,
-                    "SELENpgsqlConnection * FROM push_devices" + where + " ORDER BY created_utc ASC, id ASC" + PostgresqlCommandHelper.Page(page.Offset, page.PageSize) + ";",
+                    "SELECT * FROM push_devices" + where + " ORDER BY created_utc ASC, id ASC" + PostgresqlCommandHelper.Page(page.Offset, page.PageSize) + ";",
                     bind, FromReader, token).ConfigureAwait(false);
                 return EnumerationResult<PushDevice>.Create(page, rows, total);
             }

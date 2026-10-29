@@ -203,9 +203,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
             using (SqlConnection conn = new SqlConnection(_ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                long total = await SqlServerCommandHelper.CountAsync(conn, "SELESqlConnection COUNT(*) FROM push_devices" + where + ";", bind, token).ConfigureAwait(false);
+                long total = await SqlServerCommandHelper.CountAsync(conn, "SELECT COUNT(*) FROM push_devices" + where + ";", bind, token).ConfigureAwait(false);
                 List<PushDevice> rows = await SqlServerCommandHelper.QueryAsync(conn,
-                    "SELESqlConnection * FROM push_devices" + where + " ORDER BY created_utc ASC, id ASC" + SqlServerCommandHelper.Page(page.Offset, page.PageSize) + ";",
+                    "SELECT * FROM push_devices" + where + " ORDER BY created_utc ASC, id ASC" + SqlServerCommandHelper.Page(page.Offset, page.PageSize) + ";",
                     bind, FromReader, token).ConfigureAwait(false);
                 return EnumerationResult<PushDevice>.Create(page, rows, total);
             }

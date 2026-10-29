@@ -1997,7 +1997,45 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('fleet_action_runs', 'inputs_json') IS NULL ALTER TABLE fleet_action_runs ADD inputs_json NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('fleet_action_runs', 'input_values_json') IS NULL ALTER TABLE fleet_action_runs ADD input_values_json NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('fleet_action_runs', 'findings_count') IS NULL ALTER TABLE fleet_action_runs ADD findings_count INT NOT NULL DEFAULT 0;",
-                    @"IF COL_LENGTH('fleet_action_run_targets', 'scan_summary') IS NULL ALTER TABLE fleet_action_run_targets ADD scan_summary NVARCHAR(MAX) NULL;")
+                    @"IF COL_LENGTH('fleet_action_run_targets', 'scan_summary') IS NULL ALTER TABLE fleet_action_run_targets ADD scan_summary NVARCHAR(MAX) NULL;"),
+                new SchemaMigration(102, "Add incidents and runbook_executions: one row per incident and per runbook execution holding its current state, so their lists page and count in the database (the snapshot events stay as history)",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'incidents') CREATE TABLE incidents (
+                        id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(64),
+                        user_id NVARCHAR(64),
+                        title NVARCHAR(MAX) NOT NULL,
+                        status NVARCHAR(32) NOT NULL,
+                        severity NVARCHAR(32) NOT NULL,
+                        vessel_id NVARCHAR(64),
+                        environment_id NVARCHAR(64),
+                        deployment_id NVARCHAR(64),
+                        release_id NVARCHAR(64),
+                        mission_id NVARCHAR(64),
+                        voyage_id NVARCHAR(64),
+                        failure_kind NVARCHAR(64),
+                        search_text NVARCHAR(MAX),
+                        payload NVARCHAR(MAX) NOT NULL,
+                        detected_utc TEXT NOT NULL,
+                        last_update_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_incidents_tenant_user') CREATE INDEX idx_incidents_tenant_user ON incidents(tenant_id, user_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_incidents_last_update') CREATE INDEX idx_incidents_last_update ON incidents(last_update_utc, id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'runbook_executions') CREATE TABLE runbook_executions (
+                        id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(64),
+                        user_id NVARCHAR(64),
+                        runbook_id NVARCHAR(64) NOT NULL,
+                        deployment_id NVARCHAR(64),
+                        incident_id NVARCHAR(64),
+                        status NVARCHAR(32) NOT NULL,
+                        search_text NVARCHAR(MAX),
+                        payload NVARCHAR(MAX) NOT NULL,
+                        started_utc TEXT NOT NULL,
+                        last_update_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_runbook_executions_tenant_user') CREATE INDEX idx_runbook_executions_tenant_user ON runbook_executions(tenant_id, user_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_runbook_executions_runbook') CREATE INDEX idx_runbook_executions_runbook ON runbook_executions(runbook_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_runbook_executions_last_update') CREATE INDEX idx_runbook_executions_last_update ON runbook_executions(last_update_utc, id);")
 
 
             };

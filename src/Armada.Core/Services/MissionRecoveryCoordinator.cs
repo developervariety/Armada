@@ -171,7 +171,9 @@ namespace Armada.Core.Services
             if (anyActive) return; // A rescue is in flight; wait for it.
 
             // No rescue in flight and none succeeded: dispatch another if the budget allows.
-            if (incident.RecoveryAttempts < maxAttempts)
+            // The budget (MaxMissionRecoveryAttempts, at most 5) bounds RescueMissionIds; the link-list limit is checked too
+            // so an incident edited by hand to hold many ids is never pushed past it.
+            if (incident.RecoveryAttempts < maxAttempts && incident.RescueMissionIds.Count < CollectionLimits.MaxLinkedIds)
             {
                 if (String.IsNullOrEmpty(incident.MissionId)) return;
                 Mission? rescueMission = await DispatchRescueAsync(original, incident, token).ConfigureAwait(false);
@@ -227,7 +229,7 @@ namespace Armada.Core.Services
                 _Logging.Info(_Header + "opened incident " + incident.Id + " for failed mission " + mission.Id + " (" + kind + ")");
 
                 // Dispatch the first rescue immediately when the budget allows.
-                if (maxAttempts > 0)
+                if (maxAttempts > 0 && incident.RescueMissionIds.Count < CollectionLimits.MaxLinkedIds)
                 {
                     Mission? rescueMission = await DispatchRescueAsync(mission, incident, token).ConfigureAwait(false);
                     if (rescueMission == null) continue;
@@ -323,7 +325,8 @@ namespace Armada.Core.Services
         private async Task<List<Incident>> ReadRecoveryIncidentsAsync(AuthContext auth, CancellationToken token)
         {
             List<Incident> results = new List<Incident>();
-            IncidentQuery query = new IncidentQuery { PageNumber = 1, PageSize = 200 };
+            // Only recovery incidents (those with a FailureKind), filtered and paged in the database.
+            IncidentQuery query = new IncidentQuery { PageNumber = 1, PageSize = 200, HasFailureKind = true };
 
             while (true)
             {
