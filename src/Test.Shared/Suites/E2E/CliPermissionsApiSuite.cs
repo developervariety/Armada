@@ -123,7 +123,7 @@ namespace Test.Shared.Suites.E2E
                     AskMessage card = page.Messages.Single(m => m.Kind == AskMessageKindEnum.CliPermission);
                     AssertEqual(pending.Id, card.CliPermissionRequest!.Id, "card carries its request");
 
-                    List<InboxItem> inbox = await JsonHelper.DeserializeAsync<List<InboxItem>>(await a.GetAsync("/api/v1/inbox").ConfigureAwait(false)).ConfigureAwait(false);
+                    List<InboxItem> inbox = (await JsonHelper.DeserializeAsync<EnumerationResult<InboxItem>>(await a.PostAsync("/api/v1/inbox/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects;
                     InboxItem item = inbox.Single(i => i.Kind == InboxItemKinds.CliPermission && i.EntityId == pending.Id);
                     AssertEqual(InboxSeverityEnum.Warning, item.Severity);
                     AssertTrue(item.CliPermission!.CanDecide, "admin's inbox item is decidable");
@@ -177,13 +177,13 @@ namespace Test.Shared.Suites.E2E
                     svc.CardPoster = previous;
                 }
 
-                List<CliPermissionRequest> recorded = await JsonHelper.DeserializeAsync<List<CliPermissionRequest>>(await a.GetAsync("/api/v1/cli-permissions/requests?threadId=" + thread.Id).ConfigureAwait(false)).ConfigureAwait(false);
+                List<CliPermissionRequest> recorded = (await JsonHelper.DeserializeAsync<EnumerationResult<CliPermissionRequest>>(await a.PostAsync("/api/v1/cli-permissions/requests/enumerate", JsonHelper.ToJsonContent(new { ThreadId = thread.Id, PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects;
                 CliPermissionRequest denied = recorded.Single();
                 AssertEqual(CliPermissionRequestStatusEnum.Denied, denied.Status);
                 AssertEqual((CliPermissionDecisionSourceEnum?)CliPermissionDecisionSourceEnum.DeliveryFailed, denied.DecisionSource);
                 AssertFalse(denied.CanDecide, "not decidable");
                 AssertTrue(denied.DecidedUtc.HasValue && denied.DecidedUtc.Value - denied.CreatedUtc < TimeSpan.FromSeconds(30), "decided right after it was stored, long before it would expire");
-                List<InboxItem> inbox = await JsonHelper.DeserializeAsync<List<InboxItem>>(await a.GetAsync("/api/v1/inbox").ConfigureAwait(false)).ConfigureAwait(false);
+                List<InboxItem> inbox = (await JsonHelper.DeserializeAsync<EnumerationResult<InboxItem>>(await a.PostAsync("/api/v1/inbox/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects;
                 AssertFalse(inbox.Any(i => i.Kind == InboxItemKinds.CliPermission && i.EntityId == denied.Id), "no phantom inbox item");
             }));
 
@@ -230,7 +230,7 @@ namespace Test.Shared.Suites.E2E
                     AssertContains("Bash(curl:*)", deniedAnswer.Message ?? "");
                 }
 
-                List<CliPermissionRequest> recorded = await JsonHelper.DeserializeAsync<List<CliPermissionRequest>>(await a.GetAsync("/api/v1/cli-permissions/requests?missionId=" + missionId).ConfigureAwait(false)).ConfigureAwait(false);
+                List<CliPermissionRequest> recorded = (await JsonHelper.DeserializeAsync<EnumerationResult<CliPermissionRequest>>(await a.PostAsync("/api/v1/cli-permissions/requests/enumerate", JsonHelper.ToJsonContent(new { MissionId = missionId, PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects;
                 AssertEqual(2, recorded.Count, "both prompts recorded");
                 AssertTrue(recorded.All(r => r.VesselId == vesselId && r.CaptainId == captainId && r.Status != CliPermissionRequestStatusEnum.Pending), "mission context recorded");
                 AssertEqual(1, recorded.Count(r => r.DecisionSource == CliPermissionDecisionSourceEnum.AllowRule && r.RuleId == rule.Id));
@@ -258,8 +258,10 @@ namespace Test.Shared.Suites.E2E
                     listed = await mcp.ListToolsAsync().ConfigureAwait(false);
                 }
 
-                foreach (string tool in new[] { "cli_permission_prompt", "list_cli_permission_requests", "get_cli_permission_request", "decide_cli_permission_request", "list_cli_permission_rules", "create_cli_permission_rule", "update_cli_permission_rule", "delete_cli_permission_rule", "set_captain_cli_permission_policy" })
+                foreach (string tool in new[] { "cli_permission_prompt", "get_cli_permission_request", "decide_cli_permission_request", "create_cli_permission_rule", "update_cli_permission_rule", "delete_cli_permission_rule", "set_captain_cli_permission_policy" })
                     AssertTrue(listed.Any(t => t.Name == tool), "MCP lists " + tool);
+                foreach (string retired in new[] { "list_cli_permission_requests", "list_cli_permission_rules" })
+                    AssertFalse(listed.Any(t => t.Name == retired), "retired whole-collection tool is not registered: " + retired);
             }));
 
             cases.Add(CaseAsync("owner_approval_setting_and_policies", "Owner approval follows Permissions.AllowOwnerApproval; Bypass needs an admin on threads and captains", async () =>
@@ -413,7 +415,7 @@ namespace Test.Shared.Suites.E2E
                 HttpResponseMessage resp;
                 try
                 {
-                    resp = await client.GetAsync("/api/v1/cli-permissions/requests?status=Pending&threadId=" + thread.Id).ConfigureAwait(false);
+                    resp = await client.PostAsync("/api/v1/cli-permissions/requests/enumerate", JsonHelper.ToJsonContent(new { Status = "Pending", ThreadId = thread.Id, PageSize = 1000 })).ConfigureAwait(false);
                 }
                 catch (HttpRequestException ex)
                 {
@@ -427,7 +429,7 @@ namespace Test.Shared.Suites.E2E
                     return false;
                 }
 
-                List<CliPermissionRequest> rows = await JsonHelper.DeserializeAsync<List<CliPermissionRequest>>(resp).ConfigureAwait(false);
+                List<CliPermissionRequest> rows = (await JsonHelper.DeserializeAsync<EnumerationResult<CliPermissionRequest>>(resp).ConfigureAwait(false)).Objects;
                 trace.RecordPoll(resp.StatusCode, poll.ElapsedMilliseconds, rows);
                 // Not the first Pending row: the request is listed before its Ask card is posted, and the callers read
                 // the card right after this returns (thread_prompt_denied_and_card failed with "Sequence contains no

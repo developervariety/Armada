@@ -1,9 +1,9 @@
 # Captain Support Matrix
 
 A captain is whatever actually does the work on a mission: a coding-agent CLI that Armada launches as a child
-process, or an in-process loop that talks to an inference endpoint directly. Armada ships seven runtimes. They are not
-equal. Claude Code gets the most attention in the code (token streaming, tool cards), Mux and
-OpenCode come close because they speak structured JSON, and Codex, Gemini, and Cursor are driven as plain-text CLIs.
+process, or an in-process loop that talks to an inference endpoint directly. Armada ships eight runtimes. They are not
+equal. Claude Code gets the most attention in the code (token streaming, tool cards), Mux,
+OpenCode, and pi come close because they speak structured JSON, and Codex, Gemini, and Cursor are driven as plain-text CLIs.
 
 Everything below is read from the runtime code (`src/Armada.Runtimes`, `src/Armada.Core/Services`, and the chat and
 planning coordinators in `src/Armada.Server`), not from vendor documentation. When a vendor CLI changes a flag, the
@@ -19,6 +19,7 @@ code is the thing to check first.
 | Cursor | `Cursor` | `cursor-agent` | See https://docs.cursor.com/cli |
 | Mux | `Mux` | `mux` | Install mux and ensure the `mux` command is on PATH |
 | OpenCode | `OpenCode` | `opencode` | (see runtime documentation); not probed by `armada doctor` |
+| pi | `Pi` | `pi` | Install pi (https://pi.dev) and ensure the `pi` command is on PATH |
 | API endpoint | `ApiEndpoint` | none (runs in the Admiral process) | Configure an inference endpoint in the dashboard |
 
 `armada doctor` lists each runtime it finds; when it finds none it prints only the Claude Code hint.
@@ -34,7 +35,9 @@ The only detection is `RuntimeDetectionService.IsCommandAvailable`, which starts
 "the process started" as "installed". It does not read the output, and it does not even look at the exit code. `armada
 doctor` and default-runtime selection both use it, and they probe `claude`, `codex`, `gemini`, `cursor-agent`, and `mux`
 in that order. OpenCode is not in that list, so `armada doctor` never reports it; `armada mcp install` finds OpenCode
-separately by looking for `~/.config/opencode` or an `opencode` executable on PATH.
+separately by looking for `~/.config/opencode` or an `opencode` executable on PATH. pi is probed last, after `mux`, and
+because `pi` is a short name that other tools also use (and `pi --version` prints only a bare version number), pi
+detection also requires the first line of `pi --help` to start with `pi - AI coding assistant`.
 
 In practice that means "supported version" is "a version that accepts the flags listed below". If a CLI renames or
 drops one of them, the captain fails at launch and the error lands in the mission log. Pin the CLI versions on your
@@ -42,20 +45,20 @@ captain hosts and upgrade them on purpose.
 
 ## Feature matrix
 
-| Feature | Claude Code | Codex | Gemini | Cursor | Mux | OpenCode | ApiEndpoint |
-|---------|:-----------:|:-----:|:------:|:------:|:---:|:--------:|:-----------:|
-| Missions | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Planning sessions | Yes | Yes | Yes | Yes | Yes | Yes | No |
-| Ask Armada threads | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Ask approval gating | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| CLI tool approval in Armada (`ApproveInArmada`) | Yes | Runs as `Refuse` | Runs as `Refuse` | Runs as `Refuse` | Mux 1.5.0 or later | Runs as `Refuse` | `run_process` only |
-| Streaming replies (chat and planning) | Token deltas | Line by line | Line by line | Line by line | Token deltas | JSON events | Per model response |
-| Thinking display | Prompted block | Prompted block | Prompted block | Prompted block | Native | Native | Prompted block |
-| Tool-call cards in chat | Yes | No | No | No | Yes | Yes | Yes |
-| Model selection | `--model` | `--model` | `--model` | `--model` | `--model` | `--model` | Endpoint model, captain override |
-| Reasoning effort | `MAX_THINKING_TOKENS` | `model_reasoning_effort` | No | No | `--effort` | `--variant` | PolyPrompt reasoning effort |
-| Resume | Yes | No | No | No | No | No | No |
-| Isolated launch (`IsolateCaptainLaunch`) | Yes | Yes | Yes | Yes | Yes | No | Not applicable |
+| Feature | Claude Code | Codex | Gemini | Cursor | Mux | OpenCode | pi | ApiEndpoint |
+|---------|:-----------:|:-----:|:------:|:------:|:---:|:--------:|:--:|:-----------:|
+| Missions | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Planning sessions | Yes | Yes | Yes | Yes | Yes | Yes | Yes | No |
+| Ask Armada threads | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Ask approval gating | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| CLI tool approval in Armada (`ApproveInArmada`) | Yes | Runs as `Refuse` | Runs as `Refuse` | Runs as `Refuse` | Mux 1.5.0 or later | Runs as `Refuse` | Runs as `Refuse` | `run_process` only |
+| Streaming replies (chat and planning) | Token deltas | Line by line | Line by line | Line by line | Token deltas | JSON events | JSON events | Per model response |
+| Thinking display | Prompted block | Prompted block | Prompted block | Prompted block | Native | Native | Native | Prompted block |
+| Tool-call cards in chat | Yes | No | No | No | Yes | Yes | Yes | Yes |
+| Model selection | `--model` | `--model` | `--model` | `--model` | `--model` | `--model` | `--model` | Endpoint model, captain override |
+| Reasoning effort | `MAX_THINKING_TOKENS` | `model_reasoning_effort` | No | No | `--effort` | `--variant` | `--thinking` | PolyPrompt reasoning effort |
+| Resume | Yes | No | No | No | No | No | No | No |
+| Isolated launch (`IsolateCaptainLaunch`) | Yes | Yes | Yes | Yes | Yes | No | No | Not applicable |
 
 A few of those cells need more than one word.
 
@@ -76,6 +79,7 @@ configuration the token is not written to disk or put on the command line.
 | Cursor | `.cursor/mcp.json` in the throwaway working directory (header `${env:ARMADA_MCP_TOKEN}`); `--force` approves it | Each alias found in `~/.cursor/mcp.json` is redefined as the scoped server |
 | Mux | `--mcp-config <per-launch file> --strict-mcp-config` (API-key auth in `X-Token`, value `${ARMADA_MCP_TOKEN}`) | Ignored (strict) |
 | OpenCode | `OPENCODE_CONFIG_CONTENT` merged over the user's config: a fresh remote entry (header `{env:ARMADA_MCP_TOKEN}`) | Disabled with `"enabled": false`; same naming rule as Codex |
+| pi | `.pi/mcp.json` in the working directory (an `http` entry named `armada`, header `X-Token: ${ARMADA_MCP_TOKEN}`) plus `--approve` so the headless run trusts the project; in a dock the file is added to the worktree's `info/exclude` and deleted after exit | Each alias found in `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`) is redefined as the scoped server or disabled |
 
 An "alias" is any server whose name contains `armada`, whose URL targets the Admiral MCP port, or whose command runs
 the `armada` CLI or `Armada.Helm`. Codex and OpenCode merge an override into an existing entry of the same name (an
@@ -111,35 +115,35 @@ note under the header: "Actions from this captain run without approval cards."
 `SupportsPlanningSessions = false`, and the coordinator refuses them. `Captain.SupportsPlanningSessions` and the
 `PlanningSessionSupportReason` string come from the same per-runtime capability (`AgentRuntimeCapabilities`) that the
 runtime adapters report, so an ApiEndpoint or Custom captain is shown as "planning unsupported" in the dashboard and
-TUI instead of failing when the session starts, and the reason lists every supported runtime, OpenCode included.
+TUI instead of failing when the session starts, and the reason lists every supported runtime, OpenCode and pi included.
 
 **Streaming.** Claude Code switches to `--output-format stream-json --include-partial-messages` for Ask and interactive
 planning turns, which gives real token deltas plus a clean final message and token counts from the `result` event.
-Missions keep plain `--print` output. Mux streams `assistant_text` JSONL events, and OpenCode streams `--format json`
-events. Codex, Gemini, and Cursor are read one stdout line at a time. The ApiEndpoint loop emits each model response
+Missions keep plain `--print` output. Mux streams `assistant_text` JSONL events, OpenCode streams `--format json`
+events, and pi streams `--mode json` events. Codex, Gemini, and Cursor are read one stdout line at a time. The ApiEndpoint loop emits each model response
 whole, between tool calls.
 
-**Thinking.** Only Mux (`--show-thinking`, `assistant_thinking` events) and OpenCode (`--thinking`, `reasoning`
-events) have a native thinking channel. For every other runtime, when the user asks to see thinking, Armada appends an
+**Thinking.** Only Mux (`--show-thinking`, `assistant_thinking` events), OpenCode (`--thinking`, `reasoning`
+events), and pi (`thinking` content blocks) have a native thinking channel. For every other runtime, when the user asks to see thinking, Armada appends an
 instruction to wrap reasoning in a single `<thinking>...</thinking>` block and lifts that block out of the final reply.
 That is the model describing its reasoning on request, not the provider's reasoning trace.
 
 **Tool cards** come from structured output parsed into typed events (`Armada.Core.Protocol`): Claude Code
 `tool_use` and `tool_result` blocks, Mux `tool_call_proposed` and `tool_call_completed` events, OpenCode `tool_use`
-parts, and the ApiEndpoint runtime's typed `OnToolEvent` channel (its stdout carries only the model's reply text, so
+parts, pi `toolCall` blocks and tool execution events, and the ApiEndpoint runtime's typed `OnToolEvent` channel (its stdout carries only the model's reply text, so
 reply text cannot fake a tool card). A JSON line counts as a protocol event only when its discriminator (`type` or
 `eventType`) is one of the runtime's known event types. Plain-text runtimes produce no cards.
 
 **Reasoning effort** is a per-captain setting (`Off`, `Minimal`, `Low`, `Medium`, `High`) translated by
 `ReasoningEffortTranslator`:
 
-| Setting | Claude Code `MAX_THINKING_TOKENS` | Codex `model_reasoning_effort` | Mux `--effort` | OpenCode `--variant` |
-|---------|-----------------------------------|--------------------------------|----------------|----------------------|
-| Off | 0 | (not passed) | off | (not passed) |
-| Minimal | 2048 | minimal | minimal | minimal |
-| Low | 4096 | low | low | minimal |
-| Medium | 8192 | medium | medium | high |
-| High | 16384 | high | high | high |
+| Setting | Claude Code `MAX_THINKING_TOKENS` | Codex `model_reasoning_effort` | Mux `--effort` | OpenCode `--variant` | pi `--thinking` |
+|---------|-----------------------------------|--------------------------------|----------------|----------------------|-----------------|
+| Off | 0 | (not passed) | off | (not passed) | off |
+| Minimal | 2048 | minimal | minimal | minimal | minimal |
+| Low | 4096 | low | low | minimal | low |
+| Medium | 8192 | medium | medium | high | medium |
+| High | 16384 | high | high | high | high |
 
 Gemini, Cursor, and ApiEndpoint ignore the setting.
 
@@ -298,6 +302,28 @@ the user's `~/.config/opencode/opencode.json` (or `.jsonc`), where `armada mcp i
 Guides: [INSTRUCTIONS_FOR_OPENCODE.md](INSTRUCTIONS_FOR_OPENCODE.md),
 [OPENCODE_AS_ORCHESTRATOR.md](OPENCODE_AS_ORCHESTRATOR.md).
 
+### pi
+
+```
+pi -p --mode json --no-session [--approve] [--model <provider/id>] [--thinking <level>]
+   [--exclude-tools bash,powershell | --extension <bin>/Pi/armada-permission-gate.ts] [@<prompt file> (Windows)]
+```
+
+The prompt goes to stdin (on Windows to a temporary file passed as `@<file>`, because stdin through pi's npm `.cmd`
+wrapper is unverified there) and pi runs in the dock (or turn) working directory; pi has no directory flag.
+`--exclude-tools bash,powershell` is added under the `Refuse` policy (including a captain with auto-approve off), and
+`--extension <bin>/Pi/armada-permission-gate.ts` under `ApproveInArmada` (see the permissions table below). `--approve` is added when Armada
+writes the per-run `.pi/mcp.json` binding, so the headless run trusts the project; it also loads the repository's own
+`.pi/extensions` and `.pi/settings.json`, the same trust a captain already has through `bash`. Mission instructions are
+written to `AGENTS.override.md` (pi loads only one of `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md` per directory),
+which carries the repository's `AGENTS.md` (or `CLAUDE.md`). Token usage and cost come from each assistant
+`message_end` usage. pi exits 0 in JSON mode even on a provider error, so Armada treats a final `stopReason` of
+`error`, `aborted`, or `length` (or a missing `agent_end`) as a failure. pi is stopped with SIGTERM and a process tree
+kill, never SIGINT. pi has no entry in the launch isolation planner, so `IsolateCaptainLaunch` does not isolate it.
+Windows behavior (the `@file` prompt, Git Bash, the `powershell` tool) is unverified on a real Windows host.
+
+Guides: [INSTRUCTIONS_FOR_PI.md](INSTRUCTIONS_FOR_PI.md), [PI_AS_ORCHESTRATOR.md](PI_AS_ORCHESTRATOR.md).
+
 ### ApiEndpoint
 
 No process is started. `ApiAgentRuntime` resolves the captain's model endpoint (configured under Inference endpoints in
@@ -319,6 +345,7 @@ Armada decodes it as it arrives:
 | Claude Code | `--output-format stream-json` (with the existing `--verbose`, without partial messages) | the terminal `result` event's text | each `assistant` message's text, thinking, and `tool_use` blocks |
 | Codex | `exec --json` (the final message is still written to `--output-last-message`) | on stdout, the turn's last `agent_message`, printed when the turn completes or fails (or when the process ends first), and an `error` event's message; on stderr, each `agent_message` as it completes, as text mode's transcript showed it | `command_execution` and `mcp_tool_call` items as they start; `reasoning`, `file_change`, and `agent_message` items as they complete |
 | Gemini, Cursor, Mux, OpenCode | unchanged | unchanged (plain text, or Mux's own events) | none |
+| pi | `--mode json` (always) | the last assistant message's text | each assistant message's text, thinking, and tool calls |
 | ApiEndpoint | unchanged | unchanged | each tool call as it starts |
 
 The decoded readable lines are what text mode printed, so the mission's final message, `AgentOutput`, the
@@ -340,7 +367,7 @@ first output is now the time to its first activity, not to its final reply.
 By default every mission launches its CLI with its "do not ask me" switch on (the `Bypass` CLI tool permission policy,
 `Permissions.MissionDefaultPolicy`): `--dangerously-skip-permissions` for Claude Code, `--sandbox workspace-write` for
 Codex (and `--dangerously-bypass-approvals-and-sandbox` on Windows), `--approval-mode yolo` for Gemini, `--force` for
-Cursor, `--yolo` for Mux unless an approval policy is set, and `--auto` for OpenCode. A captain runs unattended inside a
+Cursor, `--yolo` for Mux unless an approval policy is set, `--auto` for OpenCode, and pi's default (pi never prompts). A captain runs unattended inside a
 git worktree, so there is nobody to answer a permission prompt; without these flags a mission stalls or is refused on
 its first shell command.
 
@@ -358,7 +385,7 @@ These settings turn the switch off (the full resolution order is under [CLI tool
   "Auto-approve agent tool use" checkbox on the dashboard and TUI captain forms, still applies when the captain has no
   `CliPermissionPolicy`: an explicit `true` is `Bypass` and `false` is `Refuse`. With auto-approve off, Claude Code runs
   with `--permission-mode acceptEdits --allowedTools mcp__armada`, Codex with `--sandbox workspace-write`, Gemini with
-  `--approval-mode auto_edit`, Cursor without `--force`, OpenCode without `--auto`, and Mux with approval policy `deny`
+  `--approval-mode auto_edit`, Cursor without `--force`, OpenCode without `--auto`, pi with `--exclude-tools bash,powershell`, and Mux with approval policy `deny`
   (unless `muxApprovalPolicy` is set).
 - **Per vessel:** `autoApprove` on `add_vessel` / `update_vessel` (`clearAutoApprove` removes it), shown as "Agent
   Auto-Approve" on the vessel form (On, Off, or use the captain setting). When set it wins over the captain's setting
@@ -424,6 +451,7 @@ conversation, so they ask instead.
 | Gemini | `--approval-mode auto_edit` | Runs as `Refuse` | `--approval-mode yolo` |
 | Cursor | Without `--force` | Runs as `Refuse` | `--force` |
 | OpenCode | Without `--auto` | Runs as `Refuse` | `--auto` |
+| pi | `--exclude-tools bash,powershell` (file reads, edits, and MCP tools stay available) | `--extension <bin>/Pi/armada-permission-gate.ts`: the extension's `tool_call` hook sends `bash`, `powershell`, and any other tool that is not a file tool or an Armada MCP tool to `cli_permission_prompt` (bash is reported as `Bash`, so Bash rules apply); a denial becomes the tool's error result, and an unreachable Admiral or a timeout blocks the call | pi's default (all tools, no prompts) |
 | Mux | `--approval-policy deny` | Mux 1.5.0 or later: `--approval-policy ask --permission-prompt-tool armada.cli_permission_prompt --permission-prompt-timeout <prompt timeout + 120> --auto-approve-tools armada.*,write_file,edit_file,multi_edit,process_stop --sandbox workspace-write`; older Mux runs as `Refuse` | `--yolo` |
 | ApiEndpoint | No CLI flags; the built-in `run_process` tool refuses every call | Each `run_process` call becomes a CLI permission request, answered in-process (no MCP token needed) | `run_process` runs without asking |
 
@@ -470,7 +498,7 @@ turn or mission ends, or the captain cancels the call (`Cancelled`; Claude Code 
 call is interrupted, and the request is resolved at once). An allowed call runs with its original input; a denied one
 returns a message that tells the model not to retry. On an Ask permission card, the conversation's owner (when an admin)
 can also choose **Allow for this conversation**: the call is allowed, the thread's policy becomes `Bypass` for later turns,
-and the rest of the running turn's prompts are allowed without asking (`DecisionSource` `ConversationBypass`). Requests are listed at `/cli-permissions` in the dashboard and the
+and the rest of the running turn's prompts are allowed without asking (`DecisionSource` `ConversationBypass`). Requests are listed in Settings > CLI Tool Permissions (`/server?tab=cli-permissions`; the old `/cli-permissions` URL redirects there) in the dashboard and the
 TUI (also in the TUI Approvals center). Decided, expired, and cancelled requests are deleted after
 `Retention.CliPermissionRequestRetentionDays` (default 90; 0 keeps them), and a thread's requests are deleted with the
 thread.

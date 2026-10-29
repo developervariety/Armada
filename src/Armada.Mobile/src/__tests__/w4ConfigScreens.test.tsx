@@ -36,7 +36,7 @@ const STAMP = { createdUtc: '2026-10-01T00:00:00Z', lastUpdateUtc: '2026-10-02T0
 function workflow(over: Partial<WorkflowProfile> = {}): WorkflowProfile {
   return {
     id: 'wfp_1', tenantId: 'ten_1', userId: 'usr_9', ownershipScope: 'TenantWide', name: 'Dotnet', description: null, scope: 'Global', fleetId: null, vesselId: null,
-    isDefault: true, active: true, languageHints: ['dotnet'], lintCommand: null, buildCommand: 'dotnet build', unitTestCommand: 'dotnet test', integrationTestCommand: null,
+    isDefault: true, active: true, languageHints: ['dotnet'], lintCommand: null, buildCommand: 'dotnet build', unitTestCommand: 'dotnet test', abbreviatedUnitTestCommand: null, integrationTestCommand: null,
     e2eTestCommand: null, migrationCommand: null, securityScanCommand: null, performanceCommand: null, packageCommand: null, deploymentVerificationCommand: null,
     rollbackVerificationCommand: null, publishArtifactCommand: null, releaseVersioningCommand: null, changelogGenerationCommand: null, requiredSecrets: [],
     requiredInputs: [], expectedArtifacts: [], environments: [], ...STAMP, ...over,

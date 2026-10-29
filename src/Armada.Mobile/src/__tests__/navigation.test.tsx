@@ -14,6 +14,7 @@ import { LocaleProvider } from '../i18n/LocaleContext';
 import { appPathFromLink, isRootLink } from '../navigation/deepLinks';
 import { redirectSystemPath } from '../app/+native-intent';
 import { DASHBOARD_ROUTES } from '../navigation/dashboardRoutes.generated';
+import { cliPermissionsHref, cliPermissionsRedirectTarget, planningHref, planningRedirectTarget } from '../navigation/legacyRedirects';
 import { NAV_SECTIONS, activeNavKey, allNavItems, sectionsForTab } from '../navigation/navItems';
 import { matchRoute } from '../navigation/routeMatch';
 import { SidebarPreferenceProvider } from '../navigation/SidebarPreferenceProvider';
@@ -53,6 +54,21 @@ describe('navigation model mirrors the dashboard', () => {
     }
   });
 
+  it('follows the v1.2.0 consolidation: Activity on Work, no ACTIVITY or DELIVERY section, hub tabs are not items', () => {
+    expect(NAV_SECTIONS.map((s) => s.key)).not.toContain('activity');
+    expect(NAV_SECTIONS.map((s) => s.key)).not.toContain('delivery');
+    const work = sectionsForTab('work').flatMap((s) => s.items.map((x) => x.to));
+    expect(work).toEqual(expect.arrayContaining(['/activity', '/delivery', '/dispatch']));
+    const more = sectionsForTab('more').flatMap((s) => s.items.map((x) => x.to));
+    expect(more).not.toContain('/activity');
+    const all = allNavItems().map((x) => x.to);
+    for (const gone of ['/jobs', '/storage', '/cli-permissions', '/planning']) expect(all).not.toContain(gone);
+    // The Activity family is served from the Work tab's stack.
+    for (const pattern of ['/activity', '/events/:id', '/signals/:id', '/requests/:id', '/jobs']) {
+      expect(DASHBOARD_ROUTES.find((r) => r.pattern === pattern)?.tab).toBe('work');
+    }
+  });
+
   it('phones split the sections between Work and More without losing any', () => {
     const split = [...sectionsForTab('work'), ...sectionsForTab('more')].map((s) => s.key).sort();
     expect(split).toEqual(NAV_SECTIONS.map((s) => s.key).sort());
@@ -71,6 +87,31 @@ describe('navigation model mirrors the dashboard', () => {
     expect(activeNavKey('/missions/msn_1')).toBe('/missions');
     expect(activeNavKey('/ask/thr_1')).toBe('ask');
     expect(activeNavKey('/nowhere')).toBeNull();
+  });
+});
+
+describe('routes that became hub tabs', () => {
+  it('builds the new tab links', () => {
+    expect(cliPermissionsHref()).toBe('/server?tab=cli-permissions');
+    expect(cliPermissionsHref({ requestId: 'cpr_1', section: 'requests' })).toBe('/server?tab=cli-permissions&section=requests&request=cpr_1');
+    expect(planningHref()).toBe('/dispatch?tab=planning');
+    expect(planningHref('pls 1', { prompt: 'a b', empty: '', none: null, tab: 'x', session: 'y' })).toBe('/dispatch?tab=planning&session=pls%201&prompt=a%20b');
+    expect(planningHref(null, { captainId: 'cpt_1' })).toBe('/dispatch?tab=planning&captainId=cpt_1');
+  });
+
+  it('maps old /cli-permissions and /planning params to the new locations', () => {
+    expect(cliPermissionsRedirectTarget({})).toBe('/server?tab=cli-permissions');
+    expect(cliPermissionsRedirectTarget({ request: 'cpr_1' })).toBe('/server?tab=cli-permissions&request=cpr_1');
+    expect(cliPermissionsRedirectTarget({ tab: 'rules', request: 'cpr_1' })).toBe('/server?tab=cli-permissions&section=rules&request=cpr_1');
+    expect(planningRedirectTarget({})).toBe('/dispatch?tab=planning');
+    expect(planningRedirectTarget({ id: 'pls_1', prompt: 'Hi there' })).toBe('/dispatch?tab=planning&session=pls_1&prompt=Hi%20there');
+    expect(planningRedirectTarget({ new: '1', vesselId: 'vsl_1' })).toBe('/dispatch?tab=planning&new=1&vesselId=vsl_1');
+  });
+
+  it('server links to the new locations resolve to their hubs', () => {
+    expect(matchRoute(appPathFromLink('/server?tab=cli-permissions&request=cpr_1') ?? '')?.route.pattern).toBe('/server');
+    expect(matchRoute(appPathFromLink('/dashboard/dispatch?tab=planning&session=pls_1') ?? '')?.route.pattern).toBe('/dispatch');
+    expect(matchRoute(appPathFromLink('armada://activity?source=jobs') ?? '')?.route.pattern).toBe('/activity');
   });
 });
 

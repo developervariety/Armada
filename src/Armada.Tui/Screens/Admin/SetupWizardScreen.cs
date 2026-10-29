@@ -391,7 +391,7 @@ namespace Armada.Tui.Screens.Admin
             [""] = "Uses the Admiral-wide landing settings.",
             ["None"] = "Finished work stays on a branch for you to review. Choose Local Merge to land it automatically.",
             ["LocalMerge"] = "Finished work is merged into the working directory. Nothing is pushed.",
-            ["MergeAndPush"] = "Finished work is merged into the working directory and pushed to its origin remote, so the checkout needs one.",
+            ["MergeAndPush"] = "Finished work is integrated and verified in its dock, then pushed to the target branch. Your checkout is left untouched if it has changes.",
             ["PullRequest"] = "Finished work is pushed and opened as a pull request (needs the GitHub CLI).",
             ["MergeQueue"] = "Finished work is queued; processing the merge queue tests and merges it.",
         };
@@ -461,7 +461,7 @@ namespace Armada.Tui.Screens.Admin
                 case 4:
                     return new List<string> { "/dispatch" };
                 case 5:
-                    return new List<string> { "/vessels", "/dispatch", "/planning", "/configuration", "/delivery" };
+                    return new List<string> { "/vessels", "/dispatch", "/configuration", "/delivery" };
                 default:
                     return new List<string>();
             }
@@ -664,11 +664,9 @@ namespace Armada.Tui.Screens.Admin
             }
 
             string landing = LandingMode.Value ?? "";
-            if ((landing == "LocalMerge" || landing == "MergeAndPush") && WorkingDirectory.Value.Trim().Length == 0)
+            if (landing == "LocalMerge" && WorkingDirectory.Value.Trim().Length == 0)
             {
-                SetResult(SetupWizardResultKindEnum.Error, landing == "MergeAndPush"
-                    ? L("Merge and Push needs a working directory to merge into.")
-                    : L("Local Merge needs a working directory to merge into."));
+                SetResult(SetupWizardResultKindEnum.Error, L("Local Merge needs a working directory to merge into."));
                 return;
             }
 
@@ -977,6 +975,13 @@ namespace Armada.Tui.Screens.Admin
 
         #region Private-Methods
 
+        private static string PlanningHandoff(string vesselId, string fleetId)
+        {
+            Dictionary<string, string> query = new Dictionary<string, string>(StringComparer.Ordinal) { ["fromSetupWizard"] = "true", ["vesselId"] = vesselId };
+            if (fleetId.Length > 0) query["fleetId"] = fleetId;
+            return TabLinks.Planning(null, query);
+        }
+
         private static string NavLabel(string route)
         {
             switch (route)
@@ -984,7 +989,6 @@ namespace Armada.Tui.Screens.Admin
                 case "/vessels": return "Vessels";
                 case "/captains": return "Captains";
                 case "/dispatch": return "Dispatch";
-                case "/planning": return "Planning";
                 case "/configuration": return "Configuration";
                 case "/delivery": return "Delivery";
                 default: return route;
@@ -1809,7 +1813,7 @@ namespace Armada.Tui.Screens.Admin
                 string fleetId = ActiveFleetId.Length > 0 ? ActiveFleetId : vessel.FleetId ?? "";
                 panel.Actions.Add("Open Vessel Onboarding", () => FinishAndNavigate("/vessels/" + vesselId + "/onboarding"));
                 panel.Actions.Add("Open Backlog", () => FinishAndNavigate(HandoffBacklogPath()));
-                panel.Actions.Add("Open Planning", () => FinishAndNavigate("/planning?fromSetupWizard=true&vesselId=" + Uri.EscapeDataString(vesselId) + (fleetId.Length > 0 ? "&fleetId=" + Uri.EscapeDataString(fleetId) : "")));
+                panel.Actions.Add("Open Planning", () => FinishAndNavigate(PlanningHandoff(vesselId, fleetId)));
                 panel.Actions.Add("Open Workspace", () => FinishAndNavigate("/workspace/" + vesselId));
                 bool hasProfiles = MatchingProfiles.Count > 0;
                 panel.Actions.Add(hasProfiles ? "Open Workflow Profiles" : "Create Workflow Profile", () => FinishAndNavigate(hasProfiles ? "/configuration?tab=workflow-profiles" : "/workflow-profiles/new?scope=Vessel&vesselId=" + Uri.EscapeDataString(vesselId)));

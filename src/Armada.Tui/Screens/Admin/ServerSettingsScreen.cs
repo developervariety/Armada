@@ -740,7 +740,7 @@ namespace Armada.Tui.Screens.Admin
         private void BuildCliPermissions()
         {
             Form.AddSection("CLI Tool Permissions");
-            AddNote("How CLI captains handle shell commands, file edits, and fetches that need permission when neither the conversation nor the captain sets a policy. Refuse lets the CLI refuse them; Approve in Armada asks an approver here (Claude Code, Mux 1.5 or later, and API endpoints; other runtimes fall back to Refuse); Bypass runs them without asking.");
+            AddNote("How CLI captains handle shell commands, file edits, and fetches that need permission when neither the conversation nor the captain sets a policy. Refuse lets the CLI refuse them; Approve in Armada asks an approver here (Claude Code, Mux 1.5 or later, pi, and API endpoints; other runtimes fall back to Refuse); Bypass runs them without asking.");
             if (!IsAdmin) AddNote("Only administrators can change these settings.");
             ServerSettingsGroup g = Group("permissions", "Save CLI Tool Permissions", SavePermissions, () => DiscardGroup("permissions"));
             g.RequireDirty = true;

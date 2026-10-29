@@ -219,6 +219,13 @@ namespace Armada.Core.Models
         public bool? PriorWorkKept { get; set; } = null;
 
         /// <summary>
+        /// The deterministic contract repair Armada applied to this attempt (also recorded as a
+        /// <c>mission.contract_repaired</c> event), or null when its report needed no repair.
+        /// When one attempt needs more than one repair, the last one recorded is kept here; every repair has its own event.
+        /// </summary>
+        public ContractRepairKindEnum? ContractRepairKind { get; set; } = null;
+
+        /// <summary>
         /// Suspected cause.
         /// </summary>
         public FailureCauseEnum SuspectedCause { get; set; } = FailureCauseEnum.None;

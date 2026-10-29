@@ -216,6 +216,117 @@ namespace Test.Shared.Suites.Services
                 AssertContains("Unknown providers need an explicit unsupported error.", again.Description);
             }));
 
+            cases.Add(CaseAsync("restart_pending_starts_with_idle_captain", "Restarting a Pending mission applies the new title and description, resets nothing, and launches it at once on an idle captain", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                int launches = 0;
+                h.Captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(4350); };
+                Captain captain = await CreateCaptainAsync(testDb, "Starter", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission pending = await testDb.Driver.Missions.CreateAsync(new Mission("Stuck", "Old instructions") { VesselId = vessel.Id, Priority = 7 }).ConfigureAwait(false);
+
+                Mission started = await h.Missions.RestartAsync(pending, "Unstuck", "New instructions").ConfigureAwait(false);
+                AssertTrue(started.Status == MissionStatusEnum.Assigned || started.Status == MissionStatusEnum.InProgress, "the mission is launched, not " + started.Status);
+                AssertEqual(captain.Id, started.CaptainId, "the idle captain took it");
+                AssertEqual(1, launches, "the agent was launched");
+                AssertEqual("Unstuck", started.Title);
+                AssertEqual("New instructions", started.Description);
+                AssertEqual(7, started.Priority, "nothing else is reset");
+                AssertEqual(pending.CreatedUtc.ToString("o"), started.CreatedUtc.ToString("o"), "the creation time is kept");
+            }));
+
+            cases.Add(CaseAsync("restart_pending_without_captain_stays_pending", "Restarting a Pending mission with no idle captain keeps it Pending without error and keeps its fields", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                int launches = 0;
+                h.Captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(4351); };
+                await CreateCaptainAsync(testDb, "Busy", AgentRuntimeEnum.ClaudeCode, CaptainStateEnum.Working).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission pending = await testDb.Driver.Missions.CreateAsync(new Mission("Waiting", "Keep me") { VesselId = vessel.Id, BranchName = "armada/kept", Priority = 3 }).ConfigureAwait(false);
+
+                Mission restarted = await h.Missions.RestartAsync(pending).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Pending, restarted.Status);
+                AssertNull(restarted.CaptainId);
+                AssertEqual(0, launches, "nothing was launched");
+                AssertEqual("Waiting", restarted.Title, "a null title keeps the original");
+                AssertEqual("Keep me", restarted.Description, "a null description keeps the original");
+                AssertEqual("armada/kept", restarted.BranchName, "a Pending restart does not reset the branch");
+                AssertEqual(3, restarted.Priority);
+                Mission? stored = await testDb.Driver.Missions.ReadAsync(pending.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Pending, stored!.Status, "the stored mission is still Pending for the regular dispatcher");
+            }));
+
+            cases.Add(CaseAsync("restart_pending_respects_pipeline_dependency", "Restarting a Pending later stage whose dependency is not finished does not launch it, even with an idle captain", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                int launches = 0;
+                h.Captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(4352); };
+                await CreateCaptainAsync(testDb, "Idle", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pipeline")).ConfigureAwait(false);
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Build", "Build") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.Failed }).ConfigureAwait(false);
+                Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("[Judge] Review", "Review") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", DependsOnMissionId = worker.Id }).ConfigureAwait(false);
+
+                Mission restarted = await h.Missions.RestartAsync(judge).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Pending, restarted.Status, "the stage still waits for its dependency");
+                AssertEqual(0, launches);
+            }));
+
+            cases.Add(CaseAsync("restart_failed_resets_then_dispatches", "Restarting a Failed mission still clears its run state, and it is launched at once when a captain is idle", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission failed = await testDb.Driver.Missions.CreateAsync(new Mission("Broken", "Fix it")
+                {
+                    VesselId = vessel.Id, Status = MissionStatusEnum.Failed, FailureReason = "crashed", FailureKind = MissionFailureKindEnum.Crash,
+                    BranchName = "armada/old", PrUrl = "https://example.invalid/pr/1", CommitHash = "abc123", CompletedUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+
+                Mission reset = await h.Missions.RestartAsync(failed).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Pending, reset.Status, "no captain exists, so it waits");
+                AssertNull(reset.FailureReason);
+                AssertNull(reset.FailureKind);
+                AssertNull(reset.BranchName);
+                AssertNull(reset.PrUrl);
+                AssertNull(reset.CommitHash);
+                AssertNull(reset.CompletedUtc);
+
+                int launches = 0;
+                h.Captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(4353); };
+                Captain captain = await CreateCaptainAsync(testDb, "Fixer", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                reset.Status = MissionStatusEnum.Failed;
+                reset.FailureReason = "crashed again";
+                await testDb.Driver.Missions.UpdateAsync(reset).ConfigureAwait(false);
+                Mission relaunched = await h.Missions.RestartAsync(reset).ConfigureAwait(false);
+                AssertTrue(relaunched.Status == MissionStatusEnum.Assigned || relaunched.Status == MissionStatusEnum.InProgress, "the mission is launched, not " + relaunched.Status);
+                AssertEqual(captain.Id, relaunched.CaptainId);
+                AssertEqual(1, launches);
+                AssertNull(relaunched.FailureReason);
+            }));
+
+            cases.Add(CaseAsync("restart_refuses_active_statuses", "Restart still refuses WorkProduced and InProgress missions, and the message lists Pending as allowed", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                foreach (MissionStatusEnum status in new[] { MissionStatusEnum.WorkProduced, MissionStatusEnum.InProgress, MissionStatusEnum.Assigned, MissionStatusEnum.Complete })
+                {
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Active " + status, "Busy") { Status = status, BranchName = "armada/busy" }).ConfigureAwait(false);
+                    string? message = null;
+                    try { await h.Missions.RestartAsync(mission).ConfigureAwait(false); }
+                    catch (InvalidOperationException ex) { message = ex.Message; }
+                    AssertNotNull(message, status + " is refused");
+                    AssertContains("Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted", message!);
+                    AssertContains("current: " + status, message!);
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(status, stored!.Status, "a refused restart changes nothing");
+                    AssertEqual("armada/busy", stored.BranchName);
+                }
+            }));
+
             cases.Add(CaseAsync("uncommitted_work_is_committed", "Work a captain left uncommitted is committed before the diff is taken", TestTags.Positive, async () =>
             {
                 string repo = Path.Combine(Path.GetTempPath(), "armada_uncommitted_" + Guid.NewGuid().ToString("N"));
@@ -474,7 +585,7 @@ namespace Test.Shared.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Harness h = new Harness(testDb, new DirCreatingGitService());
                 h.Captains.OnLaunchAgent = (_, _, _) => Task.FromResult(4343);
-                await CreateCaptainAsync(testDb, "Integrator", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                Captain integrator = await CreateCaptainAsync(testDb, "Integrator", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
                 Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
                 Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Sliced plan")).ConfigureAwait(false);
                 Mission slice = await testDb.Driver.Missions.CreateAsync(new Mission("Slice A [Worker]", "Implement A") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CommitHash = "aaa111", BranchName = "armada/a" }).ConfigureAwait(false);
@@ -492,6 +603,10 @@ namespace Test.Shared.Suites.Services
                 AssertContains(rejected.Id, cancelled.FailureReason ?? "");
                 AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(integrationJudge.Id).ConfigureAwait(false))!.Status, "its own stages stop with it");
 
+                // Restart dispatches at once when a captain is idle; keep the only captain busy so the restarted Judge waits
+                // (this harness's git has no slice commits, so launching it would fail it again and re-cancel integration).
+                integrator.State = CaptainStateEnum.Working;
+                await testDb.Driver.Captains.UpdateAsync(integrator).ConfigureAwait(false);
                 await h.Missions.RestartAsync((await testDb.Driver.Missions.ReadAsync(rejected.Id).ConfigureAwait(false))!).ConfigureAwait(false);
                 Mission? restored = await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false);
                 AssertEqual(MissionStatusEnum.Pending, restored!.Status, "restarting the failed mission brings integration back");
