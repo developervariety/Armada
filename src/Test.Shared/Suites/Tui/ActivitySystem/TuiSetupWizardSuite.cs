@@ -228,7 +228,7 @@ namespace Test.Shared.Suites.Tui.ActivitySystem
                 }
             }));
 
-            cases.Add(TuiCase.Sync(Suite, "merge_and_push", "Merge and Push is offered after Local Merge, needs a working directory, and is sent as MergeAndPush", () =>
+            cases.Add(TuiCase.Sync(Suite, "merge_and_push", "Merge and Push is offered after Local Merge and can publish without a working directory", () =>
             {
                 StubHttpHandler stub = EmptyServer();
                 using (TuiTestHost host = TuiCase.SignedIn(140, 44, "/setup", stub))
@@ -245,17 +245,13 @@ namespace Test.Shared.Suites.Tui.ActivitySystem
                     screen.LandingMode.Choose(screen.LandingMode.Options.First(o => o.Value == "LocalMerge"));
                     AssertTrue(host.WaitForText("Finished work is merged into the working directory. Nothing is pushed."), "LocalMerge hint says nothing is pushed\n" + host.Screen());
                     screen.LandingMode.Choose(screen.LandingMode.Options.First(o => o.Value == "MergeAndPush"));
-                    AssertTrue(host.WaitForText("pushed to its origin remote"), "MergeAndPush hint\n" + host.Screen());
-                    host.Press("ctrl+s");
-                    AssertTrue(host.WaitForText("Merge and Push needs a working directory to merge into."), "MergeAndPush validation\n" + host.Screen());
-                    AssertEqual(0, stub.CountFor("POST", "/api/v1/vessels"), "no vessel post without a working directory");
-                    screen.WorkingDirectory.Value = "/work/svc";
+                    AssertTrue(host.WaitForText("pushed to the target branch"), "MergeAndPush hint\n" + host.Screen());
                     host.Press("ctrl+s");
                     AssertTrue(host.PumpUntil(() => screen.Current == 3), "advanced to captain");
                     AssertEqual(1, stub.CountFor("POST", "/api/v1/vessels"), "one vessel post");
                     SetupWizardVesselBody vesselBody = stub.LastBody<SetupWizardVesselBody>("POST", "/api/v1/vessels");
                     AssertEqual("MergeAndPush", vesselBody.LandingMode, "landing mode");
-                    AssertEqual("/work/svc", vesselBody.WorkingDirectory, "working directory");
+                    AssertNull(vesselBody.WorkingDirectory, "No mapped checkout is needed for isolated publication");
                 }
             }));
 

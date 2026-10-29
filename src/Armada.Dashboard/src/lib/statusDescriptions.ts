@@ -8,6 +8,7 @@ export const STATUS_DESCRIPTIONS: Record<string, string> = {
   assigned: 'Assigned to a captain but work has not started yet. Next: the captain will begin working shortly.',
   inprogress: 'A captain is actively working on this mission. Next: wait for the captain to finish, or check the log for progress.',
   workproduced: 'Code was produced on a branch but has not landed yet. Next: retry landing, or manually merge the branch if retry fails.',
+  verifying: 'Mission work is being tested or validated. Next: wait for tests to complete, then review results.',
   testing: 'Mission work is being tested or validated. Next: wait for tests to complete, then review results.',
   review: 'Mission work is ready for review. Next: approve (transitions to WorkProduced for landing) or reject (restart or cancel).',
   complete: 'Mission completed and work has been merged. No action needed.',

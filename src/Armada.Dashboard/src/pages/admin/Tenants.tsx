@@ -184,11 +184,6 @@ export default function Tenants() {
 
   const columns: DataTableColumn<TenantMetadata>[] = [
     {
-      key: 'name', label: t('Name'), headerTitle: t('Display name of the tenant.'), required: true, sortKey: 'name',
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} value={colFilters.name} onChange={e => { setColFilters({ name: e.target.value }); setPageNumber(1); }} placeholder={t('Search...')} />,
-      render: (tenant) => <strong>{tenant.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), headerTitle: t('Tenant ID (ten_ prefix), used by the API and when filtering other lists.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (tenant) => (
         <span className="id-display">
@@ -196,6 +191,11 @@ export default function Tenants() {
           <CopyButton text={tenant.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), headerTitle: t('Display name of the tenant.'), required: true, sortKey: 'name',
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} value={colFilters.name} onChange={e => { setColFilters({ name: e.target.value }); setPageNumber(1); }} placeholder={t('Search...')} />,
+      render: (tenant) => <strong>{tenant.name}</strong>,
     },
     { key: 'active', label: t('Active'), headerTitle: t('Whether the tenant is enabled. Users of an inactive tenant cannot sign in.'), sortKey: 'active', render: (tenant) => (tenant.active ? t('Yes') : t('No')) },
     {

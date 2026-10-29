@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <Description>CLI interface for Armada multi-agent orchestration</Description>
     <PackAsTool>true</PackAsTool>
+    <!-- Battery fixtures require their .gitignore and .gitattributes files. Pack the publish payload intact. -->
+    <NoDefaultExcludes>true</NoDefaultExcludes>
     <ToolCommandName>armada</ToolCommandName>
     <PackageId>Armada.Helm</PackageId>
     <Version>1.2.0</Version>

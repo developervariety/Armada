@@ -3,7 +3,7 @@ import { useLocale } from '../../context/LocaleContext';
 import { runProgress } from '../../lib/fleetActionForm';
 
 interface RunProgressProps {
-  run: Pick<FleetActionRun, 'targetCount' | 'succeededCount' | 'failedCount' | 'skippedCount' | 'cancelledCount'>;
+  run: Pick<FleetActionRun, 'targetCount' | 'succeededCount' | 'failedCount' | 'skippedCount' | 'cancelledCount' | 'findingsCount'>;
   /** Compact single-line variant for table cells. */
   compact?: boolean;
 }
@@ -16,7 +16,7 @@ export default function RunProgress({ run, compact = false }: RunProgressProps) 
   const { t } = useLocale();
   const { total, done, percent } = runProgress(run);
   const pct = (n: number) => (total > 0 ? `${(n / total) * 100}%` : '0%');
-  const summary = t('{{succeeded}} succeeded, {{failed}} failed, {{skipped}} skipped of {{total}}', {
+  const summary = `${t('Findings')}: ${(run.findingsCount ?? 0).toLocaleString()}, ` + t('{{succeeded}} succeeded, {{failed}} failed, {{skipped}} skipped of {{total}}', {
     succeeded: run.succeededCount.toLocaleString(),
     failed: run.failedCount.toLocaleString(),
     skipped: run.skippedCount.toLocaleString(),
@@ -35,6 +35,7 @@ export default function RunProgress({ run, compact = false }: RunProgressProps) 
         aria-valuetext={summary}
       >
         <span className="run-progress-seg run-progress-succeeded" style={{ width: pct(run.succeededCount) }} />
+        <span className="run-progress-seg" style={{ width: pct(run.findingsCount ?? 0), backgroundColor: 'var(--color-warning, #b7791f)' }} />
         <span className="run-progress-seg run-progress-failed" style={{ width: pct(run.failedCount) }} />
         <span className="run-progress-seg run-progress-skipped" style={{ width: pct(run.skippedCount) }} />
         <span className="run-progress-seg run-progress-cancelled" style={{ width: pct(run.cancelledCount) }} />

@@ -55,6 +55,12 @@ namespace Armada.Core.Services.Ask
         public Func<string, string?>? ActiveTurnResolver { get; set; } = null;
 
         /// <summary>
+        /// Returns what the captain turn running in a thread has produced so far, or null. Thread detail carries it as
+        /// <see cref="AskThreadDetail.ActiveTurn"/>. Null resolver means no progress is ever reported.
+        /// </summary>
+        public Func<string, AskTurnProgress?>? ActiveTurnProgressResolver { get; set; } = null;
+
+        /// <summary>
         /// Whether Ask turns get thread-scoped MCP tokens (the session token service is configured). Used only to
         /// report the CLI permission fallback on threads. Default true.
         /// </summary>
@@ -199,6 +205,12 @@ namespace Armada.Core.Services.Ask
 
             thread.ActiveWorkCount = detail.TrackedWork.Count(w => w.State == AskTrackedWorkStateEnum.Active);
             thread.ActiveTurnId = ActiveTurnResolver?.Invoke(thread.Id);
+            if (thread.ActiveTurnId != null)
+            {
+                AskTurnProgress? progress = ActiveTurnProgressResolver?.Invoke(thread.Id);
+                if (progress != null && String.Equals(progress.TurnId, thread.ActiveTurnId, StringComparison.Ordinal)) detail.ActiveTurn = progress;
+            }
+
             thread.CliPermission = await ResolveCliPermissionAsync(thread, token).ConfigureAwait(false);
             detail.Thread = thread;
             return detail;

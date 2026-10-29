@@ -19,7 +19,9 @@ namespace Armada.Tui.Screens.Operations
     using TUIKit.Widgets;
 
     /// <summary>
-    /// Planning (W3.4, <c>/planning</c> and <c>/planning/:id</c>), the dashboard's Planning page as four panels: Start
+    /// Planning (W3.4), the Dispatch hub's Planning tab (<c>/dispatch?tab=planning</c>, one session at
+    /// <c>/dispatch?tab=planning&amp;session=:id</c>; the old <c>/planning</c> and <c>/planning/:id</c> redirect there),
+    /// the dashboard's Planning page as four panels: Start
     /// Session (form, pre-fill from a backlog item, incident, Setup Wizard, Workspace, or a captain; supported
     /// runtimes; long-start notice and timeout message; Vessel Readiness), Recent Sessions (title, captain, vessel,
     /// pipeline, status, updated; End Session, Delete, Delete All with a typed confirmation), Current Session (header,
@@ -33,7 +35,8 @@ namespace Armada.Tui.Screens.Operations
         #region Public-Members
 
         /// <summary>
-        /// Session id from the route, or null on <c>/planning</c>.
+        /// Session id from the route (the <c>session</c> query parameter, or the <c>:id</c> of a direct
+        /// <c>/planning/:id</c> match), or null on the session list.
         /// </summary>
         public string? SessionId { get; }
 
@@ -267,7 +270,8 @@ namespace Armada.Tui.Screens.Operations
         public PlanningScreen(RouteMatch route, TuiContext context)
             : base(route, context, "PlanningScreen", "Planning")
         {
-            SessionId = route.Param("id");
+            route.Query.TryGetValue(TabLinks.SessionParam, out string? session);
+            SessionId = !String.IsNullOrEmpty(session) ? session : route.Param("id");
             Heading = Tr("Planning");
             SubtitleText = Tr("Chat with a captain against a specific vessel, preserve the transcript, and dispatch directly from the planning output.");
 
@@ -336,7 +340,7 @@ namespace Armada.Tui.Screens.Operations
             GridColumn<PlanningSession> updated = Col("updated", "Updated", p => Context.Loc.FormatRelative(p.LastUpdateUtc, Context.Clock.UtcNow), 1);
             updated.Width = 16;
             SessionsGrid.AddColumn(updated);
-            SessionsGrid.Activated += (s, p) => Context.Navigate("/planning/" + Uri.EscapeDataString(p.Id));
+            SessionsGrid.Activated += (s, p) => Context.Navigate(TabLinks.Planning(p.Id));
             SessionsGrid.MenuRequested += (s, p) => ShowSessionMenu(p);
 
             StartPanel = new PlanningStartPanel(this);
@@ -348,7 +352,7 @@ namespace Armada.Tui.Screens.Operations
             AddPanel("dispatch", "Dispatch From Session", DispatchPanel);
             if (SessionId != null) SelectPanel("session");
 
-            Action("new", "New Session", () => Context.Navigate("/planning"), "n", () => SessionId != null, true);
+            Action("new", "New Session", () => Context.Navigate(TabLinks.PlanningPath), "n", () => SessionId != null, true);
             Action("stop", "Stop", StopTurn, "ctrl+c", () => Detail?.Session?.Status == PlanningSessionStatusEnum.Responding, true);
             OpsScreenAction end = Action("end", "End Session", () => { if (Detail?.Session != null) RequestEndSession(Detail.Session); }, "E", CanEndSession, true);
             end.DynamicLabel = () => _EndingSessionId == SessionId || Detail?.Session?.Status == PlanningSessionStatusEnum.Stopping ? Tr("Ending...") : Tr("End Session");
@@ -405,7 +409,7 @@ namespace Armada.Tui.Screens.Operations
         }
 
         /// <summary>
-        /// The prefill banner for <c>/planning</c>, or null.
+        /// The prefill banner for the Planning tab without a session, or null.
         /// </summary>
         /// <returns>Translated text or null.</returns>
         public string? PrefillBanner()
@@ -551,7 +555,7 @@ namespace Armada.Tui.Screens.Operations
                     q["initialPrompt"] = prompt;
                 }
 
-                Context.Navigate("/planning/" + Uri.EscapeDataString(session.Id) + RouteMatch.BuildQuery(q));
+                Context.Navigate(TabLinks.Planning(session.Id, q));
             }, null, ex =>
             {
                 Creating = false;
@@ -743,7 +747,7 @@ namespace Armada.Tui.Screens.Operations
                 if (SessionId == id)
                 {
                     Detail = null;
-                    Context.Navigate("/planning");
+                    Context.Navigate(TabLinks.PlanningPath);
                 }
 
                 Toast(NotificationSeverityEnum.Warning, Tr("Planning session deleted."));
@@ -863,7 +867,7 @@ namespace Armada.Tui.Screens.Operations
         private void ShowSessionMenu(PlanningSession session)
         {
             List<ActionMenuItem> items = new List<ActionMenuItem>();
-            items.Add(new ActionMenuItem(Tr("Open"), () => Context.Navigate("/planning/" + Uri.EscapeDataString(session.Id)), "Enter"));
+            items.Add(new ActionMenuItem(Tr("Open"), () => Context.Navigate(TabLinks.Planning(session.Id)), "Enter"));
             bool canEnd = session.Status == PlanningSessionStatusEnum.Active || session.Status == PlanningSessionStatusEnum.Responding;
             bool ending = _EndingSessionId == session.Id || session.Status == PlanningSessionStatusEnum.Stopping;
             if (canEnd || ending)
@@ -898,7 +902,7 @@ namespace Armada.Tui.Screens.Operations
                     DispatchDescription.Text = "";
                     _Seed = null;
                     Toast(NotificationSeverityEnum.Warning, Tr("Planning session deleted."));
-                    Context.Navigate("/planning");
+                    Context.Navigate(TabLinks.PlanningPath);
                 }, null, ex =>
                 {
                     _Deleting = false;
@@ -931,7 +935,7 @@ namespace Armada.Tui.Screens.Operations
                     Toast(NotificationSeverityEnum.Warning, failures > 0
                         ? Tr("{{count}} planning session(s) could not be deleted (they may still be running).", LocalizationArgs.Of("count", failures))
                         : Tr("All planning sessions deleted."));
-                    if (SessionId != null) Context.Navigate("/planning");
+                    if (SessionId != null) Context.Navigate(TabLinks.PlanningPath);
                     else Load();
                 }, "Failed to delete planning sessions.");
             }, "Delete All", "delete");
@@ -1068,7 +1072,7 @@ namespace Armada.Tui.Screens.Operations
                         SelectedMessageId = "";
                         _Seed = null;
                         if (!_Deleting) Toast(NotificationSeverityEnum.Warning, Tr("Planning session deleted."));
-                        Context.Navigate("/planning");
+                        Context.Navigate(TabLinks.PlanningPath);
                     }
 
                     return;

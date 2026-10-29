@@ -248,13 +248,6 @@ export default function Environments() {
 
   const columns: DataTableColumn<DeploymentEnvironment>[] = [
     {
-      key: 'name', label: t('Environment'), required: true, headerTitle: t('Environment name. Hover a row for its description.'),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} title={t('Show only environments whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
-      // One line: default/active state and description have their own columns; the description is also in the tooltip.
-      cellTitle: (environment) => [environment.name, environment.description].filter(Boolean).join('\n'),
-      render: (environment) => <strong className="cell-one-line">{environment.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Environment ID (env_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (environment) => (
         <span className="id-display">
@@ -262,6 +255,13 @@ export default function Environments() {
           <CopyButton text={environment.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Environment'), required: true, headerTitle: t('Environment name. Hover a row for its description.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} title={t('Show only environments whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
+      // One line: default/active state and description have their own columns; the description is also in the tooltip.
+      cellTitle: (environment) => [environment.name, environment.description].filter(Boolean).join('\n'),
+      render: (environment) => <strong className="cell-one-line">{environment.name}</strong>,
     },
     { key: 'kind', label: t('Kind'), headerTitle: t('Classification: Development, Test, Staging, Production, or Custom.'), cellClassName: 'text-dim', render: (environment) => environment.kind },
     { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository this environment belongs to.'), cellClassName: 'text-dim', render: (environment) => (environment.vesselId ? (vesselMap.get(environment.vesselId) || environment.vesselId) : '-') },

@@ -1056,7 +1056,7 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `create_captain` | Create captain | `data` |
 | | `update_captain` | Update captain (preserves operational fields) | `id`, `data` |
 | | `delete_captain` | Delete captain (refused while `Working` or with active missions) | `id` |
-| **CLI Permission** | `list_cli_permission_requests` | List CLI permission requests, newest first | optional `status`, `captainId` |
+| **CLI Permission** | `list_cli_permission_requests` | One page of CLI permission requests, newest first | optional `status`, `captainId`, `query` (`pageNumber`, `pageSize`) |
 | | `decide_cli_permission_request` | Allow once, allow and remember, or deny a pending request | `id`, `data` ([CliPermissionDecisionRequest](REST_API.md#clipermissiondecisionrequest)) |
 | **Signal** | `list_signals` | List/enumerate signals | optional `query` |
 | | `send_signal` | Create signal | `data` |
@@ -1928,6 +1928,12 @@ Update an existing mission.
 
 Transition a mission to a new status. The transition must be valid according to the [Mission Status Transitions](#mission-status-transitions) rules.
 
+The same gates as `PUT /api/v1/missions/{id}/status` and the MCP `transition_mission_status` tool apply, each returning a `command.error` with code `Conflict`:
+
+- A mission at a `Review` gate cannot be moved to any status other than `Cancelled`; use `approve_mission_review` or `deny_mission_review`.
+- A manual `WorkProduced` or `Complete` is refused while the agent or its exit/stage-check handoff still owns the mission (`InProgress`, `Testing`, `Verifying`, or a process ID is set), and any transition other than `Cancelled` is refused while `Verifying`.
+- For a write mission (any mode except `Audit` and `Research`), `WorkProduced` and `Complete` land the branch through the normal landing handler instead of writing the status. This needs an active dock; when landing is unavailable or the branch head cannot be resolved, the status is left unchanged. The response carries the mission as landing left it.
+
 **Request:**
 
 ```json
@@ -2312,7 +2318,8 @@ REST (`POST /api/v1/cli-permissions/requests/{id}/decide`) or MCP.
 
 #### list_cli_permission_requests
 
-List CLI permission requests (newest first, at most 100).
+List one page of CLI permission requests, newest first. The command never returns the whole list: paging comes from
+`query.pageNumber` (default 1) and `query.pageSize` (1 to 1000, default 10).
 
 **Request:**
 
@@ -2321,7 +2328,8 @@ List CLI permission requests (newest first, at most 100).
   "Route": "command",
   "action": "list_cli_permission_requests",
   "status": "Pending",
-  "captainId": "cpt_abc123"
+  "captainId": "cpt_abc123",
+  "query": { "pageNumber": 1, "pageSize": 25 }
 }
 ```
 
@@ -2330,8 +2338,21 @@ List CLI permission requests (newest first, at most 100).
 | `action` | string | Yes | `"list_cli_permission_requests"` |
 | `status` | string | No | `Pending`, `Allowed`, `Denied`, `Expired`, or `Cancelled` (`InvalidArgument` otherwise) |
 | `captainId` | string | No | Captain filter |
+| `query` | object | No | `pageNumber` (default 1) and `pageSize` (1 to 1000, default 10) |
 
-**Response:** `command.result` whose `data` is an array of [CliPermissionRequest](REST_API.md#clipermissionrequest).
+**Response:** `command.result` whose `data` is an enumeration result (`success`, `pageNumber`, `pageSize`, `totalPages`,
+`totalRecords`, `objects`) of [CliPermissionRequest](REST_API.md#clipermissionrequest).
+
+```json
+{
+  "type": "command.result",
+  "action": "list_cli_permission_requests",
+  "data": { "success": true, "pageNumber": 1, "pageSize": 25, "totalPages": 1, "totalRecords": 1, "objects": [ { "id": "cpr_abc123", "status": "Pending" } ] }
+}
+```
+
+> **Breaking change** (see [DEPRECATION.md](../DEPRECATION.md), D-018): `data` used to be a bare array of up to 100
+> requests; it is now one page with `totalRecords`.
 
 ---
 
@@ -3192,6 +3213,7 @@ mission or a voyage's missions are read; WebSocket commands and events do not co
 | `Cursor` | Cursor agent CLI |
 | `Mux` | Mux CLI |
 | `OpenCode` | OpenCode CLI |
+| `Pi` | pi coding agent CLI |
 | `ApiEndpoint` | In-process tool-calling loop driven by a configured model endpoint |
 | `Custom` | Custom agent runtime |
 
