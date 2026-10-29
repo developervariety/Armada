@@ -14,7 +14,7 @@ namespace Armada.Core.Services
     /// Builds the operator's inbox: a single consolidated list of items across the fleet that require a
     /// human's attention or action, ordered most-urgent first. Two kinds of item qualify:
     ///
-    /// - Awaiting your decision (human-in-the-loop): a mission in Review, a Judge PASS held for operator
+    /// - Awaiting your decision (human-in-the-loop): a mission waiting on a review decision, a Judge PASS held for operator
     ///   review, or a deployment pending approval.
     /// - Failed and needs intervention (autonomous work that could not finish on its own): a failed
     ///   mission or a mission whose work could not land (while its voyage is still live), an open
@@ -169,7 +169,8 @@ namespace Armada.Core.Services
             try
             {
                 List<Mission> reviews = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
-                foreach (Mission mission in reviews.Take(_MaxPerCategory))
+                // A captain may report Review as progress; only a stage that requires review asks for a decision.
+                foreach (Mission mission in reviews.Where(MissionStateMachine.AwaitsReviewDecision).Take(_MaxPerCategory))
                 {
                     items.Add(new InboxItem
                     {

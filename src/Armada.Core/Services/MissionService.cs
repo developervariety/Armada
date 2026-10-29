@@ -14748,7 +14748,7 @@ namespace Armada.Core.Services
         {
             Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             if (mission == null) throw new InvalidOperationException("Mission not found: " + missionId);
-            if (mission.Status != MissionStatusEnum.Review || !mission.RequiresReview)
+            if (!MissionStateMachine.AwaitsReviewDecision(mission))
             {
                 throw new InvalidOperationException("Mission " + missionId + " is not waiting for an explicit review decision.");
             }

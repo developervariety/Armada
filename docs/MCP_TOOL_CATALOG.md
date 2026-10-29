@@ -28,7 +28,9 @@ intervention from the operator, ordered most-urgent first. It answers "is there
 anything waiting on me?" in one call instead of polling each entity. Three kinds
 of item qualify:
 
-- **Human-in-the-loop**: a mission in Review to approve or reject, a Judge PASS
+- **Human-in-the-loop**: a mission in Review whose stage requires review, to
+  approve or reject (a captain may report Review as progress on a stage without
+  a review gate; that mission is not listed), a Judge PASS
   held for operator review (`judge_pass_held`; resolve it with
   `armada_review_hold`), a stage handoff held by the `handoff_outcome` hold
   (`handoff_outcome_hold`; resolve it with `armada_handoff_hold`), or a

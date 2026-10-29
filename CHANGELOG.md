@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Review inbox items
+
+- The inbox `review` item and the `approval-needed` WebSocket broadcast list a mission in Review only when its stage requires review, the same rule approve and deny apply. A captain that reports Review as progress on a stage without a review gate no longer produces an "Awaiting your review" item.
+
 ### Architect dependencies on revising chains
 
 - A `Depends on: Mission N` edge moves the first Worker of the dependent block's chain, never a revising Worker with the same title later in that chain, on every database provider.
