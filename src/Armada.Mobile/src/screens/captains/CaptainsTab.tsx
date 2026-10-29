@@ -11,6 +11,7 @@ import { statusTone } from '../../components/ask/statusTone';
 import { AppText, BottomSheet, Button, ConfirmDialog, ListRow, StatusBadge, SwipeRow, type IconName } from '../../components/ui';
 import { SelectField, type SelectOption } from '../../components/ui/SelectSheet';
 import { useLocale } from '../../i18n/LocaleContext';
+import { planningHref } from '../../navigation/legacyRedirects';
 import { useNotifications } from '../../notifications/NotificationContext';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing } from '../../theme/typography';
@@ -248,7 +249,7 @@ export function CaptainsTab() {
           <View>
             <MenuItem icon="open-outline" label={t('View Detail')} onPress={() => { const c = menuFor; setMenuFor(null); router.push(`/captains/${c.id}` as Href); }} />
             {canCaptainStartPlanning(menuFor) ? (
-              <MenuItem icon="bulb-outline" label={t('Start Planning')} onPress={() => { const c = menuFor; setMenuFor(null); router.push(`/planning?captainId=${encodeURIComponent(c.id)}` as Href); }} />
+              <MenuItem icon="bulb-outline" label={t('Start Planning')} onPress={() => { const c = menuFor; setMenuFor(null); router.push(planningHref(null, { captainId: c.id }) as Href); }} />
             ) : null}
             <MenuItem icon="create-outline" label={t('Edit')} onPress={() => { const c = menuFor; setMenuFor(null); setForm({ open: true, captain: c }); }} />
             <MenuItem icon="copy-outline" label={t('Duplicate')} onPress={() => { const c = menuFor; setMenuFor(null); void actions.duplicate(c).then((created) => { if (created) { void resource.reload(); selection.open(created.id); } }); }} />

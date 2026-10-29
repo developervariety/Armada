@@ -78,6 +78,7 @@ namespace Armada.Server.Ask
                     call.ResultText = activity.Result;
                     if (activity.ElapsedMs.HasValue)
                     {
+                        // The runtime's own measurement (Mux elapsedMs, pi tool_execution_end durationMs).
                         call.ElapsedMs = (long)Math.Round(activity.ElapsedMs.Value);
                     }
                     else if (seenBefore && !call.ElapsedMs.HasValue && _Started.TryGetValue(activity.Id!, out long startedAt))

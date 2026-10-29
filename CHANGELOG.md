@@ -6,14 +6,79 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+- macOS Harbor bundles store the pi permission-gate extension in `Contents/Resources/Pi`, and pi resolves it there as well as beside portable binaries. This prevents ARM64 code signing from treating TypeScript resources as unsigned nested code. The DMG verifier checks the resource layout.
+- After building and verifying both Harbor DMGs, `build-harbor-app.sh` installs the native app into `~/Applications`, staging and signature-checking a fresh bundle before replacement. `--no-install` opts out, and `--no-build` remains verification-only.
+- Helm's NuGet tool package preserves battery fixture `.gitignore` and `.gitattributes` files instead of excluding them with NU5119 warnings. Installer verification checks every packaged framework for those files.
+
 ### Readiness skips a path-valued shell assignment
 
 - A workflow command that starts with `NAME=value` was reported as `command_dependency_missing` for that assignment when the value contained `/` or `\`. Readiness now skips the assignment and checks the next command. A name that starts with a digit stays a command name.
 
+### Handoff and landing integrity
+
+- Final landing verifies the integrated commit on the owning host and publishes that exact SHA. Failed, timed-out, unavailable or mutating checks refuse publication; merge-queue passes and explicit skips now have durable receipts with commit, command, exit code and timestamps. Armada additionally runs focused integration suites even with a smoke-only workflow profile.
+- MergeAndPush publishes from the isolated dock and leaves dirty or divergent developer checkouts untouched. LocalMerge only fast-forwards to the verified commit. Harbor-only landing retries no longer require an Admiral-side clone, and disconnected Harbors cannot fall back to local execution.
+- Conditional landing and merge-queue status writes preserve concurrent cancellation/newer attempts. Queue reconciliation records the verified integration SHA before publication for restart recovery.
+- Cancellation and deletion preserve tenant-scoped mission archives with failure, branch, commit, dock, stage attempts and recent diagnostics. Cascade cleanup retains archives; the receipt explicitly distinguishes stopping recovery from verified resolution.
+- Health reports include the running binary's embedded build version and source commit. Updated landing-mode guidance and translations describe isolated publication.
+
+### Added
+
+- Vessel **Cleanup** (Vessels and vessel page action menus) opens a read-only inventory of the vessel's docks, orphaned worktrees, and Armada-managed local branches (`armada/` prefix), grouped as Safe to clean up, Still in use, or Unknown disposition, each with its owning voyage/mission/dock, reason, and measured size (none is shown when it cannot be measured). Resources are inspected on the owning Admiral or Harbor host; a disconnected Harbor makes them Unknown. Active, queued, review, LandingFailed, captain-held, voyage-active, and merge-queue (including failed entries) references keep resources in use; dirty worktrees, unmerged work, shared paths, and paths outside Armada's docks stay Unknown. Only Safe resources can be selected; after confirmation each one is revalidated immediately before removal through the existing dock purge and git worktree/branch primitives, with per-item Deleted/Skipped/Failed results and a refreshed inventory. Remote branches, default branches, and the primary checkout are never removed. New routes: `GET` and `POST /api/v1/vessels/{id}/cleanup`; .NET client `GetVesselCleanupInventoryAsync` / `RunVesselCleanupAsync`.
+- Workflow profiles carry two unit-test commands: `UnitTestCommand` (full suite) and the new `AbbreviatedUnitTestCommand` (a fast subset). The abbreviated one runs for the new `AbbreviatedUnitTest` check type (the operator choosing directly) and in post-stage checks when `[ARMADA:UNIT-TESTS] abbreviated` appears in the mission description or, failing that, the stage persona's prompt (for example a customized Test Engineer prompt template); `[ARMADA:UNIT-TESTS] full` forces the full suite, and with no directive the full command runs. An unset abbreviated command falls back to the full one. Migration 100 adds `abbreviated_unit_test_command` on every database. The dashboard, TUI and mobile workflow-profile forms show both fields with tooltips explaining how each is chosen, and `StageCheckResult` records the `UnitTestScope` used.
+- `POST /api/v1/memories/enumerate` enumerates memories with a `MemoryEnumerateRequest` (every `EnumerationQuery` field plus `Search`, `Type`, `Topic`, `TopicContains`, `VesselName`, `SummaryContains`, `Scope`, `MinSalience`, and `SortBy`), returning `EnumerationResult<Memory>` like the other enumerate routes. `GET /api/v1/memories` accepts the same fields as query parameters (it previously dropped `order`, `createdAfter`, `createdBefore`, `voyageId`, and `missionId`). Visibility, filtering, sorting (including by vessel name) and paging now run in the database on SQLite, PostgreSQL, SQL Server and MySQL instead of loading every visible memory. Without `SortBy` or `Order` the historical order (salience, then newest) is kept. New `EnumerateMemoriesAsync` on `Armada.Client` and the Core `ArmadaApiClient`, and `enumerateMemories` in the dashboard client; the MCP `enumerate` tool honors `order` for memories.
+- The dashboard Memories page sorts, filters (vessel name, type, topic, summary, salience, visibility, search) and pages on the server through the enumerate route; its strings are translated in every locale.
+### Workflow profiles over MCP
+
+- New MCP tools `get_workflow_profile`, `create_workflow_profile`, `update_workflow_profile` (partial update: only the fields passed change; an empty string clears a command, fleetId or vesselId), `delete_workflow_profile`, `delete_workflow_profiles`, `validate_workflow_profile`, `resolve_workflow_profile` and `preview_workflow_profile`. Every settable field (name, description, scope, fleetId, vesselId, isDefault, active, ownershipScope, language hints, every command, required inputs, expected artifacts and environments) is in the schemas. Reads are Authenticated; writes and validate need a tenant admin, as over REST. Ask Armada treats get/validate/resolve/preview as read-only and the writes as proposals that need approval.
+- REST and MCP share `WorkflowProfileAccessService` (visibility, ownership, validation, unique default). A non-admin can no longer reference another tenant's fleet or vessel in a profile (refused as "not found", 400).
+- New `POST /api/v1/workflow-profiles/delete/multiple` (TenantAdmin) returns `DeleteMultipleResult`, skipping missing, foreign or non-editable ids.
+- .NET client: `EnumerateWorkflowProfilesAsync` and `DeleteWorkflowProfilesBatchAsync`; dashboard client: `enumerateWorkflowProfiles` and `deleteWorkflowProfilesBatch`.
+
+### Fixed
+
+- WebSocket `transition_mission_status` now applies the same gates as REST and MCP: it refuses to move a mission out of `Review` (other than to `Cancelled`), returns the manual-handoff refusal while the agent or its exit/stage check still owns the mission, and lands a write mission's branch for `WorkProduced`/`Complete` instead of writing the status (`Conflict` when no active dock or landing is unavailable). Previously it could mark a mission Complete without landing its branch.
+- Landing conflicts on Harbor docks: CHANGELOG conflict resolution and `git merge --abort` now run through the dock's own host executor (with the dock host's shell), conflicts report their file list and always abort, and merge failures are preserved when resolution or cleanup also fails. LandingFailed and terminal WorkProduced missions keep their dock (completion and orphan reclamation no longer remove it; intermediate pipeline stages still clean up), and retry_landing on a missing dock folder fails with a "Dock missing" reason. Unsuccessful retry_landing responses always carry a reason.
+
+- Ask Armada: tool-call cards (and the streamed reply text and thinking) no longer disappear when you leave a conversation while the captain is still answering and come back, reload, or reconnect. The reply and its tool calls are persisted only when the turn ends, so `GET /api/v1/ask/threads/{id}` now returns `ActiveTurn` (`AskTurnProgress`: turn id, reserved reply id, text, thinking, and tool calls so far) while a turn runs, and the dashboard and mobile app restore the live reply from it, merged with socket events by call id so no card is shown twice. A turn that is stopped or crashes now keeps the tool calls it already made on its error message, and error messages show those tool calls (expandable, with arguments and results) instead of dropping them.
+- Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
+### Fleet action scan and test runs
+
+- Add Findings outcomes counted separately from successful and failed targets, fourteen audit/test output parsers, redacted secret scan output, persisted scan summaries, and mission templates using a named source action through `{{scan.summary}}`.
+- Add executable preflight with `ToolMissing:<tool>` skips, offline network skips, optional Windows commands, and typed runtime inputs with defaults and validation before dispatch. REST, MCP, SDK models, Postman examples, and the dashboard run dialog carry the new fields. Migration 101 preserves action options and run snapshots across all database providers.
+
+### Handoff and landing resilience
+
+- Record failed landing callbacks as LandingFailed; periodically flag verified merge-queue missions missing a queue entry after five minutes for manual recovery.
+
+- Manual handoff (REST and MCP `transition_mission_status` to Complete) no longer requires an active dock when there is nothing to land: a WorkProduced or LandingFailed mission whose recorded commit and branch are already contained in the vessel's target branch (proved with `git merge-base --is-ancestor` on the Admiral-side repository) moves straight to Complete, clears its stale failure reason, records `mission.completed`, and lets its voyage complete. Missions that may still hold unlanded commits, or whose repository cannot be checked, keep the active-dock error unchanged.
+
+- Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
+
+### Rework prompts built from the handoff artifact
+
+- The rework Worker's prompt replaces the former one-paragraph instruction (about 150 words, eight demands) with a structured section: the reviewer's numbered findings (severity, file, line and required fix) taken from its handoff artifact as rendered within the reader's handoff budget, findings that did not fit named in the did-not-fit list, the rework demands as a numbered list with one demand per line, and the output contract (`[ARMADA:RESULT] COMPLETE`) repeated at the end. A review without structured findings, or a launch without an artifact, falls back to the rendered handoff block. The findings are delivered once (not again in the evidence block); every former demand is kept. It applies to all prompt variants; non-rework prompts are unchanged. No migration. The effect on the battery has not been measured.
+
+### Persona prompt variants for battery comparison
+
+- Persona prompts render as one of three variants through the existing template path: Current (today's default, unchanged), Lean (one demand per line, the output contract stated first and repeated as the last line) and Compact (a shorter tier for small-context readers). Built-in `persona.<name>.lean` and `persona.<name>.compact` templates ship for the Worker, Test Engineer, Judge and Architect and appear in `list_prompt_templates`; completion and signal lines are identical in every variant, and acceptance criteria and project rules are untouched. The variant is chosen by a voyage captain override's `PromptVariant`, then the captain's `promptVariant` runtime option, then Current. A fixture battery run takes `promptVariant` (REST body and `run_battery`) and records a non-Current variant in its configuration.
+### Stage outcomes record contract repairs
+
+- `StageOutcome.ContractRepairKind` (nullable; `CompletionLineMissing`, `CompletionLineMalformed`, `CommitMissingRecoveredFromRepo`, `VerdictNonCanonical` or `PlanBlockNonCanonical`) records the contract repair Armada applied to the attempt, read from the latest `mission.contract_repaired` event written since the attempt started. Migration 98 adds the `contract_repair_kind` column to `stage_outcomes` on SQLite, PostgreSQL, SQL Server and MySQL; existing rows read as null. The field is returned by the stage outcome REST routes and the `get_stage_outcome` / `list_stage_outcomes` MCP tools. The `mission.contract_repaired` event is still emitted for every repair.
+
+### Ecosystem detection, command catalog and vessel command overrides
+
+- `VesselEcosystemDetector` detects a vessel's ecosystems (.NET, Maven, Gradle, Node, Python, Ruby, Go, Rust, PHP, C/C++, Swift, Dart, Elixir, Container) from marker files at the top level and one level down, with the package manager the lockfile selects (npm/pnpm/yarn/bun, uv/poetry/pip, Gradle or Maven wrapper) and the relative root.
+- `EcosystemCommandCatalog` gives a default command per ecosystem and intent (Build, Test, Lint, Audit, Outdated, Licenses, Secrets) with POSIX and Windows variants, required tools, network need and an audit parser id, or an explicit NotSupported; osv-scanner is the universal audit fallback and gitleaks the secrets scan.
+- `EcosystemCommandResolver` resolves an intent to the vessel override, then a repo script (package.json scripts, Makefile/justfile target, composer scripts, Gradle wrapper), then the catalog default, and reports the source.
+- Vessels gain nullable `TestCommand`, `LintCommand` and `AuditCommand` overrides (schema migration 99 on all four providers), exposed through REST, MCP `add_vessel`/`update_vessel`, the .NET client, the dashboard vessel form and the Postman collection.
+- Fleet action templates accept `{{vessel.ecosystems}}`, `{{vessel.testCommand}}`, `{{vessel.lintCommand}}` and `{{vessel.auditCommand}}`; existing variables are unchanged.
+
 ## v1.2.0 (2026-10-27)
 
-v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
-form it can use. Every stage attempt is recorded as a stage outcome with its provenance (runtime version, model
+v1.2.0 adds pi (pi.dev) as a first-class captain runtime, with Armada MCP, Approve in Armada and Refuse support (see
+the first section below). The rest of the release is about model evaluation: knowing how well each model does the work
+it is given, and handing work to it in a form it can use. Every stage attempt is recorded as a stage outcome with its provenance (runtime version, model
 digest, escalation record) and a suspected cause; Quick probes give a captain or model endpoint a probe-only
 **Evaluate**; the fixture battery runs data-defined task packs (starting with C#) through real dispatch; and handoffs
 are delivered with their reader in mind. The release also improves captain usage visibility and management, and adds
@@ -21,7 +86,65 @@ mobile interfaces for the new surfaces. Since v1.1.0 was cut it also includes th
 setting, Quick probes, and the fixture battery with its C# pack. Schema migrations 96 and later apply automatically at
 startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
+### pi runtime (lead highlight)
+
+- **pi as a captain runtime.** New captain runtime `Pi` for the pi coding agent (pi.dev, verified with pi 1.4.0 on macOS): `armada captain add pi-1 --runtime pi`. Captains launch `pi -p --mode json --no-session` with the prompt on stdin, `--model provider/id`, and reasoning effort mapped 1:1 to `--thinking off|minimal|low|medium|high`. `AgentRuntimeEnum.Pi` is appended last (runtimes are stored by name; no migration). The CLI, settings and MCP accept `pi`, `Pi` and `pi-coding-agent`.
+- pi exits 0 in JSON mode even when the provider fails, so Armada reads the stream: a run fails unless it reached `agent_end` with a normal stop (`error`, `aborted`, `length`, or no `agent_end` give a nonzero exit code). Provider errors are classified from the terminal records by their leading HTTP status (a retry that recovers is not reported). Token usage and cost come from each assistant `message_end`; mission output, Ask turns and planning sessions show readable text, thinking and tool calls, never raw JSON.
+- pi missions write their instructions to `AGENTS.override.md` (pi reads it before `AGENTS.md` and `CLAUDE.md`), carrying the repository's `AGENTS.md` into it.
+- **Armada MCP for pi.** `armada mcp install` configures `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`) when pi is installed. A captain launch with a scoped session token writes a git-excluded `.pi/mcp.json` into the working directory (the token only as `${ARMADA_MCP_TOKEN}` from the environment, Armada tools exposed through pi's tool search) and passes `--approve` so pi loads it; the file is removed, or a repository's own file restored, before the exit is reported. `--approve` also loads the repository's `.pi/extensions` and `.pi/settings.json`, the same trust as running its code with bash.
+- **Approve in Armada for pi.** Armada ships a pi extension, `Pi/armada-permission-gate.ts`, in the Admiral and Harbor build output and loads it with `--extension` under the ApproveInArmada policy. Its `tool_call` hook sends `bash`, `powershell` and any other tool that is not a file tool or an Armada MCP tool to `cli_permission_prompt`, so the request shows up under Approvals and in Ask; approving runs the command, denying returns the approver's reason to the model as the tool result and the mission continues, and an unreachable Admiral or a timeout blocks the command (fail closed). pi's `bash` is reported as `Bash`, so existing Bash permission rules apply. The resolver no longer records a `RuntimeUnsupported` fallback for pi (a launch without a scoped token still runs as Refuse).
+- **Refuse covers every pi shell tool.** Refuse and `AutoApprove=false` add `--exclude-tools bash,powershell`, so pi's optional Windows `powershell` tool is refused as well as `bash`. Bypass keeps pi's default (pi never prompts).
+- On Windows the prompt is passed as an `@file` argument (a temporary file removed after the run) instead of stdin through pi's npm `.cmd` wrapper. Windows behavior is still unverified on a real Windows host.
+- Orphan recovery of a crashed pi mission removes both the generated `.pi/mcp.json` and the generated `AGENTS.override.md` from the dock, so the dock stays clean and the next mission there carries the repository's `AGENTS.md` again.
+- Harbors detect pi on PATH and confirm it with the first line of `pi --help`. The TUI, dashboard and docs (`docs/INSTRUCTIONS_FOR_PI.md`, `docs/PI_AS_ORCHESTRATOR.md`) list pi.
+
+### Ask Armada conversation refresh
+
 - Ask Armada conversations now have a refresh control that preserves the open conversation and filters, shows loading progress, and retains the previous list on failure.
+
+### Memory enumeration: server-side paging, sorting and filtering
+
+- `POST /api/v1/memories/enumerate` enumerates memories with a `MemoryEnumerateRequest` (every `EnumerationQuery` field plus `Search`, `Type`, `Topic`, `TopicContains`, `VesselName`, `SummaryContains`, `Scope`, `MinSalience`, and `SortBy`), returning `EnumerationResult<Memory>` like the other enumerate routes. `GET /api/v1/memories` accepts the same fields as query parameters (it previously dropped `order`, `createdAfter`, `createdBefore`, `voyageId`, and `missionId`). Visibility, filtering, sorting (including by vessel name) and paging now run in the database on SQLite, PostgreSQL, SQL Server and MySQL instead of loading every visible memory. Without `SortBy` or `Order` the historical order (salience, then newest) is kept. New `EnumerateMemoriesAsync` on `Armada.Client` and the Core `ArmadaApiClient`, and `enumerateMemories` in the dashboard client; the MCP `enumerate` tool honors `order` for memories.
+- The dashboard Memories page sorts, filters (vessel name, type, topic, summary, salience, visibility, search) and pages on the server through the enumerate route; its strings are translated in every locale.
+
+### Dashboard: consolidated navigation
+
+- **Fewer sidebar sections.** The sidebar is now Dashboard, Ask Armada, then OPERATIONS (Needs You, Dispatch, Fleet
+  Actions, Missions, Activity), BUILD (Vessels, Captains, Delivery), CONFIGURATION (Configuration), and SYSTEM (API
+  Explorer, Settings). The ACTIVITY and DELIVERY sections are gone: Activity sits under Missions, and Delivery moved
+  into BUILD. The Activity, Dispatch, and Settings tooltips name their new tabs.
+- **Pages that became tabs.** Jobs is the Jobs tab of Activity (`/activity?source=jobs`). Planning is the Planning tab
+  of Dispatch (`/dispatch?tab=planning`, a session at `/dispatch?tab=planning&session=<id>`); Dispatch's tabs are now
+  Dispatch, Planning, and Backlog. Storage (still global-admin only) and CLI Tool Permissions are tabs of Settings
+  (`/server?tab=storage`, `/server?tab=cli-permissions`).
+- **CLI Tool Permissions fits in a tab.** The page header is gone; pending requests and allow/deny rules are
+  sub-sections (`section=requests|rules`), and `request=<id>` still highlights one request. Approving and denying
+  requests, creating and deleting rules, and captain policies work as before, and rules gain an **Edit** action
+  (pattern, action, and description; scope and target stay fixed). The server settings section links to the tab, and
+  the tab links back to the default policies for global admins.
+- **Old URLs redirect, nothing 404s.** `/jobs`, `/storage`, `/cli-permissions` (with its `tab` and `request` query, for
+  example `/cli-permissions?tab=rules&request=X` opens `/server?tab=cli-permissions&section=rules&request=X`),
+  `/planning`, and `/planning/<id>` (keeping the session id) redirect to the new tabs. In-app links, Needs You inbox
+  items, and push notifications for CLI permission requests point at the new locations.
+- **The command palette (Ctrl/Cmd+K) still finds Planning, Jobs, Storage, and CLI Tool Permissions** by name and opens
+  their tabs. The TUI (`armada tui`) and the mobile app mirror the same consolidation. No REST or MCP API changed.
+
+### Restart starts a Pending mission when a captain is free
+
+- `POST /api/v1/missions/{id}/restart`, MCP `restart_mission`, the WebSocket `restart_mission` command, and
+  `armada mission restart` now accept a `Pending` mission. It keeps its state, takes the optional new title and
+  description, and is dispatched at once when a captain can take it; otherwise it stays `Pending` and the response is
+  still `200`. Any other status than Pending, Failed, LandingFailed, or Cancelled still returns `409`, and the message
+  lists Pending.
+- A restarted Failed, LandingFailed, or Cancelled mission is reset as before and then also dispatched immediately
+  instead of waiting for the next dispatch cycle. Normal dispatch rules apply (voyage status, pipeline dependencies,
+  vessel concurrency, requested captain).
+- The dashboard's Home and Missions row menus offer **Start** on Pending missions; the Missions menu shows **Restart**
+  only for Failed, LandingFailed, and Cancelled missions.
+
+### Vessel form sizing
+
+- Create/Edit Vessel now uses 95% of the viewport width and height, with scrolling inside the modal.
 
 ### Fixture battery: data-defined packs and the C# pack
 
@@ -46,6 +169,18 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
   `battery_task_results`).
 - **Settings.** `Evaluation.BatteryDirectory` overrides where packs are read from. `Evaluation.BatteryTaskTimeoutMinutes`
   (default 60) bounds each task's mission.
+
+### Missions and voyages carry an IsEvaluation flag
+
+- **Stored on all four databases.** `Mission.IsEvaluation` and `Voyage.IsEvaluation` (default false) are persisted by
+  migration 96, which adds `is_evaluation` to `missions` and `voyages` on SQLite, PostgreSQL, MySQL and SQL Server.
+- **Set at dispatch.** REST `VoyageRequest.IsEvaluation`, MCP `dispatch` and `create_mission` `isEvaluation`, and the
+  .NET client `VoyageCreateRequest`/`DispatchRequest.IsEvaluation` set the flag. Missions inherit it from their voyage
+  and from the mission they are derived from (rework, judge, architect, rescue). Fixture battery runs dispatch with it
+  set.
+- **Stage outcomes are tagged from it.** A stage outcome's `IsEvaluation` now comes from its mission's flag instead of
+  being inferred from the vessel's `ModelEvaluation` pipeline.
+- **Dashboard.** Missions and voyages that carry the flag show an `Evaluation` badge on list rows and detail headers.
 
 ### Evaluate: probe-only Quick model probes over REST, MCP and the .NET client
 
@@ -90,20 +225,45 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
 - **"Show live card" on a progress update now goes to the card.** When the message that started the work was not among the loaded messages, the card sat on the oldest loaded progress update. Clicking the link scrolled to the top of the conversation, which loaded older messages and moved the card back up to the starting message, so the reader landed on a message that no longer had a card. A card now stays on the message that first showed it while that message is loaded, and the link briefly highlights the card.
 
+### Vessel form sizing
+
+- Create/Edit Vessel now uses 95% of the viewport width and height, with scrolling inside the modal.
+
 ### Paged APIs replace whole-list APIs
 
-- **Every list that returned a whole collection in one response now has a paged replacement**, and Armada's own clients (dashboard, mobile, TUI, CLI, both .NET clients) use the replacements. Each returns one page (`pageNumber`, `pageSize` 1 to 1000) with `TotalRecords`. See [DEPRECATION.md](DEPRECATION.md), the managed list of deprecations: tests keep it in step with the code and fail if a first-party client calls a deprecated route.
-- **New:** `POST /api/v1/harbors/enumerate`, `/model-endpoints/enumerate`, `/planning-sessions/enumerate`, `/objectives/{id}/refinement-sessions/enumerate`, `/backlog/{id}/refinement-sessions/enumerate`, `/inbox/enumerate`, `/cli-permissions/rules/enumerate`, `/push/devices/enumerate`, `/releases/{id}/github/pull-requests/enumerate`, and `/vessels/{id}/branches/enumerate`; the MCP `enumerate` tool gains `inbox` and `cli_permission_rules`.
-- **Bounded:** a body `PageSize` on the check-run, deployment, release, environment, skill, workflow-profile, project-profile, and history enumerate routes is clamped to 1 to 1000 (it was passed to the database as sent); log reads return at most 5000 lines per request (REST, MCP, WebSocket); `GET /api/v1/signals/recent` returns at most 1000.
+- **Armada exposes no API that returns a whole stored collection in one response.** Every list is read through a paged route or tool (`pageNumber`, `pageSize` 1 to 1000 or a lower route cap, `TotalRecords`), and Armada's own clients (dashboard, mobile, TUI, CLI, both .NET clients) use the paged forms. [DEPRECATION.md](DEPRECATION.md) is the managed list (Removed, IDs D-001 to D-018, and the bounded exceptions); tests keep it in step with `RetiredSurface.cs` and fail if a first-party client calls a removed route.
 
-#### Deprecated
+#### Removed (breaking)
 
-Each keeps working unchanged and is removed in 2.0 (OpenAPI marks the routes `deprecated: true`; MCP descriptions start with `[Deprecated]`):
+These were deprecated earlier in this release cycle and are now gone. A removed REST route answers `410 Gone` with a message naming the replacement; a removed MCP tool is no longer listed by `tools/list`.
 
-- `GET /api/v1/harbors`, `GET /api/v1/model-endpoints`, `GET /api/v1/planning-sessions`, `GET /api/v1/objectives/{id}/refinement-sessions`, `GET /api/v1/backlog/{id}/refinement-sessions`, `GET /api/v1/inbox`, `GET /api/v1/cli-permissions/rules`, `GET /api/v1/push/devices`, `GET /api/v1/releases/{id}/github/pull-requests`, and `GET /api/v1/vessels/{id}/branches`: use the `POST .../enumerate` route beside each.
+- `GET /api/v1/harbors`: use `POST /api/v1/harbors/enumerate`.
+- `GET /api/v1/model-endpoints`: use `POST /api/v1/model-endpoints/enumerate`.
+- `GET /api/v1/planning-sessions`: use `POST /api/v1/planning-sessions/enumerate`.
+- `GET /api/v1/objectives/{id}/refinement-sessions`: use `POST /api/v1/objectives/{id}/refinement-sessions/enumerate`.
+- `GET /api/v1/backlog/{id}/refinement-sessions`: use `POST /api/v1/backlog/{id}/refinement-sessions/enumerate`.
+- `GET /api/v1/inbox`: use `POST /api/v1/inbox/enumerate`.
+- `GET /api/v1/cli-permissions/rules`: use `POST /api/v1/cli-permissions/rules/enumerate`.
+- `GET /api/v1/cli-permissions/requests`: use `POST /api/v1/cli-permissions/requests/enumerate` (its `limit` stopped at 1000).
+- `GET /api/v1/push/devices`: use `POST /api/v1/push/devices/enumerate`.
+- `GET /api/v1/releases/{id}/github/pull-requests`: use `POST /api/v1/releases/{id}/github/pull-requests/enumerate`.
+- `GET /api/v1/vessels/{id}/branches`: use `POST /api/v1/vessels/{id}/branches/enumerate`.
 - `GET /api/v1/signals/recipient/{captainId}`: use `POST /api/v1/signals/enumerate` with `toCaptainId` (and `unreadOnly`).
-- MCP `inbox` and `list_cli_permission_rules`: use `enumerate` with `entityType` `inbox` or `cli_permission_rules`.
-- `GET /api/v1/jobs` without paging or filter parameters (it returns every job): send `pageNumber` and `pageSize`. In 2.0 the parameterless form returns the first page.
+- `GET /api/v1/signals/recent`: use `POST /api/v1/signals/enumerate` (newest first).
+- MCP `inbox`: use `enumerate` with `entityType` `inbox`.
+- MCP `list_cli_permission_rules`: use `enumerate` with `entityType` `cli_permission_rules`.
+- MCP `list_cli_permission_requests`: use `enumerate` with `entityType` `cli_permission_requests`.
+- `GET /api/v1/jobs` without paging or filter parameters no longer returns every job: it returns the first page of 100 (`EnumerationResult<Job>`). Send `pageNumber` and `pageSize`, or use `POST /api/v1/jobs/enumerate`.
+- WebSocket command `list_cli_permission_requests` returns one page (`query.pageNumber`, `query.pageSize`, default 10) as an enumeration result instead of a bare list of up to 100.
+
+#### Added
+
+- `POST /api/v1/harbors/enumerate`, `/model-endpoints/enumerate`, `/planning-sessions/enumerate`, `/objectives/{id}/refinement-sessions/enumerate`, `/backlog/{id}/refinement-sessions/enumerate`, `/inbox/enumerate`, `/cli-permissions/rules/enumerate`, `/push/devices/enumerate`, `/releases/{id}/github/pull-requests/enumerate`, and `/vessels/{id}/branches/enumerate` (the replacements above).
+- Paged `POST .../enumerate` forms beside the existing paged `GET` lists, each taking a JSON body with the same auth as its `GET` (querystring `pageNumber` and `pageSize` override the body): `POST /api/v1/tenants/enumerate` (AdminOnly), `/users/enumerate`, `/credentials/enumerate` (`EnumerationQuery`), `/jobs/enumerate` (`JobQuery`: `Statuses`, `Kind`, `PageSize` 1 to 1000, default 100), `/token-usage/enumerate` (`TokenUsageQuery`, `PageSize` 1 to 500, default 25), `/request-history/enumerate` (`RequestHistoryQuery`, 1 to 500, default 25), `/stage-outcomes/enumerate` (`StageOutcomeQuery`), `/failure-cause-rules/enumerate`, `/model-probe-runs/enumerate` (`ModelProbeRunQuery`), `/battery/packs/enumerate`, `/harbors/{id}/jobs/enumerate` (`?open=true`), `/missions/{id}/handoff-artifacts/enumerate`, and `/cli-permissions/requests/enumerate` (`CliPermissionRequestEnumerateRequest`: `EnumerationQuery` plus `ThreadId`; `Status` is `Pending`, `Allowed`, `Denied`, `Expired`, or `Cancelled`, anything else is `400`).
+- The MCP `enumerate` tool gains the `inbox`, `cli_permission_rules`, and `cli_permission_requests` entity types (`cli_permission_requests` filters by `status`, `missionId`, `threadId`, `captainId`, and `vesselId`) and a `threadId` argument.
+- **History pages on the server with the standard contract.** `GET /api/v1/history` and `POST /api/v1/history/enumerate` take `HistoricalTimelineQuery`, now an `EnumerationQuery`: `PageNumber`, `PageSize` (1 to 1000, default 50; the `GET` cap was 500) and `Order` (`CreatedDescending`, newest occurrence first, the default; or `CreatedAscending`; `GET` accepts `?order=`). Entries with the same time get a stable tie-break, so consecutive pages never overlap or skip. Dashboard Activity > History pages, filters, and orders on the server, shows the true total, and returns to page 1 when a filter changes.
+- **Guard suite `E2E.CollectionSurface`.** It fails when a REST route or MCP tool returns an unpaged list without an entry in its allowlist (the fixed `GET /api/v1/ask/quick-actions` / `list_ask_quick_actions` catalog and `GET /api/v1/runtimes/mux/endpoints`), and checks that every removed route answers `410 Gone`.
+- **Bounded:** a body `PageSize` on the check-run, deployment, release, environment, skill, workflow-profile, project-profile, and history enumerate routes is clamped to 1 to 1000 (it was passed to the database as sent); log reads return at most 5000 lines per request (REST, MCP, WebSocket).
 
 ### Cancelling a mission stops its agent
 
@@ -168,6 +328,16 @@ process starts, .NET on macOS holds the allocator lock that the UI thread's text
 - **TUI and .NET client.** The TUI Vessels screen reads statuses four at a time with the same two-minute reuse, using
   the new `ArmadaClient.GetVesselBranchCountAsync`. `ArmadaClient.MarkAskThreadUnreadAsync` is added, matching the
   dashboard's `markAskThreadUnread`.
+
+### Idle captains say whether they may take a waiting mission
+
+- **"Why This Mission Is Waiting" explains idle captains.** When no idle captain may take a Pending mission
+  (`NoEligibleCaptain`), each idle captain is listed as `idle (assigned)` or `idle (not assigned: <reason>)`, for
+  example `persona not allowed`, `tier below Premium`, `not in persona Worker's captain priorities` or `authored an
+  earlier stage`. The check is the same one that decides the blocker, so the two cannot disagree.
+- **`MissionAssignmentCaptainStatus.EligibleForMission`** (true or false for idle captains, null otherwise) carries
+  the same answer; the dashboard dims idle captains that may not take the mission. Working, planning, refining and
+  quarantined text is unchanged.
 
 ---
 

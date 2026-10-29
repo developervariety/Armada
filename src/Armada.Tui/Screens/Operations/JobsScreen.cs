@@ -12,7 +12,7 @@ namespace Armada.Tui.Screens.Operations
     using Armada.Tui.Widgets;
 
     /// <summary>
-    /// Jobs (W3.11, <c>/jobs</c>), the dashboard's Jobs page: background jobs with name (and error reason), kind,
+    /// Jobs (W3.11), the Activity hub's Jobs tab (<c>/activity?source=jobs</c>; <c>/jobs</c> redirects there), the dashboard's Jobs page: background jobs with name (and error reason), kind,
     /// status, progress, created, and updated; Cancel while unfinished; auto-refresh (default 15 s). The TUI adds
     /// View JSON and Copy ID. Not thread-safe.
     /// </summary>

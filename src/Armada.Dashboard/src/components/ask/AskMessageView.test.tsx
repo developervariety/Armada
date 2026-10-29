@@ -244,3 +244,37 @@ describe('AskMessageView copy button', () => {
     expect(screen.queryByRole('button', { name: 'Copy this response to the clipboard.' })).toBeNull();
   });
 });
+
+describe('AskMessageView tool calls on a turn that failed or was stopped', () => {
+  it('an Error reply shows the tool calls it made, expandable with their details', () => {
+    const { container } = render(
+      <AskMessageView
+        {...handlers}
+        message={reply({
+          role: 'System', kind: 'Error', contentText: 'Stopped before the captain finished replying.', durationMs: null,
+          toolCalls: [
+            { id: 'tc1', callId: 'c1', toolName: 'mcp__armada__status', argumentsText: '{"verbose":true}', resultText: '{"health":"ok"}', ok: true, elapsedMs: 250 },
+            { id: 'tc2', callId: 'c2', toolName: 'mcp__armada__enumerate', argumentsText: '{"entityType":"voyage"}', ok: null },
+          ],
+        })}
+      />,
+    );
+    const article = container.querySelector('article')!;
+    expect(article).toHaveClass('ask-msg-error');
+    const chips = article.querySelectorAll('.chat-tools details.chat-tool');
+    expect(chips).toHaveLength(2);
+    expect(chips[0]).toHaveClass('chat-tool-success');
+    expect(chips[1]).toHaveClass('chat-tool-running');
+    fireEvent.click(chips[0].querySelector('summary')!);
+    expect(chips[0]).toHaveAttribute('open');
+    expect(chips[0].querySelector('.chat-tool-detail')!.textContent).toContain('"verbose": true');
+    expect(chips[0].querySelector('.chat-tool-detail')!.textContent).toContain('"health": "ok"');
+    expect(within(article as HTMLElement).getByText('Stopped before the captain finished replying.')).toBeInTheDocument();
+  });
+
+  it('an Error without tool calls renders no tool area', () => {
+    const { container } = render(<AskMessageView {...handlers} message={reply({ role: 'System', kind: 'Error', contentText: 'boom', toolCalls: null })} />);
+    expect(container.querySelector('.chat-tools')).toBeNull();
+    expect(screen.getByText('boom')).toBeInTheDocument();
+  });
+});
