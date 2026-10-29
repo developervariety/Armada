@@ -4,6 +4,7 @@ import { getVessel, listFleets, listMissionSummaries, listPipelines, createVesse
 import { listAll } from '../api/paging';
 import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
+import VesselCleanupModal from '../components/vessels/VesselCleanupModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
@@ -42,6 +43,7 @@ export default function VesselDetail() {
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -222,6 +224,7 @@ export default function VesselDetail() {
               { label: 'Manage Fleet', title: 'Open the fleet this vessel belongs to. Unavailable when the vessel has no fleet.', onClick: () => navigate(`/fleets/${vessel.fleetId}`), disabled: !vessel.fleetId },
               { label: 'Run Check', title: 'Go to Checks with this vessel and its default branch filled in, to run a build, test or other check.', onClick: () => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } }) },
               { label: 'Open Workspace', title: 'Browse, edit and run commands in this vessel working directory.', onClick: () => navigate(`/workspace/${vessel.id}`) },
+              { label: 'Cleanup', title: "Inspect this vessel's docks, worktrees and Armada branches, see which are safe, in use or unknown, and remove safe ones after you confirm. Opening it deletes nothing.", onClick: () => setCleanupOpen(true) },
               { label: 'Edit', title: 'Open the Edit Vessel form for this vessel.', onClick: openEdit },
               { label: 'Duplicate', title: 'Create a copy of this vessel with the same settings and paths, then open it for editing. Change the name and paths before using both.', onClick: () => void handleDuplicate() },
               { label: 'View JSON', title: 'Show the raw vessel record as JSON.', onClick: () => setJsonData({ open: true, title: t('Vessel: {{name}}', { name: vessel.name }), data: vessel }) },
@@ -250,6 +253,7 @@ export default function VesselDetail() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <VesselCleanupModal vesselId={vessel.id} vesselName={vessel.name} open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -457,10 +461,6 @@ export default function VesselDetail() {
                 { label: 'Duplicate', onClick: () => navigate(`/missions?duplicate=${encodeURIComponent(m.id)}`) },
               ]} /> },
               {
-                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
-                render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,
-              },
-              {
                 key: 'id', label: t('ID'), headerTitle: t('Mission ID (msn_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
                 render: (m) => (
                   <span className="id-display">
@@ -468,6 +468,10 @@ export default function VesselDetail() {
                     <CopyButton text={m.id} />
                   </span>
                 ),
+              },
+              {
+                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
+                render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,
               },
               { key: 'status', label: t('Status'), headerTitle: t('Where the mission is in its lifecycle, from Pending through InProgress and WorkProduced to Complete, Failed or Cancelled.'), cellClassName: 'cell-nowrap', render: (m) => <StatusBadge status={m.status} /> },
               {

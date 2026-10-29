@@ -8,6 +8,7 @@ namespace Test.Shared.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Harbor;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -127,8 +128,63 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(byName["OpenCode"].Available);
                 AssertTrue(byName["ApiEndpoint"].Available, "no CLI needed");
                 AssertTrue(byName["Custom"].Available, "no CLI known");
-                AssertEqual("claude,codex,gemini,cursor-agent,mux,opencode", String.Join(",", asked), "the command each runtime class launches");
+                AssertFalse(byName["Pi"].Available);
+                AssertEqual("claude,codex,gemini,cursor-agent,mux,opencode,pi", String.Join(",", asked), "the command each runtime class launches");
                 AssertEqual(Enum.GetValues<AgentRuntimeEnum>().Length, capabilities.Count, "one capability per runtime");
+            }));
+
+            cases.Add(Case("pi_needs_help_identity", "A 'pi' on PATH is available only when the verifier confirms its --help identity", TestTags.Negative, () =>
+            {
+                List<string> verified = new List<string>();
+                bool isPi = false;
+                HarborRuntimeDetector detector = new HarborRuntimeDetector
+                {
+                    Resolver = command => command == "pi" || command == "claude" ? "/usr/local/bin/" + command : null,
+                    Verifier = (runtime, path) =>
+                    {
+                        verified.Add(runtime + "=" + path);
+                        return runtime != AgentRuntimeEnum.Pi || isPi;
+                    }
+                };
+
+                Dictionary<string, HarborCapability> notPi = new Dictionary<string, HarborCapability>(StringComparer.Ordinal);
+                foreach (HarborCapability capability in detector.Detect()) notPi[capability.Name] = capability;
+                AssertFalse(notPi["Pi"].Available, "a 'pi' that is not the pi coding agent is not advertised");
+                AssertContains("is not the Pi CLI", notPi["Pi"].Detail ?? String.Empty);
+                AssertTrue(notPi["ClaudeCode"].Available, "other runtimes are unaffected");
+                AssertTrue(verified.Contains("Pi=/usr/local/bin/pi"), "the verifier receives the resolved path");
+
+                isPi = true;
+                Dictionary<string, HarborCapability> real = new Dictionary<string, HarborCapability>(StringComparer.Ordinal);
+                foreach (HarborCapability capability in detector.Detect()) real[capability.Name] = capability;
+                AssertTrue(real["Pi"].Available, "a verified pi is advertised");
+                AssertEqual("/usr/local/bin/pi", real["Pi"].Detail);
+            }));
+
+            cases.Add(Case("pi_help_identity_check", "pi is identified by the first line of --help, not --version", TestTags.Positive, () =>
+            {
+                AssertTrue(PiCommandBuilder.IsPiHelpOutput("pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n"));
+                AssertTrue(PiCommandBuilder.IsPiHelpOutput("\r\npi - AI coding assistant\r\n"), "leading blank lines and CRLF are tolerated");
+                AssertFalse(PiCommandBuilder.IsPiHelpOutput("1.4.0"), "a bare version does not identify pi");
+                AssertFalse(PiCommandBuilder.IsPiHelpOutput("usage: pi [options]\npi - AI coding assistant"), "only the first line counts");
+                AssertFalse(PiCommandBuilder.IsPiHelpOutput(null));
+                AssertFalse(PiCommandBuilder.IsPiHelpOutput("   "));
+                if (OperatingSystem.IsWindows()) return;
+                string directory = TestTemp.NewDirectory("fake_pi");
+                try
+                {
+                    string fake = Path.Combine(directory, "pi");
+                    File.WriteAllText(fake, "#!/bin/sh\necho 'Raspberry Pi tool 2.0'\n");
+                    File.SetUnixFileMode(fake, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                    AssertFalse(RuntimeDetectionService.IsPiCommand(fake), "a different 'pi' is rejected");
+                    File.WriteAllText(fake, "#!/bin/sh\n[ \"$1\" = --help ] && echo 'pi - AI coding assistant with read, bash, edit, write tools'\n");
+                    AssertTrue(RuntimeDetectionService.IsPiCommand(fake), "a command whose --help identifies pi is accepted");
+                    AssertFalse(RuntimeDetectionService.IsPiCommand(Path.Combine(directory, "missing")), "a missing command is not pi");
+                }
+                finally
+                {
+                    try { Directory.Delete(directory, true); } catch { }
+                }
             }));
 
             cases.Add(Case("resolve_on_path_needs_an_executable", "PATH resolution finds an executable file and skips a non-executable one", TestTags.Positive, () =>

@@ -64,7 +64,7 @@ describe('Server agent settings landing mode', () => {
     const select = await screen.findByLabelText('Default Landing Mode') as HTMLSelectElement;
     expect(select.value).toBe('PullRequest');
     expect(Array.from(select.options).map((o) => o.value)).toEqual(['LocalMerge', 'MergeAndPush', 'PullRequest', 'MergeQueue', 'None']);
-    expect(within(select).getByRole('option', { name: 'Merge and Push -- local merge, then push to the remote' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: 'Merge and Push -- verify and push to the remote' })).toBeInTheDocument();
     expect(screen.queryByText('Auto-Create Pull Requests')).toBeNull();
     expect(screen.getByText('How finished missions land when neither the vessel nor the voyage sets a landing mode (default Merge and Push).')).toBeInTheDocument();
 

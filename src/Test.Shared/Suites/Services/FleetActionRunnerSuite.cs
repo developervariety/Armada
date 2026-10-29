@@ -588,6 +588,153 @@ namespace Test.Shared.Suites.Services
                 AssertNotNull(await h.Db.Driver.FleetActionRuns.ReadAsync(recent.Id).ConfigureAwait(false), "recent run kept");
             }));
 
+            cases.Add(CaseAsync("parser_findings_and_exit_codes", "Parsed findings override non-zero exit, malformed output does not", TestTags.Positive, async () =>
+            {
+                using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync();
+                Vessel vessel = await h.CreateRepoVesselAsync("scan");
+                foreach (var sample in new[] { ("[{\"RuleID\":\"test\",\"Secret\":\"secret-must-not-leak\"}]", FleetActionTargetStatusEnum.Findings), ("[{", FleetActionTargetStatusEnum.Failed), ("[]", FleetActionTargetStatusEnum.Failed) })
+                {
+                    FleetActionRun run = await h.Service.StartRunAsync(h.Admin, null, new FleetActionRunRequest {
+                        VesselIds = new() { vessel.Id }, Definition = new() { Name = "scan", CommandText = "printf '%s' '" + sample.Item1 + "'; printf '%s' 'secret-must-not-leak' >&2; exit 1", OutputParser = "gitleaks-json", RequiresCleanWorkingTree = false }
+                    });
+                    FleetActionRun? done = await h.Runner.WaitForRunAsync(run.Id, RunWaitMs);
+                    FleetActionRunTarget target = (await h.TargetsAsync(run.Id)).Single();
+                    AssertEqual(sample.Item2, target.Status);
+                    AssertEqual(sample.Item2 == FleetActionTargetStatusEnum.Findings ? 1 : 0, done!.FindingsCount);
+                    AssertEqual(sample.Item2 == FleetActionTargetStatusEnum.Failed ? 1 : 0, done.FailedCount);
+                    AssertEqual(0, done.SucceededCount);
+                    AssertFalse((target.OutputText + target.ErrorText + target.ScanSummary).Contains("secret-must-not-leak"), "raw output and diagnostics redacted");
+                }
+            }));
+
+            cases.Add(CaseAsync("preflight_and_offline", "Missing tools and offline network actions skip before execution", TestTags.Positive, async () =>
+            {
+                using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync();
+                Vessel vessel = await h.CreateRepoVesselAsync("preflight");
+                foreach (bool offline in new[] { false, true })
+                {
+                    h.Settings.FleetActions.Offline = offline;
+                    FleetActionRun run = await h.Service.StartRunAsync(h.Admin, null, new FleetActionRunRequest {
+                        VesselIds = new() { vessel.Id }, Definition = new() { Name = "probe", CommandText = "exit 7", RequiredTools = new() { "armada-tool-that-does-not-exist-987654" }, RequiresNetwork = offline, RequiresCleanWorkingTree = false }
+                    });
+                    await h.Runner.WaitForRunAsync(run.Id, RunWaitMs);
+                    FleetActionRunTarget target = (await h.TargetsAsync(run.Id)).Single();
+                    AssertEqual(FleetActionTargetStatusEnum.Skipped, target.Status);
+                    AssertEqual(offline ? "NetworkUnavailable" : "ToolMissing:armada-tool-that-does-not-exist-987654", target.SkipReason);
+                    AssertNull(target.ExitCode, "command never executed");
+                }
+            }));
+
+            cases.Add(CaseAsync("runtime_inputs_and_snapshot", "Inputs validate before writing runs and retain defaults and overrides", TestTags.Positive, async () =>
+            {
+                using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync();
+                Vessel vessel = await h.CreateRepoVesselAsync("inputs");
+                FleetAction action = await h.Service.CreateActionAsync(h.Admin, new() { Name = "inputs", CommandText = "printf '%s' '{{input.version}} {{input.mode}}'", Inputs = new() {
+                    new() { Name = "version", Type = "semver", Required = true }, new() { Name = "mode", Type = "enum", Default = "safe", AllowedValues = new() { "safe", "fast" } }
+                }, RequiresCleanWorkingTree = false });
+                foreach (var values in new[] { new Dictionary<string, string>(), new() { ["version"] = "bad" }, new() { ["version"] = "1.2.3", ["mode"] = "bad" }, new() { ["version"] = "1.2.3", ["unknown"] = "x" } })
+                    await AssertThrowsAsync<ArgumentException>(() => h.Service.StartRunAsync(h.Admin, action.Id, new() { VesselIds = new() { vessel.Id }, InputValues = values }));
+                FleetActionRun run = await h.Service.StartRunAsync(h.Admin, action.Id, new() { VesselIds = new() { vessel.Id }, InputValues = new() { ["version"] = "1.2.3-rc.1+build" } });
+                await h.Runner.WaitForRunAsync(run.Id, RunWaitMs);
+                FleetActionRunTarget target = (await h.TargetsAsync(run.Id)).Single();
+                AssertEqual(FleetActionTargetStatusEnum.Succeeded, target.Status);
+                AssertContains("1.2.3-rc.1+build safe", target.OutputText!);
+                FleetActionRun? read = await h.Db.Driver.FleetActionRuns.ReadAsync(run.Id);
+                AssertEqual("safe", read!.InputValues["mode"]);
+                AssertEqual("safe", read.Inputs.Single(i => i.Name == "mode").Default);
+                await h.Service.UpdateActionAsync(h.Admin, action.Id, new() { Inputs = new() {
+                    new() { Name = "version", Type = "semver", Required = true }, new() { Name = "mode", Type = "enum", Default = "fast", AllowedValues = new() { "safe", "fast" } }
+                } });
+                foreach (bool explicitOverride in new[] { false, true })
+                {
+                    Dictionary<string, string> values = new() { ["version"] = "2.0.0" };
+                    if (explicitOverride) values["mode"] = "safe";
+                    FleetActionRun next = await h.Service.StartRunAsync(h.Admin, action.Id, new() { VesselIds = new() { vessel.Id }, InputValues = values });
+                    await h.Runner.WaitForRunAsync(next.Id, RunWaitMs);
+                    AssertEqual(explicitOverride ? "safe" : "fast", next.InputValues["mode"]);
+                }
+                AssertEqual("safe", (await h.Db.Driver.FleetActionRuns.ReadAsync(run.Id))!.InputValues["mode"]);
+                await AssertThrowsAsync<FleetActionTemplateException>(() => h.Service.CreateActionAsync(h.Admin, new() { Name = "bad", CommandText = "{{input.unknown}}" }));
+            }));
+
+            cases.Add(CaseAsync("scan_summary_source_and_absence", "Mission templates use the newest source scan for the same vessel or empty text", TestTags.Positive, async () =>
+            {
+                using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync();
+                Vessel vessel = await h.CreateRepoVesselAsync("summary");
+                FleetAction scan = await h.Service.CreateActionAsync(h.Admin, new() { Name = "scan", CommandText = "printf '%s' '[{\"RuleID\":\"test\"}]'; exit 1", OutputParser = "gitleaks-json", RequiresCleanWorkingTree = false });
+                FleetActionRun previous = await h.Service.StartRunAsync(h.Admin, scan.Id, new() { VesselIds = new() { vessel.Id } });
+                await h.Runner.WaitForRunAsync(previous.Id, RunWaitMs);
+                foreach (string source in new[] { scan.Id, "nonexistent" })
+                {
+                    FleetActionRun mission = await h.Service.StartRunAsync(h.Regular, null, new() { VesselIds = new() { vessel.Id }, Definition = new() { Name = "fix", Kind = FleetActionKindEnum.Mission, PromptTemplate = "Scan:{{scan.summary}}", ScanSourceActionKey = source } });
+                    for (int attempt = 0; attempt < 100 && !h.Dispatcher.PromptsByVessel.ContainsKey(vessel.Id); attempt++) await Task.Delay(20);
+                    // Sync dispatch is serialized behind the per-run gate.
+                    await h.Runner.SyncMissionRunsAsync();
+                    string prompt = (await h.TargetsAsync(mission.Id)).Single().RenderedText!;
+                    if (source == scan.Id) AssertContains("Findings: 1 total", prompt); else AssertEqual("Scan:", prompt);
+                }
+            }));
+
+            cases.Add(CaseAsync("parser_timeout_and_cancel_precedence", "Partial findings cannot override a timeout or cancellation", TestTags.Negative, async () =>
+            {
+                using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync();
+                Vessel vessel = await h.CreateRepoVesselAsync("partial");
+                foreach (bool cancel in new[] { false, true })
+                {
+                    FleetActionRun run = await h.Service.StartRunAsync(h.Admin, null, new() { VesselIds = new() { vessel.Id }, Definition = new() { Name = "slow", CommandText = "printf '%s' '[{\"RuleID\":\"test\",\"Secret\":\"sensitive\"}]'; sleep 60", OutputParser = "gitleaks-json", TimeoutSeconds = 5, RequiresCleanWorkingTree = false } });
+                    if (cancel) { await Task.Delay(150); await h.Runner.CancelRunAsync(run.Id); }
+                    FleetActionRun? done = await h.Runner.WaitForRunAsync(run.Id, RunWaitMs);
+                    AssertEqual(0, done!.FindingsCount);
+                    FleetActionRunTarget target = (await h.TargetsAsync(run.Id)).Single();
+                    AssertEqual(cancel ? FleetActionTargetStatusEnum.Cancelled : FleetActionTargetStatusEnum.TimedOut, target.Status);
+                    AssertFalse((target.OutputText ?? "").Contains("sensitive"), "partial secret redacted");
+                }
+            }));
+
+            cases.Add(CaseAsync("cancel_and_timeout_during_parsing", "A target cancelled or timed out after its parser starts never records findings", TestTags.Negative, async () =>
+            {
+                using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync();
+                Vessel vessel = await h.CreateRepoVesselAsync("parsing");
+                foreach (bool cancel in new[] { true, false })
+                {
+                    BlockingFleetActionParser parser = new();
+                    using FleetActionRunner runner = new(h.Db.Driver, h.Settings, h.Logging, h.Dispatcher, outputParserResolver: _ => parser);
+                    await runner.StartAsync();
+                    FleetActionService service = new(h.Db.Driver, h.Settings, runner, h.Seeder, h.Logging);
+                    FleetActionRun run = await service.StartRunAsync(h.Admin, null, new() { VesselIds = new() { vessel.Id }, Definition = new() { Name = "parser budget", CommandText = "printf '%s' '[]'", OutputParser = "gitleaks-json", TimeoutSeconds = 5, RequiresCleanWorkingTree = false } });
+                    await parser.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                    if (cancel) await runner.CancelRunAsync(run.Id);
+                    await parser.Stopped.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                    for (int attempt = 0; attempt < 100; attempt++)
+                    {
+                        FleetActionRunTarget current = (await h.TargetsAsync(run.Id)).Single();
+                        if (current.Status != FleetActionTargetStatusEnum.Running) break;
+                        await Task.Delay(20);
+                    }
+                    FleetActionRun? done = await runner.WaitForRunAsync(run.Id, RunWaitMs);
+                    FleetActionRunTarget target = (await h.TargetsAsync(run.Id)).Single();
+                    AssertEqual(cancel ? FleetActionTargetStatusEnum.Cancelled : FleetActionTargetStatusEnum.TimedOut, target.Status);
+                    AssertEqual(0, done!.FindingsCount); AssertNull(target.ScanSummary, "no completed parser result");
+                }
+            }));
+
+            cases.Add(CaseAsync("offline_harbor_policy_is_live", "An offline Harbor skips network work even when the Admiral is online", TestTags.Positive, async () =>
+            {
+                using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync();
+                Vessel vessel = await h.CreateRepoVesselAsync("offline-harbor");
+                Harbor harbor = await h.Db.Driver.Harbors.CreateAsync(new Harbor { Name = "offline", TenantId = Constants.DefaultTenantId });
+                vessel.PreferredHarborId = harbor.Id;
+                await h.Db.Driver.Vessels.UpdateAsync(vessel);
+                h.Settings.FleetActions.OfflineHarborIds.Add(harbor.Id);
+                FleetActionRun run = await h.Service.StartRunAsync(h.Admin, null, new() { VesselIds = new() { vessel.Id }, Definition = new() { Name = "network", CommandText = "exit 9", RequiresNetwork = true } });
+                await h.Runner.WaitForRunAsync(run.Id, RunWaitMs);
+                AssertEqual("NetworkUnavailable", (await h.TargetsAsync(run.Id)).Single().SkipReason);
+                h.Settings.FleetActions.OfflineHarborIds.Clear();
+                FleetActionRun next = await h.Service.StartRunAsync(h.Admin, null, new() { VesselIds = new() { vessel.Id }, Definition = new() { Name = "network", CommandText = "exit 9", RequiresNetwork = true } });
+                await h.Runner.WaitForRunAsync(next.Id, RunWaitMs);
+                AssertEqual("HarborUnavailable", (await h.TargetsAsync(next.Id)).Single().SkipReason);
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Fleet Action Runner",
@@ -597,6 +744,18 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private sealed class BlockingFleetActionParser : Armada.Core.Services.FleetActionOutputParsers.IFleetActionOutputParser
+        {
+            public TaskCompletionSource<bool> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource<bool> Stopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public Armada.Core.Services.FleetActionOutputParsers.FleetActionParseResult Parse(string? output, CancellationToken token = default)
+            {
+                Entered.TrySetResult(true);
+                try { token.WaitHandle.WaitOne(); token.ThrowIfCancellationRequested(); return new() { Parsed = true, Total = 1 }; }
+                finally { Stopped.TrySetResult(true); }
+            }
+        }
 
         private static async Task<string> GitAsync(string workingDirectory, params string[] args)
         {

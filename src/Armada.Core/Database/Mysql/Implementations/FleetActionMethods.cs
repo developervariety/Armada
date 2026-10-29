@@ -47,9 +47,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             await MysqlCommandHelper.WriteAsync(_ConnectionString, _WriteLock, async (MySqlConnection conn, MySqlTransaction tx) =>
             {
                 await MysqlCommandHelper.ExecuteAsync(conn, tx, @"INSERT INTO fleet_actions
-                    (id, tenant_id, user_id, name, description, kind, command_text, prompt_template, pipeline_id, persona, timeout_seconds, default_concurrency, requires_clean_working_tree, is_built_in, built_in_key, active, created_utc, last_update_utc)
+                    (id, tenant_id, user_id, name, description, kind, command_text, prompt_template, pipeline_id, persona, timeout_seconds, default_concurrency, requires_clean_working_tree, is_built_in, built_in_key, active, created_utc, last_update_utc, command_windows, output_parser, scan_source_action_key, required_tools_json, requires_network, inputs_json)
                     VALUES
-                    (@id, @tenant_id, @user_id, @name, @description, @kind, @command_text, @prompt_template, @pipeline_id, @persona, @timeout_seconds, @default_concurrency, @requires_clean_working_tree, @is_built_in, @built_in_key, @active, @created_utc, @last_update_utc);",
+                    (@id, @tenant_id, @user_id, @name, @description, @kind, @command_text, @prompt_template, @pipeline_id, @persona, @timeout_seconds, @default_concurrency, @requires_clean_working_tree, @is_built_in, @built_in_key, @active, @created_utc, @last_update_utc, @command_windows, @output_parser, @scan_source_action_key, @required_tools_json, @requires_network, @inputs_json);",
                     cmd => Bind(cmd, action), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -114,7 +114,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     persona = @persona, timeout_seconds = @timeout_seconds, default_concurrency = @default_concurrency,
                     requires_clean_working_tree = @requires_clean_working_tree, is_built_in = @is_built_in,
                     built_in_key = @built_in_key, active = @active, created_utc = @created_utc,
-                    last_update_utc = @last_update_utc
+                    command_windows = @command_windows, output_parser = @output_parser, scan_source_action_key = @scan_source_action_key, required_tools_json = @required_tools_json, requires_network = @requires_network, inputs_json = @inputs_json, last_update_utc = @last_update_utc
                     WHERE id = @id;", cmd => Bind(cmd, action), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -219,6 +219,12 @@ namespace Armada.Core.Database.Mysql.Implementations
             MysqlCommandHelper.Add(cmd, "@built_in_key", action.BuiltInKey);
             MysqlCommandHelper.Add(cmd, "@active", action.Active);
             MysqlCommandHelper.AddDate(cmd, "@created_utc", action.CreatedUtc);
+            MysqlCommandHelper.Add(cmd, "@command_windows", action.CommandWindows);
+            MysqlCommandHelper.Add(cmd, "@output_parser", action.OutputParser);
+            MysqlCommandHelper.Add(cmd, "@scan_source_action_key", action.ScanSourceActionKey);
+            MysqlCommandHelper.Add(cmd, "@required_tools_json", System.Text.Json.JsonSerializer.Serialize(action.RequiredTools));
+            MysqlCommandHelper.Add(cmd, "@requires_network", action.RequiresNetwork ? 1 : 0);
+            MysqlCommandHelper.Add(cmd, "@inputs_json", System.Text.Json.JsonSerializer.Serialize(action.Inputs));
             MysqlCommandHelper.AddDate(cmd, "@last_update_utc", action.LastUpdateUtc);
         }
 
@@ -243,6 +249,12 @@ namespace Armada.Core.Database.Mysql.Implementations
             action.Active = MysqlCommandHelper.ReadBool(reader["active"], true);
             action.CreatedUtc = MysqlCommandHelper.ReadDate(reader["created_utc"]);
             action.LastUpdateUtc = MysqlCommandHelper.ReadDate(reader["last_update_utc"]);
+            action.CommandWindows = MysqlCommandHelper.ReadString(reader["command_windows"]);
+            action.OutputParser = MysqlCommandHelper.ReadString(reader["output_parser"]);
+            action.ScanSourceActionKey = MysqlCommandHelper.ReadString(reader["scan_source_action_key"]);
+            action.RequiredTools = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<string>>(MysqlCommandHelper.ReadString(reader["required_tools_json"]) ?? "[]") ?? new();
+            action.RequiresNetwork = MysqlCommandHelper.ReadBool(reader["requires_network"], false);
+            action.Inputs = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<FleetActionInput>>(MysqlCommandHelper.ReadString(reader["inputs_json"]) ?? "[]") ?? new();
             return action;
         }
 
