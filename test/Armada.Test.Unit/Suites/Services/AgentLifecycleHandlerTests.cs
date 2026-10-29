@@ -2563,7 +2563,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
             {
-                foreach (string scenario in new[] { "colon-summary", "colon-current", "colon-earlier", "colon-wrong-role", "colon-duplicate-role", "colon-wrong-count", "colon-missing-worker", "colon-cancelled-worker", "colon-foreign-worker", "pending-reviews", "canonical-reviews", "at-stage-context", "at-stage-summary", "at-stage-same-criterion", "at-stage-current-before", "at-stage-current-after", "at-stage-mixed-current", "at-stage-mixed-earlier", "at-stage-no-context", "at-stage-cross-criterion", "at-stage-wrong-role", "at-stage-duplicate-role", "at-stage-missing-worker", "at-stage-cancelled-worker", "at-stage-foreign-worker", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future", "wrapped-current", "wrapped-earlier", "unpunctuated-future", "list-current", "list-earlier", "paragraph-current", "heading-current", "lowercase-marker", "next-criterion", "note-current", "note-earlier", "false-criterion", "intermediate-result-current", "bold-future" })
+                foreach (string scenario in new[] { "natural-future", "natural-current-qualifier", "natural-two-clause", "natural-process-tail", "natural-tail-current", "natural-tail-earlier", "natural-tail-negative", "natural-malformed", "natural-wrong-role", "natural-duplicate-role", "natural-missing-worker", "natural-cancelled-worker", "natural-foreign-worker", "natural-cancelled-middle", "natural-foreign-middle", "natural-unfinished-current", "natural-unfinished-earlier", "colon-summary", "colon-current", "colon-earlier", "colon-wrong-role", "colon-duplicate-role", "colon-wrong-count", "colon-missing-worker", "colon-cancelled-worker", "colon-foreign-worker", "pending-reviews", "canonical-reviews", "at-stage-context", "at-stage-summary", "at-stage-same-criterion", "at-stage-current-before", "at-stage-current-after", "at-stage-mixed-current", "at-stage-mixed-earlier", "at-stage-no-context", "at-stage-cross-criterion", "at-stage-wrong-role", "at-stage-duplicate-role", "at-stage-missing-worker", "at-stage-cancelled-worker", "at-stage-foreign-worker", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future", "wrapped-current", "wrapped-earlier", "unpunctuated-future", "list-current", "list-earlier", "paragraph-current", "heading-current", "lowercase-marker", "next-criterion", "note-current", "note-earlier", "false-criterion", "intermediate-result-current", "bold-future" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -2572,7 +2572,7 @@ namespace Armada.Test.Unit.Suites.Services
                         List<Mission> futureStages = new List<Mission>();
                         foreach (string persona in new[] { "PortingReferenceAnalyst", "TestEngineer", "Linter", "Worker" })
                         {
-                            if ((scenario is "at-stage-missing-worker" or "colon-missing-worker") && persona == "Worker") continue;
+                            if ((scenario is "at-stage-missing-worker" or "colon-missing-worker" or "natural-missing-worker") && persona == "Worker") continue;
                             Mission stage = new Mission("Review report", "Independently review the report.")
                             {
                                 TenantId = rig.Mission.TenantId,
@@ -2602,12 +2602,12 @@ namespace Armada.Test.Unit.Suites.Services
                             futureStages[1].UserId = reviewer.Id;
                             await testDb.Driver.Missions.UpdateAsync(futureStages[1]).ConfigureAwait(false);
                         }
-                        if (scenario is "at-stage-cancelled-worker" or "colon-cancelled-worker")
+                        if (scenario is "at-stage-cancelled-worker" or "colon-cancelled-worker" or "natural-cancelled-worker")
                         {
                             futureStages[3].Status = MissionStatusEnum.Cancelled;
                             await testDb.Driver.Missions.UpdateAsync(futureStages[3]).ConfigureAwait(false);
                         }
-                        if (scenario is "at-stage-foreign-worker" or "colon-foreign-worker")
+                        if (scenario is "at-stage-foreign-worker" or "colon-foreign-worker" or "natural-foreign-worker")
                         {
                             UserMaster reviewer = new UserMaster(rig.Mission.TenantId!, "other-revising-owner@armada.test", "password");
                             await testDb.Driver.Users.CreateAsync(reviewer).ConfigureAwait(false);
@@ -2650,6 +2650,23 @@ namespace Armada.Test.Unit.Suites.Services
                             output.Add("Criterion 3 is NOT MET because " + summary + " have not run: " + roles
                                 + " have not reviewed this report, and the Revising Worker is a separate later stage and has not run" + unfinished + ".");
                         }
+                        if (scenario.StartsWith("natural-", StringComparison.Ordinal))
+                        {
+                            output.RemoveAt(output.Count - 1);
+                            string roles = scenario == "natural-wrong-role" ? "Architect, TestEngineer, Linter and Judge"
+                                : scenario == "natural-duplicate-role" ? "PortingReferenceAnalyst, TestEngineer, Judge and Judge"
+                                : "PortingReferenceAnalyst, TestEngineer, Linter and Judge";
+                            string revising = scenario == "natural-malformed" ? ", and the additional Revising Worker stage;" : ", and the additional Revising Worker stage has not run;";
+                            string process = " only this Worker artifact exists, although the four checkouts show no tracked change and this report contains no vendor-body copy or restricted value.";
+                            string criterion = "Criterion 3 is NOT MET because the current " + roles + " reviews have not run" + revising + process;
+                            if (scenario == "natural-current-qualifier") criterion = "Criterion 3 is NOT MET because the current " + roles + " reviews have not run.";
+                            if (scenario == "natural-two-clause") criterion = "Criterion 3 is NOT MET because the later reviews have not run, and the additional Revising Worker stage has not run.";
+                            if (scenario == "natural-process-tail") criterion = "Criterion 3 is NOT MET because the later reviews have not run; only this Worker artifact exists.";
+                            if (scenario == "natural-tail-current") criterion = "Criterion 3 is NOT MET because the later reviews have not run; the current source study is unfinished.";
+                            if (scenario == "natural-tail-earlier") criterion = "Criterion 3 is NOT MET because the later reviews have not run; only this Worker artifact exists, although the earlier analyst omitted required source pages.";
+                            if (scenario == "natural-tail-negative") criterion = "Criterion 3 is NOT MET because the later reviews have not run; this report contains no completed source study.";
+                            output.Add(criterion);
+                        }
                         if (scenario.StartsWith("at-stage-", StringComparison.Ordinal))
                         {
                             output.RemoveAt(output.Count - 1);
@@ -2676,7 +2693,7 @@ namespace Armada.Test.Unit.Suites.Services
                         await rig.RunCaptainAsync(output.ToArray()).ConfigureAwait(false);
                         Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
                         Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
-                        if (scenario is "colon-summary" or "at-stage-context" or "at-stage-summary" or "at-stage-same-criterion" or "pending-reviews" or "canonical-reviews" or "generic-reviews" or "pending-future-reviews" or "unpunctuated-future" or "lowercase-marker" or "next-criterion" or "bold-future")
+                        if (scenario is "natural-future" or "natural-current-qualifier" or "natural-two-clause" or "natural-process-tail" or "colon-summary" or "at-stage-context" or "at-stage-summary" or "at-stage-same-criterion" or "pending-reviews" or "canonical-reviews" or "generic-reviews" or "pending-future-reviews" or "unpunctuated-future" or "lowercase-marker" or "next-criterion" or "bold-future")
                         {
                             AssertTrue(worker.Status is MissionStatusEnum.WorkProduced or MissionStatusEnum.Complete, "Complete current work reaches its configured review chain: " + worker.FailureReason);
                             foreach (Mission stage in futureStages)
@@ -2692,6 +2709,43 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             AssertEqual(MissionStatusEnum.Failed, worker.Status, "Unfinished work or unverified future reviews remain blocking: " + scenario);
                             AssertTrue(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "The failure retains the incomplete-report reason");
+                        }
+                    }
+                }
+            });
+
+            await RunTest("A report-only Worker whose output is cut off fails as report_incomplete with a named reason; a closed report and an Implementation Worker are unchanged", async () =>
+            {
+                foreach (string scenario in new[] { "cut-mid-row", "closed-report", "capture-limit-with-closing-marker", "implementation-without-marker" })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        MissionModeEnum mode = scenario == "implementation-without-marker" ? MissionModeEnum.Implementation : MissionModeEnum.Audit;
+                        BlockedStageRig rig = await BlockedStageRig.CreateAsync(this, testDb, "Worker", mode, withJudgeStage: true).ConfigureAwait(false);
+                        string[] report = scenario switch
+                        {
+                            "closed-report" => new[] { "## Audit report", "| Row | Status |", "| ParseTrailerRow | covered |", "## Closing summary", "[ARMADA:RESULT] COMPLETE" },
+                            "capture-limit-with-closing-marker" => new[] { MissionOutputArtifact.StreamTruncationMarker, "| ParseTrailerRow | covered |", "[ARMADA:RESULT] COMPLETE" },
+                            _ => new[] { "## Audit report", "| Row | Status |", "| ParseHeaderRow | covered |", "| ParseTrailerRow" }
+                        };
+                        await rig.RunCaptainAsync(report).ConfigureAwait(false);
+
+                        Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
+                        Mission judge = (await testDb.Driver.Missions.ReadAsync(rig.JudgeStage!.Id).ConfigureAwait(false))!;
+                        if (scenario is "cut-mid-row" or "capture-limit-with-closing-marker")
+                        {
+                            AssertEqual(MissionStatusEnum.Failed, worker.Status, "A cut report does not record WorkProduced: " + scenario);
+                            AssertTrue(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "The failure names the incomplete-report class: " + worker.FailureReason);
+                            AssertContains(scenario == "cut-mid-row" ? ReportIncompleteResult.ClosingMarkerMissingReason : ReportIncompleteResult.StreamCaptureLimitReason,
+                                worker.FailureReason ?? String.Empty, "The failure names the truncation reason");
+                            if (scenario == "cut-mid-row") AssertContains("| ParseTrailerRow", worker.FailureReason ?? String.Empty, "The failure quotes where the output ends");
+                            AssertEqual(MissionStatusEnum.Cancelled, judge.Status, "The reviewer stage is cancelled, not run on a cut report");
+                        }
+                        else
+                        {
+                            AssertTrue(worker.Status is MissionStatusEnum.WorkProduced or MissionStatusEnum.Complete, "A closed report, or an Implementation Worker, completes: " + scenario + " " + worker.FailureReason);
+                            AssertFalse(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "No incomplete-report failure is recorded: " + scenario);
+                            AssertTrue(judge.Status != MissionStatusEnum.Cancelled, "The reviewer is handed off, not cancelled: " + scenario);
                         }
                     }
                 }
