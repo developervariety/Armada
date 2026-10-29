@@ -47,10 +47,11 @@ export default function AssignmentBlockerCard({ blocker }: AssignmentBlockerCard
       {blocker.captains.length > 0 && (
         <ul className="assignment-blocker-captains" style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
           {blocker.captains.map((captain) => (
-            <li key={captain.captainId}>
+            <li key={captain.captainId} data-eligible={captain.eligibleForMission == null ? undefined : String(captain.eligibleForMission)}>
               <Link to={`/captains/${captain.captainId}`} title={t('A captain that could run this mission, with what it is doing now. Click to open the captain.')}>{captain.captainName || captain.captainId}</Link>
               {': '}
-              <span>{captain.detail}</span>
+              {/* Idle captains that may not take this mission are dimmed; the detail says why. */}
+              <span className={captain.eligibleForMission === false ? 'text-dim' : undefined}>{captain.detail}</span>
               {captain.objectiveId && (
                 <>
                   {' '}

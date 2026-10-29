@@ -27,6 +27,15 @@ namespace Armada.Core.Services
             ".DS_Store", "Thumbs.db"
         };
 
+        /// <summary>
+        /// Repository-relative directories whose files are scratch: the handoff files Armada writes for captains that can
+        /// only read files (<see cref="HandoffRenderer.HandoffDirectory"/>).
+        /// </summary>
+        public static IReadOnlyList<string> DirectoryPrefixes { get; } = new List<string>
+        {
+            HandoffRenderer.HandoffDirectory + "/"
+        };
+
         #endregion
 
         #region Public-Methods
@@ -40,6 +49,9 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(path)) return false;
             string trimmed = path!.Replace('\\', '/').TrimEnd('/');
+            foreach (string prefix in DirectoryPrefixes)
+                if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+
             int slash = trimmed.LastIndexOf('/');
             string name = slash >= 0 ? trimmed.Substring(slash + 1) : trimmed;
             if (name.Length == 0) return false;

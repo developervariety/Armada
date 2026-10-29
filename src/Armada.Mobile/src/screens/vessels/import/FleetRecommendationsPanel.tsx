@@ -11,6 +11,7 @@ import { AppText, Banner, Button, ConfirmDialog, StatusBadge, TextField } from '
 import { Disclosure } from '../../../components/ui/Disclosure';
 import { SelectField } from '../../../components/ui/SelectSheet';
 import { useLocale } from '../../../i18n/LocaleContext';
+import { JOBS_PATH } from '../../../navigation/legacyRedirects';
 import { useNotifications } from '../../../notifications/NotificationContext';
 import { useTheme } from '../../../theme/ThemeContext';
 import { radius, spacing } from '../../../theme/typography';
@@ -116,7 +117,7 @@ export function FleetRecommendationsPanel({ batch, items, recommendations, onCha
           </AppText>
           <AppText variant="caption" muted>{t('You can leave this screen; you are notified when it finishes. Reopen this batch from the import history to review the fleets.')}</AppText>
           <ActionRow>
-            {batch.categorizationJobId ? <Button label={t('Open the Jobs page')} variant="ghost" onPress={() => router.push('/jobs' as Href)} /> : null}
+            {batch.categorizationJobId ? <Button label={t('Open the Jobs page')} variant="ghost" onPress={() => router.push(JOBS_PATH as Href)} /> : null}
             {batch.categorizationJobId && status === 'Running' ? (
               <Button label={t('Stop the captain')} variant="secondary" disabled={busy} onPress={() => void run(() => cancelJob(batch.categorizationJobId ?? ''), t('Could not stop the captain.'))} />
             ) : null}
