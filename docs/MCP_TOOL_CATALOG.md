@@ -424,7 +424,9 @@ mail of a mission moves to the next captain when the mission is assigned to a
 different one. A mission with no captain yet leaves the mail without a recipient
 until its next captain takes the mission. When a mission moves to a different
 captain, the Admiral posts one `[reassigned]` system note on the coordination
-board naming the mission and both captains.
+board naming the mission and both captains. A caller that is not a global
+administrator may address only a captain in its own tenant; any other `captainId`
+answers `captain_not_found` and stores nothing.
 
 #### Coordination Board (Chatroom)
 

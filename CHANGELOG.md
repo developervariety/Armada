@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Signal recipient tenant
+
+- `armada_send_signal` and `POST /api/v1/signals` refuse a recipient captain outside the caller's tenant, unless the caller is a global administrator. MCP answers `captain_not_found` and REST answers `404`; nothing is stored.
+
 ### Review inbox items
 
 - The inbox `review` item lists a mission in Review only when its stage requires review, the same rule approve and deny apply. A captain that reports Review as progress on a stage without a review gate no longer produces an "Awaiting your review" item.

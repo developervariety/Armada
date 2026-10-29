@@ -3022,7 +3022,7 @@ Send a new signal (message).
 |---|---|---|---|
 | `Type` | string | no | Signal type (default: `Nudge`) |
 | `Payload` | string | no | Signal payload (message content) |
-| `ToCaptainId` | string | no | Recipient captain ID (null = to Admiral) |
+| `ToCaptainId` | string | no | Recipient captain ID (null = to Admiral). A caller that is not a global administrator may address only a captain in its own tenant; any other captain answers `404`. |
 | `MissionId` | string | no | Mission the signal is addressed to. The recipient becomes the mission's current captain, and unread mail of the mission moves to the mission's next captain. An unknown mission answers `404`. |
 | `FromCaptainId` | string | no | Sender captain ID (null = from Admiral) |
 
