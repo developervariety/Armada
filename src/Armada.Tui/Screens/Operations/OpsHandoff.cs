@@ -13,7 +13,7 @@ namespace Armada.Tui.Screens.Operations
     /// use them. <c>from</c> names the source (the dashboard's <c>fromPlanning</c>, <c>fromWorkspace</c>,
     /// <c>fromIncident</c>, <c>fromObjective</c>, <c>fromSetupWizard</c>, <c>fromVessel</c> flags); the other keys match the dashboard's
     /// state fields. Dispatch reads <c>/dispatch?from=...&amp;vesselId=&amp;pipelineName=&amp;prompt=&amp;voyageTitle=&amp;
-    /// objectiveId=&amp;playbooks=</c> (playbooks as JSON); Planning reads <c>/planning?from=...&amp;captainId=&amp;
+    /// objectiveId=&amp;playbooks=</c> (playbooks as JSON); Planning reads <c>/dispatch?tab=planning&amp;from=...&amp;captainId=&amp;
     /// objectiveId=&amp;vesselId=&amp;fleetId=&amp;pipelineId=&amp;title=&amp;initialPrompt=</c>.
     /// </summary>
     public static class OpsHandoff
@@ -101,7 +101,7 @@ namespace Armada.Tui.Screens.Operations
             Put(q, "pipelineId", pipelineId);
             Put(q, "title", title);
             Put(q, "initialPrompt", initialPrompt);
-            return "/planning" + RouteMatch.BuildQuery(q);
+            return TabLinks.Planning(null, q);
         }
 
         /// <summary>

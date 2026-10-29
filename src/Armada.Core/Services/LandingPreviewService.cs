@@ -372,7 +372,7 @@ namespace Armada.Core.Services
                 case LandingModeEnum.LocalMerge:
                     return "Merge the branch into the target branch in the working directory, without pushing";
                 case LandingModeEnum.MergeAndPush:
-                    return "Merge the branch into the target branch in the working directory, then push it";
+                    return "Verify the integrated commit in its dock and push it to the target branch";
                 case LandingModeEnum.None:
                     return "Manual landing only";
                 default:

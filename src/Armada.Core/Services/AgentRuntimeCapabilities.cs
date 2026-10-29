@@ -25,7 +25,8 @@ namespace Armada.Core.Services
             AgentRuntimeEnum.Gemini,
             AgentRuntimeEnum.Cursor,
             AgentRuntimeEnum.Mux,
-            AgentRuntimeEnum.OpenCode
+            AgentRuntimeEnum.OpenCode,
+            AgentRuntimeEnum.Pi
         };
 
         #endregion

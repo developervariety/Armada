@@ -97,6 +97,8 @@ describe('backlog helpers', () => {
     const item = objective({ suggestedPipelineId: 'ppl_1', suggestedPlaybooks: [{ playbookId: 'pbk_1', deliveryMode: 'InlineFullContent' }] });
     expect(backlogItemPath('obj_a')).toBe('/backlog/obj_a');
     expect(backlogItemPath('obj_a', 'ors 1')).toBe('/backlog/obj_a?refinementSessionId=ors%201');
+    // Planning is the Dispatch hub's Planning tab.
+    expect(planningHref(item, 'flt_1', 'vsl_1')).toMatch(/^\/dispatch\?tab=planning&/);
     const planning = new URLSearchParams(planningHref(item, 'flt_1', 'vsl_1').split('?')[1]);
     expect(planning.get('objectiveId')).toBe('obj_a');
     expect(planning.get('title')).toBe('Alpha Planning');
@@ -115,6 +117,9 @@ describe('backlog helpers', () => {
     expect(armadaLinkGroups(objective({ missionIds: ['msn_1'], refinementSessionIds: ['ors_1'] })).map((g) => [g.key, g.href(g.ids[0])])).toEqual([
       ['refinement', '/backlog/obj_a?refinementSessionId=ors_1'],
       ['missions', '/missions/msn_1'],
+    ]);
+    expect(armadaLinkGroups(objective({ planningSessionIds: ['pls_1'] })).map((g) => [g.key, g.href(g.ids[0])])).toEqual([
+      ['planning', '/dispatch?tab=planning&session=pls_1'],
     ]);
   });
 

@@ -34,6 +34,10 @@ updates the global-tool install and does not touch the `ArmadaAdmiral` startup e
 migrated: switch every vessel, voyage, and global `landingMode` that should keep pushing from `LocalMerge` to
 `MergeAndPush`. See [Upgrading from 1.0.0](MERGING.md#upgrading-from-100-landing-modes-fixed-in-101) for the steps.
 
+The new `Pi` runtime ([pi](https://pi.dev), command `pi`) adds a value to `AgentRuntimeEnum`. Nothing is migrated and
+existing captains are unchanged; code or scripts that switch on the runtime string should accept `Pi`. See
+[INSTRUCTIONS_FOR_PI.md](INSTRUCTIONS_FOR_PI.md).
+
 ### Changes to act on when coming from 0.9.x
 
 1.0.0 tightened several defaults. Check these before you start the new version (the CHANGELOG has the full list):

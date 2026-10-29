@@ -37,8 +37,8 @@ namespace Test.Shared.Suites.Docs
 
             cases.Add(new TestCaseDescriptor(SuiteId, "doc_matches_deprecated_surface", "DEPRECATION.md and DeprecatedSurface list the same routes and tools with the same replacements", (CancellationToken ct) =>
             {
+                // Zero active deprecations is valid: the whole-list routes were retired (see the Removed section).
                 List<DeprecationRow> rows = ReadRows();
-                AssertTrue(rows.Count > 0, "DEPRECATION.md has active deprecations");
                 List<string> problems = new List<string>();
 
                 Dictionary<string, DeprecationRow> rest = rows.Where(r => r.Surface == "REST").ToDictionary(r => r.Item, StringComparer.OrdinalIgnoreCase);
@@ -89,6 +89,52 @@ namespace Test.Shared.Suites.Docs
                 }
 
                 AssertTrue(problems.Count == 0, "DEPRECATION.md rows:\n" + String.Join("\n", problems));
+                return Task.CompletedTask;
+            }));
+
+            cases.Add(new TestCaseDescriptor(SuiteId, "removed_matches_retired_surface", "The Removed section of DEPRECATION.md and RetiredSurface list the same routes and tools with the same replacements", (CancellationToken ct) =>
+            {
+                string text = File.ReadAllText(Path.Combine(DashboardSource.RepoRoot(), "DEPRECATION.md"));
+                int start = text.IndexOf("## Removed", StringComparison.Ordinal);
+                int end = text.IndexOf("\n## ", start + 1, StringComparison.Ordinal);
+                AssertTrue(start >= 0 && end > start, "DEPRECATION.md has a Removed section");
+                Dictionary<string, string> rest = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                Dictionary<string, string> mcp = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (string line in text.Substring(start, end - start).Split('\n'))
+                {
+                    if (!line.StartsWith("| D-", StringComparison.Ordinal)) continue;
+                    string[] cells = line.Trim().Trim('|').Split('|').Select(c => c.Trim()).ToArray();
+                    AssertTrue(cells.Length == 5, "five columns: " + line);
+                    if (cells[1] == "REST") rest[Unquote(cells[2])] = Unquote(cells[3]);
+                    else if (cells[1] == "MCP") mcp[Unquote(cells[2])] = Unquote(cells[3]);
+                }
+
+                List<string> problems = new List<string>();
+                foreach (string route in RetiredSurface.Routes())
+                {
+                    string[] parts = route.Split(' ');
+                    if (!rest.TryGetValue(route, out string? replacement)) problems.Add("RetiredSurface route missing from DEPRECATION.md Removed: " + route);
+                    else if (!String.Equals(replacement, RetiredSurface.RouteReplacement(parts[0], parts[1]), StringComparison.Ordinal)) problems.Add(route + ": replacement differs");
+                }
+
+                foreach (string route in rest.Keys)
+                {
+                    string[] parts = route.Split(' ');
+                    if (parts.Length != 2 || RetiredSurface.RouteReplacement(parts[0], parts[1]) == null) problems.Add("DEPRECATION.md Removed route not in RetiredSurface: " + route);
+                }
+
+                foreach (string tool in RetiredSurface.Tools())
+                {
+                    if (!mcp.TryGetValue(tool, out string? replacement)) problems.Add("RetiredSurface tool missing from DEPRECATION.md Removed: " + tool);
+                    else if (!String.Equals(replacement, RetiredSurface.ToolReplacement(tool), StringComparison.Ordinal)) problems.Add(tool + ": replacement differs");
+                }
+
+                foreach (string tool in mcp.Keys)
+                {
+                    if (RetiredSurface.ToolReplacement(tool) == null) problems.Add("DEPRECATION.md Removed tool not in RetiredSurface: " + tool);
+                }
+
+                AssertTrue(problems.Count == 0, "DEPRECATION.md Removed and RetiredSurface differ:\n" + String.Join("\n", problems));
                 return Task.CompletedTask;
             }));
 

@@ -262,7 +262,7 @@ namespace Armada.Core.Services
                             + (request.CanDecide ? "" : " An admin must decide it."),
                         EntityType = "cli_permission_request",
                         EntityId = request.Id,
-                        Href = ownThread ? "/ask/" + request.ThreadId : "/cli-permissions?request=" + request.Id,
+                        Href = ownThread ? "/ask/" + request.ThreadId : "/server?tab=cli-permissions&request=" + request.Id,
                         CliPermission = request,
                         ExpiresUtc = request.ExpiresUtc
                     });

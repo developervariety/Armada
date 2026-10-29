@@ -64,7 +64,7 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(preview.IsReadyToLand, "ready");
                 AssertFalse(preview.ManualLandingOnly, "automatic landing");
                 AssertEqual(LandingModeEnum.MergeAndPush, preview.EffectiveLandingMode, "effective mode");
-                AssertEqual("Merge the branch into the target branch in the working directory, then push it", preview.ExpectedLandingAction, "expected action");
+                AssertEqual("Verify the integrated commit in its dock and push it to the target branch", preview.ExpectedLandingAction, "expected action");
             }));
 
             cases.Add(CaseAsync("unset_modes_use_merge_and_push_default", "With no landing mode on the vessel or voyage, the effective mode is the MergeAndPush default", TestTags.Positive, async () =>
