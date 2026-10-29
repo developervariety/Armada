@@ -5,6 +5,8 @@ import type { Fleet, Vessel, Pipeline } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -49,6 +51,7 @@ export default function Fleets() {
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const deleteProgress = useDeleteProgress();
 
   const table = useResourceTable({
     rows: fleets,
@@ -153,18 +156,20 @@ export default function Fleets() {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...table.selected];
         table.setSelected([]);
-        let failed = 0;
-        for (const id of ids) {
-          try { await deleteFleet(id); } catch { failed++; }
-        }
-        const deleted = ids.length - failed;
-        if (deleted > 0) {
-          pushToast(failed > 0 ? 'warning' : 'success', failed > 0
-            ? t('Deleted {{deleted}} fleets. {{failed}} failed.', { deleted, failed })
-            : t('Deleted {{deleted}} fleets.', { deleted }));
-        }
-        if (failed > 0) setError(t('Deleted {{deleted}} fleets, {{failed}} failed.', { deleted: ids.length - failed, failed }));
-        load();
+        await deleteProgress.run(t('Deleting {{count}} fleets', { count: ids.length }), async () => {
+          let failed = 0;
+          for (const id of ids) {
+            try { await deleteFleet(id); } catch { failed++; }
+          }
+          const deleted = ids.length - failed;
+          if (deleted > 0) {
+            pushToast(failed > 0 ? 'warning' : 'success', failed > 0
+              ? t('Deleted {{deleted}} fleets. {{failed}} failed.', { deleted, failed })
+              : t('Deleted {{deleted}} fleets.', { deleted }));
+          }
+          if (failed > 0) setError(t('Deleted {{deleted}} fleets, {{failed}} failed.', { deleted: ids.length - failed, failed }));
+          load();
+        });
       },
     });
   }
@@ -228,6 +233,7 @@ export default function Fleets() {
       />
 
       {/* Confirm Dialog */}
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 

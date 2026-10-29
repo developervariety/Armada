@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Vessels from './Vessels';
-import { getVesselGitStatus, listFleets, listPipelines, listVessels } from '../api/client';
+import { deleteVessel, getVesselGitStatus, listFleets, listPipelines, listVessels } from '../api/client';
+import { deferred } from '../test/routeRace';
 
 vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   listVessels: vi.fn(),
@@ -86,5 +87,22 @@ describe('Vessels', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => expect(getVesselGitStatus).toHaveBeenCalledTimes(VESSEL_COUNT));
     expect(readIds().slice(PAGE_SIZE).sort()).toEqual(['vsl_25', 'vsl_26', 'vsl_27', 'vsl_28', 'vsl_29']);
+  });
+
+  it('keeps a progress dialog open while a bulk vessel delete runs and closes it when the deletes finish', async () => {
+    const pendingDelete = deferred<void>();
+    vi.mocked(deleteVessel).mockReturnValue(pendingDelete.promise as never);
+    render(<MemoryRouter><Vessels /></MemoryRouter>);
+
+    await screen.findByText('Vessel 00');
+    fireEvent.click(screen.getAllByRole('checkbox')[1]);
+    fireEvent.click(screen.getByRole('button', { name: /Delete Selected/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+
+    expect(await screen.findByText('This may take some time.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+    pendingDelete.resolve();
+    await waitFor(() => expect(screen.queryByText('This may take some time.')).toBeNull());
+    expect(deleteVessel).toHaveBeenCalledTimes(1);
   });
 });

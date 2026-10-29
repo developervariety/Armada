@@ -16,6 +16,8 @@ import CaptainRef from '../components/shared/CaptainRef';
 import StatusBadge from '../components/shared/StatusBadge';
 import ErrorModal from '../components/shared/ErrorModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
@@ -58,6 +60,7 @@ export default function VoyageDetail() {
   const [logModal, setLogModal] = useState<{ open: boolean; title: string; missionId: string; content: string; totalLines: number; lineCount: number }>({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; danger: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', danger: false, onConfirm: () => {} });
+  const deleteProgress = useDeleteProgress();
 
   // Lookup maps
   const vesselMap = useMemo(() => {
@@ -157,13 +160,11 @@ export default function VoyageDetail() {
       danger: true,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
+        await deleteProgress.run(t('Purging voyage'), async () => {
           await purgeVoyage(voyage.id);
           pushToast('warning', t('Voyage "{{title}}" deleted.', { title: voyage.title || voyage.id }));
           nav('/voyages');
-        } catch (e: unknown) {
-          setError(t('Delete failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
-        }
+        });
       },
     });
   }
@@ -464,6 +465,7 @@ export default function VoyageDetail() {
       )}
 
       {/* Shared modals */}
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}

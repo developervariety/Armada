@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Delete progress dialog
+
+- The Dashboard opens a progress dialog while a slow delete runs: vessel delete, mission and voyage purge, bulk delete of vessels, missions, docks, captains and fleets, and Ask conversation delete. The dialog says the delete may take some time, cannot be dismissed while the request is pending, closes on success, and turns into the error with Retry and Dismiss on failure. A second delete started while one is pending is ignored.
+
 ### Ask proposes repository changes
 
 - The built-in `ask.system` prompt tells Ask to answer a repository change request by proposing `armada_dispatch` or `armada_create_mission` with a ready brief, and to wait for the owner's decision. Ask proposes work only when the operator asks for it; read-only lookups stay in the chat. An installed copy that still holds the earlier built-in prompt takes the new text on the next start, and an edited copy is kept.

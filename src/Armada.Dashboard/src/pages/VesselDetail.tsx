@@ -7,6 +7,8 @@ import VesselBranchPanel from '../components/shared/VesselBranchPanel';
 import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, RepositoryHealthReport, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
@@ -79,6 +81,7 @@ export default function VesselDetail() {
 
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const deleteProgress = useDeleteProgress();
 
   const fleetMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -237,11 +240,11 @@ export default function VesselDetail() {
       message: t('Delete vessel "{{name}}"? This cannot be undone.', { name: vessel.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
+        await deleteProgress.run(t('Deleting vessel'), async () => {
           await deleteVessel(vessel.id);
           pushToast('warning', t('Vessel "{{name}}" deleted.', { name: vessel.name }));
           navigate('/vessels');
-        } catch { setError(t('Delete failed.')); }
+        });
       },
     });
   }
@@ -433,6 +436,7 @@ export default function VesselDetail() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 

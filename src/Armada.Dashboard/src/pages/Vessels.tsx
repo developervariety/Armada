@@ -8,6 +8,8 @@ import BuildContextModal from '../components/vessels/BuildContextModal';
 import CheckoutImport from '../components/vessels/CheckoutImport';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
@@ -93,6 +95,7 @@ export default function Vessels() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
+  const deleteProgress = useDeleteProgress();
   // Select-based column filters (equality; applied before the shared table hook)
   const [fleetFilter, setFleetFilter] = useState('');
   const [landingModeFilter, setLandingModeFilter] = useState('');
@@ -234,11 +237,11 @@ export default function Vessels() {
       message: t('Delete vessel "{{name}}"? This cannot be undone.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
+        await deleteProgress.run(t('Deleting vessel'), async () => {
           await deleteVessel(id);
           pushToast('warning', t('Vessel "{{name}}" deleted.', { name }));
           load();
-        } catch { setError(t('Delete failed.')); }
+        });
       },
     });
   }
@@ -252,18 +255,20 @@ export default function Vessels() {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...table.selected];
         table.setSelected([]);
-        let failed = 0;
-        for (const id of ids) {
-          try { await deleteVessel(id); } catch { failed++; }
-        }
-        const success = ids.length - failed;
-        if (success > 0) {
-          pushToast(failed > 0 ? 'warning' : 'success', failed > 0
-            ? t('Deleted {{success}} vessels. {{failed}} failed.', { success, failed })
-            : t('Deleted {{success}} vessels.', { success }));
-        }
-        if (failed > 0) setError(t('Deleted {{success}} vessels, {{failed}} failed.', { success: ids.length - failed, failed }));
-        load();
+        await deleteProgress.run(t('Deleting {{count}} vessels', { count: ids.length }), async () => {
+          let failed = 0;
+          for (const id of ids) {
+            try { await deleteVessel(id); } catch { failed++; }
+          }
+          const success = ids.length - failed;
+          if (success > 0) {
+            pushToast(failed > 0 ? 'warning' : 'success', failed > 0
+              ? t('Deleted {{success}} vessels. {{failed}} failed.', { success, failed })
+              : t('Deleted {{success}} vessels.', { success }));
+          }
+          if (failed > 0) setError(t('Deleted {{success}} vessels, {{failed}} failed.', { success: ids.length - failed, failed }));
+          load();
+        });
       },
     });
   }
@@ -491,6 +496,7 @@ export default function Vessels() {
           }}
         />
       )}
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
