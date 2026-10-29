@@ -51,6 +51,7 @@ import {
   type EndpointHeaderRow,
   type LocalizedText,
 } from '../lib/endpointAuth';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 const PROVIDERS = MODEL_PROVIDERS;
 const KINDS = MODEL_ENDPOINT_KINDS;
@@ -120,6 +121,7 @@ export default function Endpoints() {
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -351,13 +353,9 @@ export default function Endpoints() {
       message: t('Delete "{{name}}"? This cannot be undone.', { name: endpoint.name }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteModelEndpoint(endpoint.id);
-          pushToast('warning', t('Endpoint "{{name}}" deleted.', { name: endpoint.name }));
-          await load();
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'modelEndpoint', action: () => deleteModelEndpoint(endpoint.id), errorMessage: (err) => (err instanceof Error ? err.message : t('Delete failed.')) }))) return;
+        pushToast('warning', t('Endpoint "{{name}}" deleted.', { name: endpoint.name }));
+        await load();
       },
     });
   }
@@ -480,6 +478,7 @@ export default function Endpoints() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+      {deletion.dialog}
 
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
