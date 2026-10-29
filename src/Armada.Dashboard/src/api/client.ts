@@ -779,8 +779,9 @@ export async function logoutProxy(): Promise<void> {
   }
 }
 
-export const lookupTenants = (email: string) =>
-  post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email });
+/** One page of the tenants where the email exists (pageSize 1 to 1000, default 10); see lib/tenantLookup for every page. */
+export const lookupTenants = (email: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email, PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
 
 // ==================== Tenants (admin) ====================
 export const listTenants = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) => get<EnumerationResult<TenantMetadata>>(`/api/v1/tenants${buildQuery(params)}`);
@@ -1132,7 +1133,8 @@ export const getMissionHistory = (params?: { fromUtc?: string; toUtc?: string; b
         .map(([key, value]) => [key, String(value)]),
     ),
   } : undefined)}`);
-export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; model?: string; runtime?: string; source?: string; sourceId?: string; vesselId?: string; captainId?: string; harborId?: string }) =>
+/** Token-usage summary: at most 1000 buckets (a larger window is a 400); byModel lists the modelLimit top models and otherModels sums the rest. */
+export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; modelLimit?: number; model?: string; runtime?: string; source?: string; sourceId?: string; vesselId?: string; captainId?: string; harborId?: string }) =>
   get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${buildQuery(params ? {
     filters: Object.fromEntries(
       Object.entries(params)
@@ -1654,8 +1656,9 @@ export const createRelease = (data: ReleaseUpsertRequest) => post<Release>('/api
 export const updateRelease = (id: string, data: ReleaseUpsertRequest) => put<Release>(`/api/v1/releases/${encodeURIComponent(id)}`, data);
 export const refreshRelease = (id: string) => post<Release>(`/api/v1/releases/${encodeURIComponent(id)}/refresh`, {});
 export const deleteRelease = (id: string) => del<void>(`/api/v1/releases/${encodeURIComponent(id)}`);
-export const getReleaseGitHubPullRequests = (id: string) =>
-  enumerateFirstPage<GitHubPullRequestDetail>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests/enumerate`);
+/** One page of a release's GitHub pull requests (only that page is read from GitHub), with the total. */
+export const getReleaseGitHubPullRequests = (id: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<EnumerationResult<GitHubPullRequestDetail>>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests/enumerate`, { PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 25 });
 
 // ==================== Check Runs ====================
 export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

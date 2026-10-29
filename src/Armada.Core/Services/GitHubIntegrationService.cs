@@ -197,43 +197,70 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Retrieve normalized GitHub pull-request evidence for the missions linked to a release.
+        /// One page of the GitHub pull requests linked to a release's missions. The distinct pull requests are resolved
+        /// from the release's mission links (at most <see cref="CollectionLimits.MaxLinkedIds"/>), ordered by pull
+        /// request number (newest first) then repository, and only the requested page is read from GitHub, so the
+        /// totals are exact and GitHub is asked for one page of details at a time.
         /// </summary>
-        public async Task<List<GitHubPullRequestDetail>> GetReleasePullRequestsAsync(
+        /// <param name="auth">Caller.</param>
+        /// <param name="release">Release (already read within the caller's scope).</param>
+        /// <param name="query">Paging (PageNumber, PageSize 1 to 1000).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page of pull request details.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the release has no vessel.</exception>
+        /// <exception cref="KeyNotFoundException">Thrown when the release vessel is not accessible.</exception>
+        public async Task<EnumerationResult<GitHubPullRequestDetail>> EnumerateReleasePullRequestsAsync(
             AuthContext auth,
             Release release,
+            EnumerationQuery query,
             CancellationToken token = default)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (release == null) throw new ArgumentNullException(nameof(release));
+            if (query == null) throw new ArgumentNullException(nameof(query));
             if (String.IsNullOrWhiteSpace(release.VesselId))
                 throw new InvalidOperationException("Release is not linked to a vessel.");
 
             Vessel vessel = await ReadAccessibleVesselAsync(auth, release.VesselId, token).ConfigureAwait(false)
                 ?? throw new KeyNotFoundException("Release vessel not found or not accessible.");
             string tokenValue = ResolveToken(vessel);
-            List<GitHubPullRequestDetail> results = new List<GitHubPullRequestDetail>();
-            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (string missionId in release.MissionIds)
+            // The distinct pull requests come from the release's links (bounded by MaxLinkedIds), not from GitHub.
+            List<GitHubPullRequestReference> references = new List<GitHubPullRequestReference>();
+            Dictionary<string, string> missionIdByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string missionId in release.MissionIds.Take(CollectionLimits.MaxLinkedIds))
             {
                 Mission? mission = await ReadAccessibleMissionAsync(auth, missionId, token).ConfigureAwait(false);
                 if (mission == null || String.IsNullOrWhiteSpace(mission.PrUrl))
                     continue;
 
                 GitHubPullRequestReference reference = ParsePullRequestReference(mission.PrUrl);
-                string key = reference.Repository + "#" + reference.Number.ToString(CultureInfo.InvariantCulture);
-                if (!seen.Add(key))
+                string key = ReleasePullRequestKey(reference);
+                if (missionIdByKey.ContainsKey(key))
                     continue;
-
-                GitHubPullRequestDetail detail = await ReadPullRequestDetailAsync(reference, tokenValue, mission.Id, token).ConfigureAwait(false);
-                results.Add(detail);
+                missionIdByKey[key] = mission.Id;
+                references.Add(reference);
             }
 
-            return results
-                .OrderByDescending(item => item.UpdatedUtc ?? DateTime.MinValue)
-                .ThenByDescending(item => item.Number)
+            List<GitHubPullRequestReference> ordered = references
+                .OrderByDescending(item => item.Number)
+                .ThenBy(item => item.Owner + "/" + item.Repository, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            List<GitHubPullRequestDetail> details = new List<GitHubPullRequestDetail>();
+            foreach (GitHubPullRequestReference reference in ordered.Skip(query.Offset).Take(query.PageSize))
+            {
+                token.ThrowIfCancellationRequested();
+                details.Add(await ReadPullRequestDetailAsync(reference, tokenValue, missionIdByKey[ReleasePullRequestKey(reference)], token).ConfigureAwait(false));
+            }
+
+            return EnumerationResult<GitHubPullRequestDetail>.Create(query, details, ordered.Count);
+        }
+
+        private static string ReleasePullRequestKey(GitHubPullRequestReference reference)
+        {
+            return reference.Owner + "/" + reference.Repository + "#" + reference.Number.ToString(CultureInfo.InvariantCulture);
         }
 
         private async Task<GitHubImportedObjectiveData> ReadImportedObjectiveDataAsync(

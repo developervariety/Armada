@@ -362,7 +362,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Email\": \"admin@armada\"\n}"
+                            "raw": "{\n  \"Email\": \"admin@armada\",\n  \"PageNumber\": 1,\n  \"PageSize\": 100\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/api/v1/tenants/lookup",
@@ -376,14 +376,14 @@
                                 "lookup"
                             ]
                         },
-                        "description": "Look up which tenants a given email address belongs to. No authentication required. Used by the dashboard login flow."
+                        "description": "Look up which tenants a given email address belongs to. No authentication required. Used by the login flows. Returns one page (PageNumber, PageSize 1 to 1000, default 10) of the active tenants for the email, ordered by name, with PageNumber, PageSize, TotalPages and TotalRecords."
                     },
                     "response": [
                         {
                             "name": "Tenant List",
                             "status": "OK",
                             "code": 200,
-                            "body": "{\n  \"Tenants\": [\n    {\n      \"TenantId\": \"default\",\n      \"TenantName\": \"Default Tenant\"\n    }\n  ]\n}"
+                            "body": "{\n  \"Tenants\": [\n    {\n      \"Id\": \"default\",\n      \"Name\": \"Default Tenant\"\n    }\n  ],\n  \"PageNumber\": 1,\n  \"PageSize\": 100,\n  \"TotalPages\": 1,\n  \"TotalRecords\": 1\n}"
                         }
                     ]
                 },
@@ -12324,6 +12324,12 @@
                                 {
                                     "key": "toUtc",
                                     "value": "2026-05-08T00:00:00Z"
+                                },
+                                {
+                                    "key": "modelLimit",
+                                    "value": "10",
+                                    "description": "Most models broken out by name (1 to 100); the rest are summed into OtherModels",
+                                    "disabled": true
                                 },
                                 {
                                     "key": "source",

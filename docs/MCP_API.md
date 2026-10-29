@@ -580,6 +580,8 @@ Summarize model token usage over a time window. Returns time buckets (each with 
 
 Counts are normalized across providers: `input` covers prompt tokens, `output` covers completion tokens, `cached` is the cache-read subset of input (informational), and `total` is input + output. Counts are measured where the runtime reports usage (for example Claude Code) and estimated from text length otherwise; `EstimatedCount` reports how many aggregated records were estimated.
 
+Bounded (see [ENUMERATION.md](ENUMERATION.md)): at most 1000 buckets, so a window and `bucketMinutes` that would produce more fail with `ErrorCode` `InvalidArgument` and `Code` `CollectionLimitExceeded` before any record is read; `bucketMinutes` is at most 527040. `ByModel` and each bucket's `Models` list the `modelLimit` most-used models; the rest are summed into `OtherModels` (model `(other)`), `OtherModelCount` says how many, and `ModelCount` is the distinct model count, so totals always add up.
+
 **Input Schema:**
 
 ```json
@@ -589,7 +591,8 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
     "sinceHours": { "type": "integer", "description": "Only include usage newer than this many hours (default 24; ignored when fromUtc is set)" },
     "fromUtc": { "type": "string", "description": "Explicit UTC window start (ISO-8601); overrides sinceHours" },
     "toUtc": { "type": "string", "description": "Explicit UTC window end (ISO-8601; default now)" },
-    "bucketMinutes": { "type": "number", "description": "Time-bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 60)" },
+    "bucketMinutes": { "type": "number", "description": "Time-bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 60, at most 527040)" },
+    "modelLimit": { "type": "integer", "description": "Most models broken out by name (default 10, 1 to 100); the rest are summed into otherModels" },
     "model": { "type": "string", "description": "Filter to one model" },
     "runtime": { "type": "string", "description": "Filter to one runtime (for example claudecode, codex, mux)" },
     "source": { "type": "string", "description": "Filter to one source: mission, chat, planning, or synthetic" },
@@ -601,7 +604,7 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
 }
 ```
 
-**Response:** grand totals plus `Buckets` (time series) and `ByModel` (most-used first).
+**Response:** grand totals plus `Buckets` (time series), `ByModel` (the top `ModelLimit` models, most-used first), and `OtherModels` (the sum of the rest, or null).
 
 ```json
 {
@@ -614,6 +617,10 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
   "OutputTokens": 340000,
   "CachedTokens": 90000,
   "TotalTokens": 1540000,
+  "ModelLimit": 10,
+  "ModelCount": 2,
+  "OtherModelCount": 0,
+  "OtherModels": null,
   "ByModel": [
     { "Model": "claude-sonnet-4", "InputTokens": 900000, "OutputTokens": 250000, "CachedTokens": 80000, "TotalTokens": 1150000 },
     { "Model": "gpt-5", "InputTokens": 300000, "OutputTokens": 90000, "CachedTokens": 10000, "TotalTokens": 390000 }
@@ -625,7 +632,9 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
       "InputTokens": 20000, "OutputTokens": 5000, "CachedTokens": 1000, "TotalTokens": 25000,
       "Models": [
         { "Model": "claude-sonnet-4", "InputTokens": 20000, "OutputTokens": 5000, "CachedTokens": 1000, "TotalTokens": 25000 }
-      ]
+      ],
+      "OtherModelCount": 0,
+      "OtherModels": null
     }
   ]
 }
@@ -4837,7 +4846,7 @@ Approve a pending deployment and begin execution.
 
 ### verify_deployment
 
-Run post-deploy verification for an existing deployment.
+Run post-deploy verification for an existing deployment. `CheckRunIds` holds at most 1000 ids; a verification whose runs could not all be linked fails with `InvalidArgument` (`Code` `CollectionLimitExceeded`) before any check runs.
 
 **Input Schema:**
 
@@ -4897,7 +4906,7 @@ Inspect one release record, including linked voyages, missions, checks, versions
 
 ### create_release
 
-Create a first-class release record from linked voyages, missions, and structured checks, with derived version, notes, and artifacts when available.
+Create a first-class release record from linked voyages, missions, and structured checks, with derived version, notes, and artifacts when available. Each link list holds at most 1000 ids, and the voyages' missions plus the explicit missions (and the derived artifacts) at most 1000 in all; more fails with `InvalidArgument` (`Code` `CollectionLimitExceeded`).
 
 **Input Schema:**
 
@@ -4966,7 +4975,7 @@ Inspect one runbook execution including completed steps, notes, and deployment o
 
 ### start_runbook_execution
 
-Start a guided runbook execution with optional parameter overrides and deployment or incident context.
+Start a guided runbook execution with optional parameter overrides and deployment or incident context. `parameterValues` (with the runbook's defaults) holds at most 256 entries; more fails with `InvalidArgument` (`Code` `CollectionLimitExceeded`).
 
 **Input Schema:**
 
