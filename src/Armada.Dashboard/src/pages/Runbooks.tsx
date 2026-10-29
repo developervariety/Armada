@@ -242,13 +242,6 @@ export default function Runbooks() {
   // with the less essential ones hidden by default (the column chooser turns them on).
   const columns: DataTableColumn<Runbook>[] = [
     {
-      key: 'title', label: t('Runbook'), required: true, headerTitle: t('Runbook title. Hover a row for its description.'),
-      clearFilter: () => setColFilters(f => ({ ...f, title: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Runbook')} title={t('Show only runbooks whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
-      cellTitle: (runbook) => runbook.description || undefined,
-      render: (runbook) => <strong>{runbook.title}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Runbook ID. It is also the ID of the backing playbook.'), cellClassName: 'mono text-dim table-id-cell',
       render: (runbook) => (
         <span className="id-display">
@@ -256,6 +249,13 @@ export default function Runbooks() {
           <CopyButton text={runbook.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'title', label: t('Runbook'), required: true, headerTitle: t('Runbook title. Hover a row for its description.'),
+      clearFilter: () => setColFilters(f => ({ ...f, title: '' })),
+      filter: <input type="text" className="col-filter" aria-label={t('Runbook')} title={t('Show only runbooks whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      cellTitle: (runbook) => runbook.description || undefined,
+      render: (runbook) => <strong>{runbook.title}</strong>,
     },
     {
       key: 'fileName', label: t('File Name'), headerTitle: t('File name of the backing playbook that holds the runbook\'s markdown.'), defaultHidden: true, cellClassName: 'mono text-dim',

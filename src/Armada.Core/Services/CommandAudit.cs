@@ -44,13 +44,14 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Whether an event type is an audit record.
+        /// Whether an event type is an audit record or retained landing/failure evidence.
         /// </summary>
         /// <param name="eventType">Event type.</param>
         /// <returns>True for audit.* events.</returns>
         public static bool IsAuditEvent(string? eventType)
         {
-            return !String.IsNullOrEmpty(eventType) && eventType.StartsWith(EventTypePrefix, StringComparison.OrdinalIgnoreCase);
+            return !String.IsNullOrEmpty(eventType) && (eventType.StartsWith(EventTypePrefix, StringComparison.OrdinalIgnoreCase)
+                || eventType == "mission.archive" || eventType == "mission.landing_verification");
         }
 
         /// <summary>

@@ -43,7 +43,7 @@ namespace Test.Shared.Suites.Services
                 AgentRuntimeEnum[] gated = new AgentRuntimeEnum[]
                 {
                     AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor,
-                    AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.ApiEndpoint
+                    AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Pi, AgentRuntimeEnum.ApiEndpoint
                 };
                 foreach (AgentRuntimeEnum runtime in gated)
                 {
@@ -57,7 +57,7 @@ namespace Test.Shared.Suites.Services
             {
                 AgentRuntimeEnum[] runtimes = new AgentRuntimeEnum[]
                 {
-                    AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode
+                    AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Pi
                 };
                 foreach (AgentRuntimeEnum runtime in runtimes)
                 {
@@ -189,6 +189,82 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("remote", fresh!["type"]!.GetValue<string>());
                 AssertEqual("{env:ARMADA_MCP_TOKEN}", fresh["headers"]!["X-Token"]!.GetValue<string>());
                 AssertTrue(fresh["enabled"]!.GetValue<bool>(), "fresh server enabled");
+            }));
+
+            cases.Add(Case("pi_project_mcp_json_binds_token_by_env", "pi gets a git-excluded, removed-after-exit .pi/mcp.json with the armada http server and every host alias bound to ${ARMADA_MCP_TOKEN}, plus --approve", TestTags.Positive, () =>
+            {
+                CaptainThreadMcpPlanRequest request = Request(AgentRuntimeEnum.Pi);
+                request.AllowWorkingDirectoryFiles = false;
+                request.HostPiMcpConfigDocuments = new List<string>
+                {
+                    "{ \"mcpServers\": { \"fleet\": { \"url\": \"http://localhost:" + _Port + "/mcp\", \"headers\": { \"X-Api-Key\": \"admin-key\" } }, \"github\": { \"command\": \"gh-mcp\" } } }"
+                };
+                CaptainLaunchIsolationPlan plan = CaptainThreadMcpPlanner.Plan(request);
+
+                AssertFalse(plan.IsEmpty, "pi writes its project file even for isolated mission launches");
+                AssertEqual(1, plan.FilesToWrite.Count);
+                IsolationConfigFile file = plan.FilesToWrite[0];
+                AssertEqual(PiProjectMcpConfig.RelativePath, file.RelativePath);
+                AssertTrue(file.RelativeToWorkingDirectory && file.ExcludeFromGit && file.RemoveAfterExit, "project file, git-excluded, removed after exit");
+                AssertNull(file.OriginalContents, "nothing to restore");
+                AssertEqual("--approve", String.Join(" ", plan.ExtraArguments));
+                AssertEqual(_Token, plan.EnvironmentOverrides[CaptainThreadMcpPlanner.TokenEnvironmentVariable]);
+                string gateUrl = plan.EnvironmentOverrides[CaptainThreadMcpPlanner.UrlEnvironmentVariable];
+                AssertTrue(gateUrl.EndsWith(":" + _Port + "/mcp", StringComparison.Ordinal) && file.Contents.Contains("\"" + gateUrl + "\"", StringComparison.Ordinal), "the pi permission gate extension gets the same MCP URL as the project file: " + gateUrl);
+                AssertFalse(file.Contents.Contains(_Token, StringComparison.Ordinal), "the token never reaches the file");
+                AssertFalse(file.Contents.Contains("admin-key", StringComparison.Ordinal), "host credentials are not copied");
+                AssertTrue(PiProjectMcpConfig.IsGenerated(file.Contents));
+
+                PiMcpConfigFile config = JsonHelper.Deserialize<PiMcpConfigFile>(file.Contents);
+                AssertEqual("armada,fleet", String.Join(",", config.McpServers!.Keys), "armada plus the host alias, never the unrelated server");
+                foreach (PiMcpServerEntry entry in config.McpServers.Values)
+                {
+                    AssertEqual("http", entry.Type);
+                    AssertEqual("http://localhost:" + _Port + "/mcp", entry.Url);
+                    AssertEqual("${" + CaptainThreadMcpPlanner.TokenEnvironmentVariable + "}", entry.Headers!["X-Token"]);
+                    AssertEqual("deferred", entry.Exposure);
+                }
+            }));
+
+            cases.Add(Case("pi_existing_project_file_kept_and_restored", "A repository's own .pi/mcp.json keeps its servers, gets the Armada entries, and is restored after exit; a leftover generated file is replaced", TestTags.Negative, () =>
+            {
+                CaptainThreadMcpPlanRequest request = Request(AgentRuntimeEnum.Pi);
+                string repoFile = "{ \"mcpServers\": { \"docs\": { \"url\": \"https://docs.example.com/mcp\" }, \"armada\": { \"url\": \"http://localhost:" + _Port + "/mcp\" } } }";
+                request.ExistingPiProjectMcpJson = repoFile;
+                IsolationConfigFile file = CaptainThreadMcpPlanner.Plan(request).FilesToWrite[0];
+                AssertEqual(repoFile, file.OriginalContents, "restored after the launch");
+                PiMcpConfigFile config = JsonHelper.Deserialize<PiMcpConfigFile>(file.Contents);
+                AssertEqual("https://docs.example.com/mcp", config.McpServers!["docs"].Url, "the repository's server is kept");
+                AssertEqual("${" + CaptainThreadMcpPlanner.TokenEnvironmentVariable + "}", config.McpServers["armada"].Headers!["X-Token"], "the repository's armada entry is replaced");
+
+                CaptainThreadMcpPlanRequest leftover = Request(AgentRuntimeEnum.Pi);
+                leftover.ExistingPiProjectMcpJson = file.Contents.Replace("docs.example.com", "stale.example.com");
+                IsolationConfigFile replaced = CaptainThreadMcpPlanner.Plan(leftover).FilesToWrite[0];
+                AssertNull(replaced.OriginalContents, "a generated leftover is not restored");
+                AssertFalse(replaced.Contents.Contains("stale.example.com", StringComparison.Ordinal), "a generated leftover is not merged");
+            }));
+
+            cases.Add(Case("pi_generated_file_cleanup", "RemoveGenerated deletes only an Armada-generated .pi/mcp.json (crash leftovers), never a repository file", TestTags.Negative, () =>
+            {
+                string work = Path.Combine(Path.GetTempPath(), "armada-pi-cleanup-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path.Combine(work, ".pi"));
+                try
+                {
+                    string path = Path.Combine(work, PiProjectMcpConfig.RelativePath);
+                    File.WriteAllText(path, "{ \"mcpServers\": {} }");
+                    AssertFalse(PiProjectMcpConfig.RemoveGenerated(work), "a repository file is kept");
+                    AssertTrue(File.Exists(path));
+                    File.WriteAllText(path, CaptainThreadMcpPlanner.Plan(Request(AgentRuntimeEnum.Pi)).FilesToWrite[0].Contents);
+                    AssertTrue(PiProjectMcpConfig.RemoveGenerated(work), "the generated file is removed");
+                    AssertFalse(File.Exists(path));
+                    AssertFalse(Directory.Exists(Path.Combine(work, ".pi")), "the emptied .pi directory is removed");
+                    AssertFalse(PiProjectMcpConfig.RemoveGenerated(work), "nothing left");
+                    AssertFalse(PiProjectMcpConfig.RemoveGenerated(null));
+                }
+                finally
+                {
+                    try { Directory.Delete(work, true); } catch { }
+                }
             }));
 
             cases.Add(Case("opencode_without_host_config_uses_armada", "OpenCode with no host config adds the armada server", TestTags.Positive, () =>

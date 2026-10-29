@@ -36,6 +36,27 @@ namespace Test.Shared.Suites.Client
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(Case("vessel_cleanup", "Vessel cleanup inventory is read-only and cleanup revalidates selected keys", async (c, fx) =>
+            {
+                VesselSetup setup = await LiveServerSetup.CreateVesselAsync(c, "cleanup");
+                string id = setup.Vessel.Id;
+                VesselCleanupInventory? inventory = await c.GetVesselCleanupInventoryAsync(id);
+                AssertEqual(id, inventory?.VesselId, "inventory vessel");
+                AssertEqual(inventory!.Resources.Count, inventory.SafeCount + inventory.InUseCount + inventory.UnknownCount, "every resource is classified");
+
+                VesselCleanupResult? result = await c.RunVesselCleanupAsync(id, new List<string> { "dock:dck_does_not_exist" });
+                AssertNotNull(result, "cleanup result");
+                AssertEqual(1, result.Skipped, "a missing key is skipped, not deleted");
+                AssertEqual(0, result.Deleted, "nothing deleted");
+                AssertEqual(id, result.Inventory.VesselId, "refreshed inventory");
+
+                ArmadaApiException? empty = null;
+                try { await c.RunVesselCleanupAsync(id, new List<string>()); }
+                catch (ArmadaApiException ex) { empty = ex; }
+                AssertNotNull(empty, "empty selection is rejected");
+                AssertEqual(400, empty.StatusCode, "empty selection is a 400");
+            }));
+
             cases.Add(Case("vessels_and_branches", "Vessel get, list, update, git status, branches, landing preview, push and merge a branch, build context", async (c, fx) =>
             {
                 VesselSetup setup = await LiveServerSetup.CreateVesselAsync(c, "vessel");
@@ -79,13 +100,24 @@ namespace Test.Shared.Suites.Client
                 action.Kind = FleetActionKindEnum.Command;
                 action.CommandText = "git status --short";
                 action.TimeoutSeconds = 60;
+                action.CommandWindows = "git status --short";
+                action.RequiredTools = new() { "git" };
+                action.ScanSourceActionKey = "sdk-source";
+                action.Inputs = new() { new() { Name = "version", Type = "semver", Required = true } };
                 FleetAction created = (await c.CreateFleetActionAsync(action))!;
-                AssertEqual(action.Name, (await c.GetFleetActionAsync(created.Id))?.Name, "get action");
+                FleetAction? fetchedAction = await c.GetFleetActionAsync(created.Id);
+                AssertEqual(action.Name, fetchedAction?.Name, "get action");
+                AssertEqual("git", fetchedAction!.RequiredTools.Single(), "SDK required tools");
+                AssertEqual("version", fetchedAction.Inputs.Single().Name, "SDK input definitions");
+                AssertEqual("git status --short", fetchedAction.CommandWindows, "SDK Windows command");
+                AssertEqual("sdk-source", fetchedAction.ScanSourceActionKey, "SDK scan source");
                 action.Description = "updated";
                 AssertEqual("updated", (await c.UpdateFleetActionAsync(created.Id, action))?.Description, "update action");
 
-                FleetActionRunStartResult run = (await c.RunFleetActionAsync(created.Id, new FleetActionRunRequest { VesselIds = new List<string> { setup.Vessel.Id } }))!;
+                await ClientContract.ExpectErrorAsync(() => c.RunFleetActionAsync(created.Id, new FleetActionRunRequest { VesselIds = new() { setup.Vessel.Id } }), "required version is rejected before dispatch", 400);
+                FleetActionRunStartResult run = (await c.RunFleetActionAsync(created.Id, new FleetActionRunRequest { VesselIds = new List<string> { setup.Vessel.Id }, InputValues = new() { ["version"] = "1.2.3" } }))!;
                 AssertTrue(await LiveServerSetup.WaitUntilAsync(async () => (await c.GetFleetActionRunAsync(run.RunId))?.Run.Status == FleetActionRunStatusEnum.Completed, LiveTimeoutMs), "run completed");
+                AssertEqual("1.2.3", (await c.GetFleetActionRunAsync(run.RunId))!.Run.InputValues["version"], "SDK runtime input snapshot");
                 FleetActionRunTargetSummary target = (await c.EnumerateFleetActionRunTargetsAsync(run.RunId))!.Objects.Single();
                 AssertEqual(setup.Vessel.Id, target.VesselId, "target vessel");
                 AssertEqual(0, (await c.GetFleetActionRunTargetAsync(run.RunId, target.Id))?.ExitCode ?? -1, "target exit code");

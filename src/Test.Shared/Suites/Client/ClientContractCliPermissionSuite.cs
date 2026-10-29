@@ -33,8 +33,12 @@ namespace Test.Shared.Suites.Client
 
             cases.Add(Case("requests", "CLI permission requests: list by status; get and decide an unknown id fail", async (c, fx) =>
             {
-                List<CliPermissionRequest> pending = (await c.ListCliPermissionRequestsAsync(new CliPermissionRequestQuery { Status = CliPermissionRequestStatusEnum.Pending }))!;
-                AssertNotNull(pending, "list");
+                EnumerationResult<CliPermissionRequest> page = (await c.ListCliPermissionRequestsAsync(new CliPermissionRequestEnumerateRequest { Status = "Pending", PageNumber = 1, PageSize = 5 }))!;
+                AssertNotNull(page, "list");
+                AssertTrue(page.Success, "page success");
+                AssertEqual(5, page.PageSize, "page size echoed");
+                AssertTrue(page.Objects.Count <= 5, "bounded page");
+                List<CliPermissionRequest> pending = page.Objects;
                 AssertTrue(pending.All(r => r.Status == CliPermissionRequestStatusEnum.Pending), "status filter");
                 await ClientContract.ExpectErrorAsync(() => c.GetCliPermissionRequestAsync("cpr_missing"), "get unknown", 404, 404);
                 CliPermissionDecisionRequest decision = new CliPermissionDecisionRequest { Decision = CliPermissionDecisionEnum.AllowOnce };

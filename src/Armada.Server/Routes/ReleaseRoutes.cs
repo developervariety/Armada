@@ -170,36 +170,6 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<GitHubPullRequestDetail>>("One page"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/releases/{id}/github/pull-requests", async (ApiRequest req) =>
-            {
-                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
-
-                Release? release = await _Releases.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
-                if (release == null)
-                {
-                    req.Http.Response.StatusCode = 404;
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Release not found" };
-                }
-
-                try
-                {
-                    return await _GitHub.GetReleasePullRequestsAsync(ctx, release).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
-                {
-                    return RouteErrorMapper.ToResponse(req, ex, 400);
-                }
-            },
-            api => api
-                .WithTag("Releases")
-                .WithSummary("Get GitHub pull-request evidence for a release")
-                .WithDescription("Returns normalized GitHub pull-request review and check evidence for the missions linked to a release.")
-                .WithParameter(OpenApiParameterMetadata.Path("id", "Release ID (rel_ prefix)"))
-                .WithResponse(200, OpenApiJson.For<List<GitHubPullRequestDetail>>("GitHub pull-request evidence"))
-                .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithSecurity("ApiKey"));
-
             app.Put("/api/v1/releases/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

@@ -389,53 +389,6 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<BranchEnumerationResult>("One page"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/vessels/{id}/branches", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
-                }
-                string id = req.Parameters["id"];
-                Vessel? vessel = ctx.IsAdmin
-                    ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
-                if (vessel == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
-                if (_git == null) { req.Http.Response.StatusCode = 503; return new ApiStatusErrorResponse(ApiStatusErrorCodeEnum.ServiceUnavailable, "Git service is not available"); }
-
-                VesselRepositoryTarget repo = await ResolveRepositoryAsync(vessel, ctx.UserId).ConfigureAwait(false);
-                if (!repo.Found)
-                    return new BranchListResponse { VesselId = id, DefaultBranch = vessel.DefaultBranch ?? "main", Error = repo.Error };
-
-                try
-                {
-                    IReadOnlyList<BranchInfo> branches = await repo.Git!.ListBranchesAsync(repo.Path!, vessel.DefaultBranch ?? "main").ConfigureAwait(false);
-                    return new BranchListResponse
-                    {
-                        VesselId = id,
-                        DefaultBranch = vessel.DefaultBranch ?? "main",
-                        Branches = new List<BranchInfo>(branches),
-                        BranchCount = branches.Count
-                    };
-                }
-                catch (Exception ex)
-                {
-                    return new BranchListResponse { VesselId = id, DefaultBranch = vessel.DefaultBranch ?? "main", Error = "Git error: " + ex.Message };
-                }
-            },
-            api => api
-                .WithResponse(200, OpenApiResponseMetadata.Create("Successful response"))
-                .WithTag("Vessels")
-                .WithSummary("List vessel branches")
-                .WithDescription("Returns the vessel repository's branches with current flag and ahead/behind counts relative to the default branch.")
-                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
-                .WithResponse(404, OpenApiResponseMetadata.NotFound())
-                .WithResponse(503, OpenApiJson.For<ApiStatusErrorResponse>("Git service is not available (Error ServiceUnavailable)"))
-                .WithSecurity("ApiKey"));
-
             app.Get("/api/v1/vessels/{id}/history/activity", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
