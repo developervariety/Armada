@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  apiErrorMessage,
   listMergeQueue, enqueueMerge, deleteMergeEntry, processMergeEntry,
   processAllMergeQueue, cancelMergeEntry, listVessels,
   getMissionDiff, getMissionLog,
@@ -24,6 +25,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildEnqueueMergeRequest, emptyEnqueueMergeForm, type EnqueueMergeForm } from '../lib/mergeQueueForm';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'branchName' | 'targetBranch' | 'status' | 'priority' | 'createdUtc';
@@ -32,6 +34,7 @@ export default function MergeQueue() {
   const navigate = useNavigate();
   const { t } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const [entries, setEntries] = useState<MergeEntry[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -221,13 +224,11 @@ export default function MergeQueue() {
         : t('Cancel merge entry {{id}}? The entry will be kept.', { id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await deleteMergeEntry(id);
-          pushToast('warning', isTerminal
-            ? t('Merge entry {{id}} deleted.', { id })
-            : t('Merge entry {{id}} cancelled. The entry is expected to remain.', { id }));
-          load();
-        } catch { setError(t('Delete failed.')); }
+        if (!(await deletion.run({ kind: 'mergeEntry', action: () => deleteMergeEntry(id), errorMessage: (err) => apiErrorMessage(err, t('Delete failed.')) }))) return;
+        pushToast('warning', isTerminal
+          ? t('Merge entry {{id}} deleted.', { id })
+          : t('Merge entry {{id}} cancelled. The entry is expected to remain.', { id }));
+        load();
       },
     });
   }
@@ -245,9 +246,16 @@ export default function MergeQueue() {
         const ids = [...selected];
         setSelected([]);
         const failedIds = new Set<string>();
-        for (const id of ids) {
-          try { await deleteMergeEntry(id); } catch { failedIds.add(id); }
-        }
+        if (!(await deletion.run({
+          kind: 'mergeEntry',
+          count: ids.length,
+          action: async () => {
+            failedIds.clear();
+            for (const id of ids) {
+              try { await deleteMergeEntry(id); } catch { failedIds.add(id); }
+            }
+          },
+        }))) return;
         const successfulEntries = selectedEntries.filter(entry => !failedIds.has(entry.id));
         const failed = failedIds.size;
         const deleted = successfulEntries.filter(entry => ['Landed', 'Failed', 'Cancelled'].includes(entry.status)).length;
@@ -436,6 +444,7 @@ export default function MergeQueue() {
       />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+      {deletion.dialog}
       <DiffViewer
         open={diffModal.open}
         title={diffModal.title}
