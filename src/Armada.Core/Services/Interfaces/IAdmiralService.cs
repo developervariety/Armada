@@ -244,6 +244,7 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="stageSkip">Operator-confirmed stage skips, or null.</param>
         /// <param name="captainOverrides">Per-persona captain assignments, or null.</param>
         /// <param name="token">Cancellation token for durable creation only.</param>
+        /// <param name="isEvaluation">When true, the voyage and every mission created for it are evaluation work.</param>
         /// <returns>The created voyage, usually still Open until queued assignment starts.</returns>
         /// <exception cref="NotSupportedException">When assignments are supplied to an admiral that cannot store them.</exception>
         Task<Voyage> DispatchVoyageQueuedAsync(
@@ -255,7 +256,8 @@ namespace Armada.Core.Services.Interfaces
             List<SelectedPlaybook>? selectedPlaybooks,
             StageSkipRequest? stageSkip,
             List<CaptainAssignmentOverride>? captainOverrides,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool isEvaluation = false)
         {
             if (captainOverrides != null && captainOverrides.Count > 0)
                 throw new NotSupportedException("This admiral does not support captain assignments.");

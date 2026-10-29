@@ -57,5 +57,12 @@ namespace Armada.Server.Mcp
         /// Ordered playbooks to apply during mission dispatch.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
+
+        /// <summary>
+        /// When true, the mission is evaluation work and stays out of production summaries.
+        /// A mission added to an evaluation voyage inherits that voyage's flag even when this is false.
+        /// The default is false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
     }
 }

@@ -145,7 +145,8 @@ namespace Armada.Server.Routes
                 SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                 CaptainAssignments = request.CaptainAssignments,
                 SkipStages = request.SkipStages,
-                SkipStagesReason = request.SkipStagesReason
+                SkipStagesReason = request.SkipStagesReason,
+                IsEvaluation = request.IsEvaluation
             };
         }
 
@@ -336,7 +337,9 @@ namespace Armada.Server.Routes
                             voyageReq.Description,
                             voyageReq.SelectedPlaybooks,
                             ctx.TenantId,
-                            ctx.UserId).ConfigureAwait(false);
+                            ctx.UserId,
+                            default,
+                            voyageReq.IsEvaluation).ConfigureAwait(false);
                         if (!bare.Succeeded)
                         {
                             req.Http.Response.StatusCode = 400;

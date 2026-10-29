@@ -602,7 +602,8 @@ namespace Armada.Core.Services
             List<SelectedPlaybook>? selectedPlaybooks,
             StageSkipRequest? stageSkip,
             List<CaptainAssignmentOverride>? captainOverrides,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool isEvaluation = false)
         {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
@@ -634,7 +635,9 @@ namespace Armada.Core.Services
             Voyage? voyage = null;
             try
             {
-            voyage = await _Database.Voyages.CreateAsync(NewDispatchVoyage(title, description, vessel, captainOverrides), token).ConfigureAwait(false);
+            Voyage unsavedVoyage = NewDispatchVoyage(title, description, vessel, captainOverrides);
+            unsavedVoyage.IsEvaluation = isEvaluation;
+            voyage = await _Database.Voyages.CreateAsync(unsavedVoyage, token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
             if (voyage.SelectedPlaybooks.Count > 0)
             {
@@ -659,6 +662,7 @@ namespace Armada.Core.Services
                     mission.PrestagedFiles = ClonePrestagedFiles(md.PrestagedFiles);
                     mission.PreferredModel = md.PreferredModel;
                     mission.Mode = MissionModes.Parse(md.Mode);
+                    mission.IsEvaluation = voyage.IsEvaluation;
                     if (!String.IsNullOrEmpty(md.DependsOnMissionId))
                         mission.DependsOnMissionId = md.DependsOnMissionId;
                     else
@@ -709,6 +713,7 @@ namespace Armada.Core.Services
                                 md.PreferredModel,
                                 _Settings.ModelTier.MinimumTierForPersona(stage.PersonaName));
                             mission.Mode = MissionModes.Parse(md.Mode);
+                            mission.IsEvaluation = voyage.IsEvaluation;
 
                             // Every pipeline stage gets a fresh dock worktree. Preserve the
                             // dispatch inputs on each stage instead of relying on untracked files
@@ -767,6 +772,17 @@ namespace Armada.Core.Services
             return _FleetCapacityAdmission.ProbeAsync(vessel, candidateVoyageId, token);
         }
 
+        /// <summary>
+        /// A mission created for an evaluation voyage is evaluation work, even when the caller left the flag false.
+        /// An explicit true is kept.
+        /// </summary>
+        private async Task InheritEvaluationFromVoyageAsync(Mission mission, CancellationToken token)
+        {
+            if (mission.IsEvaluation || String.IsNullOrEmpty(mission.VoyageId)) return;
+            Voyage? voyage = await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+            if (voyage != null && voyage.IsEvaluation) mission.IsEvaluation = true;
+        }
+
         /// <inheritdoc />
         public async Task<Mission> DispatchMissionQueuedAsync(Mission mission, CancellationToken token = default)
         {
@@ -812,6 +828,8 @@ namespace Armada.Core.Services
             await using FleetCapacityReservation? capacityAdmission = capacityVessel == null
                 ? null
                 : await _FleetCapacityAdmission.AcquireAsync(capacityVessel, mission.VoyageId, token).ConfigureAwait(false);
+
+            await InheritEvaluationFromVoyageAsync(mission, token).ConfigureAwait(false);
 
             Mission? createdMission = null;
             try
@@ -889,6 +907,8 @@ namespace Armada.Core.Services
             await using FleetCapacityReservation? capacityAdmission = capacityVessel == null
                 ? null
                 : await _FleetCapacityAdmission.AcquireAsync(capacityVessel, mission.VoyageId, token).ConfigureAwait(false);
+
+            await InheritEvaluationFromVoyageAsync(mission, token).ConfigureAwait(false);
 
             Mission? createdMission = null;
             try

@@ -3280,6 +3280,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             private string? _NextCaptainOverridesJson;
 
+            private bool _NextIsEvaluation;
+
             public async Task<Voyage> DispatchVoyageQueuedAsync(
                 string title,
                 string description,
@@ -3289,9 +3291,11 @@ namespace Armada.Test.Unit.Suites.Services
                 List<SelectedPlaybook>? selectedPlaybooks,
                 StageSkipRequest? stageSkip,
                 List<CaptainAssignmentOverride>? captainOverrides,
-                CancellationToken token = default)
+                CancellationToken token = default,
+                bool isEvaluation = false)
             {
                 _NextCaptainOverridesJson = MissionService.SerializeCaptainOverrides(captainOverrides);
+                _NextIsEvaluation = isEvaluation;
                 try
                 {
                     return await ((IAdmiralService)this).DispatchVoyageQueuedAsync(
@@ -3300,6 +3304,7 @@ namespace Armada.Test.Unit.Suites.Services
                 finally
                 {
                     _NextCaptainOverridesJson = null;
+                    _NextIsEvaluation = false;
                 }
             }
 
@@ -3351,7 +3356,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     TenantId = Constants.DefaultTenantId,
                     UserId = Constants.DefaultUserId,
-                    CaptainOverridesJson = _NextCaptainOverridesJson
+                    CaptainOverridesJson = _NextCaptainOverridesJson,
+                    IsEvaluation = _NextIsEvaluation
                 }, token).ConfigureAwait(false);
 
                 foreach (MissionDescription md in missionDescriptions)
@@ -3366,6 +3372,7 @@ namespace Armada.Test.Unit.Suites.Services
                     mission.DependsOnMissionId = md.DependsOnMissionId;
                     mission.PrestagedFiles = md.PrestagedFiles;
                     mission.SelectedPlaybooks = md.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    mission.IsEvaluation = voyage.IsEvaluation;
                     mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                     CreatedMissions.Add(mission);
                 }

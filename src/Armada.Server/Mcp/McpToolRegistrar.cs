@@ -114,7 +114,8 @@ namespace Armada.Server.Mcp
             CaptainAdministrationService? captainAdministration = null,
             MissionOperations? missionOperations = null,
             AskActionService? askActions = null,
-            VesselCheckoutImportService? vesselCheckoutImportService = null)
+            VesselCheckoutImportService? vesselCheckoutImportService = null,
+            CaptainModelProbeService? captainModelProbe = null)
         {
             // Every tool's abbreviated id arguments resolve at this one seam before the tool runs.
             register = McpAbbreviatedIdArguments.Wrap(register, database);
@@ -152,7 +153,7 @@ namespace Armada.Server.Mcp
                 }
                 captainAdministration.AttachSessionCoordinators(planningSessionCoordinator, objectiveRefinementCoordinator);
             }
-            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration, missionOperations.Notifier);
+            McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration, missionOperations.Notifier, captainModelProbe);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
             McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter, longRunningJobs);

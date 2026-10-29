@@ -207,6 +207,7 @@ namespace Armada.Server
         private LandingPreviewService _LandingPreviewService = null!;
         private HistoricalTimelineService _HistoricalTimelineService = null!;
         private ModelEndpointService _ModelEndpointService = null!;
+        private CaptainModelProbeService _CaptainModelProbe = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -1706,7 +1707,11 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
-            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions, _Logging, _CaptainQuarantine, _CaptainAdministration)
+            _CaptainModelProbe = new CaptainModelProbeService(
+                _Database,
+                _AgentLifecycle.ValidateCaptainModelDetailedAsync,
+                (auth, endpointId, probeToken) => _ModelEndpointService.ValidateAsync(auth, endpointId, probeToken));
+            new CaptainRoutes(_Database, _Admiral, _Settings, _RuntimeFactory, _AgentLifecycle, _CaptainTools, EmitEventAsync, _JsonOptions, _PlanningSessions, _ObjectiveRefinementSessions, _Logging, _CaptainQuarantine, _CaptainAdministration, _CaptainModelProbe)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runtime helpers
@@ -2214,7 +2219,8 @@ namespace Armada.Server
                 missionService: _MissionService,
                 missionOperations: _MissionOperations,
                 askActions: _AskActions,
-                vesselCheckoutImportService: _VesselCheckoutImports);
+                vesselCheckoutImportService: _VesselCheckoutImports,
+                captainModelProbe: _CaptainModelProbe);
 
         }
 

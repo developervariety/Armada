@@ -1236,7 +1236,8 @@ $convert$;"),
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS context_recall_calls INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(135, "Persist local context search vectors", ContextEmbeddingSchema.PostgresqlStatements),
                 new SchemaMigration(136, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.PostgresqlStatements),
-                new SchemaMigration(137, "Persist per-attempt provenance records", MissionAttemptProvenanceSchema.PostgresqlStatements)
+                new SchemaMigration(137, "Persist per-attempt provenance records", MissionAttemptProvenanceSchema.PostgresqlStatements),
+                new SchemaMigration(138, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.PostgresqlStatements)
             };
         }
 

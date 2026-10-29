@@ -120,6 +120,9 @@ namespace Armada.Core.Authorization
             // Stopping every captain and processing the whole merge queue act on every tenant at once, so
             // only a global administrator may run them. Processing one merge entry stays tenant-scoped.
             if (path.TrimEnd('/') == "/api/v1/captains/stop-all" && method == "POST") return PermissionLevel.AdminOnly;
+            // A captain model probe sends a provider request. Only a global administrator may run one.
+            if (method == "POST" && path.StartsWith("/api/v1/captains/") && path.TrimEnd('/').EndsWith("/probe"))
+                return PermissionLevel.AdminOnly;
             if (path.TrimEnd('/') == "/api/v1/merge-queue/process" && method == "POST") return PermissionLevel.AdminOnly;
 
             // A workspace command runs as the server process with the server's filesystem, network and credentials,

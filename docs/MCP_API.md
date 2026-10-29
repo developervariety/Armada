@@ -1722,6 +1722,22 @@ keeps the captain.
 and the mission keeps the default routing. Any other value returns
 `Unknown captain tier` and creates nothing. The match ignores case.
 
+`armada_create_mission` and `armada_dispatch` accept optional `isEvaluation`
+(default false). When it is true, the mission, or the voyage and every mission
+created for it, is evaluation work and stays out of the production summary. A
+mission created for an evaluation voyage inherits that voyage's flag. WebSocket
+`create_voyage` accepts the same field.
+
+`armada_probe_captain_model` takes `captainId` and sends one tiny prompt through
+the captain's existing model validation. It creates no mission. The result is
+`captainId`, `success`, `latencyMs` and, on failure, a short `error`. A caller
+who is not a global administrator receives an error and the model is not called.
+The same captain cannot be probed again for 30 seconds; the tool then returns
+`error` `captain_model_probe_rate_limited` and `retryAfterUtc`. An unknown
+captain returns `error` `Captain not found`. An API-endpoint captain is admitted
+by the captain validation and then probed through the existing model-endpoint
+validation.
+
 ## Vessel Writes
 
 `armada_add_vessel` and `armada_update_vessel` accept `gitHubTokenOverride`, the

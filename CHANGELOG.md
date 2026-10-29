@@ -23,6 +23,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 - A mission sent back for rework, by a review denial or by an autonomous rescue, receives its reviewer findings as a numbered list with one demand per finding. The demands, the fixed rework rules and the output contract (`[ARMADA:RESULT] COMPLETE` with a per-finding summary) come last. A review denial whose comment holds no structured findings carries the comment whole as finding 1. See [Pipelines](docs/PIPELINES.md).
 - A findings list that does not fit its bound drops whole lower-priority findings and states how many it dropped. It no longer cuts a finding short. A Judge review comment longer than the stored limit keeps whole blocking findings instead of a head cut.
+### Evaluation voyages and missions
+
+- A voyage and a mission have `isEvaluation`, default false. REST, MCP, WebSocket and the .NET models set it on create. A mission created for an evaluation voyage inherits the flag, and a mission derived from an evaluation mission copies it. The production summary leaves that work out. See [POST /api/v1/voyages](docs/REST_API.md#post-apiv1voyages) and [Captain Writes](docs/MCP_API.md#captain-writes).
+
+### Captain model probe
+
+- `POST /api/v1/captains/{id}/probe` and `armada_probe_captain_model` send one tiny prompt through the captain's existing model validation and report success, latency and a short error. The probe creates no mission. Only a global administrator may run it, and the same captain waits 30 seconds between probes. See [POST /api/v1/captains/{id}/probe](docs/REST_API.md#post-apiv1captainsidprobe).
 
 ### Mission captain tier
 

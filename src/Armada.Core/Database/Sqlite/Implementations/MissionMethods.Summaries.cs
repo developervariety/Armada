@@ -13,7 +13,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
         private const string MissionSummarySelectColumns = @"
 id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, status, mission_assignment_state, priority,
 parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash,
-persona, mission_mode, depends_on_mission_id, failure_reason, reconciled_utc, reconciled_reason, requires_review, review_deny_action,
+persona, mission_mode, depends_on_mission_id, failure_reason, reconciled_utc, reconciled_reason, requires_review, is_evaluation, review_deny_action,
 review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc,
 created_utc, started_utc, completed_utc, total_runtime_ms, last_update_utc, last_admission_json, admission_revision,
 LENGTH(COALESCE(description, '')) AS description_length,

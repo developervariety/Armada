@@ -184,7 +184,8 @@ namespace Armada.Server.Mcp.Tools
                             description = "Optional pipeline stages you confirm this voyage does not need, for example [\"TestEngineer\"]. Each entry names one stage: a persona name when only one stage carries that persona (case and spaces are ignored, so \"ProductManager\" names the stage \"Product Manager\"), a stage order (\"5\" or \"#5\"), or a persona and its occurrence in stage order (\"Worker#2\" is the second Worker). The stages are dropped when the voyage is materialised and the remaining stages chain across the gap; one voyage.stage_skipped event is recorded per stage. The Judge can never be skipped (stage_skip_judge_refused), an entry that names no stage of the effective pipeline refuses the dispatch (stage_skip_unknown_persona), and so does a bare persona name that more than one stage carries or an order that parallel stages share (stage_skip_ambiguous_persona; the refusal lists how to name each such stage). Without skipStages, a linked objective's confirmed stored skip applies as a default, and a default entry that names no stage of the pipeline is dropped and recorded (voyage.stage_skip_default_dropped); an empty list skips nothing.",
                             items = new { type = "string" }
                         },
-                        skipStagesReason = new { type = "string", description = "Optional reason for skipStages, recorded on each voyage.stage_skipped event." }
+                        skipStagesReason = new { type = "string", description = "Optional reason for skipStages, recorded on each voyage.stage_skipped event." },
+                        isEvaluation = new { type = "boolean", description = "When true, the voyage and every mission created for it are evaluation work and stay out of production summaries. The default is false." }
                     },
                     required = new[] { "title", "vesselId", "missions" }
                 },
@@ -210,7 +211,8 @@ namespace Armada.Server.Mcp.Tools
                         Settings = settings,
                         CaptainAssignments = request.CaptainAssignments,
                         SkipStages = request.SkipStages,
-                        SkipStagesReason = request.SkipStagesReason
+                        SkipStagesReason = request.SkipStagesReason,
+                        IsEvaluation = request.IsEvaluation
                     };
                     VoyageDispatchService dispatchService = new VoyageDispatchService(
                         database,

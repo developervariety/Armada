@@ -35,6 +35,7 @@ namespace Armada.Server.Routes
         private readonly LoggingModule? _Logging;
         private readonly ICaptainQuarantineService _captainQuarantine;
         private readonly CaptainAdministrationService _captainAdministration;
+        private readonly CaptainModelProbeService? _captainModelProbe;
         private string _Header = "[CaptainRoutes] ";
 
         /// <summary>
@@ -53,6 +54,7 @@ namespace Armada.Server.Routes
         /// <param name="logging">Optional logging module for structured warning output.</param>
         /// <param name="captainQuarantine">Shared quarantine service; the server passes the same instance MCP uses.</param>
         /// <param name="captainAdministration">Shared stop-all, deletion and restart service; the server passes the same instance MCP and WebSocket use.</param>
+        /// <param name="captainModelProbe">Probe of a captain's configured model. Null leaves the probe route unregistered.</param>
         public CaptainRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -66,7 +68,8 @@ namespace Armada.Server.Routes
             ObjectiveRefinementCoordinator? objectiveRefinementSessions = null,
             LoggingModule? logging = null,
             ICaptainQuarantineService? captainQuarantine = null,
-            CaptainAdministrationService? captainAdministration = null)
+            CaptainAdministrationService? captainAdministration = null,
+            CaptainModelProbeService? captainModelProbe = null)
         {
             _captainQuarantine = captainQuarantine ?? new CaptainQuarantineService(database, settings, logging ?? new LoggingModule());
             _database = database;
@@ -88,6 +91,7 @@ namespace Armada.Server.Routes
                 captainAdministration.AttachSessionCoordinators(planningSessions, objectiveRefinementSessions);
             }
             _captainAdministration = captainAdministration;
+            _captainModelProbe = captainModelProbe;
         }
 
         /// <summary>
@@ -345,6 +349,58 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
+
+            if (_captainModelProbe != null)
+            {
+                app.Post("/api/v1/captains/{id}/probe", async (ApiRequest req) =>
+                {
+                    AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                    if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                    {
+                        return RouteAuthRefusal.Refuse(req, ctx);
+                    }
+
+                    try
+                    {
+                        return await _captainModelProbe.ProbeAsync(ctx, req.Parameters["id"], req.Http.Token).ConfigureAwait(false);
+                    }
+                    catch (KeyNotFoundException ex)
+                    {
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = ex.Message };
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        return RouteAuthRefusal.Forbid(req, ex.Message);
+                    }
+                    catch (CaptainModelProbeRateLimitException limited)
+                    {
+                        req.Http.Response.StatusCode = 429;
+                        int seconds = (int)Math.Ceiling((limited.RetryAfterUtc - DateTime.UtcNow).TotalSeconds);
+                        if (seconds < 1) seconds = 1;
+                        req.Http.Response.Headers.Add("Retry-After", seconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        return new
+                        {
+                            Error = "captain_model_probe_rate_limited",
+                            RetryAfterUtc = limited.RetryAfterUtc
+                        };
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    }
+                },
+                api => api
+                    .WithTag("Captains")
+                    .WithSummary("Probe a captain model")
+                    .WithDescription("Sends one tiny prompt through the captain's existing model validation and reports success, latency and a short error. An API-endpoint captain is admitted by that validation and then probed through the existing model-endpoint validation. The probe creates no mission. Only a global administrator may run it, and the same captain cannot be probed again for 30 seconds.")
+                    .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
+                    .WithResponse(200, OpenApiJson.For<CaptainModelProbeResult>("Probe result"))
+                    .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                    .WithResponse(429, OpenApiResponseMetadata.BadRequest())
+                    .WithSecurity("ApiKey"));
+            }
 
             app.Post("/api/v1/captains/{id}/unquarantine", async (ApiRequest req) =>
             {

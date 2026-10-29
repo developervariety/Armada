@@ -7405,6 +7405,7 @@ namespace Armada.Core.Services
                         // Architect's plan inherit the Architect mission's mode, so an audit or research
                         // voyage never silently turns its plan blocks into implementing missions.
                         additionalWorker.Mode = completedMission.Mode;
+                        additionalWorker.IsEvaluation = completedMission.IsEvaluation;
                         if (parsed[i].WaitForOtherMissions)
                             additionalWorker.IntegrationBarrier = CreatePreparingIntegrationBarrier(completedMission, additionalWorker, parsed);
                         additionalWorker = await _Database.Missions.CreateAsync(additionalWorker, token).ConfigureAwait(false);
@@ -11535,6 +11536,7 @@ namespace Armada.Core.Services
                 // Read-only mode propagates with the chain: cloned stages are the same line of
                 // work as their template, so an audit template never spawns implementing stages.
                 clonedStage.Mode = templateChild.Mode;
+                clonedStage.IsEvaluation = templateChild.IsEvaluation;
                 // Deliberately NOT inherited. StageOrder identifies a parallel stage group, and every
                 // cloned chain is an independent line of work that happens to share the template's
                 // shape. Copying it would group the clones together and make each chain's downstream

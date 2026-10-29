@@ -58,8 +58,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, source_planning_session_id, source_planning_message_id, captain_overrides_json)
-                            VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @source_planning_session_id, @source_planning_message_id, @captain_overrides_json);";
+                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, source_planning_session_id, source_planning_message_id, captain_overrides_json, is_evaluation)
+                            VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @source_planning_session_id, @source_planning_message_id, @captain_overrides_json, @is_evaluation);";
                     VoyageColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "voyages"), voyage);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -117,7 +117,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             landing_mode = @landing_mode,
                             source_planning_session_id = @source_planning_session_id,
                             source_planning_message_id = @source_planning_message_id,
-                            captain_overrides_json = @captain_overrides_json
+                            captain_overrides_json = @captain_overrides_json,
+                            is_evaluation = @is_evaluation
                             WHERE id = @id;";
                     VoyageColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "voyages"), voyage);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
