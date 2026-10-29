@@ -879,7 +879,13 @@ namespace Armada.Core.Services
             AddChangedPaths(workingTreeOutput, changedFiles);
 
             string untrackedOutput = await RunGitAsync(worktreePath, token, "ls-files", "-z", "--others", "--exclude-standard").ConfigureAwait(false);
-            AddChangedPaths(untrackedOutput, changedFiles);
+            HashSet<string> untrackedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            AddChangedPaths(untrackedOutput, untrackedFiles);
+            foreach (string untracked in untrackedFiles)
+            {
+                // Untracked scratch files (editor backups, merge leftovers) are not proof of work.
+                if (!ScratchFileMatcher.IsScratchFile(untracked)) changedFiles.Add(untracked);
+            }
 
             return changedFiles
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)

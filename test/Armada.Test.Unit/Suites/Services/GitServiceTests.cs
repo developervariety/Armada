@@ -2454,6 +2454,44 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
             });
+
+            await RunTest("GetChangedFilesSinceAsync leaves untracked scratch files out of the changed set but keeps real work", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_scratch_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string repo = Path.Combine(rootDir, "repo");
+                    SeedTemplateRepository(repo);
+                    string start = (await RunGitAsync(repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    GitService git = CreateService();
+
+                    await File.WriteAllTextAsync(Path.Combine(repo, "README.md.backup"), "x").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repo, "notes.txt~"), "x").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repo, "merge.orig"), "x").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repo, ".README.md.swp"), "x").ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.Combine(repo, "docs"));
+                    await File.WriteAllTextAsync(Path.Combine(repo, "docs", "old.rej"), "x").ConfigureAwait(false);
+
+                    IReadOnlyList<string> scratchOnly = await git.GetChangedFilesSinceAsync(repo, start).ConfigureAwait(false);
+                    AssertEqual(0, scratchOnly.Count, "a run that left only scratch files has no changes: " + String.Join(", ", scratchOnly));
+
+                    await File.WriteAllTextAsync(Path.Combine(repo, "docs", "guide.md"), "real").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repo, "README.md"), "edited").ConfigureAwait(false);
+                    IReadOnlyList<string> withWork = await git.GetChangedFilesSinceAsync(repo, start).ConfigureAwait(false);
+                    AssertEqual("docs/guide.md|README.md", String.Join("|", withWork), "real untracked and tracked changes still count");
+
+                    // A scratch-named file that is tracked is repository content and still counts when it changes.
+                    await File.WriteAllTextAsync(Path.Combine(repo, "kept.bak"), "tracked").ConfigureAwait(false);
+                    await RunGitAsync(repo, "add", "kept.bak").ConfigureAwait(false);
+                    await RunGitAsync(repo, "commit", "-m", "Track a deliverable named like a backup").ConfigureAwait(false);
+                    IReadOnlyList<string> afterCommit = await git.GetChangedFilesSinceAsync(repo, start).ConfigureAwait(false);
+                    AssertContains("kept.bak", String.Join("|", afterCommit), "a committed file counts whatever its name");
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            }).ConfigureAwait(false);
         }
 
         /// <summary>

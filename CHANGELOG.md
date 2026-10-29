@@ -158,6 +158,10 @@ upstream integrations and excludes changes already present at that baseline.
 - Worktree registration reads `git worktree list --porcelain -z`, so a registered path that contains a newline stays one path.
 - Conflicted-file names come from `git diff --name-only -z`, so a name that Git would C-quote stays one path.
 
+### Scratch files in change evidence
+
+- The changed-files read behind the no-op completion gate and scope validation leaves out untracked scratch files (`.backup`, `.bak`, `.orig`, `.rej`, `.tmp`, `.swp`, `.swo`, `~` suffixes, `.DS_Store`, `Thumbs.db`). A Worker that wrote only an editor backup no longer counts as having produced work. Tracked and committed files count whatever their name.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

@@ -599,7 +599,8 @@ namespace Armada.Core.Services.Interfaces
 
         /// <summary>
         /// List repository-relative files changed during a mission since the worktree was provisioned.
-        /// Includes committed changes plus current tracked and untracked working tree changes.
+        /// Includes committed changes plus current tracked and untracked working tree changes; untracked
+        /// scratch files (editor backups, merge leftovers) are left out.
         /// </summary>
         /// <param name="worktreePath">Path to the worktree.</param>
         /// <param name="startCommit">Commit hash recorded when the dock was provisioned.</param>
