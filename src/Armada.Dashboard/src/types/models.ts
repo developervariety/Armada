@@ -459,7 +459,12 @@ export interface TokenUsageBucket {
   outputTokens: number;
   cachedTokens: number;
   totalTokens: number;
+  /** The summary's top models present in this bucket (at most modelLimit). */
   models: TokenUsageModelBreakdown[];
+  /** Distinct models summed into otherModels in this bucket. */
+  otherModelCount?: number;
+  /** This bucket's usage by models outside the top models (model "(other)"); null when none. */
+  otherModels?: TokenUsageModelBreakdown | null;
 }
 
 export interface TokenUsageSummaryResult {
@@ -472,9 +477,19 @@ export interface TokenUsageSummaryResult {
   outputTokens: number;
   cachedTokens: number;
   totalTokens: number;
+  /** At most 1000 buckets; a larger window and bucket size is rejected (400, CollectionLimitExceeded). */
   buckets: TokenUsageBucket[];
+  /** The modelLimit most-used models; the rest are summed into otherModels. */
   byModel: TokenUsageModelBreakdown[];
   syntheticCount?: number;
+  /** Most models broken out by name (default 10, 1 to 100). */
+  modelLimit?: number;
+  /** Distinct models in the window. */
+  modelCount?: number;
+  /** Distinct models summed into otherModels. */
+  otherModelCount?: number;
+  /** Whole-window usage by the models beyond modelLimit (model "(other)"); null when every model is listed. */
+  otherModels?: TokenUsageModelBreakdown | null;
 }
 
 export interface Voyage {

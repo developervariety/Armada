@@ -1223,11 +1223,16 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
-        /// Read GitHub pull-request evidence derived from the missions linked to one release.
+        /// Read one page of the GitHub pull-request evidence derived from the missions linked to one release (only that
+        /// page is read from GitHub), with the total.
         /// </summary>
-        public async Task<List<GitHubPullRequestDetail>?> GetReleaseGitHubPullRequestsAsync(string id, CancellationToken token = default)
+        /// <param name="id">Release id.</param>
+        /// <param name="query">Paging, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        public async Task<EnumerationResult<GitHubPullRequestDetail>?> EnumerateReleaseGitHubPullRequestsAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
         {
-            return await EnumerateAllAsync<GitHubPullRequestDetail>("/api/v1/releases/" + id + "/github/pull-requests/enumerate", token).ConfigureAwait(false);
+            return await PostAsync<EnumerationResult<GitHubPullRequestDetail>, EnumerationQuery>("/api/v1/releases/" + id + "/github/pull-requests/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
         }
 
         /// <summary>

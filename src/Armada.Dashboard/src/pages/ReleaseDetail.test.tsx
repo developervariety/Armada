@@ -58,7 +58,7 @@ describe('ReleaseDetail artifacts table', () => {
     for (const fn of [listCheckRuns, listDeployments, listObjectives, listVessels, listVoyages, listWorkflowProfiles]) {
       vi.mocked(fn).mockResolvedValue(page as never);
     }
-    vi.mocked(getReleaseGitHubPullRequests).mockResolvedValue([] as never);
+    vi.mocked(getReleaseGitHubPullRequests).mockResolvedValue({ objects: [], pageNumber: 1, pageSize: 25, totalPages: 0, totalRecords: 0 } as never);
     vi.mocked(getRelease).mockResolvedValue({
       id: 'rel_1', tenantId: 'default', userId: null, vesselId: null, workflowProfileId: null, title: 'v1.2.0',
       version: '1.2.0', tagName: null, summary: null, notes: null, status: 'Draft', voyageIds: [], missionIds: [], checkRunIds: [],
