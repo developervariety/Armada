@@ -30,6 +30,7 @@ export const CAPTAIN_RUNTIMES: { value: string; label: string }[] = [
   { value: 'Cursor', label: 'Cursor' },
   { value: 'Mux', label: 'Mux' },
   { value: 'OpenCode', label: 'OpenCode' },
+  { value: 'Pi', label: 'pi' },
   { value: 'ApiEndpoint', label: 'API Endpoint' },
 ];
 
@@ -43,7 +44,7 @@ export const CAPTAIN_MODEL_TOOLTIP_API_ENDPOINT = 'Optional model name that over
 /** English tooltip for the captain Name field. */
 export const CAPTAIN_NAME_TOOLTIP = 'Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.';
 /** English tooltip for the captain Runtime field. */
-export const CAPTAIN_RUNTIME_TOOLTIP = 'The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.';
+export const CAPTAIN_RUNTIME_TOOLTIP = 'The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.';
 /** English tooltip for the captain Inference Endpoint field (API endpoint captains). */
 export const CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP = 'Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.';
 /** English tooltip for the captain Reasoning effort field. */

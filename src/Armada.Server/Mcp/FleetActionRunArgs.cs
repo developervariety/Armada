@@ -20,5 +20,7 @@ namespace Armada.Server.Mcp
         /// Optional concurrency for this run (1 to 32).
         /// </summary>
         public int? Concurrency { get; set; }
+        /// <summary>Runtime input values.</summary>
+        public Dictionary<string, string>? InputValues { get; set; }
     }
 }

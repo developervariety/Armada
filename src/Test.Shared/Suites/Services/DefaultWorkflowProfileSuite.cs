@@ -50,6 +50,13 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(WorkflowProfileTemplates.Generic, WorkflowProfileTemplates.Match(null));
             }));
 
+            cases.Add(Case("armada_targets_test_project", "The Armada default excludes solution-wide test discovery", () =>
+            {
+                RepositoryLayout layout = new RepositoryLayout(new[] { "src/Armada.sln", "src/Armada.Core/Armada.Core.csproj", "src/Test.Xunit/Test.Xunit.csproj", "src/Test.Automated/Test.Automated.csproj" }, "repository");
+                WorkflowProfile profile = WorkflowProfileTemplates.Build(new Vessel("Armada", "https://example.invalid/Armada"), layout, WorkflowProfileTemplates.DotNet);
+                AssertEqual("dotnet run --project \"src/Test.Automated\" -c Release -f net10.0 -- --suites Services", profile.UnitTestCommand);
+            }));
+
             cases.Add(Case("dotnet_targets_the_solution", "The .NET profile builds and tests the shallowest solution, quoted", () =>
             {
                 Vessel vessel = new Vessel("Armada", "https://github.com/jchristn/Armada");
