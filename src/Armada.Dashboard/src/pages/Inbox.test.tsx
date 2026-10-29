@@ -32,7 +32,7 @@ function item(kind: string, title: string, href: string, severity: 'Critical' | 
 
 function Probe() {
   const location = useLocation();
-  return <div data-testid="location">{location.pathname}</div>;
+  return <div data-testid="location">{location.pathname + location.search}</div>;
 }
 
 describe('Needs You approvals (F15)', () => {
@@ -73,7 +73,7 @@ describe('Needs You CLI tool permission requests', () => {
     canDecide: true, canRemember: false,
   };
   const cliItem = (overrides: Partial<CliPermissionRequest> = {}): InboxItem => ({
-    ...item('cli_permission', 'CLI permission: Bash rm -rf build', '/cli-permissions?request=cpr_1'),
+    ...item('cli_permission', 'CLI permission: Bash rm -rf build', '/server?tab=cli-permissions&request=cpr_1'),
     entityId: 'cpr_1', cliPermission: { ...request, ...overrides }, expiresUtc: request.expiresUtc,
   });
 
@@ -119,7 +119,7 @@ describe('Needs You CLI tool permission requests', () => {
     const approvals = await screen.findByRole('region', { name: 'Waiting for your approval' });
     expect(within(approvals).queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument();
     fireEvent.click(within(approvals).getByRole('button', { name: 'Open request' }));
-    expect(screen.getByTestId('location').textContent).toBe('/cli-permissions');
+    expect(screen.getByTestId('location').textContent).toBe('/server?tab=cli-permissions&request=cpr_1');
   });
 
   it('reloads when a cli_permission event arrives', async () => {

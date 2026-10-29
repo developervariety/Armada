@@ -148,6 +148,27 @@ namespace Test.Shared.Suites.Services
                     AssertNull(RuntimeProviderErrorParser.TryParseCliStderrLine(line, "Cursor"), line);
             }));
 
+            cases.Add(Case("pi_terminal_errors_classified", "pi 401/429/529 terminal records classify by their leading status; a recovered retry and non-terminal records do not", TestTags.Positive, () =>
+            {
+                AssertEqual(RuntimeFailureKindEnum.AuthFailure, ClassifyPi(PiStreamFixtures.BadKey));
+                AssertEqual(RuntimeFailureKindEnum.UsageLimit, ClassifyPi(PiStreamFixtures.RateLimited));
+                AssertEqual(RuntimeFailureKindEnum.Transient, ClassifyPi(PiStreamFixtures.Overloaded));
+                AssertEqual(RuntimeFailureKindEnum.Transient, ClassifyPi(PiStreamFixtures.RetryExhausted));
+                AssertNull(FirstPiError(PiStreamFixtures.RetryRecovered), "a retry that recovered is not a provider error");
+                AssertNull(FirstPiError(PiStreamFixtures.ToolCalls));
+                AssertNull(FirstPiError(PiStreamFixtures.Aborted), "a stopped run is a crash, not a provider error");
+                RuntimeProviderError bad = FirstPiError(PiStreamFixtures.BadKey)!;
+                AssertEqual("invalid x-api-key", bad.Message);
+                AssertNull(RuntimeProviderErrorParser.TryParsePiJsonLine("{\"type\":\"agent_end\",\"willRetry\":true,\"messages\":[{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"529 overloaded\"}]}"), "pi will retry");
+                AssertNull(RuntimeProviderErrorParser.TryParsePiJsonLine("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"429 x\"}}"), "message_end alone is not terminal");
+                AssertNull(RuntimeProviderErrorParser.TryParsePiJsonLine("API Error: 429"), "plain text is not a pi record");
+                RuntimeProviderError? network = RuntimeProviderErrorParser.TryParsePiJsonLine("{\"type\":\"auto_retry_end\",\"success\":false,\"attempt\":3,\"finalError\":\"fetch failed: ECONNREFUSED\"}");
+                AssertEqual("llm_connection_error", network?.ErrorType);
+                RuntimeProviderError? narration = RuntimeProviderErrorParser.TryParsePiJsonLine("{\"type\":\"agent_end\",\"messages\":[{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"the model said 429 things\"}]}");
+                AssertNotNull(narration, "a terminal error without a status is still an error");
+                AssertNull(narration!.HttpStatusCode, "a status inside the text is never guessed");
+            }));
+
             cases.Add(Case("cli_runtimes_report_stderr_provider_errors", "A Gemini, Cursor or OpenCode process that prints a rate limit to stderr and exits 1 raises a typed provider error; the same text on stdout raises none", TestTags.Positive, () =>
             {
                 if (OperatingSystem.IsWindows()) return;
@@ -211,6 +232,24 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private static RuntimeProviderError? FirstPiError(string[] lines)
+        {
+            foreach (string line in lines)
+            {
+                RuntimeProviderError? error = RuntimeProviderErrorParser.TryParsePiJsonLine(line);
+                if (error != null) return error;
+            }
+
+            return null;
+        }
+
+        private static RuntimeFailureKindEnum ClassifyPi(string[] lines)
+        {
+            RuntimeProviderError? error = FirstPiError(lines);
+            AssertNotNull(error, "expected a pi provider error");
+            return RuntimeFailureClassifier.Classify(PiFinalMessage.FailedRunExitCode, error);
+        }
 
         private static RuntimeFailureKindEnum RunStubClassification(Func<LoggingModule, string, BaseAgentRuntime> factory, string redirect)
         {
