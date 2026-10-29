@@ -20,6 +20,12 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<Mission, Dock, Task>? OnPerformLanding { get; set; }
 
+        /// <summary>
+        /// Resolves the host a dock lives on, so retries can confirm that a Harbor-hosted worktree still exists.
+        /// When null, only docks on the Admiral's host are checked.
+        /// </summary>
+        public DockHostResolver? DockHosts { get; set; } = null;
+
         #endregion
 
         #region Private-Members
@@ -71,6 +77,16 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            DateTime retryVersion = mission.LastUpdateUtc;
+            MissionStatusEnum retryStatus = mission.Status;
+            async Task<bool> SaveRetryAsync()
+            {
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                bool saved = await _Database.Missions.TryUpdateIfUnchangedAsync(mission, retryVersion, new[] { retryStatus }, token).ConfigureAwait(false);
+                if (saved) { retryVersion = mission.LastUpdateUtc; retryStatus = mission.Status; }
+                return saved;
+            }
+
             // Landable directly: work produced but not yet landed, a prior landing that failed, or a mission
             // sitting in Review that carries no explicit review gate (requiresReview=false) -- such a mission
             // has no Approve/Deny decision to make, so landing is the way to graduate it out of Review. A
@@ -105,9 +121,12 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            if (String.IsNullOrEmpty(vessel.LocalPath))
+            Dock? dock = String.IsNullOrEmpty(mission.DockId) ? null : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+            string? owningRepository = DockHostResolver.IsHarborDock(dock) ? dock!.RepositoryPath : vessel.LocalPath;
+            if (String.IsNullOrEmpty(owningRepository))
             {
-                _Logging.Warn(_Header + "vessel " + vessel.Id + " has no LocalPath -- cannot retry landing for mission " + missionId);
+                mission.FailureReason = "Landing retry cannot resolve the repository on the dock's owning host.";
+                if (!await SaveRetryAsync().ConfigureAwait(false)) return false;
                 return false;
             }
 
@@ -142,38 +161,51 @@ namespace Armada.Core.Services
             }
 
             // Attempt rebase of mission branch onto current target branch
-            string repoPath = vessel.LocalPath;
+            string repoPath = owningRepository;
+            IGitService git = _Git;
             string targetBranch = vessel.DefaultBranch;
             string missionBranch = mission.BranchName;
 
             try
             {
-                // Fetch latest from remote
-                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+                if (DockHostResolver.IsHarborDock(dock))
+                    git = (DockHosts ?? throw new InvalidOperationException("The dock's Harbor host is unavailable; reconnect it and retry.")).ForDock(dock).Git;
+                // Fetch on the same host that owns the branch; a Harbor path never runs on the Admiral.
+                await git.FetchAsync(repoPath, token).ConfigureAwait(false);
 
                 // Check if branch still exists
-                bool branchExists = await _Git.BranchExistsAsync(repoPath, missionBranch, token).ConfigureAwait(false);
+                bool branchExists = await git.BranchExistsAsync(repoPath, missionBranch, token).ConfigureAwait(false);
                 if (!branchExists)
                 {
                     _Logging.Warn(_Header + "branch " + missionBranch + " no longer exists -- cannot retry landing for mission " + missionId);
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    mission.FailureKind = MissionFailureKindEnum.Infra;
+                    mission.FailureReason = "Source branch '" + missionBranch + "' is missing in " + repoPath + ". Recover the preserved commit or branch before retrying landing.";
+                    await SaveRetryAsync().ConfigureAwait(false);
                     return false;
                 }
 
                 _Logging.Debug(_Header + "retrying landing for mission " + missionId + " branch " + missionBranch);
 
+                if (dock != null && !String.IsNullOrEmpty(dock.WorktreePath)
+                    && !await DockWorktreeExistsAsync(dock, token).ConfigureAwait(false))
+                {
+                    string where = DockHostResolver.IsHarborDock(dock) ? " on Harbor " + dock.HarborId : "";
+                    _Logging.Warn(_Header + "dock " + dock.Id + " worktree " + dock.WorktreePath + where + " is missing -- cannot retry landing for mission " + missionId);
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    mission.FailureKind = MissionFailureKindEnum.Infra;
+                    mission.FailureReason = "Dock missing: the worktree " + dock.WorktreePath + where + " for dock " + dock.Id
+                        + " no longer exists, so landing cannot be retried from it. Branch '" + missionBranch
+                        + "' is still in the repository; merge it manually or restart the mission.";
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    if (!await SaveRetryAsync().ConfigureAwait(false)) return false;
+                    return false;
+                }
+
                 // Transition back to WorkProduced for landing attempt
                 mission.Status = MissionStatusEnum.WorkProduced;
                 mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-
-                // Try to find the dock or create a temporary context for landing
-                Dock? dock = null;
-                if (!String.IsNullOrEmpty(mission.DockId))
-                {
-                    dock = !String.IsNullOrEmpty(tenantId)
-                        ? await _Database.Docks.ReadAsync(tenantId, mission.DockId, token).ConfigureAwait(false)
-                        : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
-                }
+                if (!await SaveRetryAsync().ConfigureAwait(false)) return false;
 
                 // If no dock, create a minimal one for the landing handler
                 if (dock == null)
@@ -202,7 +234,7 @@ namespace Armada.Core.Services
                     mission.Status = MissionStatusEnum.LandingFailed;
                     mission.FailureKind = MissionFailureKindEnum.LandingConflict;
                     mission.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    if (!await SaveRetryAsync().ConfigureAwait(false)) return false;
                     return false;
                 }
             }
@@ -214,7 +246,7 @@ namespace Armada.Core.Services
                 string failureReason = "Landing retry failed: " + ex.Message;
                 try
                 {
-                    IReadOnlyList<string> conflicts = await _Git.GetConflictedFilesAsync(repoPath, token).ConfigureAwait(false);
+                    IReadOnlyList<string> conflicts = await git.GetConflictedFilesAsync(repoPath, token).ConfigureAwait(false);
                     if (conflicts.Count > 0)
                         failureReason = "Landing retry failed with merge conflicts in: " + String.Join(", ", conflicts);
                 }
@@ -223,22 +255,42 @@ namespace Armada.Core.Services
                 // Ensure mission goes back to LandingFailed with the captured reason
                 try
                 {
-                    mission = !String.IsNullOrEmpty(tenantId)
-                        ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
-                        : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
                     if (mission != null)
                     {
                         mission.Status = MissionStatusEnum.LandingFailed;
                         mission.FailureReason = failureReason;
                         mission.FailureKind = MissionFailureKindEnum.LandingConflict;
                         mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        if (!await SaveRetryAsync().ConfigureAwait(false)) return false;
                     }
                 }
                 catch { }
 
                 return false;
             }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task<bool> DockWorktreeExistsAsync(Dock dock, CancellationToken token)
+        {
+            if (DockHostResolver.IsHarborDock(dock))
+            {
+                if (DockHosts == null) return true;
+                try
+                {
+                    return await DockHosts.ForDock(dock).Files.DirectoryExistsAsync(dock.WorktreePath!, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // An unreachable Harbor is not proof the dock is gone; let the landing attempt report it.
+                    _Logging.Warn(_Header + "unable to check dock " + dock.Id + " on Harbor " + dock.HarborId + ": " + ex.Message);
+                    return true;
+                }
+            }
+            return Directory.Exists(dock.WorktreePath);
         }
 
         #endregion

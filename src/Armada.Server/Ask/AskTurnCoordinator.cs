@@ -119,6 +119,18 @@ namespace Armada.Server.Ask
         }
 
         /// <summary>
+        /// What the turn running in a thread has streamed so far (reply text, thinking, tool calls), or null when no turn
+        /// is running.
+        /// </summary>
+        /// <param name="threadId">Thread identifier.</param>
+        /// <returns>Progress, or null.</returns>
+        public AskTurnProgress? ActiveTurnProgress(string threadId)
+        {
+            if (String.IsNullOrEmpty(threadId)) return null;
+            return _Running.TryGetValue(threadId, out AskTurnHandle? handle) ? handle.Live.Snapshot(handle) : null;
+        }
+
+        /// <summary>
         /// Persist the caller's message and, when the thread has a captain, start a captain turn in the background.
         /// </summary>
         /// <param name="auth">Caller (thread owner).</param>
@@ -527,6 +539,8 @@ namespace Armada.Server.Ask
             string? messageId = null;
             string? error = null;
             bool reserved = false;
+            // Set once the reply is being stored with the runner's tool calls; a failure after that must not store them twice.
+            bool finishing = false;
             AskMessage? placeholder = null;
             try
             {
@@ -545,6 +559,7 @@ namespace Armada.Server.Ask
                 // counts as unread when FinishReplyAsync fills it in, so one that lands after they left shows a badge.
                 placeholder = await _Threads.AppendMessageAsync(thread, reservation, false).ConfigureAwait(false);
                 messageId = placeholder.Id;
+                handle.Live.MessageId = placeholder.Id;
 
                 Captain? captain = await _Database.Captains.ReadAsync(handle.CaptainId!).ConfigureAwait(false);
                 if (captain == null) throw new InvalidOperationException("The conversation's captain no longer exists.");
@@ -569,9 +584,11 @@ namespace Armada.Server.Ask
                 if (harborCheckouts != null)
                     options.HarborContext = (harborId, cancel) => AskHarborCheckoutContext.BuildAsync(_Database, harborCheckouts, _Threads, current, harborId, cancel);
                 string turnId = handle.TurnId;
-                options.OnChunk = delta => Emit(thread, "ask.chunk", new { threadId = thread.Id, turnId, delta });
-                options.OnThinking = delta => Emit(thread, "ask.thinking", new { threadId = thread.Id, turnId, delta });
-                options.OnTool = activity => Emit(thread, "ask.tool", new { threadId = thread.Id, turnId, phase = activity.Phase, id = activity.Id, name = activity.Name, arguments = activity.Arguments, ok = activity.Ok, elapsedMs = activity.ElapsedMs, result = activity.Result, permissionDenied = activity.PermissionDenied });
+                // Every streamed event is also recorded on the handle: a client that opens the thread mid-turn restores the
+                // live reply from thread detail, and a turn that is stopped or crashes still persists its tool calls.
+                options.OnChunk = delta => { handle.Live.AppendText(delta); Emit(thread, "ask.chunk", new { threadId = thread.Id, turnId, delta }); };
+                options.OnThinking = delta => { handle.Live.AppendThinking(delta); Emit(thread, "ask.thinking", new { threadId = thread.Id, turnId, delta }); };
+                options.OnTool = activity => { handle.Live.ObserveTool(activity); Emit(thread, "ask.tool", new { threadId = thread.Id, turnId, phase = activity.Phase, id = activity.Id, name = activity.Name, arguments = activity.Arguments, ok = activity.Ok, elapsedMs = activity.ElapsedMs, result = activity.Result, permissionDenied = activity.PermissionDenied }); };
 
                 CaptainChatTurnResult result = await _Runner.RunTurnAsync(options, handle.Cancellation.Token).ConfigureAwait(false);
                 AskMessage reply = new AskMessage();
@@ -594,6 +611,7 @@ namespace Armada.Server.Ask
                     error = reply.ContentText;
                 }
 
+                finishing = true;
                 reply = await FinishReplyAsync(thread, placeholder, reply, result.ToolCalls).ConfigureAwait(false);
                 messageId = reply.Id;
             }
@@ -608,7 +626,7 @@ namespace Armada.Server.Ask
                         stopped.Role = AskMessageRoleEnum.System;
                         stopped.Kind = AskMessageKindEnum.Error;
                         stopped.ContentText = "Stopped before the captain finished replying.";
-                        await FinishReplyAsync(thread, placeholder, stopped, null).ConfigureAwait(false);
+                        await FinishReplyAsync(thread, placeholder, stopped, finishing ? null : handle.Live.ToolCalls()).ConfigureAwait(false);
                     }
                 }
                 catch { }
@@ -625,7 +643,7 @@ namespace Armada.Server.Ask
                     failure.Kind = AskMessageKindEnum.Error;
                     failure.ContentText = ex.Message;
                     failure = placeholder != null
-                        ? await FinishReplyAsync(thread, placeholder, failure, null).ConfigureAwait(false)
+                        ? await FinishReplyAsync(thread, placeholder, failure, finishing ? null : handle.Live.ToolCalls()).ConfigureAwait(false)
                         : await _Threads.AppendMessageAsync(thread, failure, true).ConfigureAwait(false);
                     messageId = failure.Id;
                 }

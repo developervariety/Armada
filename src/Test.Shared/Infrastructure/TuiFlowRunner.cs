@@ -95,8 +95,8 @@ namespace Test.Shared.Infrastructure
                     host.Press("esc");
                     if (host.App.Modals.IsActive) host.Press("y");
                     TuiEntityFixtures.WaitFor(host, () => !host.App.Modals.IsActive, spec + ": dialog closed");
-                    host.Tui.Context.Navigate("/jobs");
-                    TuiEntityFixtures.WaitFor(host, () => host.Tui.Context.Router.Current!.Path == "/jobs", spec + ": left the list");
+                    host.Tui.Context.Navigate("/inbox");
+                    TuiEntityFixtures.WaitFor(host, () => host.Tui.Context.Router.Current!.Path == "/inbox", spec + ": left the list");
                 }
 
                 // Back.
