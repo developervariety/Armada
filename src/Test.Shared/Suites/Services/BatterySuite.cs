@@ -336,6 +336,69 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(run.Results.Where(r => r.TaskId == "review").All(r => r.Outcome == BatteryTaskOutcomeEnum.Passed), "tasks without the tool still run");
             }));
 
+            cases.Add(CaseAsync("runner_prompt_variant_reaches_every_dispatch_and_configuration", "Runner: a run's prompt variant reaches every task dispatch and the run configuration; a run without one records none", TestTags.Positive, async () =>
+            {
+                using TempDir dir = new TempDir();
+                WriteSyntheticPack(dir, "syn");
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await SeedPipelineAsync(testDb.Driver).ConfigureAwait(false);
+
+                using CannedBatteryTaskDispatcher leanDispatcher = new CannedBatteryTaskDispatcher { Captain = ScriptedCaptain(true) };
+                BatteryRunService leanService = NewService(testDb.Driver, dir, leanDispatcher);
+                BatteryRun leanStarted = await leanService.StartAsync(TestCaptain(), null, new List<string> { "syn" }, 1, 5, true, Constants.DefaultTenantId, null, PromptVariantEnum.Lean).ConfigureAwait(false);
+                BatteryRun lean = (await leanService.WaitAsync(leanStarted.Id).ConfigureAwait(false))!;
+                AssertEqual(BatteryRunStatusEnum.Completed, lean.Status, lean.FailureReason);
+                AssertTrue(leanDispatcher.Requests.Count > 0, "tasks were dispatched");
+                AssertTrue(leanDispatcher.Requests.All(r => r.PromptVariant == PromptVariantEnum.Lean), "every task dispatch carries the run's variant");
+                AssertContains("\"promptVariant\":\"Lean\"", lean.ConfigurationJson!, "the run configuration records the variant");
+
+                using CannedBatteryTaskDispatcher plainDispatcher = new CannedBatteryTaskDispatcher { Captain = ScriptedCaptain(true) };
+                BatteryRunService plainService = NewService(testDb.Driver, dir, plainDispatcher);
+                BatteryRun plainStarted = await plainService.StartAsync(TestCaptain(), null, new List<string> { "syn" }, 1, 5, true, Constants.DefaultTenantId, null).ConfigureAwait(false);
+                BatteryRun plain = (await plainService.WaitAsync(plainStarted.Id).ConfigureAwait(false))!;
+                AssertTrue(plainDispatcher.Requests.All(r => r.PromptVariant == null), "a run without a variant leaves it to the captain");
+                AssertFalse(plain.ConfigurationJson!.Contains("promptVariant", StringComparison.Ordinal), "a Current run keeps its pre-variant configuration");
+                AssertTrue(lean.ConfigurationRevision != plain.ConfigurationRevision, "runs that differ only in the variant have different configuration revisions");
+
+                using CannedBatteryTaskDispatcher currentDispatcher = new CannedBatteryTaskDispatcher { Captain = ScriptedCaptain(true) };
+                BatteryRunService currentService = NewService(testDb.Driver, dir, currentDispatcher);
+                BatteryRun currentStarted = await currentService.StartAsync(TestCaptain(), null, new List<string> { "syn" }, 1, 5, true, Constants.DefaultTenantId, null, PromptVariantEnum.Current).ConfigureAwait(false);
+                await currentService.WaitAsync(currentStarted.Id).ConfigureAwait(false);
+                AssertEqual(plainStarted.ConfigurationRevision, currentStarted.ConfigurationRevision, "an explicit Current run has the same configuration as a run without a variant");
+
+                Captain compactCaptain = TestCaptain();
+                compactCaptain.RuntimeOptionsJson = "{\"promptVariant\":\"Compact\"}";
+                using CannedBatteryTaskDispatcher captainDispatcher = new CannedBatteryTaskDispatcher { Captain = ScriptedCaptain(true) };
+                BatteryRunService captainService = NewService(testDb.Driver, dir, captainDispatcher);
+                BatteryRun captainStarted = await captainService.StartAsync(compactCaptain, null, new List<string> { "syn" }, 1, 5, true, Constants.DefaultTenantId, null).ConfigureAwait(false);
+                await captainService.WaitAsync(captainStarted.Id).ConfigureAwait(false);
+                AssertContains("\"promptVariant\":\"Compact\"", captainStarted.ConfigurationJson!, "a captain's own variant is recorded as the effective variant");
+
+                await AssertThrowsAsync<ArgumentException>(() => leanService.StartAsync(TestCaptain(), null, new List<string> { "syn" }, 1, 5, true, Constants.DefaultTenantId, null, (PromptVariantEnum)7)).ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("dispatcher_records_prompt_variant_on_voyage_override", "Dispatch: a request's prompt variant is recorded on the voyage's captain override", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                Vessel vessel = await db.Vessels.CreateAsync(new Vessel("battery-variant", "file:///tmp/x.git") { TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
+                Captain captain = await db.Captains.CreateAsync(new Captain("variant-captain") { TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
+                IAdmiralService admiral = RecordingBatteryAdmiral.Create(db);
+                RecordingBatteryAdmiral recorder = (RecordingBatteryAdmiral)(object)admiral;
+                AdmiralBatteryTaskDispatcher dispatcher = new AdmiralBatteryTaskDispatcher(admiral, db, Logging(), TimeSpan.FromMilliseconds(50));
+
+                BatteryDispatchRequest request = new BatteryDispatchRequest(vessel, captain, "[syn/edit #1] Edit", "Edit this.", "Worker", 300)
+                {
+                    PromptVariant = PromptVariantEnum.Compact
+                };
+                await dispatcher.RunAsync(request).ConfigureAwait(false);
+
+                object?[] args = recorder.Dispatches.Single();
+                List<CaptainAssignmentOverride> overrides = MissionService.DeserializeCaptainOverrides((string)args[6]!);
+                AssertEqual((PromptVariantEnum?)PromptVariantEnum.Compact, overrides.Single().PromptVariant, "the voyage override carries the run's variant");
+                AssertEqual(PromptVariantEnum.Compact, PromptVariantResolver.Resolve("Worker", overrides, captain), "missions of the voyage resolve to the run's variant");
+            }));
+
             // ---- Fixture reset ----
 
             cases.Add(CaseAsync("fixture_reset_restores_and_applies_setup", "Reset commits the exact fixture plus task setup as a fast-forward, undoing changes pushed since", TestTags.Positive, async () =>
@@ -561,6 +624,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("*", overrides.Single().Persona);
                 AssertEqual(captain.Id, overrides.Single().CaptainId);
                 AssertTrue(overrides.Single().StrictCaptain, "strict: every stage waits for this captain");
+                AssertNull(overrides.Single().PromptVariant, "no run variant: the captain's own prompt variant applies");
                 AssertEqual((LandingModeEnum?)LandingModeEnum.None, (LandingModeEnum?)args[7], "no landing: the work stays in its dock");
                 AssertEqual(11, args.Length, "dispatched through the overload that carries the evaluation flag");
                 AssertEqual(true, args[10], "battery voyages are dispatched as evaluation work");

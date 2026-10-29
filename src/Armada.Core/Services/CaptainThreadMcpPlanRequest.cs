@@ -98,6 +98,24 @@ namespace Armada.Core.Services
         /// </summary>
         public string? ExistingOpenCodeConfigContent { get; set; } = null;
 
+        /// <summary>
+        /// Contents of the host user's pi configuration (<c>~/.pi/agent/mcp.json</c>, or <c>$PI_CODING_AGENT_DIR/mcp.json</c>).
+        /// Used only to find existing Armada server entries, which the launch's project <c>.pi/mcp.json</c> then replaces
+        /// under the same names (a project entry replaces a user entry of the same name).
+        /// </summary>
+        public List<string> HostPiMcpConfigDocuments
+        {
+            get => _HostPiMcpConfigDocuments;
+            set => _HostPiMcpConfigDocuments = value ?? new List<string>();
+        }
+
+        /// <summary>
+        /// Contents of a <c>.pi/mcp.json</c> that already exists in the working directory (for example one the repository
+        /// commits), or null. The planner keeps its servers, overrides the Armada entries, and restores the original file
+        /// after the launch.
+        /// </summary>
+        public string? ExistingPiProjectMcpJson { get; set; } = null;
+
         #endregion
 
         #region Private-Members
@@ -107,6 +125,7 @@ namespace Armada.Core.Services
         private string _WorkingDirectory = String.Empty;
         private string _SessionToken = String.Empty;
         private List<string> _HostOpenCodeConfigDocuments = new List<string>();
+        private List<string> _HostPiMcpConfigDocuments = new List<string>();
 
         #endregion
     }
