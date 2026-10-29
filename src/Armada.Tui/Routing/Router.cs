@@ -104,8 +104,14 @@ namespace Armada.Tui.Routing
                 if (best == null) return new RouteMatch(RouteTable.NotFound, path, new Dictionary<string, string>(), query);
                 if (best.RedirectTo == null) return new RouteMatch(best, "/" + String.Join("/", segments), bestParams, query);
 
-                carriedQuery = query;
-                current = best.RedirectTo;
+                carriedQuery = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> kvp in query)
+                {
+                    string key = best.RedirectQueryRenames.TryGetValue(kvp.Key, out string? renamed) ? renamed : kvp.Key;
+                    carriedQuery[key] = kvp.Value;
+                }
+
+                current = ExpandRedirect(best.RedirectTo, bestParams);
             }
 
             return new RouteMatch(RouteTable.NotFound, current, new Dictionary<string, string>(), new Dictionary<string, string>());
@@ -216,7 +222,24 @@ namespace Armada.Tui.Routing
             while (stack.Count > _HistoryLimit) stack.RemoveAt(0);
         }
 
-        private static string StripLast(string path)
+        private static string ExpandRedirect(string target, Dictionary<string, string> parameters)
+        {
+            int q = target.IndexOf('?');
+            if (q < 0 || parameters.Count == 0) return target;
+            List<string> pairs = new List<string>();
+            foreach (string pair in target.Substring(q + 1).Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int eq = pair.IndexOf('=');
+                if (eq >= 0 && pair.Length > eq + 2 && pair[eq + 1] == ':' && parameters.TryGetValue(pair.Substring(eq + 2), out string? value))
+                    pairs.Add(pair.Substring(0, eq) + "=" + Uri.EscapeDataString(value));
+                else
+                    pairs.Add(pair);
+            }
+
+            return target.Substring(0, q) + "?" + String.Join("&", pairs);
+        }
+
+                private static string StripLast(string path)
         {
             int idx = path.LastIndexOf('/');
             return idx > 0 ? path.Substring(0, idx) : path;

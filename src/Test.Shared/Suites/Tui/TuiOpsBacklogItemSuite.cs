@@ -68,7 +68,7 @@ namespace Test.Shared.Suites.Tui
                     AssertTrue(host.PumpUntil(() => host.Screen().Contains("Primary vessel DemoRepo is linked")), "vessel note");
                     host.Press("P");
                     string planning = host.Tui.Context.Router.Current!.FullPath;
-                    AssertTrue(planning.StartsWith("/planning?") && planning.Contains("from=objective") && planning.Contains("objectiveId=obj_a") && planning.Contains("vesselId=vsl_demo") && planning.Contains("fleetId=flt_1"), "planning handoff: " + planning);
+                    AssertTrue(planning.StartsWith("/dispatch?") && planning.Contains("tab=planning") && planning.Contains("from=objective") && planning.Contains("objectiveId=obj_a") && planning.Contains("vesselId=vsl_demo") && planning.Contains("fleetId=flt_1"), "planning handoff: " + planning);
                     AssertTrue(Uri.UnescapeDataString(planning).Contains("Backlog Item: Fix login") && Uri.UnescapeDataString(planning).Contains("title=Fix login Planning"), "planning prompt: " + planning);
                     host.Tui.Context.Router.Back();
                     screen = (BacklogItemScreen)host.Tui.Shell.Screen!;

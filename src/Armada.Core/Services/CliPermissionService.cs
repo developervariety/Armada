@@ -435,6 +435,47 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// One page of the CLI permission requests the caller may see, newest first, with the total. Callers that are not
+        /// admins are held to their tenant (and, for regular users, to their own requests); captain sessions get an empty page.
+        /// </summary>
+        /// <param name="caller">Caller.</param>
+        /// <param name="query">Filters (Limit is ignored), or null.</param>
+        /// <param name="pageNumber">One-based page number.</param>
+        /// <param name="pageSize">Page size, clamped to 1-1000.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArgumentNullException">caller is null.</exception>
+        public async Task<EnumerationResult<CliPermissionRequest>> EnumerateAsync(AuthContext caller, CliPermissionRequestQuery? query, int pageNumber, int pageSize, CancellationToken token = default)
+        {
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+            pageNumber = Math.Max(1, pageNumber);
+            pageSize = Math.Clamp(pageSize, 1, 1000);
+            if (CliPermissionAccess.IsCaptainSession(caller))
+            {
+                EnumerationResult<CliPermissionRequest> empty = new EnumerationResult<CliPermissionRequest>();
+                empty.PageNumber = pageNumber;
+                empty.PageSize = pageSize;
+                empty.TotalRecords = 0;
+                empty.TotalPages = 0;
+                empty.Objects = new List<CliPermissionRequest>();
+                return empty;
+            }
+
+            CliPermissionRequestQuery effective = query ?? new CliPermissionRequestQuery();
+            if (!caller.IsAdmin)
+            {
+                effective.TenantId = caller.TenantId;
+                if (!caller.IsTenantAdmin) effective.UserId = caller.UserId;
+            }
+
+            // The tenant and user filters above are exactly CliPermissionAccess.CanView, so the database total is the visible total.
+            EnumerationResult<CliPermissionRequest> page = await _Database.CliPermissionRequests.EnumeratePageAsync(effective, pageNumber, pageSize, token).ConfigureAwait(false);
+            page.Objects = page.Objects.Where(r => CliPermissionAccess.CanView(caller, r)).ToList();
+            foreach (CliPermissionRequest request in page.Objects) await DecorateAsync(caller, request, token).ConfigureAwait(false);
+            return page;
+        }
+
+        /// <summary>
         /// Fill in names, the thread title (for the owner), and the caller's CanDecide/CanRemember flags.
         /// </summary>
         /// <param name="caller">Caller, or null for no caller-specific flags.</param>

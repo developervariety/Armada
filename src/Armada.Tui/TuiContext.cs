@@ -66,6 +66,12 @@ namespace Armada.Tui
         public bool KeepHubTabFocus { get; set; } = false;
 
         /// <summary>
+        /// Like <see cref="KeepHubTabFocus"/> for a nested section strip inside a hub tab (for example the Requests and
+        /// Rules sections of Settings, CLI Tool Permissions). Consumed once.
+        /// </summary>
+        public bool KeepSectionTabFocus { get; set; } = false;
+
+        /// <summary>
         /// Session.
         /// </summary>
         public SessionService Session { get; }

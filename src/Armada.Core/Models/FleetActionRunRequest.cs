@@ -9,6 +9,10 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Runtime values keyed by the declared input name.</summary>
+        public Dictionary<string, string> InputValues { get => _InputValues; set => _InputValues = value ?? new(); }
+        private Dictionary<string, string> _InputValues = new();
+
         /// <summary>
         /// Target vessel identifiers in the caller's tenant. Required, 1 to 500 after de-duplication. A vessel from
         /// another tenant (or unknown) rejects the whole request.
