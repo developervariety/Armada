@@ -180,7 +180,13 @@ namespace Armada.Core.Services
                         + (missing.Any(m => m.StartsWith("api-inference-", StringComparison.OrdinalIgnoreCase)) ? "; update the Harbor to one that supports this endpoint's settings." : ".");
                 return "No single connected Harbor advertises all of " + String.Join(", ", required) + ".";
             }
-            return "All capable Harbors are at capacity; the mission will start when a slot frees up.";
+            string usage = String.Join(", ", candidates
+                .Where(h => h.Enabled && isConnected(h.Id) && !IsExcluded(request, h.Id) && HasCapabilities(h, request))
+                .Select(h => h.Name + " (" + h.Id + "): " + inFlight(h.Id) + "/" + h.MaxConcurrentJobs + " slots in use"));
+            return "All capable Harbors are at capacity: " + usage + ". "
+                + "Ask turns and other interactive work use slots too, even when captains appear idle. "
+                + "Wait for running jobs to finish, review Running now in the Harbor app, or increase MaxConcurrentJobs "
+                + "(Jobs at once) in Harbor Settings > General and save. Queued missions wait for a free slot; retry interactive requests after a slot is available.";
         }
 
         #endregion

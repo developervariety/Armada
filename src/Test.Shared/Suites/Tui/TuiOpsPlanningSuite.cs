@@ -37,7 +37,9 @@ namespace Test.Shared.Suites.Tui
                     TuiCase.Contains(frame, "Planning sessions reserve the selected captain and dock", "reservation notice");
                     TuiCase.Contains(frame, "Planning runs this captain", "runtime note");
                     TuiCase.Contains(frame, "Vessel Readiness", "readiness panel");
-                    PlanningScreen screen = (PlanningScreen)host.Tui.Shell.Screen!;
+                    PlanningScreen screen = TuiEntityFixtures.Screen<PlanningScreen>(host);
+                    AssertEqual("/dispatch", host.Tui.Context.Router.Current!.Path, "legacy /planning handoff lands on Dispatch");
+                    AssertEqual("planning", host.Tui.Context.Router.Current!.Tab?.Key, "on the Planning tab");
                     AssertEqual("obj_1", screen.ObjectiveId, "objective carried");
                     host.Press("ctrl+s");
                     AssertTrue(host.PumpUntil(() => stub.CountFor("POST", "/api/v1/planning-sessions") == 1), "create call");
@@ -46,9 +48,10 @@ namespace Test.Shared.Suites.Tui
                     AssertEqual("vsl_demo", body.VesselId, "vessel");
                     AssertEqual("obj_1", body.ObjectiveId, "objective");
                     AssertEqual("Plan it", body.Title, "title");
-                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.Path == "/planning/ps_new"), "opened the new session: " + host.Tui.Context.Router.Current!.FullPath);
+                    AssertTrue(host.PumpUntil(() => OnSession(host, "ps_new")), "opened the new session: " + host.Tui.Context.Router.Current!.FullPath);
                     AssertTrue(host.PumpUntil(() => host.Tui.Context.Notifications.ActiveToasts().Any(t => t.Text.Contains("Planning session started."))), "toast");
-                    PlanningScreen opened = (PlanningScreen)host.Tui.Shell.Screen!;
+                    AssertEqual("/dispatch?from=workspace&initialPrompt=Do%20the%20thing&session=ps_new&tab=planning", host.Tui.Context.Router.Current!.FullPath, "new session URL");
+                    PlanningScreen opened = TuiEntityFixtures.Screen<PlanningScreen>(host);
                     AssertEqual("Do the thing", opened.Composer.Text, "initial message in the composer");
                 }
             }));
@@ -56,7 +59,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "transcript_live", "The transcript renders replies, tools, thinking, metrics; live events update it; send, summarize, and dispatch", () =>
             {
                 StubHttpHandler stub = Stub();
-                using (TuiTestHost host = TuiCase.SignedIn(150, 50, "/planning/ps_1", stub))
+                using (TuiTestHost host = TuiCase.SignedIn(150, 50, "/dispatch?tab=planning&session=ps_1", stub))
                 {
                     AssertTrue(host.WaitForText("Here is the plan"), "assistant reply\n" + host.Screen());
                     string frame = host.Screen();
@@ -64,7 +67,8 @@ namespace Test.Shared.Suites.Tui
                     TuiCase.Contains(frame, "Runtime: ClaudeCode", "runtime");
                     TuiCase.Contains(frame, "Messages: 2", "message count");
                     TuiCase.Contains(frame, "time to first token", "metrics line");
-                    PlanningScreen screen = (PlanningScreen)host.Tui.Shell.Screen!;
+                    PlanningScreen screen = TuiEntityFixtures.Screen<PlanningScreen>(host);
+                    AssertEqual("ps_1", screen.SessionId, "session from the query");
                     AssertEqual("pm_2", screen.SelectedMessageId, "latest reply selected for dispatch");
                     AssertEqual("Here is the plan", screen.DispatchDescription.Text, "draft seeded from the reply");
 
@@ -120,9 +124,10 @@ namespace Test.Shared.Suites.Tui
                     AssertTrue(host.PumpUntil(() => dispatch.Vessel.Value == "vsl_demo"), "vessel handed off");
 
                     host.Tui.Context.Navigate("/planning/ps_1");
+                    AssertTrue(host.PumpUntil(() => OnSession(host, "ps_1")), "legacy /planning/:id opens the session on the Dispatch Planning tab: " + host.Tui.Context.Router.Current!.FullPath);
                     AssertTrue(host.WaitForText("Here is the plan"), "back on the session");
                     host.Tui.Context.Events.Inject(AskFixtures.EventJson("planning-session.deleted", "{\"sessionId\":\"ps_1\"}"));
-                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.Path == "/planning"), "left the deleted session");
+                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.FullPath == "/dispatch?tab=planning"), "left the deleted session: " + host.Tui.Context.Router.Current!.FullPath);
                     AssertTrue(host.PumpUntil(() => host.Tui.Context.Notifications.ActiveToasts().Any(t => t.Text.Contains("Planning session deleted."))), "deleted toast");
                 }
             }));
@@ -130,9 +135,10 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "sessions_table", "Recent Sessions lists sessions; End Session and Delete All confirm first", () =>
             {
                 StubHttpHandler stub = Stub();
-                using (TuiTestHost host = TuiCase.SignedIn(150, 50, "/planning", stub))
+                using (TuiTestHost host = TuiCase.SignedIn(150, 50, "/dispatch?tab=planning", stub))
                 {
-                    PlanningScreen screen = (PlanningScreen)host.Tui.Shell.Screen!;
+                    PlanningScreen screen = TuiEntityFixtures.Screen<PlanningScreen>(host);
+                    AssertNull(screen.SessionId, "no session on the bare tab");
                     host.Press("alt+2");
                     AssertTrue(host.WaitForText("Architecture plan"), "session row\n" + host.Screen());
                     TuiCase.Contains(host.Screen(), "DemoRepo", "vessel column");
@@ -152,6 +158,13 @@ namespace Test.Shared.Suites.Tui
             }));
 
             return new TestSuiteDescriptor(suiteId: Suite, displayName: "TUI planning", cases: cases);
+        }
+
+        internal static bool OnSession(TuiTestHost host, string sessionId)
+        {
+            Armada.Tui.Routing.RouteMatch? current = host.Tui.Context.Router.Current;
+            return current != null && current.Path == "/dispatch" && current.Tab?.Key == "planning"
+                && current.Query.TryGetValue("session", out string? session) && session == sessionId;
         }
 
         internal static string Session(string id, string status)

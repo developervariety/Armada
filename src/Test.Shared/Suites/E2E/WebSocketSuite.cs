@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.E2E
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Net.Http;
     using System.Net.WebSockets;
@@ -9,8 +10,11 @@ namespace Test.Shared.Suites.E2E
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
+    using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -878,11 +882,26 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-pr-open-mission").ConfigureAwait(false);
-                foreach (string step in new[] { "Assigned", "InProgress", "WorkProduced" })
+                foreach (string step in new[] { "Assigned", "InProgress" })
                 {
                     HttpResponseMessage stepResp = await authClient.PutAsync("/api/v1/missions/" + missionId + "/status",
                         JsonHelper.ToJsonContent(new { Status = step })).ConfigureAwait(false);
                     AssertEqual(System.Net.HttpStatusCode.OK, stepResp.StatusCode, "REST transition to " + step);
+                }
+
+                // REST refuses a manual InProgress -> WorkProduced handoff (only the agent exit and its stage check hand
+                // work off), so WorkProduced is seeded in the fixture database, as the agent exit would write it.
+                LoggingModule quiet = new LoggingModule();
+                quiet.Settings.EnableConsole = false;
+                using (DatabaseDriver db = DatabaseDriverFactory.Create(new DatabaseSettings { Type = DatabaseTypeEnum.Sqlite, Filename = Path.Combine(fx.TempDir, "armada.db") }, quiet))
+                {
+                    await db.InitializeAsync().ConfigureAwait(false);
+                    Mission produced = (await db.Missions.ReadAsync(missionId).ConfigureAwait(false))!;
+                    produced.Status = MissionStatusEnum.WorkProduced;
+                    // A read-only mission has no branch to land, so Complete is a plain status write.
+                    produced.Mode = MissionModeEnum.Research;
+                    produced.LastUpdateUtc = DateTime.UtcNow;
+                    await db.Missions.UpdateAsync(produced).ConfigureAwait(false);
                 }
 
                 // WorkProduced -> PullRequestOpen -> Complete are legal in MissionStateMachine and over REST.
@@ -958,16 +977,97 @@ namespace Test.Shared.Suites.E2E
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-complete-mission").ConfigureAwait(false);
 
-                // Pending -> Assigned -> InProgress via REST
+                // A read-only (Audit) mission whose work was produced completes by a status write; write modes land.
+                await SeedMissionAsync(fx, missionId, MissionStatusEnum.WorkProduced, MissionModeEnum.Audit).ConfigureAwait(false);
+
+                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
+                AssertEqual("command.result", resp.GetProperty("type").GetString());
+                Mission data = DeserializeData<Mission>(resp);
+                AssertEqual(MissionStatusEnum.Complete, data.Status);
+                AssertNotNull(data.CompletedUtc);
+            }));
+
+            cases.Add(CaseAsync("transition_mission_status_review_to_complete_returns_conflict", "TransitionMissionStatus_ReviewToComplete_ReturnsConflict", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                int restPort = fx.RestPort;
+
+                string missionId = await CreateMissionViaRestAsync(fx.AuthClient, "ws-review-complete").ConfigureAwait(false);
+                await SeedMissionAsync(fx, missionId, MissionStatusEnum.Review, MissionModeEnum.Research).ConfigureAwait(false);
+
+                // Review -> Complete is legal in the state machine, but the gate is passed only through approve/deny review.
+                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
+                AssertWsConflict(resp);
+                AssertContains("waiting at a review gate", resp.GetProperty("error").GetString()!);
+                AssertEqual(MissionStatusEnum.Review, await ReadMissionStatusAsync(fx, missionId).ConfigureAwait(false));
+            }));
+
+            cases.Add(CaseAsync("transition_mission_status_review_cancel_still_allowed", "TransitionMissionStatus_Review_CancelStillAllowed", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                int restPort = fx.RestPort;
+
+                string missionId = await CreateMissionViaRestAsync(fx.AuthClient, "ws-review-cancel").ConfigureAwait(false);
+                await SeedMissionAsync(fx, missionId, MissionStatusEnum.Review, MissionModeEnum.Implementation).ConfigureAwait(false);
+
+                // The review gate does not block cancellation; it goes through cancel_mission (MissionStateMachine has no
+                // Review -> Cancelled status edge, so transition_mission_status reports it as an invalid transition).
+                JsonElement tmResp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Cancelled" }).ConfigureAwait(false);
+                AssertEqual("command.error", tmResp.GetProperty("type").GetString());
+                AssertContains("Invalid transition", tmResp.GetProperty("error").GetString()!);
+
+                JsonElement resp = await WsCommandAsync(restPort, "cancel_mission", new { id = missionId }).ConfigureAwait(false);
+                AssertEqual("command.result", resp.GetProperty("type").GetString(), resp.GetRawText());
+                AssertEqual(MissionStatusEnum.Cancelled, DeserializeData<Mission>(resp).Status);
+            }));
+
+            cases.Add(CaseAsync("transition_mission_status_in_progress_to_complete_returns_handoff_refusal", "TransitionMissionStatus_InProgressToComplete_ReturnsHandoffRefusal", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                HttpClient authClient = fx.AuthClient;
+                int restPort = fx.RestPort;
+
+                string missionId = await CreateMissionViaRestAsync(authClient, "ws-inprogress-complete").ConfigureAwait(false);
                 await authClient.PutAsync("/api/v1/missions/" + missionId + "/status",
                     JsonHelper.ToJsonContent(new { Status = "Assigned" })).ConfigureAwait(false);
                 await authClient.PutAsync("/api/v1/missions/" + missionId + "/status",
                     JsonHelper.ToJsonContent(new { Status = "InProgress" })).ConfigureAwait(false);
 
                 JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
-                AssertEqual("command.result", resp.GetProperty("type").GetString());
-                Mission data = DeserializeData<Mission>(resp);
-                AssertNotNull(data.CompletedUtc);
+                AssertWsConflict(resp);
+                AssertContains("still owns this mission", resp.GetProperty("error").GetString()!);
+                AssertEqual(MissionStatusEnum.InProgress, await ReadMissionStatusAsync(fx, missionId).ConfigureAwait(false));
+            }));
+
+            cases.Add(CaseAsync("transition_mission_status_process_id_set_returns_handoff_refusal", "TransitionMissionStatus_ProcessIdSet_ReturnsHandoffRefusal", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                int restPort = fx.RestPort;
+
+                string missionId = await CreateMissionViaRestAsync(fx.AuthClient, "ws-pid-complete").ConfigureAwait(false);
+                await SeedMissionAsync(fx, missionId, MissionStatusEnum.WorkProduced, MissionModeEnum.Research, 4242).ConfigureAwait(false);
+
+                // A live process (or exit claim) owns the handoff even for a read-only mission.
+                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
+                AssertWsConflict(resp);
+                AssertContains("still owns this mission", resp.GetProperty("error").GetString()!);
+                AssertEqual(MissionStatusEnum.WorkProduced, await ReadMissionStatusAsync(fx, missionId).ConfigureAwait(false));
+            }));
+
+            cases.Add(CaseAsync("transition_mission_status_write_mission_without_dock_returns_conflict", "TransitionMissionStatus_WriteMissionWithoutDock_ReturnsConflict", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                int restPort = fx.RestPort;
+
+                string missionId = await CreateMissionViaRestAsync(fx.AuthClient, "ws-nodock-complete").ConfigureAwait(false);
+                await SeedMissionAsync(fx, missionId, MissionStatusEnum.WorkProduced, MissionModeEnum.Implementation).ConfigureAwait(false);
+
+                // A write-mode mission must land its branch; with no active dock there is nothing to land.
+                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
+                AssertWsConflict(resp);
+                string error = resp.GetProperty("error").GetString()!;
+                AssertTrue(error.Contains("An active dock is required") || error.Contains("Landing is not available"), "unexpected error: " + error);
+                AssertEqual(MissionStatusEnum.WorkProduced, await ReadMissionStatusAsync(fx, missionId).ConfigureAwait(false));
             }));
 
             cases.Add(CaseAsync("list_missions_with_pagination_respects_page_size", "ListMissions_WithPagination_RespectsPageSize", TestTags.Positive, async () =>
@@ -1803,6 +1903,36 @@ namespace Test.Shared.Suites.E2E
                     Runtime = runtime
                 })).ConfigureAwait(false);
             updateResp.EnsureSuccessStatusCode();
+        }
+
+        private static async Task SeedMissionAsync(E2EServerFixture fx, string missionId, MissionStatusEnum status, MissionModeEnum mode, int? processId = null)
+        {
+            LoggingModule quiet = new LoggingModule();
+            quiet.Settings.EnableConsole = false;
+            using (DatabaseDriver db = DatabaseDriverFactory.Create(new DatabaseSettings { Type = DatabaseTypeEnum.Sqlite, Filename = Path.Combine(fx.TempDir, "armada.db") }, quiet))
+            {
+                await db.InitializeAsync().ConfigureAwait(false);
+                Mission mission = (await db.Missions.ReadAsync(missionId).ConfigureAwait(false))!;
+                mission.Status = status;
+                mission.Mode = mode;
+                mission.ProcessId = processId;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            }
+        }
+
+        private static async Task<MissionStatusEnum> ReadMissionStatusAsync(E2EServerFixture fx, string missionId)
+        {
+            HttpResponseMessage resp = await fx.AuthClient.GetAsync("/api/v1/missions/" + missionId).ConfigureAwait(false);
+            resp.EnsureSuccessStatusCode();
+            Mission mission = await JsonHelper.DeserializeAsync<Mission>(resp).ConfigureAwait(false);
+            return mission.Status;
+        }
+
+        private static void AssertWsConflict(JsonElement resp)
+        {
+            AssertEqual("command.error", resp.GetProperty("type").GetString(), resp.GetRawText());
+            AssertEqual("Conflict", resp.GetProperty("code").ToString(), resp.GetRawText());
         }
 
         private static async Task<string> CreateMissionViaRestAsync(HttpClient authClient, string title)

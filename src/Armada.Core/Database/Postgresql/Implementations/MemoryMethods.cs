@@ -217,6 +217,29 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<EnumerationResult<Memory>> EnumerateAsync(MemoryEnumerateRequest query, string? tenantId, string? ownerUserId, string? viewerUserId, CancellationToken token = default)
+        {
+            if (query == null) query = new MemoryEnumerateRequest();
+
+            MemoryEnumerateQuery sql = MemoryEnumerateQueryBuilder.Build(query, tenantId, ownerUserId, viewerUserId);
+            Action<NpgsqlCommand> bind = cmd => BindParameters(cmd, sql.Parameters);
+
+            using (NpgsqlConnection conn = _Driver.CreateConnection())
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                long total = await PostgresqlCommandHelper.CountAsync(conn, "SELECT COUNT(*)" + sql.FromClause + sql.WhereClause + ";", bind, token).ConfigureAwait(false);
+                List<Memory> rows = await PostgresqlCommandHelper.QueryAsync(conn,
+                    "SELECT " + MemoryEnumerateQueryBuilder.SelectColumns + sql.FromClause + sql.WhereClause + sql.OrderByClause + PostgresqlCommandHelper.Page(query.Offset, query.PageSize) + ";",
+                    bind, MemoryFromReader, token).ConfigureAwait(false);
+
+                foreach (Memory memory in rows)
+                    memory.Tags = await LoadTagsAsync(conn, memory.Id, token).ConfigureAwait(false);
+
+                return EnumerationResult<Memory>.Create(query, rows, total);
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<bool> ExistsAnyAsync(CancellationToken token = default)
         {
             using (NpgsqlConnection conn = _Driver.CreateConnection())
@@ -388,6 +411,16 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)memory.VesselId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", memory.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", memory.LastUpdateUtc);
+        }
+
+
+        private static void BindParameters(NpgsqlCommand cmd, List<QueryParameter> parameters)
+        {
+            foreach (QueryParameter parameter in parameters)
+            {
+                if (parameter.Value is DateTime dt) PostgresqlCommandHelper.AddDate(cmd, parameter.Name, dt);
+                else PostgresqlCommandHelper.Add(cmd, parameter.Name, parameter.Value);
+            }
         }
 
         private static Memory MemoryFromReader(NpgsqlDataReader reader)

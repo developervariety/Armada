@@ -569,6 +569,31 @@ namespace Armada.Server.WebSocket
                     {
                         return WebSocketCommandError.Create("transition_mission_status", WebSocketCommandErrorCodeEnum.Conflict, "Invalid transition from " + tmMission.Status + " to " + tmNewStatus);
                     }
+                    // Same gates as REST and MCP: a review gate is passed through approve/deny review, and a manual
+                    // WorkProduced/Complete must land the branch instead of writing the status.
+                    else if (tmMission.Status == MissionStatusEnum.Review && tmNewStatus != MissionStatusEnum.Cancelled)
+                    {
+                        return WebSocketCommandError.Create("transition_mission_status", WebSocketCommandErrorCodeEnum.Conflict, "Mission " + tmId + " is waiting at a review gate; use approve_mission_review or deny_mission_review.");
+                    }
+                    else if (ManualMissionHandoff.Refusal(tmMission, tmNewStatus) is string tmRefusal)
+                    {
+                        return WebSocketCommandError.Create("transition_mission_status", WebSocketCommandErrorCodeEnum.Conflict, tmRefusal);
+                    }
+                    else if ((tmNewStatus == MissionStatusEnum.WorkProduced || tmNewStatus == MissionStatusEnum.Complete)
+                        && !MissionModeContract.IsReadOnly(tmMission.Mode))
+                    {
+                        Mission tmLanded;
+                        try
+                        {
+                            tmLanded = await ManualMissionHandoff.LandAsync(_Database, _Admiral, tmMission).ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            return WebSocketCommandError.Create("transition_mission_status", WebSocketCommandErrorCodeEnum.Conflict, ex.Message);
+                        }
+                        _BroadcastMissionChange(tmLanded, tmLanded.Status.ToString());
+                        return new { type = "command.result", action = "transition_mission_status", data = (object)tmLanded };
+                    }
                     else
                     {
                         tmMission.Status = tmNewStatus;
@@ -660,8 +685,9 @@ namespace Armada.Server.WebSocket
                     Mission? rmMission = await _Database.Missions.ReadAsync(rmId).ConfigureAwait(false);
                     if (rmMission == null)
                         return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.NotFound, "Mission not found");
-                    else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
-                        return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.Conflict, "Only Failed, LandingFailed, or Cancelled missions can be restarted");
+                    else if (rmMission.Status != MissionStatusEnum.Pending && rmMission.Status != MissionStatusEnum.Failed
+                        && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
+                        return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.Conflict, "Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted (current: " + rmMission.Status + ")");
                     else
                     {
                         if (Missions == null)
@@ -776,7 +802,9 @@ namespace Armada.Server.WebSocket
                     }
 
                     if (!String.IsNullOrWhiteSpace(command.CaptainId)) cliQuery.CaptainId = command.CaptainId;
-                    List<CliPermissionRequest> cliRequests = await CliPermissions.ListAsync(caller, cliQuery).ConfigureAwait(false);
+                    // One page (query.pageNumber, query.pageSize 1-1000, default 10), never the whole list.
+                    EnumerationQuery cliPage = command.Query ?? new EnumerationQuery();
+                    EnumerationResult<CliPermissionRequest> cliRequests = await CliPermissions.EnumerateAsync(caller, cliQuery, cliPage.PageNumber, cliPage.PageSize).ConfigureAwait(false);
                     return new { type = "command.result", action, data = (object)cliRequests };
                 }
 
