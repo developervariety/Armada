@@ -13,10 +13,12 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildFleetDuplicatePayload } from '../lib/duplicates';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 export default function FleetDetail() {
   const { t, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [fleet, setFleet] = useState<Fleet | null>(null);
@@ -87,11 +89,9 @@ export default function FleetDetail() {
       message: t('Delete fleet "{{name}}"? This cannot be undone.', { name: fleet.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await deleteFleet(fleet.id);
-          pushToast('warning', t('Fleet "{{name}}" deleted.', { name: fleet.name }));
-          navigate('/fleets');
-        } catch { setError(t('Delete failed.')); }
+        if (!(await deletion.run({ kind: 'fleet', action: () => deleteFleet(fleet.id), errorMessage: (err) => apiErrorMessage(err, t('Delete failed.')) }))) return;
+        pushToast('warning', t('Fleet "{{name}}" deleted.', { name: fleet.name }));
+        navigate('/fleets');
       },
     });
   }
@@ -160,6 +160,7 @@ export default function FleetDetail() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+      {deletion.dialog}
 
       {/* Fleet Info */}
       <div className="detail-grid">
