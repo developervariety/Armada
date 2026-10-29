@@ -133,7 +133,7 @@ namespace Armada.Core.Services
         /// <exception cref="ArgumentNullException">Thrown when captain or packIds is null.</exception>
         /// <exception cref="ArgumentException">Thrown for no packs, an unknown or malformed pack, a run count outside 1 to 10,
         /// or a missing fixture vessel that was not asked to be created.</exception>
-        public async Task<BatteryRun> StartAsync(
+        public Task<BatteryRun> StartAsync(
             Captain captain,
             ModelEndpoint? endpoint,
             List<string> packIds,
@@ -144,12 +144,48 @@ namespace Armada.Core.Services
             string? userId,
             CancellationToken token = default)
         {
+            return StartAsync(captain, endpoint, packIds, runCount, seed, createFixtureVessels, tenantId, userId, null, token);
+        }
+
+        /// <summary>
+        /// Start a battery run whose tasks render the given persona prompt variant. Validates the packs and resolves (or
+        /// creates, when asked) each fixture vessel before returning the queued run; the tasks run in the background.
+        /// A variant other than Current is recorded in the run's configuration (and so its configuration revision).
+        /// </summary>
+        /// <param name="captain">Captain to run the tasks.</param>
+        /// <param name="endpoint">The captain's model endpoint, or null.</param>
+        /// <param name="packIds">Packs to run.</param>
+        /// <param name="runCount">Runs of each task, or null for 3.</param>
+        /// <param name="seed">Seed to record, or null to pick one.</param>
+        /// <param name="createFixtureVessels">Whether to create missing fixture vessels.</param>
+        /// <param name="tenantId">Tenant the run and fixture vessels belong to.</param>
+        /// <param name="userId">Caller.</param>
+        /// <param name="promptVariant">Prompt variant for every task, or null for the captain's own setting.</param>
+        /// <param name="token">Cancellation token (for starting the run, not for the background work).</param>
+        /// <returns>The queued run.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when captain or packIds is null.</exception>
+        /// <exception cref="ArgumentException">Thrown for no packs, an unknown or malformed pack, a run count outside 1 to 10,
+        /// an undefined prompt variant, or a missing fixture vessel that was not asked to be created.</exception>
+        public async Task<BatteryRun> StartAsync(
+            Captain captain,
+            ModelEndpoint? endpoint,
+            List<string> packIds,
+            int? runCount,
+            int? seed,
+            bool createFixtureVessels,
+            string? tenantId,
+            string? userId,
+            PromptVariantEnum? promptVariant,
+            CancellationToken token = default)
+        {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (packIds == null) throw new ArgumentNullException(nameof(packIds));
             List<string> ids = packIds.Where(p => !String.IsNullOrWhiteSpace(p)).Select(p => p.Trim()).Distinct(StringComparer.Ordinal).ToList();
             if (ids.Count == 0) throw new ArgumentException("Name at least one pack.", nameof(packIds));
             int count = runCount ?? DefaultRunCount;
             if (count < 1 || count > MaxRunCount) throw new ArgumentException("runCount must be 1 to " + MaxRunCount + ".", nameof(runCount));
+            if (promptVariant.HasValue && !Enum.IsDefined(promptVariant.Value))
+                throw new ArgumentException("promptVariant must be Current, Lean or Compact.", nameof(promptVariant));
 
             List<BatteryPack> all = _Catalog.LoadAll();
             List<BatteryPack> packs = new List<BatteryPack>();
@@ -186,7 +222,7 @@ namespace Armada.Core.Services
                 TotalTasks = packs.Sum(p => p.Manifest!.Tasks.Count) * count
             };
             run.SamplingJson = JsonSerializer.Serialize(BuildSampling(captain, endpoint), _Json);
-            run.ConfigurationJson = JsonSerializer.Serialize(BuildConfiguration(run, captain, endpoint, packs), _Json);
+            run.ConfigurationJson = JsonSerializer.Serialize(BuildConfiguration(run, captain, endpoint, packs, promptVariant), _Json);
             run.ConfigurationRevision = Revision(run.ConfigurationJson);
 
             run = await _Database.BatteryRuns.CreateAsync(run, token).ConfigureAwait(false);
@@ -194,7 +230,7 @@ namespace Armada.Core.Services
 
             BatteryRun returned = await _Database.BatteryRuns.ReadAsync(run.Id, token).ConfigureAwait(false) ?? run;
             BatteryRun created = run;
-            Task<BatteryRun> execution = Task.Run(() => ExecuteAsync(created, captain, packs, vessels));
+            Task<BatteryRun> execution = Task.Run(() => ExecuteAsync(created, captain, packs, vessels, promptVariant));
             _Running[run.Id] = execution;
             _ = execution.ContinueWith(t => _Running.TryRemove(created.Id, out Task<BatteryRun>? _), TaskScheduler.Default);
             return returned;
@@ -295,7 +331,7 @@ namespace Armada.Core.Services
             return _Settings() ?? new EvaluationSettings();
         }
 
-        private async Task<BatteryRun> ExecuteAsync(BatteryRun run, Captain captain, List<BatteryPack> packs, Dictionary<string, Vessel> vessels)
+        private async Task<BatteryRun> ExecuteAsync(BatteryRun run, Captain captain, List<BatteryPack> packs, Dictionary<string, Vessel> vessels, PromptVariantEnum? promptVariant)
         {
             try
             {
@@ -313,7 +349,7 @@ namespace Armada.Core.Services
                         {
                             foreach (BatteryTaskDefinition task in pack.Manifest!.Tasks)
                             {
-                                BatteryTaskResult result = await RunTaskAsync(run, captain, pack, vessels[pack.Id], task, attempt, missingToolchain, missingReason).ConfigureAwait(false);
+                                BatteryTaskResult result = await RunTaskAsync(run, captain, pack, vessels[pack.Id], task, attempt, missingToolchain, missingReason, promptVariant).ConfigureAwait(false);
                                 if (result.Outcome == BatteryTaskOutcomeEnum.CouldNotRun && missingReason == null && missingToolchain.Count > 0)
                                     missingReason = result.Reason;
 
@@ -359,7 +395,8 @@ namespace Armada.Core.Services
             BatteryTaskDefinition task,
             int attempt,
             HashSet<string> missingToolchain,
-            string? missingReason)
+            string? missingReason,
+            PromptVariantEnum? promptVariant)
         {
             Stopwatch watch = Stopwatch.StartNew();
             BatteryTaskResult result = new BatteryTaskResult
@@ -402,7 +439,10 @@ namespace Armada.Core.Services
                         "[" + pack.Id + "/" + task.Id + " #" + attempt + "] " + task.Title,
                         BuildDescription(pack, task),
                         PersonaCatalog.NormalizeName(task.Persona),
-                        timeoutMinutes * 60000);
+                        timeoutMinutes * 60000)
+                    {
+                        PromptVariant = promptVariant
+                    };
                     BatteryDispatchResult dispatched = await _Dispatcher.RunAsync(request).ConfigureAwait(false);
                     result.VoyageId = dispatched.VoyageId;
                     result.MissionId = dispatched.Mission?.Id;
@@ -520,9 +560,9 @@ namespace Armada.Core.Services
             };
         }
 
-        private Dictionary<string, object?> BuildConfiguration(BatteryRun run, Captain captain, ModelEndpoint? endpoint, List<BatteryPack> packs)
+        private Dictionary<string, object?> BuildConfiguration(BatteryRun run, Captain captain, ModelEndpoint? endpoint, List<BatteryPack> packs, PromptVariantEnum? promptVariant)
         {
-            return new Dictionary<string, object?>(StringComparer.Ordinal)
+            Dictionary<string, object?> configuration = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["armadaVersion"] = _ArmadaVersion,
                 ["pipeline"] = BatteryFixtureService.PipelineName,
@@ -550,6 +590,12 @@ namespace Armada.Core.Services
                     ["manifestHash"] = p.ManifestHash
                 }).ToList()
             };
+
+            // The effective persona prompt variant, recorded only when it is not Current so a Current run keeps the
+            // configuration revision it had before variants existed.
+            PromptVariantEnum effectiveVariant = promptVariant ?? PromptVariantResolver.FromCaptain(captain) ?? PromptVariantEnum.Current;
+            if (effectiveVariant != PromptVariantEnum.Current) configuration["promptVariant"] = effectiveVariant.ToString();
+            return configuration;
         }
 
         private static string Revision(string json)

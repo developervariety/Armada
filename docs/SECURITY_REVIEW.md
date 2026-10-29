@@ -272,6 +272,7 @@ and the server defaults ([CAPTAINS.md](CAPTAINS.md#cli-tool-permissions)):
 | Gemini | `--approval-mode yolo` | `--approval-mode auto_edit` |
 | Cursor | `--force` | no `--force` |
 | OpenCode | `--auto` | no `--auto` |
+| pi | pi's default (no prompts, all tools) | `--exclude-tools bash,powershell` (shell refused, including the Windows `powershell` tool; file and MCP tools stay) |
 | Mux | `--yolo` | `--approval-policy deny` (an explicit Mux approval policy on the captain wins) |
 | ApiEndpoint | no CLI flags; the built-in `run_process` tool runs commands in-process | `run_process` refuses every call (the file tools still run) |
 
@@ -281,7 +282,10 @@ Mux 1.5.0 or later gets `--approval-policy ask --permission-prompt-tool armada.c
 `--sandbox workspace-write`: file edits inside the worktree run (like Claude Code's `acceptEdits`), edits outside it are
 refused, and other mutating tools wait for a decision; a prompt error, timeout, or unreadable answer denies the call.
 ApiEndpoint captains ask the same way for each `run_process` call, in-process.
-A Harbor that advertises the `cli-permission-prompt` capability sets up the same flags for Claude Code and Mux on its
+pi gets `--extension <bin>/Pi/armada-permission-gate.ts` instead of the `Refuse` exclusion: the extension's `tool_call` hook
+asks `cli_permission_prompt` before `bash`, `powershell`, or any tool that is not a file tool or an Armada MCP tool runs,
+and blocks the call when Armada denies it, cannot be reached, or does not answer in time (it fails closed).
+A Harbor that advertises the `cli-permission-prompt` capability sets up the same flags for Claude Code, Mux and pi on its
 host, against the scoped MCP server bound to the launch's token. Every other runtime (and Mux before 1.5.0), and every
 launch on a Harbor without that capability, runs `ApproveInArmada` as `Refuse`.
 
@@ -390,16 +394,16 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | GET | `/api/v1/ask/threads/{id}/work/{workId}` | AskRoutes | AskThread:Read | Authenticated | caller tenant/user (handler) | path | - |
 | GET | `/api/v1/ask/quick-actions` | AskRoutes | AskThread:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | PUT | `/api/v1/ask/threads/{id}/cli-permission-policy` | CliPermissionRoutes | AskThread:Update | Authenticated | thread owner only; `Bypass` needs a global or tenant admin (handler) | typed JSON body | - |
-| GET | `/api/v1/cli-permissions/requests` | CliPermissionRoutes | CliPermission:Read | Authenticated | `CliPermissionAccess`: global admin all, tenant admin own tenant, user own threads and missions (handler) | path + query | - |
+| POST | `/api/v1/cli-permissions/requests/enumerate` | CliPermissionRoutes | CliPermission:Read | Authenticated | `CliPermissionAccess`: global admin all, tenant admin own tenant, user own threads and missions (handler) | typed JSON body | - |
 | GET | `/api/v1/cli-permissions/requests/{id}` | CliPermissionRoutes | CliPermission:Read | Authenticated | `CliPermissionAccess` (404 when not visible) | path | - |
 | POST | `/api/v1/cli-permissions/requests/{id}/decide` | CliPermissionRoutes | CliPermission:Execute | Authenticated | `CliPermissionAccess`: admins of the request's tenant, owner only with `Permissions.AllowOwnerApproval`; remember admins only (handler) | typed JSON body | - |
-| GET | `/api/v1/cli-permissions/rules` | CliPermissionRoutes | CliPermission:Read | Authenticated | caller tenant plus all-tenant rules (handler) | path + query | - |
+| POST | `/api/v1/cli-permissions/rules/enumerate` | CliPermissionRoutes | CliPermission:Read | Authenticated | caller tenant plus all-tenant rules (handler) | typed JSON body | - |
 | POST | `/api/v1/cli-permissions/rules` | CliPermissionRoutes | CliPermission:Create | TenantAdmin | tenant admin own tenant; global admin any or all tenants (handler) | typed JSON body | - |
 | GET | `/api/v1/cli-permissions/rules/{id}` | CliPermissionRoutes | CliPermission:Read | Authenticated | caller tenant plus all-tenant rules (handler) | path | - |
 | PUT | `/api/v1/cli-permissions/rules/{id}` | CliPermissionRoutes | CliPermission:Update | TenantAdmin | rule's tenant; all-tenant rules global admin only (handler) | typed JSON body | - |
 | DELETE | `/api/v1/cli-permissions/rules/{id}` | CliPermissionRoutes | CliPermission:Delete | TenantAdmin | rule's tenant; all-tenant rules global admin only (handler) | path | - |
 | POST | `/api/v1/push/devices` | PushRoutes | PushDevice:Create | Authenticated | caller's own user and tenant from the credential; captain sessions refused (handler) | typed JSON body | - |
-| GET | `/api/v1/push/devices` | PushRoutes | PushDevice:Read | Authenticated | `PushDeviceAccess`: own devices; tenant admin a user of own tenant; global admin any (handler) | path + query | - |
+| POST | `/api/v1/push/devices/enumerate` | PushRoutes | PushDevice:Read | Authenticated | `PushDeviceAccess`: own devices; tenant admin a user of own tenant; global admin any (handler) | typed JSON body | - |
 | PUT | `/api/v1/push/devices/{id}` | PushRoutes | PushDevice:Update | Authenticated | `PushDeviceAccess`: owner, tenant admins of the device's tenant, global admins (404 otherwise) | typed JSON body | - |
 | DELETE | `/api/v1/push/devices/{id}` | PushRoutes | PushDevice:Delete | Authenticated | `PushDeviceAccess` (404 otherwise) | path | - |
 | POST | `/api/v1/push/devices/{id}/test` | PushRoutes | PushDevice:Execute | Authenticated | `PushDeviceAccess` (404 otherwise) | path | - |
@@ -478,7 +482,7 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | PUT | `/api/v1/fleets/{id}` | FleetRoutes | Fleet:Update | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | DELETE | `/api/v1/fleets/{id}` | FleetRoutes | Fleet:Delete | TenantAdmin | caller tenant/user (handler) | path | - |
 | POST | `/api/v1/fleets/delete/multiple` | FleetRoutes | Fleet:Delete | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
-| GET | `/api/v1/harbors` | HarborRoutes | Harbor:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/harbors/enumerate` | HarborRoutes | Harbor:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/harbors` | HarborRoutes | Harbor:Create | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/harbors/{id}` | HarborRoutes | Harbor:Read | Authenticated | caller tenant/user (handler) | path | - |
 | PUT | `/api/v1/harbors/{id}` | HarborRoutes | Harbor:Update | Authenticated | caller tenant/user (handler) | typed JSON body | - |
@@ -488,7 +492,7 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | POST | `/api/v1/harbors/{id}/probe` | HarborRoutes | Harbor:Execute | TenantAdmin | caller tenant/user (handler) | typed JSON body | F-06 Fixed |
 | GET | `/api/v1/history` | HistoryRoutes | History:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | POST | `/api/v1/history/enumerate` | HistoryRoutes | History:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
-| GET | `/api/v1/inbox` | InboxRoutes | Inbox:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/inbox/enumerate` | InboxRoutes | Inbox:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/incidents` | IncidentRoutes | Incident:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | POST | `/api/v1/incidents/enumerate` | IncidentRoutes | Incident:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/incidents/{id}` | IncidentRoutes | Incident:Read | Authenticated | caller tenant/user (handler) | path | - |
@@ -496,6 +500,7 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | PUT | `/api/v1/incidents/{id}` | IncidentRoutes | Incident:Update | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | DELETE | `/api/v1/incidents/{id}` | IncidentRoutes | Incident:Delete | TenantAdmin | caller tenant/user (handler) | path + query | - |
 | GET | `/api/v1/jobs` | JobRoutes | Job:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/jobs/enumerate` | JobRoutes | Job:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/jobs/{id}` | JobRoutes | Job:Read | Authenticated | caller tenant/user (handler) | path | - |
 | POST | `/api/v1/jobs/{id}/cancel` | JobRoutes | Job:Execute | Authenticated | caller tenant/user (handler) | no body / path | - |
 | GET | `/api/v1/memories` | MemoryRoutes | Memory:Read | Authenticated | caller tenant/user (handler) | path + query | - |
@@ -534,16 +539,16 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | GET | `/api/v1/missions/{id}/diff` | MissionRoutes | Mission:Read | Authenticated | caller tenant/user (handler) | path | - |
 | GET | `/api/v1/missions/{id}/log` | MissionRoutes | Mission:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | GET | `/api/v1/missions/{id}/instructions` | MissionRoutes | Mission:Read | Authenticated | caller tenant/user (handler) | path | - |
-| GET | `/api/v1/model-endpoints` | ModelEndpointRoutes | ModelEndpoint:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/model-endpoints/enumerate` | ModelEndpointRoutes | ModelEndpoint:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/model-endpoints` | ModelEndpointRoutes | ModelEndpoint:Create | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/model-endpoints/{id}` | ModelEndpointRoutes | ModelEndpoint:Read | Authenticated | caller tenant/user (handler) | path | - |
 | PUT | `/api/v1/model-endpoints/{id}` | ModelEndpointRoutes | ModelEndpoint:Update | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | DELETE | `/api/v1/model-endpoints/{id}` | ModelEndpointRoutes | ModelEndpoint:Delete | Authenticated | caller tenant/user (handler) | path | - |
 | POST | `/api/v1/model-endpoints/{id}/validate` | ModelEndpointRoutes | ModelEndpoint:Read | Authenticated | caller tenant/user (handler) | no body / path | - |
 | POST | `/api/v1/model-endpoints/health-check` | ModelEndpointRoutes | ModelEndpoint:Execute | Authenticated | caller tenant/user (handler) | no body / path | - |
-| GET | `/api/v1/objectives/{id}/refinement-sessions` | ObjectiveRefinementRoutes | ObjectiveRefinementSession:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/objectives/{id}/refinement-sessions/enumerate` | ObjectiveRefinementRoutes | ObjectiveRefinementSession:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/objectives/{id}/refinement-sessions` | ObjectiveRefinementRoutes | ObjectiveRefinementSession:Create | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
-| GET | `/api/v1/backlog/{id}/refinement-sessions` | ObjectiveRefinementRoutes | ObjectiveRefinementSession:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/backlog/{id}/refinement-sessions/enumerate` | ObjectiveRefinementRoutes | ObjectiveRefinementSession:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/backlog/{id}/refinement-sessions` | ObjectiveRefinementRoutes | ObjectiveRefinementSession:Create | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/objective-refinement-sessions/{id}` | ObjectiveRefinementRoutes | ObjectiveRefinementSession:Read | Authenticated | caller tenant/user (handler) | path | - |
 | POST | `/api/v1/objective-refinement-sessions/{id}/messages` | ObjectiveRefinementRoutes | ObjectiveRefinementSession:Execute | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
@@ -578,7 +583,7 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | POST | `/api/v1/pipelines` | PipelineRoutes | Pipeline:Create | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | PUT | `/api/v1/pipelines/{name}` | PipelineRoutes | Pipeline:Update | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | DELETE | `/api/v1/pipelines/{name}` | PipelineRoutes | Pipeline:Delete | Authenticated | caller tenant/user (handler) | path | - |
-| GET | `/api/v1/planning-sessions` | PlanningSessionRoutes | PlanningSession:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/planning-sessions/enumerate` | PlanningSessionRoutes | PlanningSession:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/planning-sessions` | PlanningSessionRoutes | PlanningSession:Create | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/planning-sessions/{id}` | PlanningSessionRoutes | PlanningSession:Read | Authenticated | caller tenant/user (handler) | path | - |
 | POST | `/api/v1/planning-sessions/{id}/messages` | PlanningSessionRoutes | PlanningSession:Execute | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
@@ -612,11 +617,12 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | POST | `/api/v1/releases/enumerate` | ReleaseRoutes | Release:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/releases` | ReleaseRoutes | Release:Create | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/releases/{id}` | ReleaseRoutes | Release:Read | Authenticated | caller tenant/user (handler) | path | - |
-| GET | `/api/v1/releases/{id}/github/pull-requests` | ReleaseRoutes | Release:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/releases/{id}/github/pull-requests/enumerate` | ReleaseRoutes | Release:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | PUT | `/api/v1/releases/{id}` | ReleaseRoutes | Release:Update | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/releases/{id}/refresh` | ReleaseRoutes | Release:Execute | TenantAdmin | caller tenant/user (handler) | no body / path | - |
 | DELETE | `/api/v1/releases/{id}` | ReleaseRoutes | Release:Delete | TenantAdmin | caller tenant/user (handler) | path + query | - |
 | GET | `/api/v1/request-history` | RequestHistoryRoutes | RequestHistory:Read | Authenticated | caller tenant/user (handler) | path + query | - |
+| POST | `/api/v1/request-history/enumerate` | RequestHistoryRoutes | RequestHistory:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/request-history/summary` | RequestHistoryRoutes | RequestHistory:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | GET | `/api/v1/request-history/{id}` | RequestHistoryRoutes | RequestHistory:Read | Authenticated | caller tenant/user (handler) | path | - |
 | DELETE | `/api/v1/request-history/{id}` | RequestHistoryRoutes | RequestHistory:Delete | TenantAdmin | caller tenant/user (handler) | path | - |
@@ -639,10 +645,8 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | GET | `/api/v1/signals` | SignalRoutes | Signal:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | POST | `/api/v1/signals/enumerate` | SignalRoutes | Signal:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/signals` | SignalRoutes | Signal:Create | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
-| GET | `/api/v1/signals/recent` | SignalRoutes | Signal:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | GET | `/api/v1/signals/{id}` | SignalRoutes | Signal:Read | Authenticated | caller tenant/user (handler) | path | - |
 | PUT | `/api/v1/signals/{id}/read` | SignalRoutes | Signal:Update | TenantAdmin | caller tenant/user (handler) | no body / path | - |
-| GET | `/api/v1/signals/recipient/{captainId}` | SignalRoutes | Signal:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | DELETE | `/api/v1/signals/{id}` | SignalRoutes | Signal:Delete | TenantAdmin | caller tenant/user (handler) | path | - |
 | POST | `/api/v1/signals/delete/multiple` | SignalRoutes | Signal:Delete | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/skills` | SkillRoutes | Skill:Read | Authenticated | caller tenant/user (handler) | path + query | - |
@@ -663,22 +667,26 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | PUT | `/api/v1/settings` | StatusRoutes | Settings:Admin | AdminOnly | server-wide (admin) | typed JSON body | F-13 Fixed |
 | POST | `/api/v1/server/reset` | StatusRoutes | Server:Admin | AdminOnly | server-wide (admin) | typed JSON body | - |
 | GET | `/api/v1/tenants` | TenantRoutes | Tenant:Read | AdminOnly | tenant (handler) | path + query | - |
+| POST | `/api/v1/tenants/enumerate` | TenantRoutes | Tenant:Read | AdminOnly | tenant (handler) | typed JSON body | - |
 | POST | `/api/v1/tenants` | TenantRoutes | Tenant:Create | AdminOnly | tenant (handler) | typed JSON body | F-37 Fixed |
 | GET | `/api/v1/tenants/{id}` | TenantRoutes | Tenant:Read | Authenticated | tenant (handler) | path | - |
 | PUT | `/api/v1/tenants/{id}` | TenantRoutes | Tenant:Update | AdminOnly | tenant (handler) | typed JSON body | - |
 | DELETE | `/api/v1/tenants/{id}` | TenantRoutes | Tenant:Delete | AdminOnly | tenant (handler) | path | - |
 | GET | `/api/v1/users` | TenantRoutes | User:Read | Authenticated | caller tenant/user (handler) | path + query | - |
+| POST | `/api/v1/users/enumerate` | TenantRoutes | User:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/users` | TenantRoutes | User:Create | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/users/{id}` | TenantRoutes | User:Read | Authenticated | caller tenant/user (handler) | path | - |
 | PUT | `/api/v1/users/{id}` | TenantRoutes | User:Update | Authenticated | caller tenant/user (handler) | typed JSON body | F-09, F-37 Fixed |
 | DELETE | `/api/v1/users/{id}` | TenantRoutes | User:Delete | Authenticated | caller tenant/user (handler) | path | F-09 Fixed |
 | GET | `/api/v1/credentials` | TenantRoutes | Credential:Read | Authenticated | caller tenant/user (handler) | path + query | F-12 Fixed |
+| POST | `/api/v1/credentials/enumerate` | TenantRoutes | Credential:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/credentials` | TenantRoutes | Credential:Create | Authenticated | caller tenant/user (handler) | typed JSON body | F-09, F-12 Fixed |
 | GET | `/api/v1/credentials/{id}` | TenantRoutes | Credential:Read | Authenticated | caller tenant/user (handler) | path | F-12 Fixed |
 | PUT | `/api/v1/credentials/{id}` | TenantRoutes | Credential:Update | Authenticated | caller tenant/user (handler) | typed JSON body | F-09, F-12 Fixed |
 | DELETE | `/api/v1/credentials/{id}` | TenantRoutes | Credential:Delete | Authenticated | caller tenant/user (handler) | path | - |
 | GET | `/api/v1/token-usage/summary` | TokenUsageRoutes | TokenUsage:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | GET | `/api/v1/token-usage` | TokenUsageRoutes | TokenUsage:Read | Authenticated | caller tenant/user (handler) | path + query | - |
+| POST | `/api/v1/token-usage/enumerate` | TokenUsageRoutes | TokenUsage:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/token-usage/delete/by-filter` | TokenUsageRoutes | TokenUsage:Delete | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | POST | `/api/v1/vessel-health/enumerate` | VesselHealthRoutes | VesselHealth:Read | Authenticated | caller tenant/user (handler) | no body / path | - |
 | GET | `/api/v1/vessel-health/summary` | VesselHealthRoutes | VesselHealth:Read | Authenticated | caller tenant/user (handler) | path | - |
@@ -701,7 +709,7 @@ only within the caller's tenant (tenant admins) or the caller's own records (reg
 | PUT | `/api/v1/vessels/{id}` | VesselRoutes | Vessel:Update | TenantAdmin | caller tenant/user (handler) | typed JSON body | O-07 Open |
 | PATCH | `/api/v1/vessels/{id}/context` | VesselRoutes | Vessel:Update | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/vessels/{id}/git-status` | VesselRoutes | Vessel:Read | Authenticated | caller tenant/user (handler) | path | - |
-| GET | `/api/v1/vessels/{id}/branches` | VesselRoutes | Vessel:Read | Authenticated | caller tenant/user (handler) | path | - |
+| POST | `/api/v1/vessels/{id}/branches/enumerate` | VesselRoutes | Vessel:Read | Authenticated | caller tenant/user (handler) | typed JSON body | - |
 | GET | `/api/v1/vessels/{id}/history/activity` | VesselRoutes | Vessel:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | GET | `/api/v1/vessels/{id}/history/commits` | VesselRoutes | Vessel:Read | Authenticated | caller tenant/user (handler) | path + query | - |
 | POST | `/api/v1/vessels/{id}/branches/push` | VesselRoutes | Vessel:Execute | TenantAdmin | caller tenant/user (handler) | typed JSON body | - |
@@ -748,7 +756,7 @@ advertised tool by `E2E.McpTenantIsolation`; `status` is tenant-scoped like `GET
 
 | Tool | Requirement | Level | Caller scoping | Findings |
 |------|-------------|-------|----------------|----------|
-| `enumerate` | All:Read | Authenticated | caller tenant/user | - |
+| `enumerate` | All:Read | Authenticated | caller tenant/user; entity types `inbox` (Inbox:Read), `cli_permission_rules` (caller tenant plus all-tenant rules), and `cli_permission_requests` (`CliPermissionAccess`, captain sessions get none) replace the removed `inbox`, `list_cli_permission_rules`, and `list_cli_permission_requests` tools | - |
 | `status` | Status:Read | Authenticated | tenant | O-03 Closed |
 | `get_backlog_item` | Objective:Read | Authenticated | caller tenant/user | - |
 | `get_backlog_planning_session` | PlanningSession:Read | Authenticated | caller tenant/user | - |
@@ -775,10 +783,7 @@ advertised tool by `E2E.McpTenantIsolation`; `status` is tenant-scoped like `GET
 | `get_runbook_execution` | Runbook:Read | Authenticated | caller tenant/user | - |
 | `get_runbook` | Runbook:Read | Authenticated | caller tenant/user | - |
 | `get_vessel` | Vessel:Read | Authenticated | caller tenant/user | F-25 Fixed |
-| `inbox` | Inbox:Read | Authenticated | caller tenant/user | - |
-| `list_cli_permission_requests` | CliPermission:Read | Authenticated | `CliPermissionAccess` (captain sessions get none) | - |
 | `get_cli_permission_request` | CliPermission:Read | Authenticated | `CliPermissionAccess` | - |
-| `list_cli_permission_rules` | CliPermission:Read | Authenticated | caller tenant plus all-tenant rules | - |
 | `cli_permission_prompt` | CliPermission:Execute | Authenticated | handler: only a presented mission- or thread-scoped captain session; bound to its own mission or thread | - |
 | `decide_cli_permission_request` | CliPermission:Execute | Authenticated | handler: `CliPermissionAccess`; requires a presented credential; refused for captain sessions and in Ask threads | - |
 | `list_backlog_refinement_sessions` | ObjectiveRefinementSession:Read | Authenticated | caller tenant/user | - |
@@ -926,7 +931,7 @@ request logs (F-15).
 | command `enumerate` (fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue) | Global admin | all tenants | typed query | - |
 | commands `backup`, `restore` | Global admin | server-wide; arbitrary host paths | typed | O-12 Accepted |
 | commands `get_persona`, `create_persona`, `update_persona`, `delete_persona`, `get_prompt_template`, `update_prompt_template`, `get_pipeline`, `create_pipeline`, `update_pipeline`, `delete_pipeline` | Global admin | any tenant by name | typed | - |
-| commands `list_cli_permission_requests`, `decide_cli_permission_request` | Global admin (decisions also go through `CliPermissionAccess` as the socket's identity) | any tenant | typed | - |
+| commands `list_cli_permission_requests` (one page, `query.pageNumber` and `query.pageSize`), `decide_cli_permission_request` | Global admin (decisions also go through `CliPermissionAccess` as the socket's identity) | any tenant | typed | - |
 | server broadcasts (mission, voyage, captain, check-run, approval-needed, objective, deployment, incident, runbook-execution, Ask `ask.*`) | n/a | mission, voyage, captain, check-run, mission activity, and approval follow the record read; other entity events stay in the entity's tenant; `ask.*` to the owning user only | n/a | O-13 Open (unscrubbed output) |
 | server broadcasts `cli_permission.requested`, `cli_permission.resolved` | n/a | the request's approvers and owner: global admins of its tenant or opted in to all tenants, its tenant admins, the owning user; `canDecide` / `canRemember` computed per socket | n/a | - |
 

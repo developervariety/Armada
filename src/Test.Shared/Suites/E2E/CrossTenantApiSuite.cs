@@ -341,10 +341,10 @@ namespace Test.Shared.Suites.E2E
             {
                 await E2EServerFixture.AcquireAsync(this);
 
-                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/backlog/" + _ObjectiveAId + "/refinement-sessions").ConfigureAwait(false);
+                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/backlog/" + _ObjectiveAId + "/refinement-sessions/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
-                List<ObjectiveRefinementSession> sessions = await JsonHelper.DeserializeAsync<List<ObjectiveRefinementSession>>(response).ConfigureAwait(false);
+                List<ObjectiveRefinementSession> sessions = (await JsonHelper.DeserializeAsync<EnumerationResult<ObjectiveRefinementSession>>(response).ConfigureAwait(false)).Objects;
                 AssertTrue(sessions.Any(session => session.Id == _RefinementSessionAId), "Expected refinement session in tenant-A list");
             }));
 
@@ -352,7 +352,7 @@ namespace Test.Shared.Suites.E2E
             {
                 await E2EServerFixture.AcquireAsync(this);
 
-                HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/backlog/" + _ObjectiveAId + "/refinement-sessions").ConfigureAwait(false);
+                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/backlog/" + _ObjectiveAId + "/refinement-sessions/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
             }));
 
