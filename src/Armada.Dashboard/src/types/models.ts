@@ -2560,10 +2560,14 @@ export type ProjectProfileScope = 'Global' | 'Fleet' | 'Vessel';
 /** Which layer supplied the resolved profile, or None when no profile applied. */
 export type ProjectProfileResolutionMode = 'Explicit' | 'Vessel' | 'Fleet' | 'Global' | 'None';
 
-/** A profile's customization of one persona: a replacement template, extra instructions, or both. */
+/** Which body a persona prompt renders: the full prompt, or a shorter Lean or Compact body. */
+export type PersonaPromptVariant = 'Current' | 'Lean' | 'Compact';
+
+/** A profile's customization of one persona: a replacement template, a shorter prompt body, extra instructions, or any of them. */
 export interface PersonaOverride {
   personaName: string;
   promptTemplateName: string | null;
+  promptVariant?: PersonaPromptVariant;
   additionalInstructions: string | null;
   enabled: boolean;
 }

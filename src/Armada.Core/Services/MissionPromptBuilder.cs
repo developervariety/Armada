@@ -197,12 +197,22 @@ namespace Armada.Core.Services
             if (overrideActive && !String.IsNullOrWhiteSpace(personaOverride!.PromptTemplateName))
                 templateName = personaOverride.PromptTemplateName!.Trim();
 
+            // A prompt template the profile names wins over a shorter body. A persona with no shorter body renders
+            // its full prompt.
+            string? variantBody = null;
+            if (overrideActive && personaOverride!.PromptVariant != PersonaPromptVariantEnum.Current
+                && String.IsNullOrWhiteSpace(personaOverride.PromptTemplateName)
+                && PersonaPromptVariants.TryGet(persona, personaOverride.PromptVariant, out string body))
+            {
+                variantBody = body;
+            }
+
             string result = GetPersonaPromptFallback(persona);
             string? ownershipDirective;
             bool hasOwnershipDirective = templateParams.TryGetValue("TestOwnership", out ownershipDirective) &&
                 !String.IsNullOrEmpty(ownershipDirective);
             bool templateRenderedOwnership = false;
-            if (promptTemplates != null)
+            if (promptTemplates != null || variantBody != null)
             {
                 Dictionary<string, string> renderParams = templateParams;
                 string ownershipMarker = String.Empty;
@@ -218,7 +228,9 @@ namespace Armada.Core.Services
                     };
                 }
 
-                string rendered = await promptTemplates.RenderAsync(templateName, renderParams, token).ConfigureAwait(false);
+                string rendered = variantBody != null
+                    ? PersonaPromptVariants.Render(variantBody, renderParams)
+                    : await promptTemplates!.RenderAsync(templateName, renderParams, token).ConfigureAwait(false);
                 if (!String.IsNullOrEmpty(rendered))
                 {
                     templateRenderedOwnership = hasOwnershipDirective &&
