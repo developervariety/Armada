@@ -4562,6 +4562,14 @@ curl -X POST http://localhost:7890/api/v1/inbox/enumerate \
 list, read, create, update and delete operational incidents. This section states
 the root-cause contract that `POST` and `PUT` share with the MCP incident tools.
 
+Every change to an incident is recorded as an `incident.snapshot` event, and the
+`incidents` table holds the newest state of each incident, written in the same
+transaction as the event. Lists, counts and by-id reads filter, order and page in
+the database, newest update first with the incident id as tie-break. A caller
+sees the incidents of its scope: every incident for a global administrator, the
+tenant's incidents for a tenant administrator, and the incidents the caller owns
+otherwise. Startup projects any incident that has snapshot events and no table row.
+
 An incident keeps two root-cause texts. `OpenedReason` is the root cause it was
 opened with, kept unchanged. A system path opens an incident with an automatic
 reading, such as a mission failure reason. `RootCause` is the current cause.

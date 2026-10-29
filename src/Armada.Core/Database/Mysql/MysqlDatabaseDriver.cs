@@ -121,6 +121,7 @@ namespace Armada.Core.Database.Mysql
             PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(_ConnectionString);
             Memories = new MemoryMethods(_Stored);
+            Incidents = new IncidentMethods(_Stored);
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
             WorkflowProfiles = new WorkflowProfileMethods(_Stored);
@@ -208,6 +209,12 @@ namespace Armada.Core.Database.Mysql
                     await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                 }
             }
+
+            IncidentBackfillResult incidentBackfill = await Incidents.BackfillFromEventsAsync(token).ConfigureAwait(false);
+            if (incidentBackfill.Projected > 0)
+                _Logging.Info(_Header + "projected " + incidentBackfill.Projected + " incident(s) from snapshot events");
+            foreach (string unreadable in incidentBackfill.Unreadable)
+                _Logging.Warn(_Header + "incident " + unreadable + " has no readable newest snapshot and was not projected");
 
             _Logging.Info(_Header + "database initialized successfully");
 
@@ -741,7 +748,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(127, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.MysqlStatements),
                 new SchemaMigration(128, "Persist the unread reply count of saved Ask threads",
                     @"ALTER TABLE ask_threads ADD COLUMN unread_count INT NOT NULL DEFAULT 0;"),
-                new SchemaMigration(129, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.MysqlStatements)
+                new SchemaMigration(129, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.MysqlStatements),
+                new SchemaMigration(130, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.MysqlStatements)
             };
         }
 

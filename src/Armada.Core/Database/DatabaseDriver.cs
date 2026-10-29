@@ -164,6 +164,11 @@ namespace Armada.Core.Database
         /// </summary>
         public IMissionAttemptProvenanceMethods MissionAttempts { get; protected set; } = null!;
 
+        /// <summary>
+        /// The incident projection: the latest state of each incident, written in the same transaction as its snapshot event.
+        /// </summary>
+        public IIncidentMethods Incidents { get; protected set; } = null!;
+
         /// <summary>Atomic full Research replay and immutable prior-attempt history.</summary>
         public IResearchReplayMethods ResearchReplays { get; protected set; } = null!;
 

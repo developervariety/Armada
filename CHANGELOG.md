@@ -7,6 +7,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Incident projection table
+
+- Incident lists, active lists, counts and by-id reads now filter, order and page in the database instead of reading every `incident.snapshot` event and projecting it in memory. The new `incidents` table holds the newest state of each incident and is written in the same transaction as the snapshot event, so the events remain the record and the audit trail.
+- Startup projects each incident that has snapshot events and no table row from its newest snapshot, and a second run projects nothing. An incident whose newest snapshot is unreadable is named in the startup log and left unprojected.
+- The incident API shapes, filters, search and ordering are unchanged. A caller who is neither a global nor a tenant administrator sees the incidents it owns, whichever user wrote the newest snapshot. Deleting an incident removes its row and every snapshot event together.
+- Migrations: SQLite 137, PostgreSQL 141, MySQL 130, SQL Server 133.
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.
