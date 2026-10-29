@@ -18,6 +18,7 @@ export const MAX_RUN_VESSELS = 500;
 
 /** Editable fields of the action form (numbers as typed text). */
 export interface FleetActionFormState {
+  extensions?: FleetActionUpsertRequest;
   name: string;
   description: string;
   kind: FleetActionKind;
@@ -39,6 +40,11 @@ export function formFromAction(source: FleetAction | null | undefined, mode: 'cr
     };
   }
   return {
+    extensions: {
+      CommandWindows: source.commandWindows, OutputParser: source.outputParser, ScanSourceActionKey: source.scanSourceActionKey,
+      RequiredTools: source.requiredTools, RequiresNetwork: source.requiresNetwork,
+      Inputs: source.inputs?.map(i => ({ Name: i.name, Type: i.type, Required: i.required, Default: i.default, AllowedValues: i.allowedValues, Description: i.description })),
+    },
     name: mode === 'create' ? `${source.name} ${copySuffix}`.slice(0, 200) : source.name,
     description: source.description ?? '',
     kind: source.kind,
@@ -71,6 +77,7 @@ export function validateActionForm(form: FleetActionFormState): Record<string, s
 export function buildActionUpsertPayload(form: FleetActionFormState, mode: 'create' | 'edit'): FleetActionUpsertRequest {
   const clearValue = mode === 'edit' ? '' : null;
   return {
+    ...form.extensions,
     Name: form.name.trim(),
     Description: form.description.trim() || clearValue,
     Kind: form.kind,
@@ -89,6 +96,7 @@ export type RunMode = 'saved' | 'adhoc';
 
 /** Ad hoc definition fields of the run flow (numbers as typed text). */
 export interface AdHocRunForm {
+  extensions?: FleetActionUpsertRequest;
   name: string;
   kind: FleetActionKind;
   commandText: string;
@@ -128,7 +136,7 @@ export function validateRunInputs(args: {
   else if (name.length > 200) errors.name = 'Name must be 200 characters or fewer.';
   const body = args.adHoc.kind === 'Command' ? args.adHoc.commandText : args.adHoc.promptTemplate;
   if (!body.trim()) errors.body = args.adHoc.kind === 'Command' ? 'Command text is required.' : 'Prompt template is required.';
-  else if (findUnknownTemplateVariables(body).length > 0) errors.body = 'unknown-variables';
+  else if (findUnknownTemplateVariables(body, args.adHoc.extensions?.Inputs?.map(i => i.Name)).length > 0) errors.body = 'unknown-variables';
   if (args.adHoc.kind === 'Command') {
     const timeout = parseIntStrict(args.adHoc.timeoutSeconds);
     if (timeout === null || timeout < 5 || timeout > 7200) errors.timeout = 'Timeout must be a whole number of seconds from 5 to 7200.';
@@ -144,6 +152,7 @@ export function emptyAdHoc(kind: FleetActionKind): AdHocRunForm {
 /** An ad hoc form prefilled from a definition (re-running an ad hoc run). */
 export function adHocFromDefinition(definition: FleetActionUpsertRequest): AdHocRunForm {
   return {
+    ...(Object.keys(definition).some(key => ['CommandWindows', 'OutputParser', 'ScanSourceActionKey', 'RequiredTools', 'RequiresNetwork', 'Inputs'].includes(key)) ? { extensions: definition } : {}),
     name: definition.Name ?? '',
     kind: definition.Kind ?? 'Command',
     commandText: definition.CommandText ?? '',
@@ -157,6 +166,7 @@ export function adHocFromDefinition(definition: FleetActionUpsertRequest): AdHoc
 /** The ad hoc definition sent with a run. */
 export function buildAdHocDefinition(adHoc: AdHocRunForm): FleetActionUpsertRequest {
   return {
+    ...adHoc.extensions,
     Name: adHoc.name.trim(),
     Kind: adHoc.kind,
     CommandText: adHoc.kind === 'Command' ? adHoc.commandText : null,
@@ -179,6 +189,9 @@ export function buildSavedRunRequest(vesselIds: string[], concurrency: number, a
 /** The ad hoc definition that re-runs a run whose action is gone or hidden (its snapshot). */
 export function definitionFromRun(run: FleetActionRun): FleetActionUpsertRequest {
   return {
+    CommandWindows: run.commandWindows, OutputParser: run.outputParser, ScanSourceActionKey: run.scanSourceActionKey,
+    RequiredTools: run.requiredTools, RequiresNetwork: run.requiresNetwork,
+    Inputs: run.inputs?.map(i => ({ Name: i.name, Type: i.type, Required: i.required, Default: run.inputValues?.[i.name] ?? i.default, AllowedValues: i.allowedValues, Description: i.description })),
     Name: run.actionName,
     Kind: run.kind,
     CommandText: run.commandText,
@@ -190,8 +203,8 @@ export function definitionFromRun(run: FleetActionRun): FleetActionUpsertRequest
 }
 
 /** Finished counts of a run (succeeded + failed + skipped + cancelled) and the rounded percent of its targets. */
-export function runProgress(run: Pick<FleetActionRun, 'targetCount' | 'succeededCount' | 'failedCount' | 'skippedCount' | 'cancelledCount'>): { total: number; done: number; percent: number } {
+export function runProgress(run: Pick<FleetActionRun, 'targetCount' | 'succeededCount' | 'failedCount' | 'skippedCount' | 'cancelledCount' | 'findingsCount'>): { total: number; done: number; percent: number } {
   const total = Math.max(0, run.targetCount);
-  const done = run.succeededCount + run.failedCount + run.skippedCount + run.cancelledCount;
+  const done = run.succeededCount + run.failedCount + run.skippedCount + run.cancelledCount + (run.findingsCount ?? 0);
   return { total, done, percent: total > 0 ? Math.round((done / total) * 100) : 0 };
 }

@@ -215,6 +215,29 @@ namespace Armada.Core.Database.Mysql.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<EnumerationResult<Memory>> EnumerateAsync(MemoryEnumerateRequest query, string? tenantId, string? ownerUserId, string? viewerUserId, CancellationToken token = default)
+        {
+            if (query == null) query = new MemoryEnumerateRequest();
+
+            MemoryEnumerateQuery sql = MemoryEnumerateQueryBuilder.Build(query, tenantId, ownerUserId, viewerUserId);
+            Action<MySqlCommand> bind = cmd => BindParameters(cmd, sql.Parameters);
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                long total = await MysqlCommandHelper.CountAsync(conn, "SELECT COUNT(*)" + sql.FromClause + sql.WhereClause + ";", bind, token).ConfigureAwait(false);
+                List<Memory> rows = await MysqlCommandHelper.QueryAsync(conn,
+                    "SELECT " + MemoryEnumerateQueryBuilder.SelectColumns + sql.FromClause + sql.WhereClause + sql.OrderByClause + MysqlCommandHelper.Page(query.Offset, query.PageSize) + ";",
+                    bind, MemoryFromReader, token).ConfigureAwait(false);
+
+                foreach (Memory memory in rows)
+                    memory.Tags = await LoadTagsAsync(conn, memory.Id, token).ConfigureAwait(false);
+
+                return EnumerationResult<Memory>.Create(query, rows, total);
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<bool> ExistsAnyAsync(CancellationToken token = default)
         {
             using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
@@ -384,6 +407,16 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)memory.VesselId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToIso8601(memory.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToIso8601(memory.LastUpdateUtc));
+        }
+
+
+        private static void BindParameters(MySqlCommand cmd, List<QueryParameter> parameters)
+        {
+            foreach (QueryParameter parameter in parameters)
+            {
+                if (parameter.Value is DateTime dt) MysqlCommandHelper.AddDate(cmd, parameter.Name, dt);
+                else MysqlCommandHelper.Add(cmd, parameter.Name, parameter.Value);
+            }
         }
 
         private static Memory MemoryFromReader(MySqlDataReader reader)

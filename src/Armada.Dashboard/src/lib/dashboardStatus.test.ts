@@ -53,7 +53,8 @@ describe('dashboardStatus', () => {
   });
 
   it('knows restartable statuses, the fleet action runs link, and the health light', () => {
-    expect(['Failed', 'Cancelled', 'LandingFailed'].every(canRestartFromHome)).toBe(true);
+    expect(['Pending', 'Failed', 'Cancelled', 'LandingFailed'].every(canRestartFromHome)).toBe(true);
+    expect(['WorkProduced', 'InProgress', 'Assigned'].some(canRestartFromHome)).toBe(false);
     expect(canRestartFromHome('Complete')).toBe(false);
     expect(activeFleetActionRunsLink({ pending: 2, running: 0 })).toBe('/fleet-actions?tab=runs&status=Pending');
     expect(activeFleetActionRunsLink({ pending: 2, running: 1 })).toBe('/fleet-actions?tab=runs&status=Running');

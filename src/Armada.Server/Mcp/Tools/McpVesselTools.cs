@@ -77,7 +77,10 @@ namespace Armada.Server.Mcp.Tools
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
                         autoApprove = new { type = "boolean", description = "Per-vessel auto-approve override for missions on this vessel: true or false wins over the captain's setting; omit to use the captain's setting" },
                         enableModelContext = new { type = "boolean", description = "Enable model context accumulation -- agents will update context with key information discovered during missions (default true)" },
-                        defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" }
+                        defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
+                        testCommand = new { type = "string", description = "Per-vessel override for the Test intent (beats a repo script and the ecosystem default)" },
+                        lintCommand = new { type = "string", description = "Per-vessel override for the Lint intent (beats a repo script and the ecosystem default)" },
+                        auditCommand = new { type = "string", description = "Per-vessel override for the Audit intent (beats a repo script and the ecosystem default)" }
                     },
                     required = new[] { "name", "repoUrl", "fleetId" }
                 },
@@ -102,6 +105,9 @@ namespace Armada.Server.Mcp.Tools
                     vessel.AutoApprove = request.AutoApprove;
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
+                    vessel.TestCommand = String.IsNullOrWhiteSpace(request.TestCommand) ? null : request.TestCommand;
+                    vessel.LintCommand = String.IsNullOrWhiteSpace(request.LintCommand) ? null : request.LintCommand;
+                    vessel.AuditCommand = String.IsNullOrWhiteSpace(request.AuditCommand) ? null : request.AuditCommand;
                     // A local-clone repoUrl with no explicit working directory gets that clone as its working
                     // directory; LocalPath is deliberately never set (see VesselService.CreateAsync).
                     try
@@ -145,7 +151,10 @@ namespace Armada.Server.Mcp.Tools
                         definitionOfDoneEnabled = new { type = "boolean", description = "Whether the in-dock Definition-of-Done gate runs build and unit tests before acceptance" },
                         definitionOfDoneBuildCommand = new { type = "string", description = "Shell command that builds the project inside the mission checkout (for example dotnet build)" },
                         definitionOfDoneTestCommand = new { type = "string", description = "Shell command that runs unit tests inside the mission checkout (for example dotnet test)" },
-                        definitionOfDoneTimeoutSeconds = new { type = "integer", description = "Per-phase timeout in seconds for each Definition-of-Done command (clamped to 30..7200)" }
+                        definitionOfDoneTimeoutSeconds = new { type = "integer", description = "Per-phase timeout in seconds for each Definition-of-Done command (clamped to 30..7200)" },
+                        testCommand = new { type = "string", description = "Per-vessel override for the Test intent (beats a repo script and the ecosystem default)" },
+                        lintCommand = new { type = "string", description = "Per-vessel override for the Lint intent (beats a repo script and the ecosystem default)" },
+                        auditCommand = new { type = "string", description = "Per-vessel override for the Audit intent (beats a repo script and the ecosystem default)" }
                     },
                     required = new[] { "vesselId" }
                 },
@@ -203,6 +212,12 @@ namespace Armada.Server.Mcp.Tools
                         vessel.DefinitionOfDoneTestCommand = request.DefinitionOfDoneTestCommand;
                     if (request.DefinitionOfDoneTimeoutSeconds.HasValue)
                         vessel.DefinitionOfDoneTimeoutSeconds = request.DefinitionOfDoneTimeoutSeconds.Value;
+                    if (request.TestCommand != null)
+                        vessel.TestCommand = String.IsNullOrWhiteSpace(request.TestCommand) ? null : request.TestCommand;
+                    if (request.LintCommand != null)
+                        vessel.LintCommand = String.IsNullOrWhiteSpace(request.LintCommand) ? null : request.LintCommand;
+                    if (request.AuditCommand != null)
+                        vessel.AuditCommand = String.IsNullOrWhiteSpace(request.AuditCommand) ? null : request.AuditCommand;
                     await DuplicateEntityGuard.EnsureVesselNameAvailableAsync(database, vessel).ConfigureAwait(false);
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
