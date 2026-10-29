@@ -210,14 +210,15 @@ namespace Armada.Helm.Commands
                 await Task.Delay(2000, token).ConfigureAwait(false);
 
                 // Check voyage status
-                VoyageDetailResponse? detail = await GetAsync<VoyageDetailResponse>($"/api/v1/voyages/{voyageId}").ConfigureAwait(false);
+                VoyageProgress? detail = await GetAsync<VoyageProgress>($"/api/v1/voyages/{voyageId}").ConfigureAwait(false);
                 if (detail?.Voyage == null) continue;
 
-                // Find mission log path from the first mission
-                if (captainLogPath == null && detail.Missions != null)
+                // Find mission log path from the voyage's first missions (one bounded page)
+                if (captainLogPath == null)
                 {
+                    EnumerationResult<Mission>? firstMissions = await GetAsync<EnumerationResult<Mission>>($"/api/v1/missions?voyageId={voyageId}&pageSize=10&order=CreatedAscending").ConfigureAwait(false);
                     ArmadaLogPaths logPaths = ArmadaLogPaths.ForDefaultDataDirectory();
-                    foreach (Mission m in detail.Missions)
+                    foreach (Mission m in firstMissions?.Objects ?? new List<Mission>())
                     {
                         // The mission's own log, else the current log of its captain.
                         captainLogPath = logPaths.ResolveMissionLog(m.Id, m.CaptainId);

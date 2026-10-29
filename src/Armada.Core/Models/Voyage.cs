@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// A batch of related missions tracked together.
@@ -107,8 +108,10 @@ namespace Armada.Core.Models
         public string? SourcePlanningMessageId { get; set; } = null;
 
         /// <summary>
-        /// Ordered list of playbooks selected for this voyage.
+        /// Ordered list of playbooks selected for this voyage. At most <see cref="CollectionLimits.MaxConfigItems"/>;
+        /// dispatch rejects more.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
 
         /// <summary>

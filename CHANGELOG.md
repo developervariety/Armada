@@ -11,6 +11,169 @@ All notable changes to Armada are documented in this file.
 - Helm's NuGet tool package preserves battery fixture `.gitignore` and `.gitattributes` files instead of excluding them with NU5119 warnings. Installer verification checks every packaged framework for those files.
 - REST query values are decoded once before a route parses or filters them. A literal plus sign stays a plus sign. A malformed percent escape is kept, and the route still answers.
 
+### Landing failure prevention
+
+- Every dashboard and TUI delete, bulk delete and purge now shows a progress modal (for example "Deleting vessel" or "Deleting 12 missions": "This may take some time while related records are cleaned up.") that stays up until the server answers, cannot be dismissed while pending, and offers Retry and Dismiss if the delete fails. Duplicate submissions are ignored. Ask Armada uses the same shared dialog.
+- Infra landing failures show Retry Landing next to the full failure reason on the mission page, and Needs You shows landing-failure reasons preformatted with a one-click Retry Landing.
+- Docks with unlanded work (WorkProduced, Testing, Review, Verifying, PullRequestOpen, LandingFailed, or a queued merge entry) are no longer reclaimed unless the caller gives an explicit force reason. Every reclaim and refusal is recorded as `dock.reclaimed` / `dock.reclaim_refused` with the caller and mission status.
+- Landing recreates a missing mission dock from its branch before running git. If it cannot, the mission fails as `Infra` naming the missing path and branch instead of a misleading `LandingConflict`. `retry_landing` also recreates a missing dock.
+- Only a real git merge conflict (`GitMergeConflictException`) is classified `LandingConflict`. Git failing to start, refused pushes and other landing errors are `Infra`, so they no longer trigger autonomous rescues.
+- A landing-integrity health phase repairs missing docks of unlanded missions (`dock.repaired`) and retries LocalMerge landings deferred on a dirty checkout once it is clean, until the new `landingDeferralDeadlineHours` setting (default 24, 0 disables).
+- MergeAndPush records `mission.checkout_sync_skipped` when the developer checkout cannot be fast-forwarded after a landing; the landing still succeeds. Completion checks that the mission branch holds the produced commit (`mission.branch_verified` / `mission.branch_unverified`).
+- Rescues for a mission that left a commit integrate that commit instead of re-implementing it, and no rescue is created while another active mission already names the failed mission or its commit.
+- LandingFailed missions whose work already reached `origin/<default branch>` are completed automatically on each health check when proven: the mission's commit is an ancestor, or a commit on that branch carries its `Armada-Mission-Id` trailer. Each check is bounded, fetches each vessel at most once, works with Harbor-hosted vessels, and skips repositories it cannot reach. A `mission.landing_reconciled` event records the evidence. `LandingFailed -> Complete` is now a legal transition.
+- A captain of any persona can end with `[ARMADA:STAGE-OUTCOME] BLOCKED` (or report `[ARMADA:MESSAGE] BLOCKED: ...`) plus a reason. Outside verifier stages, a blocked run with no work fails immediately with the new failure kind `Blocked` and the reason "Captain reported BLOCKED: ...", instead of being re-dispatched and failed as NoOp. A `mission.blocked_by_captain` event is recorded, and a new built-in failure-cause rule "Captain reported blocked" classifies it as not the model's failure. The unfinished-completion reason says "the model is stopping mid-task" only when the output had no result line and no blocking message.
+- Fixed false "modified files outside its scoped file list" failures: host commands return git output unchanged (no extra trailing newline after the last NUL), the -z parsers ignore newline-only fields, and a bare file name in a "Touch only" directive matches that file in any directory. A scope failure never lists an empty path.
+- Stage-check failures sent back to a captain keep the head and tail of the output plus a "Failing tests" section listing failing tests and compiler errors, so the failing test name is no longer cut off.
+- Stopping a captain (stop_captain, stop_all, REST, WebSocket, dashboard) now cancels its mission instead of failing it. The reason records who stopped it, how and when, a `mission.stopped_by_operator` event is emitted, and uncommitted work is committed as a WIP commit on the mission branch and pushed before the dock is reclaimed. Operator stops recorded as Failed by earlier versions no longer appear in the inbox failure feed or count toward vessel mission-failure health.
+### Bounded enumeration: shared contract (breaking)
+
+- No REST route or MCP tool returns, embeds, or echoes an unbounded collection any more (docs/ENUMERATION.md). Stored collections are read one page at a time (`EnumerationQuery` to `EnumerationResult<T>`: default page size 10, 1 to 1000, exact `TotalRecords`, id tie-break), cut in the data source in all four database providers. Growing children that used to be embedded in a parent read (voyage missions, fleet vessels, status voyages, transcripts, tracked work, dependencies, cleanup resources, battery results, fleet action run targets) are counts on the parent plus their own paged enumeration.
+- Lists that are not stored rows have limits in `CollectionLimits`: 1000 ids or keys per request, 256 entries per configuration list or dictionary stored on an entity, 1000 linked ids, 1000 summary buckets. Every collection property of a response model declares its limit with `[CollectionBound]`, and write paths call `CollectionBounds.Validate`. Exceeding a limit is a REST 400 with `Data.Code` `CollectionLimitExceeded` (`Field`, `Limit`, `Actual`), MCP and WebSocket `InvalidArgument` with `Code` `CollectionLimitExceeded`; nothing is truncated silently.
+- The `E2E.ResponseShape` guard fails for an undeclared collection property reachable from a response, and for any array in a live REST or MCP response that is neither a page's `Objects` nor a declared bounded property within its limit.
+
+### Bounded reads: missions, voyages, status, inbox, history (breaking)
+
+- `GET /api/v1/status`, MCP `status`, and WebSocket `status` no longer embed `Voyages` (every Open and InProgress voyage). The snapshot keeps `ActiveVoyages`, counted in the database, and adds `InProgressVoyages` and `OpenVoyages`. The active voyages with progress are paged by the new `POST /api/v1/voyages/progress/enumerate` (InProgress first, then Open, newest first; a `status` filter selects one status), MCP `list_voyage_progress`, and WebSocket `list_voyage_progress`. `VoyageProgress.VesselIds` is replaced by `VesselId` and `VesselCount`, and `VoyageProgress` gains `MissionCountsByStatus`.
+- `GET /api/v1/voyages/{id}` and WebSocket `get_voyage` return `VoyageProgress` (the voyage with mission counts) instead of `{ Voyage, Missions }`; page the missions with `GET /api/v1/missions?voyageId=`. MCP `voyage_status` always returns counts and rejects `includeMissions: true`; `includeDescription`, `includeDiffs` and `includeLogs` are gone.
+- `DELETE /api/v1/voyages/{id}`, MCP `cancel_voyage`, and WebSocket `cancel_voyage` return `VoyageCancelResult` (`Voyage`, `CancelledMissions`, `NotCancelledMissions`, `FirstNotCancelledReason`) instead of a `NotCancelled` list; the three surfaces share `VoyageCancellation`.
+- `GET /api/v1/missions/{id}/github/pull-request` no longer embeds `Reviews`, `Comments`, or `Checks` (each was one unpaged GitHub page, silently cut at GitHub's default of 30). It carries `ReviewCount`, `CommentCount`, `CheckCount`, `RequestedReviewerCount`, `LabelCount` (with the first 100 reviewers and labels) and `ReviewStatusComplete`; the review status is computed over every review up to 1000. New `POST /api/v1/missions/{id}/github/pull-request/reviews/enumerate`, `.../comments/enumerate`, and `.../checks/enumerate` page GitHub (page size 1 to 100, exact `TotalRecords`, `Order` CreatedAscending is GitHub's order). The release pull-request enumeration uses the same detail model.
+- `GET /api/v1/missions/{id}` assignment blockers list at most 25 `BlockingMissionIds` and 25 `Captains`, with the full `BlockingMissionCount` and `CaptainCount`.
+- `GET /api/v1/missions/history` counts missions per bucket and status in the database on every provider (the `fleetId` filter included) instead of loading one row per mission, and rejects a window that would produce more than 1000 buckets with 400 and `Data.Code` `CollectionLimitExceeded`.
+- `POST /api/v1/inbox/enumerate` and MCP `enumerate` inbox page each source in the database (missions, merge entries, deployments) instead of building the whole inbox and slicing it. Items are listed by kind in a fixed urgency order (review, landing_failed, merge_failed, deployment_failed, deployment_approval, ask_proposal, cli_permission, failed, stalled_captain), newest first within a kind; push badge counts use `InboxService.CountAsync`.
+- Bulk deletes of missions, voyages, signals and events (REST `.../delete/multiple`, MCP `delete_missions`, `delete_voyages`, `delete_signals`, `delete_events`) reject more than 1000 ids with 400 / InvalidArgument and `Code` `CollectionLimitExceeded`, bounding `Skipped`. `DeleteMultipleRequest.RequireWithinLimit()` is the shared check.
+- Dispatch (REST `POST /api/v1/voyages`, MCP `dispatch`, WebSocket `create_voyage`, and `IAdmiralService` dispatch) rejects more than 1000 missions in one request and more than 256 `SelectedPlaybooks` (also `POST /api/v1/missions`, MCP `create_mission`, planning-session dispatch through `PlaybookService`). Architect plans over the limits are rejected instead of dispatched.
+- Voyage, mission, mission summary, signal, and event enumerations order by `created_utc` with the id as a tie-break on every provider, so equal timestamps never overlap or skip rows across pages.
+- Clients: `Armada.Client` `GetVoyageDetailAsync` returns `VoyageProgress` (the `VoyageDetail` model is removed), `CancelVoyageAsync` returns `VoyageCancelResult`, new `EnumerateVoyageProgressAsync` and `EnumerateMissionPullRequestReviewsAsync` / `CommentsAsync` / `ChecksAsync`; Core `ArmadaApiClient` gains `GetVoyageProgressAsync` and `EnumerateVoyageProgressAsync`. The dashboard, mobile app, TUI and `armada status`/`watch`/`voyage show`/`voyage retry`/`go` read voyage missions one page at a time and active voyages from the progress enumeration; retrying failed missions reads every failed mission through bounded pages.
+
+### Bounded vessel, fleet, dock, Workspace, import, and storage collections (breaking)
+
+Part of the bounded enumeration contract ([docs/ENUMERATION.md](docs/ENUMERATION.md)): no response in this area embeds an unbounded list.
+
+- `GET /api/v1/fleets/{id}`, MCP `get_fleet`, and WebSocket `get_fleet` return `{ Fleet, VesselCount }` instead of `{ Fleet, Vessels }`. Page a fleet's vessels with `POST /api/v1/vessels/enumerate` (or `GET /api/v1/vessels`, MCP `enumerate` `vessels`) and `fleetId`.
+- `GET /api/v1/vessels/{id}/health` (and the override `PUT`/`DELETE`) return `DependencyCount` instead of `Dependencies`. New `GET /api/v1/vessels/{id}/health/dependencies` (POST `.../enumerate`) and MCP `list_vessel_dependencies` page dependency rows in the database (all four providers). MCP `vessel_health` no longer takes `includeDependencies`.
+- `GET /api/v1/vessels/{id}/cleanup` returns the inventory summary with `ResourceCount` (no `Resources`); new `GET /api/v1/vessels/{id}/cleanup/resources` (POST `.../enumerate`, optional `status` filter) pages the resources. `POST /api/v1/vessels/{id}/cleanup` rejects more than 1000 `Keys` and its `Inventory` is the summary. Docks are read in bounded pages.
+- Workspace: `GET .../tree` and `GET .../changes` return one page (`pageNumber`, `pageSize` 1 to 1000, default 10) with `TotalRecords`; the Harbor cuts tree pages on its side (`HarborFileRequest.PageNumber`/`PageSize`; an older Harbor's full listing is cut on the Admiral). `GET .../status` drops `ActiveMissions` (keeps `ActiveMissionCount`); new `GET /api/v1/workspace/vessels/{vesselId}/active-missions` (POST `.../enumerate`) pages them from the database. `ScopedFiles` holds at most 256 entries (`ScopedFileCount` is the full count).
+- `GET /api/v1/storage` and `POST /storage/refresh` drop `Hosts` and add `HostCount`, `FreshHostCount`, `ObservedFileBytes`; new `GET /api/v1/storage/hosts` (POST `.../enumerate`) pages host reports. History breakdowns keep their 24 largest keys plus one `(other)` total; `Storage.HistoryCapacity` is now 2 to 1000 (was 2016) and database tables stop at 1000 (`TableLimit`).
+- `GET /api/v1/vessels/import/browse` returns one page with `TotalRecords` and `Truncated`. Discovery stops at 1000 candidates (was 5000; `Truncated` and a `CandidateLimitReached` hint), and discovery, import, and fleet-recommendation apply requests reject more than 1000 paths, fleets, or vessel ids (`CollectionLimitExceeded`).
+- Bulk deletes (`POST /api/v1/vessels|fleets|docks/delete/multiple`, MCP `delete_vessels`, `delete_fleets`, `delete_docks`) reject more than 1000 `Ids` with `400` / `InvalidArgument` and `Code` `CollectionLimitExceeded`, deleting nothing.
+- Vessel configuration lists (`ProtectedBranchPatterns`, `ProtectedPathPatterns`, `PrivateIdentifierDenylist`, `AutoLandPathAllowGlobs`, `AutoLandPathDenyGlobs`) hold at most 256 entries; every write path (REST, MCP, WebSocket, import, internal) rejects more in the database layer.
+- Vessel commits list at most 64 `ParentShas` with a new `ParentCount`; readiness lists at most 200 `Issues` (most severe first) with a new `IssueCount`; MCP `delete_vessel` returns `WarningCount` and at most 50 `Warnings`; `HarborReasons` on checkout errors holds at most 50 with `HarborReasonCount`; fleet categorization warnings stop at 50 with a summary line.
+- Docks, vessels, and fleets enumerate with an id tie-break, so pages never overlap or skip rows with equal timestamps (all four providers).
+- Clients: `Armada.Client` `GetFleetAsync` returns `VesselCount`; new `ListVesselDependenciesAsync`, `ListVesselCleanupResourcesAsync`, `ListWorkspaceActiveMissionsAsync`, `ListWorkspaceDirectoryAsync`, `ListStorageHostsAsync`/`ListAllStorageHostsAsync`; `GetWorkspaceTreeAsync` and `GetWorkspaceChangesAsync` take a page. `ArmadaApiClient.GetFleetAsync` now unwraps the fleet. The TUI pages health dependencies on the server and walks bounded pages for fleet vessels, workspace folders, active missions, and storage hosts.
+
+### Bounded Ask Armada, planning, refinement, objective, and memory collections
+
+Reads in these areas no longer embed child collections whose size has no limit. The parent returns counts, and the
+children are read one page at a time (`PageNumber`, `PageSize` 1 to 1000, `TotalRecords`), paged in the database.
+Request lists over their limit are a typed `CollectionLimitExceeded` error (REST `400` with `Data.Code`, MCP
+`InvalidArgument` with `code`), and nothing is stored.
+
+#### Changed (breaking)
+
+- `GET /api/v1/ask/threads/{id}` and MCP `get_ask_thread` return `TrackedWorkCount`, `PendingProposalCount`, and
+  `PendingCliPermissionCount` in place of `TrackedWork`, `PendingProposals`, and `PendingCliPermissions`.
+  `ActiveTurn.ToolCalls` is replaced by `ActiveTurn.ToolCallCount`.
+- `AskMessage.ToolCalls` is removed (messages pages, `ask.message` events, and send results). Each message carries
+  `ToolCallCount`.
+- `AskWorkSnapshot` (`GET .../work/{workId}`, `get_ask_work`, `ask.work` events, embedded tracked-work snapshots) returns
+  `MissionCount` and `TargetCount` in place of `Missions` and `Targets`.
+- `GET /api/v1/planning-sessions/{id}` (and the create, message, stop, and stop-turn responses) and
+  `get_backlog_planning_session` return `PlanningSessionDetail { Session, MessageCount, Captain, Vessel, LinkedObjectiveCount }`
+  with no `Messages`. MCP `get_backlog_planning_session` no longer embeds the linked backlog items; list them with
+  `list_backlog` filtered by `planningSessionId`.
+- `ObjectiveRefinementSessionDetail` (`GET /api/v1/objective-refinement-sessions/{id}`, the create, message, and stop
+  responses, `get_backlog_refinement_session`) returns `MessageCount` in place of `Messages`.
+- MCP `dispatch_backlog_planning_session` returns `PlanningSessionDispatchResult { voyage, linkedObjectiveCount }`.
+- `POST /api/v1/objectives/reorder`, `POST /api/v1/backlog/reorder`, `reorder_objectives`, and `reorder_backlog_items`
+  return `ObjectiveReorderResult { Updated, Items: [{ ObjectiveId, Rank }] }` instead of the reordered objectives.
+- `list_backlog_refinement_sessions` accepts `pageSize` up to 1000 (it was 100).
+- .NET clients: `ArmadaClient.ListPlanningSessionsAsync`, `ListObjectiveRefinementSessionsAsync`, and
+  `ListBacklogRefinementSessionsAsync` keep their names (the dashboard parity manifest) but take an `EnumerationQuery`
+  and return one page (`EnumerationResult<T>`) instead of a whole list. In `ArmadaApiClient` the refinement
+  readers are `EnumerateObjectiveRefinementSessionsAsync`, `EnumerateBacklogRefinementSessionsAsync`, and
+  `EnumerateObjectiveRefinementMessagesAsync`. New: `ListPlanningSessionMessagesAsync`, `ListObjectiveRefinementMessagesAsync`,
+  `EnumerateAskWorkAsync`, `EnumerateAskWorkMissionsAsync`, `EnumerateAskWorkTargetsAsync`,
+  `EnumerateAskProposalsAsync`, `EnumerateAskToolCallsAsync`, and `EnumerateAskTurnToolCallsAsync`. The reorder methods
+  return `ObjectiveReorderResult`. `Armada.Client.Models.PlanningSessionDetail` moved to `Armada.Core.Models`.
+
+#### Limits
+
+- Objectives and backlog items (create, update, refinement apply, and the voyage and session links Armada adds):
+  `Tags`, `AcceptanceCriteria`, `NonGoals`, `RolloutConstraints`, `EvidenceLinks`, and `SuggestedPlaybooks` at 256;
+  every id list at 1000. A refinement summary with a longer list is refused before it is broadcast or applied.
+- Reorder requests: at most 1000 items. `POST /api/v1/ask/threads/delete/multiple` and `delete_ask_threads`: at most
+  1000 IDs.
+- Memory `Tags` at 256 on create and update. Planning `SelectedPlaybooks` at 256. Quick action `Arguments` at 256.
+- Planning dispatch fails with `CollectionLimitExceeded` naming the dispatched voyage when linking it would push an
+  objective's id lists over 1000.
+
+#### Added
+
+- REST: `POST /api/v1/ask/threads/{id}/work/enumerate`, `.../work/{workId}/missions/enumerate`,
+  `.../work/{workId}/targets/enumerate`, `.../proposals/enumerate`, `.../messages/{messageId}/tool-calls/enumerate`,
+  `.../turn/tool-calls/enumerate`, `POST /api/v1/planning-sessions/{id}/messages/enumerate`, and
+  `POST /api/v1/objective-refinement-sessions/{id}/messages/enumerate`. All are owner-scoped like the parent read.
+- MCP: `list_ask_work`, `list_ask_work_missions`, `list_ask_work_targets`, `list_ask_proposals`, `list_ask_tool_calls`,
+  `list_backlog_planning_session_messages`, and `list_backlog_refinement_session_messages` (read-only, so captains in a
+  conversation may call them).
+- Planning, objective, and refinement session enumeration now page and filter in the database. Planning sessions remain
+  SQLite only.
+- Dashboard, mobile, and TUI load transcripts newest page first, with older pages on request. Work cards show
+  "Showing N of total rows" when a voyage has more missions than the first page.
+
+### Bounded enumeration: captains, Harbors, runtimes, model endpoints, personas, skills, CLI permissions
+
+- **Breaking:** `GET /api/v1/runtimes/mux/endpoints` returns one page (`MuxEndpointPage`: `Objects`, `TotalRecords`, `TotalPages`, plus `HarborId`, `ConfigDirectory`, `ErrorCode`, `ErrorMessage`) instead of `MuxEndpointListResult.Endpoints`, ordered by name; `pageNumber` and `pageSize` (1 to 1000, default 10) page it, and `POST /api/v1/runtimes/mux/endpoints/enumerate` is its POST twin. An endpoint reporting more than 256 headers is a 400 `CollectionLimitExceeded`.
+- **Breaking:** `GET /api/v1/captains/{id}/tools` and MCP `get_captain_tools` return `Tools` as one page (`EnumerationResult<CaptainToolSummary>`, ordered by source kind, source, and name) with `ToolCount`, `McpToolCount`, `RuntimeBuiltInToolCount`, and `SnapshotUtc`; `pageNumber`, `pageSize`, `sourceKind`, and `refresh` select the page (a probe snapshot is reused for 60 seconds unless `refresh=true`). `POST /api/v1/captains/{id}/tools/enumerate` is the POST twin. `Servers` is bounded at 256 (more is a CollectionLimitExceeded error, never a silent cut).
+- `POST /api/v1/harbors/enumerate`, `POST /api/v1/model-endpoints/enumerate`, `POST /api/v1/cli-permissions/rules/enumerate`, `GET /api/v1/harbors/{id}/jobs` (+ `POST .../jobs/enumerate`, MCP `list_harbor_jobs`), `GET /api/v1/personas` (+ `POST .../enumerate`), and MCP `enumerate` harbors, model_endpoints, cli_permission_rules and personas now count and cut the page in the database (all four providers) with the caller's visibility applied before counting, so `TotalRecords` is exact; ordering breaks ties by id. Personas and skills no longer drop invisible rows after paging (pages were short and totals counted rows the caller could not see).
+- Writes reject collections over their limits (400 / MCP InvalidArgument / WebSocket InvalidArgument, `Code` `CollectionLimitExceeded`): Harbor `Capabilities` (256, on create and on the Harbor link handshake, which is refused with the reason), model endpoint `Headers` and `InferenceOptions.AllowedTools` (256), persona `CaptainPriorities` (256), Harbor probe `Arguments` (256), and captain bulk delete `Ids` (1000; REST `POST /api/v1/captains/delete/multiple`, MCP `delete_captains`).
+- A model endpoint create (and duplicate) ignores a caller-supplied `HealthHistory`; the history is server-owned and keeps at most 500 records.
+- Harbor metrics (`GET /api/v1/harbors/{id}/metrics`, MCP `get_harbor_metrics`) bound every list: `LaunchSpeed` lists the 15 busiest runtimes and aggregates the rest into one `IsOther` entry (16 at most), token `Series` (overall and per bucket) list the top 19 runtime and model pairs plus one `IsOther` aggregate (20 at most), and `Link.Segments` is coalesced to bucket resolution (`SegmentsCoalesced`, `RawSegmentCount`) above 1000 stretches. No data is dropped: aggregates carry the totals.
+
+### Bounded enumeration: settings, accounts, summaries, and delivery
+
+- `GET /api/v1/token-usage/summary` and MCP `token_usage_summary` reject a window and `bucketMinutes` that would produce more than 1000 buckets (REST 400 / MCP `InvalidArgument`, Code `CollectionLimitExceeded`) and a `bucketMinutes` above 527040. **Shape change:** `ByModel` and each bucket's `Models` list only the `modelLimit` most-used models (new parameter, default 10, 1 to 100); the rest are summed into the new `OtherModels` aggregate (model `(other)`) with `OtherModelCount`, and `ModelCount` gives the distinct count. The dashboard and TUI draw the `(other)` series.
+- `GET /api/v1/request-history/summary` has the same 1000-bucket and 527040-minute bounds. `POST /api/v1/request-history/delete/multiple` rejects more than 1000 ids and deletes nothing.
+- **Shape change:** `POST /api/v1/tenants/lookup` returns one page (`PageNumber`, `PageSize` 1 to 1000, default 10, from the body or querystring) of the active tenants for the email, ordered by name, with `PageNumber`, `PageSize`, `TotalPages`, and `TotalRecords`; it is paged and counted in the database. The dashboard, mobile, and TUI login pickers read the pages explicitly. `ArmadaClient.LookupTenantsAsync` takes `pageNumber` and `pageSize`.
+- `PUT /api/v1/settings` rejects `Import.AllowedRoots`, `Import.ExcludedDirectoryNames`, or `FleetActions.OfflineHarborIds` over 256 entries before applying anything; `RepositoryHealth.ScoredCriteria` and push categories keep one entry per defined value.
+- `POST /api/v1/push/devices/enumerate`, `POST /api/v1/incidents/enumerate`, `POST /api/v1/runbooks/enumerate`, and `POST /api/v1/runbook-executions/enumerate` (and their GET twins and the MCP `enumerate` entity types) page and count in the database in every provider instead of loading every row. Incidents and runbook executions are stored in new `incidents` and `runbook_executions` tables (schema migration 102); their snapshot events stay as history, and existing snapshots are imported once at startup. Incidents order by last update then id (a regular user sees the incidents they own); runbooks order by file name then id.
+- **Shape change:** `POST /api/v1/releases/{id}/github/pull-requests/enumerate` orders pull requests by number (newest first) then repository and reads only the requested page from GitHub. `ArmadaClient.GetReleaseGitHubPullRequestsAsync` (and `ArmadaApiClient`'s) now takes an `EnumerationQuery` and returns one page (`EnumerationResult<GitHubPullRequestDetail>`) instead of reading every page; the dashboard and mobile release pages load more on demand and the TUI grid pages on the server.
+- Stored delivery lists are bounded on every write: deployment `CheckRunIds`, release `VoyageIds`/`MissionIds` (including the missions the linked voyages expand to)/`CheckRunIds`/`Artifacts`, incident `RescueMissionIds`, and upsert `ObjectiveIds` at 1000; environment `VerificationDefinitions` and their `Headers`, runbook `Parameters`/`Steps`, and execution `ParameterValues`/`CompletedStepIds`/`StepNotes` at 256. Operational appends (deployment verification and monitoring, mission recovery) past a limit are rejected explicitly. A runbook derived from a playbook with more steps or parameters than 256 reports the rest in `OmittedStepCount`/`OmittedParameterCount`. Delivery lists (environments, deployments, releases) get an id tie-break in their order.
+
+### Bounded collections: merge queue, fleet actions, check runs, battery, stage outcomes, handoff artifacts
+
+Part of the bounded enumeration contract ([docs/ENUMERATION.md](docs/ENUMERATION.md)). Breaking shape changes:
+
+- `GET /api/v1/fleet-action-runs/{id}` and MCP `fleet_action_run_status` return `{ Run }` only; `Targets` is removed.
+  Page targets with `POST /api/v1/fleet-action-runs/{id}/targets/enumerate` or MCP `enumerate` (`fleet_action_run_target`).
+  The Helm `action status` command, the TUI re-run action and the dashboard page every target page explicitly.
+- `GET /api/v1/battery/runs/{id}` and MCP `get_battery_run` no longer embed `Results`. New: `GET /api/v1/battery/runs/{id}/results`,
+  `POST /api/v1/battery/runs/{id}/results/enumerate` and MCP `list_battery_results` (paged in the database in all four
+  providers; `Status` filters by outcome). Armada.Client adds `ListBatteryRunResultsAsync` and `EnumerateBatteryRunResultsAsync`.
+- `POST /api/v1/check-runs/sync/github-actions` returns `CheckRunIds` instead of embedded `CheckRuns`, reads one GitHub
+  page (`RunCount` 1-100, new `PageNumber`) and reports `SourceTotalCount`, `SourceTotalPages`, `FetchedCount` and `FilteredOutCount`.
+- Limits (REST 400 / MCP `InvalidArgument`, `Code` `CollectionLimitExceeded`): merge purge `EntryIds` (1000); fleet action
+  `RequiredTools`, `Inputs`, each input's `AllowedValues` and run `InputValues` (256), run `VesselIds` (1000; the per-run
+  target maximum is now at most 1000, was 5000); check-run import `Artifacts` and workflow `ExpectedArtifacts` used by a
+  check run (256); battery run `Packs` (256); failure-cause rule `Match` lists (256).
+- Battery packs are paged from disk (only the page's manifests are read), ordered by pack directory name. A manifest list
+  over 256 entries makes the pack malformed; `BatteryPackInfo` adds `TaskCount` and `ToolchainCount`, and `Errors` holds at
+  most 256. Seeded-set grading stores the first 256 false positives and adds `FalsePositiveCount`.
+- Failure-cause rules are paged in the database (all four providers) instead of loaded whole.
+- Handoff artifacts bound `Findings`, `AcceptanceCriteria` and `CompletionLines` to 256 entries at build time, ending a
+  longer list with a marker entry that names the omitted count.
+
+### Bounded enumeration: configuration catalogs and MCP enumerate
+
+- Pipelines, playbooks, prompt templates, workflow profiles, project profiles and skills (REST list and enumerate routes, MCP `enumerate`) apply the caller's visibility in the database before counting. A regular user's pages are now full and `TotalRecords` counts only rows the caller can see; previously the page was cut first and invisible rows were dropped afterwards. Ordering breaks ties by id.
+- Breaking: the default page size of the workflow-profile, project-profile and skill queries is 10 (was 25), and their querystring `pageSize` is normalized into 1..1000 (was 1..500), matching the shared contract.
+- Breaking: MCP `list_prompt_templates` pages in the database with the standard contract: `pageSize` defaults to 10 (was 25) and is normalized into 1..1000 (was capped at 100).
+- Breaking: configuration lists are limited to 256 entries (`CollectionLimits.MaxConfigItems`) on every write path: workflow-profile `LanguageHints`, `RequiredInputs`, `ExpectedArtifacts`, `Environments` (REST create/update/validate, MCP create/update/validate); pipeline `Stages` (REST, MCP, WebSocket create/update); project-profile `PersonaOverrides` and `Skills` (create/update/validate). More is REST `400` / MCP `InvalidArgument` with `Code` `CollectionLimitExceeded`, and nothing is stored.
+- Breaking: `POST /api/v1/workflow-profiles/delete/multiple` and MCP `delete_workflow_profiles` reject more than 1000 ids with `CollectionLimitExceeded`.
+- Breaking: MCP `enumerate` rows for `missions` and `voyages` with `includeDescription=true` are scalar rows (the summary fields plus `Description`) instead of full Mission / Voyage models, so a page never embeds playbook snapshots, selected playbooks or assignment blockers. `harbors` and `model_endpoints` pages now carry `TotalPages` like every other entity type.
+- Helm `playbook show`, `playbook remove` and `voyage create --playbook` resolve playbooks across every page instead of the first page; TUI pipeline, playbook and workflow-profile pickers read every page.
+
 ### Handoff and landing integrity
 
 - Final landing verifies the integrated commit on the owning host and publishes that exact SHA. Failed, timed-out, unavailable or mutating checks refuse publication; merge-queue passes and explicit skips now have durable receipts with commit, command, exit code and timestamps. Armada additionally runs focused integration suites even with a smoke-only workflow profile.
@@ -25,6 +188,7 @@ All notable changes to Armada are documented in this file.
 - Workflow profiles carry two unit-test commands: `UnitTestCommand` (full suite) and the new `AbbreviatedUnitTestCommand` (a fast subset). The abbreviated one runs for the new `AbbreviatedUnitTest` check type (the operator choosing directly) and in post-stage checks when `[ARMADA:UNIT-TESTS] abbreviated` appears in the mission description or, failing that, the stage persona's prompt (for example a customized Test Engineer prompt template); `[ARMADA:UNIT-TESTS] full` forces the full suite, and with no directive the full command runs. An unset abbreviated command falls back to the full one. Migration 100 adds `abbreviated_unit_test_command` on every database. The dashboard, TUI and mobile workflow-profile forms show both fields with tooltips explaining how each is chosen, and `StageCheckResult` records the `UnitTestScope` used.
 - `POST /api/v1/memories/enumerate` enumerates memories with a `MemoryEnumerateRequest` (every `EnumerationQuery` field plus `Search`, `Type`, `Topic`, `TopicContains`, `VesselName`, `SummaryContains`, `Scope`, `MinSalience`, and `SortBy`), returning `EnumerationResult<Memory>` like the other enumerate routes. `GET /api/v1/memories` accepts the same fields as query parameters (it previously dropped `order`, `createdAfter`, `createdBefore`, `voyageId`, and `missionId`). Visibility, filtering, sorting (including by vessel name) and paging now run in the database on SQLite, PostgreSQL, SQL Server and MySQL instead of loading every visible memory. Without `SortBy` or `Order` the historical order (salience, then newest) is kept. New `EnumerateMemoriesAsync` on `Armada.Client` and the Core `ArmadaApiClient`, and `enumerateMemories` in the dashboard client; the MCP `enumerate` tool honors `order` for memories.
 - The dashboard Memories page sorts, filters (vessel name, type, topic, summary, salience, visibility, search) and pages on the server through the enumerate route; its strings are translated in every locale.
+
 ### Workflow profiles over MCP
 
 - New MCP tools `get_workflow_profile`, `create_workflow_profile`, `update_workflow_profile` (partial update: only the fields passed change; an empty string clears a command, fleetId or vesselId), `delete_workflow_profile`, `delete_workflow_profiles`, `validate_workflow_profile`, `resolve_workflow_profile` and `preview_workflow_profile`. Every settable field (name, description, scope, fleetId, vesselId, isDefault, active, ownershipScope, language hints, every command, required inputs, expected artifacts and environments) is in the schemas. Reads are Authenticated; writes and validate need a tenant admin, as over REST. Ask Armada treats get/validate/resolve/preview as read-only and the writes as proposals that need approval.
@@ -39,6 +203,7 @@ All notable changes to Armada are documented in this file.
 
 - Ask Armada: tool-call cards (and the streamed reply text and thinking) no longer disappear when you leave a conversation while the captain is still answering and come back, reload, or reconnect. The reply and its tool calls are persisted only when the turn ends, so `GET /api/v1/ask/threads/{id}` now returns `ActiveTurn` (`AskTurnProgress`: turn id, reserved reply id, text, thinking, and tool calls so far) while a turn runs, and the dashboard and mobile app restore the live reply from it, merged with socket events by call id so no card is shown twice. A turn that is stopped or crashes now keeps the tool calls it already made on its error message, and error messages show those tool calls (expandable, with arguments and results) instead of dropping them.
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
+
 ### Fleet action scan and test runs
 
 - Add Findings outcomes counted separately from successful and failed targets, fourteen audit/test output parsers, redacted secret scan output, persisted scan summaries, and mission templates using a named source action through `{{scan.summary}}`.
@@ -59,6 +224,7 @@ All notable changes to Armada are documented in this file.
 ### Persona prompt variants for battery comparison
 
 - Persona prompts render as one of three variants through the existing template path: Current (today's default, unchanged), Lean (one demand per line, the output contract stated first and repeated as the last line) and Compact (a shorter tier for small-context readers). Built-in `persona.<name>.lean` and `persona.<name>.compact` templates ship for the Worker, Test Engineer, Judge and Architect and appear in `list_prompt_templates`; completion and signal lines are identical in every variant, and acceptance criteria and project rules are untouched. The variant is chosen by a voyage captain override's `PromptVariant`, then the captain's `promptVariant` runtime option, then Current. A fixture battery run takes `promptVariant` (REST body and `run_battery`) and records a non-Current variant in its configuration.
+
 ### Stage outcomes record contract repairs
 
 - `StageOutcome.ContractRepairKind` (nullable; `CompletionLineMissing`, `CompletionLineMalformed`, `CommitMissingRecoveredFromRepo`, `VerdictNonCanonical` or `PlanBlockNonCanonical`) records the contract repair Armada applied to the attempt, read from the latest `mission.contract_repaired` event written since the attempt started. Migration 98 adds the `contract_repair_kind` column to `stage_outcomes` on SQLite, PostgreSQL, SQL Server and MySQL; existing rows read as null. The field is returned by the stage outcome REST routes and the `get_stage_outcome` / `list_stage_outcomes` MCP tools. The `mission.contract_repaired` event is still emitted for every repair.

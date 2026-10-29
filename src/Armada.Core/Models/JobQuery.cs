@@ -4,6 +4,7 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
     using System.Text;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Filter and page for listing background jobs (newest first). Used by <c>GET /api/v1/jobs</c> when the caller passes
@@ -27,6 +28,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Restrict to these statuses. Empty for every status.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<JobStatusEnum> Statuses
         {
             get { return _Statuses; }

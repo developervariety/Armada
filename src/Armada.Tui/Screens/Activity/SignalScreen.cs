@@ -223,7 +223,7 @@ namespace Armada.Tui.Screens.Activity
             string id = Signal.Id;
             Context.Confirm("Delete", Context.Loc.T("Delete {{entity}} {{name}}?", LocalizationArgs.Of("entity", Context.Loc.T("Signal").ToLowerInvariant(), "name", id)), () =>
             {
-                ScreenOps.Run(Context, () => Context.Client.DeleteSignalsBatchAsync(new List<string> { id }), r =>
+                DeleteProgress.Run(Context, "Deleting signal", ct => Context.Client.DeleteSignalsBatchAsync(new List<string> { id }, ct), r =>
                 {
                     ScreenOps.Toast(Context, NotificationSeverityEnum.Warning, "Signal {{id}} deleted.", LocalizationArgs.Of("id", id));
                     Context.Navigate("/activity?source=signals");

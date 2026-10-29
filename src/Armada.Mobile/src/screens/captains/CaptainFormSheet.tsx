@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { createCaptain, listModelEndpoints, setCaptainCliPermissionPolicy, updateCaptain } from '@dashboard/api/client';
+import { createCaptain, enumerateModelEndpoints, setCaptainCliPermissionPolicy, updateCaptain } from '@dashboard/api/client';
+import { listAll } from '@dashboard/api/paging';
 import { supportsAutoApproveSwitch } from '@dashboard/lib/captainApproval';
 import {
   buildCaptainCreatePayload,
@@ -57,8 +58,9 @@ export function CaptainFormSheet({ open, captain, onClose, onSaved }: CaptainFor
     // eslint-disable-next-line react-hooks/set-state-in-effect -- opening the sheet resets the form to the captain
     setForm(captain ? captainFormFromCaptain(captain, { withEndpoint: true, withPersonas: true }) : { ...emptyCaptainForm(), allowedPersonas: '', preferredPersona: '' });
     setError(null);
-    listModelEndpoints()
-      .then((result) => setEndpoints((result ?? []).filter((e) => e.kind === 'Inference')))
+    // A picker needs every endpoint: read the pages explicitly (bounded by listAll's safety stop).
+    listAll(enumerateModelEndpoints)
+      .then((result) => setEndpoints((result?.objects ?? []).filter((e) => e.kind === 'Inference')))
       .catch(() => setEndpoints([]));
   }, [open, captain]);
 

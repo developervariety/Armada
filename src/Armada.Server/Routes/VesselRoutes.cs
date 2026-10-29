@@ -355,9 +355,21 @@ namespace Armada.Server.Routes
                         : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (vessel == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
                 if (_git == null) { req.Http.Response.StatusCode = 503; return new ApiStatusErrorResponse(ApiStatusErrorCodeEnum.ServiceUnavailable, "Git service is not available"); }
-                EnumerationQuery query = EnumerationRequestReader.Read(req, _jsonOptions);
+                EnumerationQuery query;
+                try
+                {
+                    query = EnumerationRequestReader.Read(req, _jsonOptions);
+                }
+                catch (JsonException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Request body is not valid: " + ex.Message };
+                }
+
                 string defaultBranch = vessel.DefaultBranch ?? "main";
                 VesselRepositoryTarget repo = await ResolveRepositoryAsync(vessel, ctx.UserId).ConfigureAwait(false);
+                // git for-each-ref has no offset, so the ref list (one line per branch, no per-branch work) is read whole and
+                // the page is cut from it with an exact total; the per-branch divergence below runs only for the page.
                 List<BranchInfo> all = new List<BranchInfo>();
                 string? error = repo.Found ? null : repo.Error;
                 if (repo.Found)
@@ -382,7 +394,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Vessels")
                 .WithSummary("Enumerate vessel branches")
-                .WithDescription("One page of a vessel's branches (in git order, the default branch first), with its default branch and a git error when they could not be read. Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithDescription("One page of a vessel's branches (in git order, the default branch first), with its default branch and a git error when they could not be read. Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10). The ref list is read with one git command and cut to the page; ahead/behind is measured only for the branches on the page. A malformed body is 400.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
@@ -862,6 +874,7 @@ namespace Armada.Server.Routes
                 DeleteMultipleRequest? body = JsonSerializer.Deserialize<DeleteMultipleRequest>(req.Http.Request.DataAsString, _jsonOptions);
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
                     { req.Http.Response.StatusCode = 400; return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" }; }
+                CollectionLimits.RequireRequestItems(body.Ids, "Ids");
 
                 DeleteMultipleResult result = new DeleteMultipleResult();
                 foreach (string id in body.Ids)
@@ -902,7 +915,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Vessels")
                 .WithSummary("Batch delete multiple vessels")
-                .WithDescription("Permanently deletes multiple vessels from the database by ID. Returns a summary of deleted and skipped entries. This cannot be undone.")
+                .WithDescription("Permanently deletes multiple vessels from the database by ID (at most 1000 Ids; more is 400 CollectionLimitExceeded). Returns a summary of deleted and skipped entries. This cannot be undone.")
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of vessel IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
