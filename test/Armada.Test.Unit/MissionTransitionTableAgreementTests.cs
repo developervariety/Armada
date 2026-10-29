@@ -106,6 +106,88 @@ namespace Armada.Test.Unit
                 }
             });
 
+            // === Pipeline-owned transitions: legal in the table, refused to an operator ===
+            // WorkProduced is established by completion handling and retry-landing, and a Review mission
+            // leaves Review through a recorded review decision, so the operator path refuses both for
+            // every legal pair and leaves the stored mission untouched.
+
+            await RunTest("Operator transition service refuses writes into WorkProduced and out of Review", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    MissionStatusTransitionService service = CreateTransitionService(testDb.Driver);
+                    MissionStatusEnum[] statuses = (MissionStatusEnum[])Enum.GetValues(typeof(MissionStatusEnum));
+                    int refused = 0;
+
+                    foreach (MissionStatusEnum current in statuses)
+                    {
+                        foreach (MissionStatusEnum target in statuses)
+                        {
+                            if (!MissionStateMachine.IsValidTransition(current, target)) continue;
+
+                            string? expectedReason = null;
+                            if (target == MissionStatusEnum.WorkProduced)
+                                expectedReason = MissionStatusTransitionService.WorkProducedPipelineOwnedReason;
+                            else if (current == MissionStatusEnum.Review
+                                && target != MissionStatusEnum.Complete
+                                && target != MissionStatusEnum.Cancelled)
+                                expectedReason = MissionStatusTransitionService.ReviewDecisionRequiredReason;
+                            if (expectedReason == null) continue;
+
+                            Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("pipeline owned " + current + " to " + target)
+                            {
+                                Status = current
+                            }).ConfigureAwait(false);
+
+                            MissionStatusTransitionResult result = await service.TransitionAsync(mission, target).ConfigureAwait(false);
+                            AssertEqual(MissionStatusTransitionOutcomeEnum.Refused, result.Outcome, current + " to " + target + " is refused");
+                            AssertEqual(expectedReason, result.Reason, current + " to " + target + " names its reason");
+                            Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                            AssertEqual(current, stored!.Status, "A refused " + current + " to " + target + " leaves the stored status");
+                            refused++;
+                        }
+                    }
+
+                    // InProgress and LandingFailed reach WorkProduced; Review reaches InProgress and Failed.
+                    AssertEqual(4, refused, "Exactly the legal pipeline-owned pairs are refused");
+                }
+            });
+
+            await RunTest("MCP status transition refuses a pipeline-owned write with its reason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("mcp pipeline owned")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Status = MissionStatusEnum.Review
+                    }).ConfigureAwait(false);
+
+                    Func<System.Text.Json.JsonElement?, Task<object>>? transition = null;
+                    Armada.Server.Mcp.Tools.McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_transition_mission_status") transition = handler; },
+                        testDb.Driver,
+                        DispatchProxy.Create<IAdmiralService, UnusedServiceProxy>(),
+                        null,
+                        null,
+                        statusTransitions: CreateTransitionService(testDb.Driver));
+                    AssertNotNull(transition, "the transition tool is registered");
+
+                    string json;
+                    using (Armada.Server.Mcp.McpCallerContext.Begin(AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "Test")))
+                    {
+                        json = System.Text.Json.JsonSerializer.Serialize(await transition!(
+                            System.Text.Json.JsonSerializer.SerializeToElement(new { missionId = mission.Id, status = "InProgress" })).ConfigureAwait(false));
+                    }
+
+                    AssertContains(MissionStatusTransitionService.ReviewDecisionRequiredReason, json, "the MCP caller receives the typed reason");
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Review, stored!.Status, "the refused MCP transition leaves the mission in Review");
+                }
+            });
+
             // === Agent status markers: progress targets only, within the shared table ===
             // The lifecycle handler's behaviour is covered by the Agent Lifecycle Handler suite; this pins
             // the rule it calls across the whole enum.

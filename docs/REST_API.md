@@ -2063,7 +2063,18 @@ Transition a mission to a new status. Only valid transitions are allowed.
 **Response:** `200 OK` - [Mission](#mission)
 **Error:** `400` - Invalid transition or invalid status name
 **Error:** `404` - Mission not found
-**Error:** `409` - Manual completion blocked; `Message` is `Manual completion blocked: <reason>`
+**Error:** `409` - Manual completion blocked (`Message` is `Manual completion blocked: <reason>`), or a pipeline-owned transition refused (see below)
+
+**Pipeline-owned transitions:** a status write never moves a mission into `WorkProduced`
+and never moves a `Review` mission to `InProgress` or `Failed`. `WorkProduced` means the
+diff, commit and verification were captured and the work is landable, and only completion
+handling and retry-landing establish that. A `Review` mission leaves `Review` through a
+recorded review decision (approve or deny); `Complete` keeps the gates below and `Cancelled`
+stays available. The request returns `409` whose `Message` is `Manual transition refused: <reason>. ...`
+with the reason `manual_transition_work_produced_pipeline_owned` or
+`manual_transition_review_decision_required`, and the mission is unchanged. The WebSocket
+`transition_mission_status` command and the MCP `armada_transition_mission_status` tool
+return the same reasons.
 
 **Manual completion:** a transition to `Complete` must pass the shared manual
 completion gates before anything is written. The same gates apply to the WebSocket
@@ -2094,6 +2105,11 @@ mission unchanged.
 | `Complete` | (terminal) |
 | `Failed` | (terminal) |
 | `Cancelled` | (terminal) |
+
+The table lists the transitions the state machine permits. The `InProgress` and
+`LandingFailed` moves to `WorkProduced`, and the `Review` moves to `InProgress` and
+`Failed`, are applied only by the completion, retry-landing and review decision paths; an
+operator status write for them is refused as described above.
 
 A captain can also move its own mission by writing an `[ARMADA:STATUS]` line to
 its output. That marker only sets `InProgress`, `Testing`, or `Review`, and only

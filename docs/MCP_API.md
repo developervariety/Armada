@@ -726,6 +726,11 @@ and leaves the mission unchanged:
 }
 ```
 
+A transition into `WorkProduced`, or out of `Review` to `InProgress` or `Failed`, returns the
+same structured error with the reason `manual_transition_work_produced_pipeline_owned` or
+`manual_transition_review_decision_required`. Completion handling and retry-landing produce
+`WorkProduced`, and a review approval or denial moves a `Review` mission.
+
 The gates are review approval, Judge authority, captain process release, Check
 state, and target ancestry of the mission commit when no active dock will land
 it. The same request on another surface gets the same decision.

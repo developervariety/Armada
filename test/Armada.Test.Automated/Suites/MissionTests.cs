@@ -629,35 +629,35 @@ namespace Armada.Test.Automated.Suites
                 await AssertCompleteRefusedAsync(missionId, "manual_completion_review_required", MissionStatusEnum.Review);
             });
 
-            await RunTest("StatusTransition_ReviewToInProgress_Succeeds", async () =>
+            await RunTest("StatusTransition_ReviewToInProgressOrFailed_IsRefusedWithoutMutation", async () =>
             {
                 string vesselId = await SetupVesselAsync();
-                Mission created = await CreateMissionAsync(vesselId, "ReviewToIP");
+                Mission created = await CreateMissionAsync(vesselId, "ReviewExitRefused");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(missionId, "Assigned");
                 await TransitionAndAssertAsync(missionId, "InProgress");
                 await TransitionAndAssertAsync(missionId, "Review");
-                await TransitionAndAssertAsync(missionId, "InProgress");
-            });
 
-            await RunTest("StatusTransition_ReviewToFailed_Succeeds", async () =>
-            {
-                string vesselId = await SetupVesselAsync();
-                Mission created = await CreateMissionAsync(vesselId, "ReviewToFailed");
-                string missionId = created.Id;
+                // A mission leaves Review through a recorded review decision, not a status write.
+                foreach (string target in new[] { "InProgress", "Failed" })
+                {
+                    HttpResponseMessage response = await TransitionAsync(missionId, target);
+                    string body = await response.Content.ReadAsStringAsync();
+                    AssertEqual(HttpStatusCode.Conflict, response.StatusCode, "Review to " + target + ": " + body);
+                    AssertContains("manual_transition_review_decision_required", body, "the refusal names its reason");
+                    Mission unchanged = JsonHelper.Deserialize<Mission>(await (await _AuthClient.GetAsync("/api/v1/missions/" + missionId)).Content.ReadAsStringAsync());
+                    AssertEqual(MissionStatusEnum.Review, unchanged.Status, "a refused exit to " + target + " leaves the mission in Review");
+                }
 
-                await TransitionAndAssertAsync(missionId, "Assigned");
-                await TransitionAndAssertAsync(missionId, "InProgress");
-                await TransitionAndAssertAsync(missionId, "Review");
-                await TransitionAndAssertAsync(missionId, "Failed");
+                await TransitionAndAssertAsync(missionId, "Cancelled");
             });
 
             #endregion
 
             #region StatusTransition-Valid-Lifecycle
 
-            await RunTest("StatusTransition_FullLifecycle_PendingThroughReviewReworkToComplete", async () =>
+            await RunTest("StatusTransition_FullLifecycle_PendingThroughTestingReworkToComplete", async () =>
             {
                 (string vesselId, string commitHash) = await SetupLandedVesselAsync();
                 Mission created = await CreateLandedMissionAsync(vesselId, commitHash, "Lifecycle Full");
@@ -666,7 +666,6 @@ namespace Armada.Test.Automated.Suites
                 await TransitionAndAssertAsync(missionId, "Assigned");
                 await TransitionAndAssertAsync(missionId, "InProgress");
                 await TransitionAndAssertAsync(missionId, "Testing");
-                await TransitionAndAssertAsync(missionId, "Review");
                 await TransitionAndAssertAsync(missionId, "InProgress");
                 await TransitionAndAssertAsync(missionId, "Testing");
 
@@ -746,33 +745,6 @@ namespace Armada.Test.Automated.Suites
                 HttpResponseMessage response = await TransitionAsync(missionId, "Cancelled");
                 Mission transitioned = await JsonHelper.DeserializeAsync<Mission>(response);
                 AssertTrue(transitioned.CompletedUtc != null);
-            });
-
-            await RunTest("StatusTransition_TestingBounceBackToInProgress_ThenComplete", async () =>
-            {
-                (string vesselId, string commitHash) = await SetupLandedVesselAsync();
-                Mission created = await CreateLandedMissionAsync(vesselId, commitHash, "Bounce Back");
-                string missionId = created.Id;
-
-                await TransitionAndAssertAsync(missionId, "Assigned");
-                await TransitionAndAssertAsync(missionId, "InProgress");
-                await TransitionAndAssertAsync(missionId, "Testing");
-                await TransitionAndAssertAsync(missionId, "InProgress");
-                await TransitionAndAssertAsync(missionId, "Testing");
-                await TransitionAndAssertAsync(missionId, "Complete");
-            });
-
-            await RunTest("StatusTransition_ReviewBounceBackToInProgress_ThenComplete", async () =>
-            {
-                (string vesselId, string commitHash) = await SetupLandedVesselAsync();
-                Mission created = await CreateLandedMissionAsync(vesselId, commitHash, "Review Bounce");
-                string missionId = created.Id;
-
-                await TransitionAndAssertAsync(missionId, "Assigned");
-                await TransitionAndAssertAsync(missionId, "InProgress");
-                await TransitionAndAssertAsync(missionId, "Review");
-                await TransitionAndAssertAsync(missionId, "InProgress");
-                await TransitionAndAssertAsync(missionId, "Complete");
             });
 
             #endregion

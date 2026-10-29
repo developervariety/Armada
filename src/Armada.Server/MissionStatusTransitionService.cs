@@ -22,7 +22,9 @@ namespace Armada.Server
     /// conditions (review and Judge authority, Checks, and target ancestry for work no active dock
     /// will land). With an active dock the mission is routed through the landing pipeline; an
     /// intermediate pipeline stage is handed off through the shared completion service instead of
-    /// being marked terminal. A refusal never mutates the mission and always carries its reason.
+    /// being marked terminal. A transition into WorkProduced, and a transition out of Review other than
+    /// Complete or Cancelled, belong to the completion, retry-landing and review decision paths and are
+    /// refused. A refusal never mutates the mission and always carries its reason.
     /// </remarks>
     public sealed class MissionStatusTransitionService
     {
@@ -32,6 +34,12 @@ namespace Armada.Server
         /// </summary>
         public const string UnavailableMessage =
             "Mission status transitions are unavailable: the shared transition service is not configured.";
+
+        /// <summary>Refusal reason for an operator request to move a mission into WorkProduced.</summary>
+        public const string WorkProducedPipelineOwnedReason = "manual_transition_work_produced_pipeline_owned";
+
+        /// <summary>Refusal reason for an operator request to move a mission out of Review without a review decision.</summary>
+        public const string ReviewDecisionRequiredReason = "manual_transition_review_decision_required";
 
         private const string _Header = "[MissionStatusTransition] ";
 
@@ -108,6 +116,27 @@ namespace Armada.Server
 
             if (!MissionStateMachine.IsValidTransition(mission.Status, newStatus))
                 return MissionStatusTransitionResult.InvalidTransition(mission, "Invalid transition from " + mission.Status + " to " + newStatus);
+
+            // WorkProduced means the diff, commit and verification were captured and the work is landable.
+            // Only completion handling and retry-landing establish that, so an operator write is refused.
+            if (newStatus == MissionStatusEnum.WorkProduced)
+            {
+                return MissionStatusTransitionResult.PipelineOwned(mission, WorkProducedPipelineOwnedReason,
+                    "Manual transition refused: " + WorkProducedPipelineOwnedReason + ". Only completion handling, which captures the work, "
+                    + "or retry-landing of a LandingFailed mission produces WorkProduced.");
+            }
+
+            // A mission in Review waits for a recorded review decision. Approve and deny apply it with the
+            // decision record, so a status write that moves the mission out of Review is refused. Complete
+            // keeps its own gates and Cancelled stays available.
+            if (mission.Status == MissionStatusEnum.Review
+                && newStatus != MissionStatusEnum.Complete
+                && newStatus != MissionStatusEnum.Cancelled)
+            {
+                return MissionStatusTransitionResult.PipelineOwned(mission, ReviewDecisionRequiredReason,
+                    "Manual transition refused: " + ReviewDecisionRequiredReason + ". Record the review approval or denial to move a Review mission to "
+                    + newStatus + ".");
+            }
 
             if (newStatus == MissionStatusEnum.Complete && !String.IsNullOrEmpty(mission.DockId))
             {
