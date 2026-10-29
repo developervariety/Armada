@@ -9,6 +9,7 @@ namespace Armada.Tui.Screens.Operations
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Services;
     using Armada.Tui.Text;
     using Armada.Tui.Widgets;
@@ -194,13 +195,13 @@ namespace Armada.Tui.Screens.Operations
                 : Tr("Delete \"{{name}}\"? Past runs keep their snapshot of the definition. This cannot be undone.", LocalizationArgs.Of("name", a.Name));
             Confirm(title, message, () =>
             {
-                Run((c, t) => c.DeleteFleetActionAsync(a.Id, t), () =>
+                DeleteProgress.RunVoid(Context, "Deleting fleet action", t => Context.Client.DeleteFleetActionAsync(a.Id, t), () =>
                 {
                     Toast(NotificationSeverityEnum.Warning, a.IsBuiltIn
                         ? Tr("Built-in action \"{{name}}\" hidden.", LocalizationArgs.Of("name", a.Name))
                         : Tr("Fleet action \"{{name}}\" deleted.", LocalizationArgs.Of("name", a.Name)));
                     Refresh();
-                }, null, ex => ShowMessage(String.IsNullOrEmpty(ex.Message) ? Tr("Delete failed.") : ex.Message));
+                }, "Delete failed.");
             }, a.IsBuiltIn ? "Hide" : "Delete");
         }
 
