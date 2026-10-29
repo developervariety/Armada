@@ -192,7 +192,7 @@ Before dispatching work, understand what exists:
 ```
 status()                                                    -> overview of captains, missions, voyages
 enumerate({ entityType: "fleets" })                         -> find available fleets
-get_fleet({ fleetId })                                      -> see vessels in a fleet
+get_fleet({ fleetId })                                      -> fleet + vesselCount (page vessels with enumerate fleetId)
 enumerate({ entityType: "vessels", fleetId: "flt_..." })    -> find vessels in a fleet
 enumerate({ entityType: "captains" })                       -> confirm captains are registered
 ```
@@ -359,7 +359,7 @@ Boolean include flags (all default to `false`): `includeDescription` (missions, 
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `get_fleet` | `fleetId` (required) | Get fleet with its vessels |
+| `get_fleet` | `fleetId` (required) | Get fleet and its vessel count; page its vessels with `enumerate` (`vessels`, `fleetId`) |
 | `create_fleet` | `name` (required), `description` | Create a new fleet |
 | `update_fleet` | `fleetId` (required), `name`, `description` | Update fleet |
 | `delete_fleet` | `fleetId` (required) | Delete fleet |

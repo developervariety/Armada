@@ -269,6 +269,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/vessel-health/summary` | GET | Authenticated | Tenant-scoped KPI counts |
 | `/api/v1/vessel-health/evaluate` | POST | TenantAdmin | Starts an evaluation job (409 when one is running) |
 | `/api/v1/vessels/{id}/health` | GET | Authenticated | Tenant-scoped; 404 for another tenant's vessel |
+| `/api/v1/vessels/{id}/health/dependencies` | GET, POST `.../enumerate` | Authenticated | Tenant-scoped page of dependency rows; 404 for another tenant's vessel |
 | `/api/v1/vessels/{id}/health/overrides/{criterion}` | PUT, DELETE | TenantAdmin | Manual overrides |
 | `/api/v1/captains` | GET, POST `.../enumerate` | Authenticated | Tenant-scoped reads. Every create, update, delete, and action route under the prefix is TenantAdmin |
 | `/api/v1/captains/{id}/cli-permission-policy` | PUT | TenantAdmin | Global admin, or a tenant admin of the captain's tenant |
@@ -507,6 +508,7 @@ purpose-built wrapper. They are listed here so clients do not expect `Enumeratio
 | Bounded: `GET /api/v1/ask/quick-actions` (fixed catalog), `GET /api/v1/runtimes/mux/endpoints` (one Mux configuration file), `GET /api/v1/doctor` | JSON array |
 | `POST /api/v1/ask/threads/{id}/messages/enumerate` | `AskMessagePage { Messages, HasMore }` (cursor style) |
 | `GET /api/v1/workspace/vessels/{id}/search` | `WorkspaceSearchResult { Query, TotalMatches, Truncated, Matches }` |
+| `GET /api/v1/workspace/vessels/{id}/tree`, `GET /api/v1/workspace/vessels/{id}/changes`, `GET /api/v1/vessels/import/browse` | One page plus `PageNumber`, `PageSize`, `TotalPages`, `TotalRecords` next to the directory or branch fields (`Entries` / `Changes` is the page) |
 | `GET /api/v1/captains/{id}/log`, `GET /api/v1/missions/{id}/log` | `{ Log, Lines, TotalLines, ... }` (line offsets, not pages) |
 
 ### Breaking changes: whole-list routes retired
@@ -1605,7 +1607,8 @@ curl -X POST http://localhost:7890/api/v1/fleets \
 
 #### GET /api/v1/fleets/{id}
 
-Get a single fleet by ID, including all its vessels.
+Get a single fleet by ID with the number of vessels it holds in the caller's scope. The vessels are not embedded: page
+them with `POST /api/v1/vessels/enumerate` (or `GET /api/v1/vessels`) and `fleetId`.
 
 **Permission:** Authenticated
 
@@ -1614,7 +1617,7 @@ Get a single fleet by ID, including all its vessels.
 |---|---|
 | `id` | Fleet ID (`flt_` prefix) |
 
-**Response:** `200 OK` - `{ Fleet: Fleet, Vessels: Vessel[] }`
+**Response:** `200 OK` - `FleetDetailResponse`: `{ Fleet: Fleet, VesselCount: number }`
 **Error:** `404` - Fleet not found
 
 ```bash
@@ -1675,6 +1678,10 @@ Batch delete multiple fleets from the database by ID. Returns a summary of delet
 
 **Permission:** TenantAdmin
 
+`Ids` holds at most 1000 entries (`CollectionLimits.MaxRequestItems`); a longer list is rejected with `400` and
+`Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit`, `Actual`) and nothing is deleted. `Skipped` is bounded by
+the request.
+
 **Request Body:**
 
 ```json
@@ -1700,6 +1707,13 @@ Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empt
 ### Vessels
 
 A vessel is a git repository registered with Armada.
+
+The configuration lists stored on a vessel (`ProtectedBranchPatterns`, `ProtectedPathPatterns`,
+`PrivateIdentifierDenylist`, `AutoLandPathAllowGlobs`, `AutoLandPathDenyGlobs`) hold at most 256 entries each
+(`CollectionLimits.MaxConfigItems`). Every write path (REST create, update, and context patch, MCP `add_vessel`,
+`update_vessel`, and `update_vessel_context`, WebSocket `create_vessel`/`update_vessel`, import) rejects a longer list:
+REST `400` with `Data.Code` `CollectionLimitExceeded`, MCP `InvalidArgument` with `Code` `CollectionLimitExceeded`,
+WebSocket `command.error` with `InvalidArgument`. Lists are never truncated.
 
 `AutoApprove` (boolean or null, default null) is a per-vessel override of the captain auto-approve setting for missions
 on the vessel: null uses each captain's own setting; true or false wins over it (see
@@ -1829,6 +1843,10 @@ Batch delete multiple vessels from the database by ID. Returns a summary of dele
 
 **Permission:** TenantAdmin
 
+`Ids` holds at most 1000 entries (`CollectionLimits.MaxRequestItems`); a longer list is rejected with `400` and
+`Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit`, `Actual`) and nothing is deleted. `Skipped` is bounded by
+the request.
+
 **Request Body:**
 
 ```json
@@ -1910,7 +1928,7 @@ When no working directory is configured or a git error occurs, `CommitsAhead` an
 
 #### POST /api/v1/vessels/{id}/branches/enumerate
 
-One page of a vessel's branches as a `BranchEnumerationResult`: the page plus `VesselId`, `DefaultBranch`, and `Error` (set, with an empty page, when git could not list them; `404` for a vessel that is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters. `Ahead` and `Behind` are measured (one `git rev-list` each) only for the branches on the returned page, so a one-branch page is a cheap way to read the count (`TotalRecords`).
+One page of a vessel's branches as a `BranchEnumerationResult`: the page plus `VesselId`, `DefaultBranch`, and `Error` (set, with an empty page, when git could not list them; `404` for a vessel that is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters. `Ahead` and `Behind` are measured (one `git rev-list` each) only for the branches on the returned page, so a one-branch page is a cheap way to read the count (`TotalRecords`). git has no offset paging for refs, so the ref list (one line per branch, no per-branch work) is read with one command and cut to the page with an exact total. A malformed body is `400`.
 
 **Permission:** Authenticated (tenant-scoped; this replaces the removed `GET /api/v1/vessels/{id}/branches`)
 
@@ -1984,7 +2002,8 @@ appears after its parents). Each commit carries its full and short SHA, subject 
 dates (UTC), parent SHAs, `IsMerge`, and its changed files (`GitChangedFile`: `Kind`, `Path`, `OldPath` for a rename
 or copy, `AddedLines`, `DeletedLines`, `IsBinary`) with totals. Merge commits are measured against their first parent;
 binary files count zero lines. `Files` lists at most 200 files; `FilesChanged` and the line totals always count every
-file, and `FilesTruncated` is `true` when more were changed.
+file, and `FilesTruncated` is `true` when more were changed. `ParentShas` lists at most 64 parents (the first in git
+order); `ParentCount` is the full count.
 
 **Permission:** Authenticated
 
@@ -2025,6 +2044,7 @@ cursor to see them. A cursor that is not one the server issued is a `400`.
       "CommitterEmail": "ada@example.com",
       "CommittedUtc": "2026-10-06T21:15:42Z",
       "ParentShas": [ "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b" ],
+      "ParentCount": 1,
       "IsMerge": false,
       "FilesChanged": 2,
       "AddedLines": 14,
@@ -2147,7 +2167,9 @@ Return readiness warnings and blocking issues for a vessel, optionally scoped to
 | `environmentName` | string | Optional environment name for deploy, rollback, smoke-test, or health-check readiness |
 | `includeWorkflowRequirements` | bool | When `false`, only vessel and repository basics are evaluated (default: `true`) |
 
-**Response:** `200 OK` - `VesselReadinessResult`. When the vessel has no working directory on the Admiral host and a connected Harbor has a checkout of it, `HasWorkingDirectory` is true, `HarborId`, `HarborName` (the Harbor's name alone), and `CheckoutPath` name the Harbor and its path, an Info issue `working_directory_on_harbor` says so, and git state, toolchains, and command dependencies are probed on the Harbor. When neither exists, the `working_directory_missing` issue carries the reason and what to set, and `CheckoutErrorCode` is `NoHarborConnected` or `NoHarborCheckout`.
+**Response:** `200 OK` - `VesselReadinessResult`. `Issues` lists at most 200 issues (errors first when there are more);
+`IssueCount`, `ErrorCount`, and `WarningCount` count every issue. `DeploymentEnvironments` holds the distinct names of the
+workflow profile's environments (at most 256). When the vessel has no working directory on the Admiral host and a connected Harbor has a checkout of it, `HasWorkingDirectory` is true, `HarborId`, `HarborName` (the Harbor's name alone), and `CheckoutPath` name the Harbor and its path, an Info issue `working_directory_on_harbor` says so, and git state, toolchains, and command dependencies are probed on the Harbor. When neither exists, the `working_directory_missing` issue carries the reason and what to set, and `CheckoutErrorCode` is `NoHarborConnected` or `NoHarborCheckout`.
 **Error:** `400` - Invalid `checkType`
 **Error:** `404` - Vessel not found
 
@@ -2201,6 +2223,41 @@ Launch the chosen captain in a worktree of the vessel repository to analyze it a
 
 ---
 
+#### GET /api/v1/vessels/{id}/cleanup
+
+Read-only inventory summary of the vessel's docks, orphaned worktrees, and Armada-managed local branches (`armada/`
+prefix): `VesselId`, `VesselName`, `ScannedUtc`, `ResourceCount`, `SafeCount`, `InUseCount`, `UnknownCount`,
+`SafeMeasuredBytes`, and `SafeUnmeasuredCount`. The resources are not embedded: page them with
+`GET /api/v1/vessels/{id}/cleanup/resources`. Nothing is deleted.
+
+**Permission:** Authenticated (tenant/user-scoped; `404` when the vessel is not visible)
+
+#### GET /api/v1/vessels/{id}/cleanup/resources
+
+One page of the cleanup inventory: docks (oldest first, read from the database in bounded pages), then each
+repository's orphaned worktrees and managed branches, each classified `Safe`, `InUse`, or `Unknown` with a reason, the
+owning mission, voyage, and dock, and a measured size when available. The inventory comes from git and the file system on
+the owning host (the Admiral or a Harbor), which have no paging of their own, so it is classified as a whole on every
+request and the page is cut from it; `TotalRecords` is exact. `POST /api/v1/vessels/{id}/cleanup/resources/enumerate`
+takes the `EnumerationQuery` in the body (querystring values override it).
+
+**Permission:** Authenticated
+
+- Query: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10), `status` (`Safe`, `InUse`, or `Unknown`; any other
+  value is `400`)
+- Response: `200 OK` - `EnumerationResult<VesselCleanupResource>`
+
+#### POST /api/v1/vessels/{id}/cleanup
+
+Remove the selected resources (`Keys` from the resources page). Each key is re-inventoried immediately before removal
+and removed only if it is still `Safe`. `Keys` holds at most 1000 entries; more is `400` with `Data.Code`
+`CollectionLimitExceeded` and nothing is removed. Returns per-item `Results` (one per distinct key), `Deleted`, `Skipped`,
+`Failed`, and the refreshed `Inventory` summary.
+
+**Permission:** TenantAdmin
+
+---
+
 ### Vessel Import
 
 Bulk onboarding of existing local repositories happens in two steps. **Discover** scans directories on the Admiral host and saves the result as an import batch (status `Discovered`); it creates no vessels. **Import** then creates vessels for the candidates the operator kept. Batches persist, so a review screen survives a reload, and they form the import history.
@@ -2227,7 +2284,7 @@ Every vessel created by an import gets `RepoUrl` set to the repository's `origin
 - A directory whose `.git` entry is a **file** is a worktree or submodule and is reported with status `Worktree` (not preselected).
 - Armada's own `ReposDirectory`, `DocksDirectory`, and `DataDirectory` are reported as `ArmadaManaged` and never scanned.
 - Symbolic links are not followed. Duplicate paths are removed case-insensitively on Windows and macOS and case-sensitively on Linux, and paths are reported with their on-disk casing.
-- Discovery stops at 5,000 candidates and reports `Truncated: true` with a `CandidateLimitReached` hint.
+- Discovery stops at 1,000 candidates (the request limit, so a batch's items and every import built from them stay bounded) and reports `Truncated: true` with a `CandidateLimitReached` hint. One request holds at most 1,000 `Directories` and `Roots` together; more is `400` with `Data.Code` `CollectionLimitExceeded` (`Field` `Paths`). An import request's `Paths` and a fleet-recommendations apply request's `Fleets` and each fleet's `VesselIds` hold at most 1,000 entries (same error).
 - The remote is `git remote get-url origin`. The default branch is `git symbolic-ref --short refs/remotes/origin/HEAD` (without `origin/`), then the current branch, then `main`.
 - A candidate whose path matches an existing vessel's `WorkingDirectory`, or whose normalized remote matches an existing vessel's `RepoUrl` (scheme, credentials, port, host case, trailing `/` and `.git` ignored, so HTTPS and SSH forms match), gets status `AlreadyOnboarded` and `ExistingVesselId`.
 - `ProposedName` is the folder name, made unique within the tenant (and the batch) with `-2`, `-3`, ... suffixes. An `AlreadyOnboarded` candidate shows the existing vessel's name.
@@ -2267,7 +2324,7 @@ The run is limited by `Import.CategorizationTimeoutMinutes` and honors job cance
 
 #### GET /api/v1/vessels/import/browse
 
-List the browsable subdirectories of a directory on the Admiral host, for building a folder picker. Excluded names, names starting with `.`, and symbolic links are skipped. Without `path`, lists the allowed roots.
+List one page of the browsable subdirectories of a directory on the Admiral host by name, for building a folder picker. Excluded names, names starting with `.`, and symbolic links are skipped. Without `path`, lists the allowed roots. Only the entries on the page are inspected for git state. `PageNumber`, `PageSize`, `TotalPages`, and `TotalRecords` describe the whole directory; `Truncated` is `true` when the directory has more entries than the browse examines (5,000 by default), and `TotalRecords` then counts the examined ones.
 
 **Permission:** TenantAdmin
 
@@ -2276,6 +2333,8 @@ List the browsable subdirectories of a directory on the Admiral host, for buildi
 | Parameter | Description |
 |---|---|
 | `path` | Optional. Directory to list, **base64url-encoded UTF-8** (`+` to `-`, `/` to `_`, padding optional). A plain, percent-encoded absolute path is also accepted. Omit to list the allowed roots. |
+| `pageNumber` | Optional. Page number (default 1). |
+| `pageSize` | Optional. Page size, 1 to 1000 (default 10). |
 
 **Response:** `200 OK` - `VesselBrowseResult`
 
@@ -2283,6 +2342,11 @@ List the browsable subdirectories of a directory on the Admiral host, for buildi
 {
   "Path": "/Users/alex/Code",
   "Parent": "/Users/alex",
+  "PageNumber": 1,
+  "PageSize": 10,
+  "TotalPages": 1,
+  "TotalRecords": 2,
+  "Truncated": false,
   "Entries": [
     { "Name": "api", "Path": "/Users/alex/Code/api", "IsGitRepository": true, "IsWorktree": false, "HasSubdirectories": true },
     { "Name": "experiments", "Path": "/Users/alex/Code/experiments", "IsGitRepository": false, "IsWorktree": false, "HasSubdirectories": true }
@@ -2748,7 +2812,7 @@ KPI counts for the caller's tenant, based on effective statuses, over active ves
 
 #### GET /api/v1/vessels/{id}/health
 
-The vessel's row, raw findings, outdated or vulnerable dependencies, and overrides. Permission: Authenticated. Returns `404` when the vessel does not exist in the caller's tenant. For a vessel that has never been evaluated, `Health` has no `Id`, carries `VesselName`, `FleetId`, and `FleetName`, and the three lists are empty.
+The vessel's row, raw findings, the number of outdated or vulnerable dependencies (`DependencyCount`), and overrides. Permission: Authenticated. Returns `404` when the vessel does not exist in the caller's tenant. For a vessel that has never been evaluated, `Health` has no `Id`, carries `VesselName`, `FleetId`, and `FleetName`, and the lists are empty. The dependency rows are not embedded: page them with [`GET /api/v1/vessels/{id}/health/dependencies`](#get-apiv1vesselsidhealthdependencies). The override `PUT` and `DELETE` routes return the same shape.
 
 ```json
 {
@@ -2768,24 +2832,7 @@ The vessel's row, raw findings, outdated or vulnerable dependencies, and overrid
       "LastUpdateUtc": "2026-10-04T04:31:02.83Z"
     }
   ],
-  "Dependencies": [
-    {
-      "Id": "vdp_...",
-      "TenantId": "ten_system",
-      "VesselId": "vsl_...",
-      "Ecosystem": "NuGet",
-      "ProjectPath": "src/App/App.csproj",
-      "PackageName": "Newtonsoft.Json",
-      "CurrentVersion": "12.0.1",
-      "LatestVersion": "13.0.4",
-      "Drift": "Major",
-      "IsVulnerable": true,
-      "Severity": "High",
-      "AdvisoryUrl": "https://github.com/advisories/GHSA-5crp-9r3c-p9vr",
-      "CreatedUtc": "...",
-      "LastUpdateUtc": "..."
-    }
-  ],
+  "DependencyCount": 1,
   "Overrides": [
     {
       "Id": "vho_...",
@@ -2803,6 +2850,37 @@ The vessel's row, raw findings, outdated or vulnerable dependencies, and overrid
 ```
 
 `Findings` hold one entry per criterion (`GitDivergence`, `WorkingTree`, `Branches`, `CommitRecency`, `Dependencies`, `Vulnerabilities`, `TestInfrastructure`, `ContinuousIntegration`, `ArmadaReadiness`, `MissionOutcomes`); there is no `Overall` finding. `Ecosystem` is `NuGet` or `npm`; `ProjectPath` is repository-relative (the project file for NuGet, the `package.json` for npm). `Drift` is `None`, `Patch`, `Minor`, or `Major`; `Severity` is `None`, `Low`, `Moderate`, `High`, or `Critical`. A dependency that is both outdated and vulnerable appears once with both sets of fields. For npm vulnerabilities, `CurrentVersion` holds the vulnerable range reported by `npm audit` and `AdvisoryUrl` is absent.
+
+#### GET /api/v1/vessels/{id}/health/dependencies
+
+One page of the vessel's outdated or vulnerable dependency rows from its last evaluation, cut in the database and ordered by ecosystem, package name, project path, then id (the query's `order` is not used). Permission: Authenticated (tenant-scoped; `404` when the vessel is not visible). Querystring: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10; out-of-range values are normalized). `POST /api/v1/vessels/{id}/health/dependencies/enumerate` takes the same `EnumerationQuery` in the body (querystring values override it; a malformed body is `400`). MCP twin: `list_vessel_dependencies`.
+
+```json
+{
+  "PageNumber": 1,
+  "PageSize": 10,
+  "TotalPages": 1,
+  "TotalRecords": 1,
+  "Objects": [
+    {
+      "Id": "vdp_...",
+      "TenantId": "ten_system",
+      "VesselId": "vsl_...",
+      "Ecosystem": "NuGet",
+      "ProjectPath": "src/App/App.csproj",
+      "PackageName": "Newtonsoft.Json",
+      "CurrentVersion": "12.0.1",
+      "LatestVersion": "13.0.4",
+      "Drift": "Major",
+      "IsVulnerable": true,
+      "Severity": "High",
+      "AdvisoryUrl": "https://github.com/advisories/GHSA-5crp-9r3c-p9vr",
+      "CreatedUtc": "...",
+      "LastUpdateUtc": "..."
+    }
+  ]
+}
+```
 
 #### POST /api/v1/vessel-health/evaluate
 
@@ -5023,6 +5101,10 @@ Batch delete multiple docks and their git worktrees from the database by ID. Ret
 
 **Permission:** TenantAdmin
 
+`Ids` holds at most 1000 entries (`CollectionLimits.MaxRequestItems`); a longer list is rejected with `400` and
+`Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit`, `Actual`) and nothing is deleted. `Skipped` is bounded by
+the request.
+
 **Request Body:**
 
 ```json
@@ -6989,12 +7071,15 @@ The checkout is the vessel `workingDirectory` when it exists on the Admiral host
 
 #### GET /api/v1/workspace/vessels/{vesselId}/tree
 
-List one directory in the vessel workspace.
+List one page of one directory in the vessel workspace: folders first, then files, each by name. The page is cut on the
+host that has the checkout (the Admiral, or a Harbor in split mode, whose file listing request carries the page), so
+the reply over the Harbor link is bounded too.
 
 **Permission:** Authenticated
 
-- Query: optional `path`
-- Response: `200 OK` - `WorkspaceTreeResult`
+- Query: optional `path`, `pageNumber` (default 1), `pageSize` (1 to 1000, default 10)
+- Response: `200 OK` - `WorkspaceTreeResult`: `RootPath`, `CurrentPath`, `ParentPath`, `PageNumber`, `PageSize`,
+  `TotalPages`, `TotalRecords` (every direct child), and `Entries` (one page)
 
 #### GET /api/v1/workspace/vessels/{vesselId}/diff
 
@@ -7128,19 +7213,39 @@ Search text files in the vessel workspace.
 
 #### GET /api/v1/workspace/vessels/{vesselId}/changes
 
-Return branch state and changed files.
+Return branch state and one page of changed files in `git status` order. git status has no paging, so the whole status
+is read and the page is cut from it; `IsDirty`, `CommitsAhead`, and `CommitsBehind` cover the whole tree.
 
 **Permission:** Authenticated
 
-- Response: `200 OK` - `WorkspaceChangesResult`
+- Query: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10)
+- Response: `200 OK` - `WorkspaceChangesResult`: `BranchName`, `IsDirty`, `CommitsAhead`, `CommitsBehind`, `Error`,
+  `PageNumber`, `PageSize`, `TotalPages`, `TotalRecords` (every changed file), and `Changes` (one page)
 
 #### GET /api/v1/workspace/vessels/{vesselId}/status
 
-Return high-level workspace health, git state, and active-mission overlap context.
+Return high-level workspace health, git state, and the number of active missions (`ActiveMissionCount`). The active
+missions are not embedded; page them with `GET /api/v1/workspace/vessels/{vesselId}/active-missions`.
 
 **Permission:** Authenticated
 
 - Response: `200 OK` - `WorkspaceStatusResult`
+
+#### GET /api/v1/workspace/vessels/{vesselId}/active-missions
+
+One page of the vessel's active missions (`Pending`, `Assigned`, `InProgress`, `Review`, `Testing`), newest first with an
+id tie-break, each with the repository-relative files its description scopes it to ("Touch only ...", "Edit only ...",
+"Modify only ...": `ScopedFiles` lists at most 256, `ScopedFileCount` is the full count). Read from the database one
+bounded LIMIT/OFFSET page per status (tenant-scoped for non-admins), merged in order, with an exact total.
+`POST /api/v1/workspace/vessels/{vesselId}/active-missions/enumerate` takes the `EnumerationQuery` in the body
+(querystring values override it; a malformed body is `400`).
+
+**Permission:** Authenticated
+
+- Query: `pageNumber` (default 1), `pageSize` (1 to 1000, default 10)
+- Response: `200 OK` - `EnumerationResult<WorkspaceActiveMission>` (`MissionId`, `Title`, `Status`, `ScopedFiles`,
+  `ScopedFileCount`)
+- Error: `404` vessel not visible
 
 ---
 
@@ -10635,7 +10740,7 @@ Storage endpoints are global system administrator operations. Tenant administrat
 
 ### GET /api/v1/storage
 
-Returns `200` with the latest cached `StorageSnapshot`. There are no path or query parameters and no request body. Reading this endpoint does not start scans or exact counts. Before the initial sample, `MeasuredUtc` is absent, `Hosts` and `History` are empty, and the collection may already be running.
+Returns `200` with the latest cached `StorageSnapshot`. There are no path or query parameters and no request body. Reading this endpoint does not start scans or exact counts. Before the initial sample, `MeasuredUtc` is absent, `History` is empty, `HostCount` is 0, and the collection may already be running. Host reports are not embedded: page them with [`GET /api/v1/storage/hosts`](#get-apiv1storagehosts).
 
 ```bash
 curl -H "Authorization: Bearer $ARMADA_TOKEN" "$ARMADA_URL/api/v1/storage"
@@ -10647,10 +10752,13 @@ curl -H "Authorization: Bearer $ARMADA_TOKEN" "$ARMADA_URL/api/v1/storage"
 | `Collecting` | boolean | A scan is running; concurrent refresh requests coalesce |
 | `LastError` | string, optional | `CollectionTimedOut` or `CollectionFailed`; previous measurements remain |
 | `Database` | object | Provider, measurement time, `AllocatedBytes`, `UnusedBytes`, `Status`, `Warnings`, `Tables` |
-| `Hosts` | object array | Admiral and registered Harbors with `HostId`, `Name`, `MeasuredUtc`, `Stale`, `Status`, `Warnings`, `Locations`, `Volumes` |
-| `History` | object array | Bounded process-local samples with timestamp, observed file bytes, database bytes, and numeric `Categories`, `Hosts`, `Tables` maps |
+| `HostCount`, `FreshHostCount` | integers | Hosts with a report (the Admiral plus one per registered Harbor), and those whose report is current and `Complete` |
+| `ObservedFileBytes` | integer | Observed file bytes across every host's measured locations |
+| `History` | object array | Process-local samples (at most `HistoryCapacity`, which is at most 1000) with timestamp, observed file bytes, database bytes, and numeric `Categories`, `Hosts`, `Tables` maps. Each map keeps its 24 largest keys and folds the rest into one `(other)` key, so the totals still add up |
 | `Retention` | integer map | Current settings: `DataDays`, `RequestHistoryDays`, `PlanningSessionDays`, `AskArchiveDays`, `AskDeleteDays`, `JobDays`, `ImportDays`, `CliPermissionDays`, `FleetActionDays`, `BuildSlots` |
 | `IntervalSeconds`, `HistoryCapacity` | integers | Active collection cadence and recent-history limit |
+
+`Database.Tables` lists at most 1000 tables (`TableLimit` warning when there are more).
 
 Database table entries contain `Schema`, `Name`, optional `Rows`, `CountKind` (`Exact`, `Estimated`, `Unavailable`), optional `DataBytes`, `IndexBytes`, and `LogicalBytes`, and an optional warning code. SQLite uses page allocation and free pages; optional dbstat support supplies table allocation. Bounded background SQLite queries also supply exact row counts and logical visible-column value bytes independently of dbstat. Logical bytes count numeric values as eight bytes, text/blob byte lengths, and NULL as zero; they exclude record/page/index overhead and are not allocation. PostgreSQL uses database/table/index sizes and estimated live rows. MySQL reports catalog allocation and estimated rows. SQL Server reports database file allocation and catalog table/index pages with estimated counts. Missing metrics remain absent rather than becoming zero.
 
@@ -10659,6 +10767,18 @@ Location entries contain `Category`, `Path`, optional `EntityId` and `Activity`,
 Volume entries contain `Path`, optional `TotalBytes`, optional `AvailableBytes`, and `Status`. Capacity includes unrelated files and describes the process/container-visible mount. Remote database host capacity is not inferred. Volume capacity, logical file lengths and database allocation must not be summed together.
 
 Statuses distinguish `Pending`, `Complete`, `Partial`, `Missing`, `Unavailable` and `Skipped`. Missing optional directories do not make the whole host incomplete. Warnings are stable codes translated by the dashboard: `BudgetExceeded`, `LinkSkipped`, `AccessDenied`, `FileChangedOrUnreadable`, `Unreadable`, `InvalidPath`, `LocationLimit`, `VolumesUnavailable`, `TableLimit`, `TableAllocationUnavailable`, `DatabaseAllocationUnavailable`, `DatabaseStatisticsUnavailable`, `ExactCountUnavailable`, `CollectionTimedOut`, and `HarborReportUnavailable`.
+
+### GET /api/v1/storage/hosts
+
+Returns `200` with one page (`EnumerationResult<StorageHostReport>`) of the cached host reports: the Admiral first, then
+each Harbor by name and id. Each report has `HostId`, `Name`, `MeasuredUtc`, `Stale`, `Status`, `Warnings` (at most 20),
+`Locations` (at most `MaxLocations`, 10 to 5000), and `Volumes` (at most 256). Querystring: `pageNumber` (default 1),
+`pageSize` (1 to 1000, default 10). `POST /api/v1/storage/hosts/enumerate` takes the `EnumerationQuery` in the body
+(querystring values override it; a malformed body is `400`). Global administrators only; reading does not start scans.
+
+```bash
+curl -H "Authorization: Bearer $ARMADA_TOKEN" "$ARMADA_URL/api/v1/storage/hosts?pageSize=25"
+```
 
 ### POST /api/v1/storage/refresh
 
@@ -10689,7 +10809,7 @@ curl -X POST -H "Authorization: Bearer $ARMADA_TOKEN" \
 | `MaxEntries` | 250000 | 100..2000000 examined filesystem entries per host |
 | `LargestFileLimit` | 20 | 1..100 per location |
 | `MaxLocations` | 1000 | 10..5000 per host |
-| `HistoryCapacity` | 288 | 2..2016 process-local samples |
+| `HistoryCapacity` | 288 | 2..1000 process-local samples (larger values are normalized to 1000) |
 
 Local collection starts in the background. Harbors report asynchronously on their own five-minute cadence through an additive optional heartbeat field. A disconnected Harbor retains its last report and is marked stale; an old Harbor, one with heartbeats disabled, or a freshly restarted Admiral without a report shows unavailable coverage. Reports older than twice the greater of the source cadence and the configured Admiral interval are stale. Host reports include `IntervalSeconds` (300 on the Harbor app). An administrator-triggered local refresh does not force Harbor collection. The page identifies host coverage and timestamps beside observed totals.
 

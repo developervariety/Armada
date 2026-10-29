@@ -1601,7 +1601,7 @@
                                 "{{fleetId}}"
                             ]
                         },
-                        "description": "Returns a single fleet by ID."
+                        "description": "Get one fleet and the number of vessels it holds in the caller's scope ({ Fleet, VesselCount }). The vessels are not embedded: page them with POST /api/v1/vessels/enumerate and FleetId."
                     }
                 },
                 {
@@ -2273,6 +2273,129 @@
                     }
                 },
                 {
+                    "name": "Get Vessel Cleanup Inventory",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/cleanup",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "cleanup"
+                            ]
+                        },
+                        "description": "Read-only cleanup inventory summary (ResourceCount and Safe/InUse/Unknown counts). Resources are paged with GET .../cleanup/resources."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Vessel Cleanup Resources",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/cleanup/resources?pageNumber=1&pageSize=100&status=Safe",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "cleanup",
+                                "resources"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "100"
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "Safe"
+                                }
+                            ]
+                        },
+                        "description": "One page of cleanup resources (docks, orphaned worktrees, managed branches), optionally filtered by status (Safe, InUse, Unknown)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate Vessel Cleanup Resources",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 100,\n  \"Status\": \"Safe\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/cleanup/resources/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "cleanup",
+                                "resources",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "POST form of the cleanup resource list: EnumerationQuery (PageNumber, PageSize, Status) in the body."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Clean Up Vessel Resources",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Keys\": [\n    \"dock:dck_example\"\n  ]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/cleanup",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "cleanup"
+                            ]
+                        },
+                        "description": "Remove the selected Safe resources (at most 1000 Keys; more is 400 CollectionLimitExceeded). Returns per-key results and the refreshed inventory summary."
+                    },
+                    "response": []
+                },
+                {
                     "name": "2. Register Vessel",
                     "event": [
                         {
@@ -2727,8 +2850,74 @@
                                 "health"
                             ]
                         },
-                        "description": "Health row, raw findings, dependency rows and overrides for one vessel."
+                        "description": "Health row, raw findings, DependencyCount, and overrides for one vessel. Dependency rows are paged with GET /api/v1/vessels/{id}/health/dependencies."
                     }
+                },
+                {
+                    "name": "List Vessel Dependencies",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/health/dependencies?pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "health",
+                                "dependencies"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25"
+                                }
+                            ]
+                        },
+                        "description": "One page of the vessel's outdated or vulnerable dependency rows, cut in the database (pageSize 1 to 1000, default 10)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate Vessel Dependencies",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/health/dependencies/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "health",
+                                "dependencies",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "POST form of the dependency list: EnumerationQuery in the body, querystring values override it."
+                    },
+                    "response": []
                 },
                 {
                     "name": "Evaluate Vessel Health",
@@ -8612,7 +8801,7 @@
                                 "tree"
                             ]
                         },
-                        "description": "List the root directory of the vessel workspace."
+                        "description": "One page of the workspace root (folders first, then files); pageNumber and pageSize (1 to 1000, default 10) page it and TotalRecords counts every entry."
                     },
                     "response": []
                 },
@@ -8837,7 +9026,7 @@
                                 "changes"
                             ]
                         },
-                        "description": "Return branch state and changed files for the vessel workspace."
+                        "description": "Branch state and one page of changed files (pageNumber, pageSize 1 to 1000, default 10); TotalRecords counts every changed file."
                     },
                     "response": []
                 },
@@ -8860,7 +9049,73 @@
                                 "status"
                             ]
                         },
-                        "description": "Return high-level workspace status, git state, and active mission overlap context."
+                        "description": "Workspace status, git state, and ActiveMissionCount. Active missions are paged with GET .../active-missions."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Workspace Active Missions",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/active-missions?pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "workspace",
+                                "vessels",
+                                "{{vesselId}}",
+                                "active-missions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25"
+                                }
+                            ]
+                        },
+                        "description": "One page of the vessel's active missions with their scoped files, newest first, paged from the database."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate Workspace Active Missions",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/active-missions/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "workspace",
+                                "vessels",
+                                "{{vesselId}}",
+                                "active-missions",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "POST form of the active missions list: EnumerationQuery in the body."
                     },
                     "response": []
                 },
@@ -13009,7 +13264,69 @@
                                 "storage"
                             ]
                         },
-                        "description": "Returns the latest cached StorageSnapshot: host locations and volumes, database table statistics, retention and bounded recent history. Does not start scans. 200 success, 401 anonymous, 403 non-global-admin. Missing metrics are omitted, not zero."
+                        "description": "Returns the latest cached StorageSnapshot: host totals (HostCount, FreshHostCount, ObservedFileBytes), database table statistics, retention and bounded recent history. Host reports are paged with GET /api/v1/storage/hosts. Does not start scans. 200 success, 401 anonymous, 403 non-global-admin. Missing metrics are omitted, not zero."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List storage hosts",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/storage/hosts?pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "storage",
+                                "hosts"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25"
+                                }
+                            ]
+                        },
+                        "description": "One page of cached host reports (Admiral first, then Harbors): locations, volumes, warnings. Global administrators only."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate storage hosts",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/storage/hosts/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "storage",
+                                "hosts",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "POST form of the storage host list: EnumerationQuery in the body. Global administrators only."
                     },
                     "response": []
                 },

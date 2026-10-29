@@ -1264,7 +1264,8 @@ List or enumerate fleets with optional pagination and filtering.
 
 #### get_fleet
 
-Get a fleet by ID together with its vessels.
+Get a fleet by ID and the number of vessels it holds (`vesselCount`). The vessels are not embedded; page them with
+`list_vessels` and `query.fleetId`.
 
 **Request:**
 
@@ -1289,9 +1290,7 @@ Get a fleet by ID together with its vessels.
   "action": "get_fleet",
   "data": {
     "fleet": { "id": "flt_abc123", "name": "my-fleet", "...": "..." },
-    "vessels": [
-      { "id": "vsl_abc123", "name": "my-repo", "fleetId": "flt_abc123", "...": "..." }
-    ]
+    "vesselCount": 1
   }
 }
 ```
@@ -1496,7 +1495,7 @@ Create a new vessel.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `action` | string | Yes | `"create_vessel"` |
-| `data` | object | Yes | Vessel creation data ([Vessel](#vessel) fields). `RepoUrl` is required (`command.error` `InvalidArgument` otherwise) |
+| `data` | object | Yes | Vessel creation data ([Vessel](#vessel) fields). `RepoUrl` is required (`command.error` `InvalidArgument` otherwise). Each configuration list (`ProtectedBranchPatterns`, `ProtectedPathPatterns`, `PrivateIdentifierDenylist`, `AutoLandPathAllowGlobs`, `AutoLandPathDenyGlobs`) holds at most 256 entries; more is `command.error` `InvalidArgument` (the same limit applies to `update_vessel`) |
 
 ---
 
