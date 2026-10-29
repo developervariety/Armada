@@ -222,10 +222,14 @@ namespace Armada.Core.Services
         private async Task<bool> TryRejectNoOpCompletionAsync(Mission mission, Dock? dock, CancellationToken token)
         {
             // A work stage that ended without a commit, a diff or its completion line stopped early (a model ending its
-            // turn mid-task), however long it ran. Review and planning stages never commit, so they are exempt.
+            // turn mid-task), however long it ran. Review and planning stages never commit, so they are exempt. The
+            // repository decides, not the transcript: a missing or malformed completion line with nothing on the branch is
+            // unfinished work, and one with work on the branch is repaired later (RecordWorkStageRepairsAsync). A Test
+            // Engineer that reported a blocking defect ends with the blocked marker instead and is not unfinished.
             // The stored diff is against the vessel default branch and can predate this dock. File changes since the
             // dock start commit are the work signal. The stored diff is left unchanged for landing display.
-            bool workStage = String.IsNullOrEmpty(mission.Persona) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Worker);
+            bool workStage = IsRepositoryWorkStage(mission.Persona)
+                && !(PersonaCatalog.Matches(mission.Persona, PersonaCatalog.TestEngineer) && VerifierContract.IsBlocked(mission.AgentOutput));
             string? startCommit = dock == null ? null : TryReadDockStartCommit(dock.Id);
             string? changeEvidence = mission.DiffSnapshot;
             if (dock != null)
@@ -307,8 +311,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Whether any file changed in the dock after <paramref name="startCommit"/>. Null means the start commit
-        /// is missing or Git could not answer. Callers must not treat that unknown as an empty change list, and
+        /// Whether any file other than a scratch file changed in the dock after <paramref name="startCommit"/>.
+        /// Null means the start commit is missing or Git could not answer. Callers must not treat that unknown as an empty change list, and
         /// must not substitute the default-branch diff.
         /// </summary>
         /// <param name="dock">Dock whose worktree is compared.</param>
@@ -328,7 +332,7 @@ namespace Armada.Core.Services
             try
             {
                 IReadOnlyList<string> changedFiles = await git.GetChangedFilesSinceAsync(dock.WorktreePath, startCommit, token).ConfigureAwait(false);
-                return changedFiles.Count > 0;
+                return changedFiles.Any(path => !ScratchFileMatcher.IsScratchFile(path));
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -341,7 +345,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token)
+        private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token, DateTime? expectedVersion = null)
         {
             Mission? mission = null;
             if (!String.IsNullOrEmpty(captain.TenantId))
@@ -353,6 +357,12 @@ namespace Armada.Core.Services
                 mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             }
             if (mission == null) return;
+            if (expectedVersion.HasValue && (mission.LastUpdateUtc != expectedVersion.Value
+                || mission.ProcessId.HasValue || (mission.Status != MissionStatusEnum.InProgress && mission.Status != MissionStatusEnum.Testing)))
+            {
+                _Logging.Info(_Header + "ignoring stale claimed completion for " + missionId);
+                return;
+            }
 
             // Idempotency guard: if the mission has already been processed (e.g. by a concurrent
             // health check or process exit handler), skip to avoid double-processing.
@@ -367,6 +377,22 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // Completion callers must not bypass the last mechanical check, including orphan recovery and
+            // a stale completion that arrives after a failed check has started an in-place resume.
+            EnumerationResult<ArmadaEvent> checks = await _Database.Events.EnumerateAsync(new EnumerationQuery
+            {
+                MissionId = mission.Id,
+                EventType = StageCheckEvents.EventType,
+                PageSize = 1,
+                Order = EnumerationOrderEnum.CreatedDescending
+            }, token).ConfigureAwait(false);
+            StageCheckResult? lastCheck = StageCheckEvents.Read(checks.Objects.FirstOrDefault());
+            if (checks.Objects.Count > 0 && (lastCheck == null || lastCheck.IsBlocking))
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " cannot complete while its stage check is unverified");
+                return;
+            }
+
             RunApprovalOptions? completionApproval = await ReadApprovalOptionsAsync(mission, token).ConfigureAwait(false);
             if (completionApproval?.ApproveAll == true) mission.RequiresReview = false;
 
@@ -378,10 +404,11 @@ namespace Armada.Core.Services
             // above, so exactly one completion wins and a concurrent handler that moved the mission (an interruption
             // re-dispatch, a cancel, a second completion) is never overwritten by this one.
             MissionStatusEnum observedStatus = mission.Status;
+            DateTime observedVersion = mission.LastUpdateUtc;
             mission.Status = MissionStatusEnum.WorkProduced;
             mission.ProcessId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
-            if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))
+            if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, observedVersion, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))
             {
                 _Logging.Debug(_Header + "mission " + missionId + " left " + observedStatus + " before its completion was recorded -- skipping completion handler");
                 return;
@@ -411,6 +438,7 @@ namespace Armada.Core.Services
             // A captain that edited files but never ran git commit (common for smaller local models) would otherwise
             // produce an empty diff, and the edits would be deleted with the dock. Commit them first.
             if (dock != null) await CommitLeftoverWorkAsync(mission, captain, dock, token).ConfigureAwait(false);
+            bool leftoverCommitted = _LeftoverCommitted.TryRemove(mission.Id, out _);
 
             // Record the exact commit this stage produced. The next stage verifies its dock starts from it, and rework
             // stagnation detection compares it across rounds. Landing later replaces it with the landed commit.
@@ -460,7 +488,7 @@ namespace Armada.Core.Services
                     mission.AgentOutput = agentOutput;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
-                    // The runtime's own usage report (mux contract 2 run_completed, a Claude Code / Codex / OpenCode
+                    // The runtime's own usage report (mux contract 2 run_completed, a Claude Code / Codex / OpenCode / pi
                     // usage event), read from its raw output as it arrived; without one (an older lifecycle handler),
                     // from the collected output; otherwise both counts are estimated from text length and flagged.
                     if (reported == null)
@@ -510,12 +538,20 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // The work stage left work on its branch: a missing or malformed completion line, or a missing commit, is
+            // repaired from the repository and recorded.
+            if (!failedForScopeViolation && !isReadOnlyMission)
+                await RecordWorkStageRepairsAsync(mission, captain, dock, leftoverCommitted, token).ConfigureAwait(false);
+
             string? judgeBlockReason = null;
             if (!failedForScopeViolation && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
             {
                 // Only the structured [ARMADA:VERDICT] protocol line counts; a missing or conflicting verdict is no
-                // verdict, which blocks landing.
+                // verdict, which blocks landing. A single unambiguous verdict in a nearby non-canonical form is repaired
+                // (the canonical line is appended below the original output); anything ambiguous stays no verdict.
                 JudgeVerdictEnum verdict = JudgeVerdictParser.Parse(mission.AgentOutput);
+                if (verdict == JudgeVerdictEnum.None)
+                    verdict = await TryRepairJudgeVerdictAsync(mission, captain, token).ConfigureAwait(false);
                 string? verdictFailureReason = null;
                 bool rejectedPass = false;
 
@@ -749,14 +785,41 @@ namespace Armada.Core.Services
                 try
                 {
                     await OnMissionComplete.Invoke(mission, dock).ConfigureAwait(false);
+                    // The landing handler can return after logging an enqueue error. Require durable
+                    // evidence of the MergeQueue handoff rather than treating that return as success.
+                    Vessel? landingVessel = String.IsNullOrEmpty(mission.VesselId) ? null
+                        : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                    Voyage? landingVoyage = String.IsNullOrEmpty(mission.VoyageId) ? null
+                        : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+                    if ((landingVoyage?.LandingMode ?? landingVessel?.LandingMode ?? _Settings.LandingMode ?? LandingModeEnum.MergeAndPush) == LandingModeEnum.MergeQueue)
+                    {
+                        EnumerationResult<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(
+                            new EnumerationQuery { MissionId = mission.Id, PageSize = 1 }, token).ConfigureAwait(false);
+                        if (entries.Objects.Count == 0)
+                            throw new InvalidOperationException("Landing handoff returned without recording a merge queue entry.");
+                    }
                 }
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error in mission complete handler for " + mission.Id + ": " + ex.ToString());
+                    // Persist the failed handoff instead of leaving an idempotently skipped WorkProduced mission.
+                    Mission? stranded = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                    if (stranded?.Status == MissionStatusEnum.WorkProduced)
+                    {
+                        DateTime version = stranded.LastUpdateUtc;
+                        stranded.Status = MissionStatusEnum.LandingFailed;
+                        stranded.FailureReason = "Landing handoff failed: " + ex.Message;
+                        stranded.LastUpdateUtc = DateTime.UtcNow;
+                        if (await _Database.Missions.TryUpdateIfUnchangedAsync(stranded, version,
+                            new[] { MissionStatusEnum.WorkProduced }, token).ConfigureAwait(false))
+                            mission = stranded;
+                    }
                 }
             }
 
-            // Reclaim the dock after the handoff completes (or if no handler was set)
+            // The handler may persist a new instance rather than mutate the supplied mission.
+            mission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false) ?? mission;
+            // Retain worktrees needed by retry_landing and manual review.
             string? completionDockId = dock?.Id;
             bool cleanupArchitectBranch =
                 preparedDownstreamStages &&
@@ -766,7 +829,10 @@ namespace Armada.Core.Services
                 !hasDependentPipelineStages &&
                 !String.IsNullOrEmpty(completionDockId);
 
-            if (!String.IsNullOrEmpty(completionDockId) && !retainDockForReview)
+            if (!String.IsNullOrEmpty(completionDockId) && !retainDockForReview
+                && mission.Status != MissionStatusEnum.LandingFailed
+                && !(mission.Status == MissionStatusEnum.WorkProduced
+                    && !hasDependentPipelineStages && !preparedDownstreamStages))
             {
                 try
                 {

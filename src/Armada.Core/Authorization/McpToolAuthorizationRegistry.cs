@@ -53,7 +53,9 @@ namespace Armada.Core.Authorization
             Add("get_runbook_execution", "Runbook", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_runbook", "Runbook", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_vessel", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
-            Add("inbox", "Inbox", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("get_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("resolve_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("preview_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             // Ask Armada conversations are private: the services scope every call to the caller's own conversations.
             Add("list_ask_threads", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_ask_thread", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
@@ -83,9 +85,7 @@ namespace Armada.Core.Authorization
             Add("voyage_status", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("fleet_action_run_status", "FleetActionRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("evaluate_autoland", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
-            Add("list_cli_permission_requests", "CliPermission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_cli_permission_request", "CliPermission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
-            Add("list_cli_permission_rules", "CliPermission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
 
             // CLI tool permissions. The prompt tool is callable only by a captain's scoped session and deciding only by a
             // person (checked in the handlers); rule and policy changes need an admin.
@@ -101,6 +101,8 @@ namespace Armada.Core.Authorization
             Add("get_stage_outcome", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("classify_stage_outcome", "StageOutcome", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("reclassify_stage_outcomes", "StageOutcome", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("get_handoff_artifact", "HandoffArtifact", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_handoff_artifacts", "HandoffArtifact", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("draft_failure_cause_rule", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_failure_cause_rules", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
@@ -197,6 +199,12 @@ namespace Armada.Core.Authorization
             Add("create_playbook", "Playbook", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("update_playbook", "Playbook", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
             Add("delete_playbook", "Playbook", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
+            // Workflow-profile writes match REST: TenantAdmin, with ownership re-checked in WorkflowProfileAccessService
+            Add("validate_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Read, PermissionLevel.TenantAdmin);
+            Add("create_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
+            Add("update_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
+            Add("delete_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
+            Add("delete_workflow_profiles", "WorkflowProfile", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
             // Persona, pipeline, and prompt-template writes match REST: any authenticated caller, scoped in the tool handlers
             // (a regular user creates only UserSpecific objects and edits only their own).
             Add("create_persona", "Persona", ResourceOperationEnum.Create, PermissionLevel.Authenticated);

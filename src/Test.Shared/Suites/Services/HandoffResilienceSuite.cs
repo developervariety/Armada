@@ -752,6 +752,273 @@ namespace Test.Shared.Suites.Services
                 }));
             }
 
+            cases.Add(CaseAsync("unverified_checks_never_block", "Only confirmed failures block a handoff, including minimally deserialized results", TestTags.Negative, () =>
+            {
+                foreach (StageCheckReasonEnum reason in new[] { StageCheckReasonEnum.TimedOut, StageCheckReasonEnum.HarborDisconnected, StageCheckReasonEnum.Error })
+                {
+                    StageCheckResult result = new StageCheckResult { Status = StageCheckStatusEnum.CouldNotRun, Reason = reason, FailureMessage = "unverified" };
+                    AssertFalse(result.IsBlocking, "infrastructure warnings never request recovery");
+                }
+                StageCheckResult minimal = System.Text.Json.JsonSerializer.Deserialize<StageCheckResult>("{\"FailureMessage\":\"warning\"}")!;
+                AssertFalse(minimal.IsBlocking, "an unspecified outcome is not a confirmed failure");
+                AssertTrue(new StageCheckResult { Status = StageCheckStatusEnum.Failed, FailureMessage = "regression" }.IsBlocking);
+                return Task.CompletedTask;
+            }));
+
+            cases.Add(CaseAsync("late_check_write_cannot_replace_complete_or_new_attempt", "A stale verification snapshot loses against Complete and a newer same-status attempt", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("check", "work") { Status = MissionStatusEnum.Verifying }).ConfigureAwait(false);
+                Mission stale = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                DateTime observed = stale.LastUpdateUtc;
+                mission.Status = MissionStatusEnum.Complete;
+                mission.LastUpdateUtc = observed.AddSeconds(1);
+                await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                stale.Status = MissionStatusEnum.Failed;
+                AssertFalse(await testDb.Driver.Missions.TryUpdateIfUnchangedAsync(stale, observed, new[] { MissionStatusEnum.Verifying }).ConfigureAwait(false));
+                AssertEqual(MissionStatusEnum.Complete, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.Status);
+                mission.Status = MissionStatusEnum.Pending;
+                await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                mission.Status = MissionStatusEnum.Verifying;
+                await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                AssertFalse(await testDb.Driver.Missions.TryUpdateIfUnchangedAsync(stale, observed, new[] { MissionStatusEnum.Verifying }).ConfigureAwait(false), "same-status new attempt is protected by row version");
+            }));
+
+            cases.Add(CaseAsync("manual_handoff_refuses_active_claims", "REST and MCP share refusal of manual WorkProduced/Complete during an active handoff", TestTags.Negative, () =>
+            {
+                foreach (MissionStatusEnum status in new[] { MissionStatusEnum.InProgress, MissionStatusEnum.Testing, MissionStatusEnum.Verifying })
+                    foreach (MissionStatusEnum target in new[] { MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete })
+                        AssertNotNull(ManualMissionHandoff.Refusal(new Mission { Status = status }, target));
+                AssertNull(ManualMissionHandoff.Refusal(new Mission { Status = MissionStatusEnum.WorkProduced }, MissionStatusEnum.Complete));
+                return Task.CompletedTask;
+            }));
+
+            cases.Add(CaseAsync("stage_check_serializes_on_one_host", "Queued checks on the same host do not run concurrently", TestTags.Reliability, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("if ! mkdir check-lock; then touch overlap; exit 9; fi; sleep 0.2; rmdir check-lock").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "work").ConfigureAwait(false);
+                StageCheckResult[] results = await Task.WhenAll(fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain), fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain)).ConfigureAwait(false);
+                AssertFalse(File.Exists(Path.Combine(fx.Repo, "overlap")), "the second command must wait for the first to release its host slot");
+                AssertTrue(results.All(r => r.Status == StageCheckStatusEnum.Passed));
+            }));
+
+            cases.Add(CaseAsync("stage_check_reuses_base_result", "The same vessel/base/command executes its baseline once", TestTags.Positive, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("exit 3").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "work").ConfigureAwait(false);
+                StageCheckResult first = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                // A poisoned base-worktree path makes a second baseline execution fail. A cached result bypasses it.
+                File.WriteAllText(fx.Repo + ".base-check", "cannot create a worktree here");
+                StageCheckResult second = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertEqual(StageCheckStatusEnum.Passed, first.Status);
+                AssertEqual(StageCheckStatusEnum.Passed, second.Status);
+                AssertEqual(1, second.PreExistingFailures.Count);
+            }));
+
+            cases.Add(CaseAsync("stage_check_missing_command_is_unverified", "An unavailable command does not resume or fail the stage", TestTags.Negative, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("armada-command-that-does-not-exist-7128").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "work").ConfigureAwait(false);
+                StageCheckResult result = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertEqual(StageCheckStatusEnum.CouldNotRun, result.Status);
+                AssertFalse(result.IsBlocking);
+                AssertNull(await fx.Missions.VerifyStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false));
+            }));
+
+            cases.Add(CaseAsync("stage_check_budget_and_baseline_timeout", "Head and baseline use remaining time; timed-out baselines are never cached as failures", TestTags.Negative, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("exit 3").ConfigureAwait(false);
+                BudgetExecutor executor = new BudgetExecutor();
+                var command = typeof(MissionService).GetMethod("RunStageCommandAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                var baseline = typeof(MissionService).GetMethod("FailsOnBaseCommitAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                DateTime deadline = DateTime.UtcNow.AddSeconds(2);
+                await ((Task<HostCommandResult>)command.Invoke(fx.Missions, new object[] { executor, false, fx.Repo, "check", deadline, CancellationToken.None })!).ConfigureAwait(false);
+                bool? unknown = await ((Task<bool?>)baseline.Invoke(fx.Missions, new object[] { executor, false, "vessel", fx.Repo, "base", "check", deadline, CancellationToken.None })!).ConfigureAwait(false);
+                AssertNull(unknown, "baseline timeout is unverified");
+                AssertEqual(2, executor.CheckTimeouts.Count);
+                AssertTrue(executor.CheckTimeouts[1] <= executor.CheckTimeouts[0], "baseline receives only remaining time");
+                executor.Timeout = false;
+                bool? known = await ((Task<bool?>)baseline.Invoke(fx.Missions, new object[] { executor, false, "vessel", fx.Repo, "base", "check", deadline, CancellationToken.None })!).ConfigureAwait(false);
+                AssertEqual(false, known, "the timed-out baseline was not cached");
+                int count = executor.CheckTimeouts.Count;
+                await ((Task<HostCommandResult>)command.Invoke(fx.Missions, new object[] { executor, false, fx.Repo, "check", DateTime.UtcNow.AddSeconds(-1), CancellationToken.None })!).ConfigureAwait(false);
+                AssertEqual(count, executor.CheckTimeouts.Count, "expired budget starts no command");
+            }));
+
+            cases.Add(CaseAsync("late_check_after_complete_never_resumes_or_fails", "A real exit check finishing after Complete emits a stale event and preserves the landed mission", TestTags.Negative, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("if test ! -f notes.txt; then exit 0; fi; touch check-started; while test ! -f check-release; do sleep 0.02; done; exit 4").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "work").ConfigureAwait(false);
+                fx.Mission.ProcessId = 8181;
+                fx.Mission.CaptainId = fx.Captain.Id;
+                fx.Captain.ProcessId = 8181;
+                fx.Captain.CurrentMissionId = fx.Mission.Id;
+                await fx.Db.Driver.Missions.UpdateAsync(fx.Mission).ConfigureAwait(false);
+                await fx.Db.Driver.Captains.UpdateAsync(fx.Captain).ConfigureAwait(false);
+                int resumed = 0;
+                fx.Captains.OnLaunchAgent = (_, _, _) => { resumed++; return Task.FromResult(9999); };
+                Task exit = fx.Admiral.HandleProcessExitAsync(8181, new RuntimeExitInfo { ExitCode = 0 }, fx.Captain.Id, fx.Mission.Id);
+                try
+                {
+                    for (int i = 0; i < 250 && !File.Exists(Path.Combine(fx.Repo, "check-started")); i++) await Task.Delay(20).ConfigureAwait(false);
+                    AssertTrue(File.Exists(Path.Combine(fx.Repo, "check-started")), "capture proves the known head check is actually running");
+                    Mission running = (await fx.Db.Driver.Missions.ReadAsync(fx.Mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Verifying, running.Status);
+                    running.Status = MissionStatusEnum.Complete;
+                    running.LastUpdateUtc = DateTime.UtcNow;
+                    await fx.Db.Driver.Missions.UpdateAsync(running).ConfigureAwait(false);
+                }
+                finally { File.WriteAllText(Path.Combine(fx.Repo, "check-release"), "release"); }
+                await exit.ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Complete, (await fx.Db.Driver.Missions.ReadAsync(fx.Mission.Id).ConfigureAwait(false))!.Status);
+                AssertEqual(0, resumed);
+                List<ArmadaEvent> events = (await fx.Db.Driver.Events.EnumerateAsync(new EnumerationQuery()).ConfigureAwait(false)).Objects;
+                AssertTrue(events.Any(e => e.EventType == "mission.stage_check_started"));
+                AssertTrue(events.Any(e => e.EventType == "mission.stage_check_stale"));
+                AssertTrue(events.Any(e => StageCheckEvents.Read(e)?.DurationMs > 0));
+            }));
+
+            cases.Add(CaseAsync("manual_handoff_captures_head_and_enqueues", "A manual handoff captures the head and respects MergeQueue landing mode", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
+                Harness h = new Harness(testDb, git);
+                LoggingModule logging = CreateLogging();
+                IDockService docks = new DockService(logging, testDb.Driver, h.Settings, git);
+                RecordingMergeQueueService queue = new RecordingMergeQueueService();
+                Armada.Server.MissionLandingHandler landing = new Armada.Server.MissionLandingHandler(logging, testDb.Driver, h.Settings, git, queue, new MessageTemplateService(logging), null, docks, null);
+                AdmiralService admiral = new AdmiralService(logging, testDb.Driver, h.Settings, h.Captains, h.Missions, new VoyageService(logging, testDb.Driver), docks);
+                admiral.OnCaptureDiff = landing.HandleCaptureDiffAsync;
+                admiral.OnMissionComplete = landing.HandleMissionCompleteAsync;
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                vessel.LandingMode = LandingModeEnum.MergeQueue;
+                vessel.LocalPath = TestTemp.NewDirectory("manual-handoff");
+                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id) { WorktreePath = vessel.LocalPath, BranchName = "main", Active = true }).ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("manual", "work") { VesselId = vessel.Id, DockId = dock.Id, BranchName = dock.BranchName, Status = MissionStatusEnum.Review }).ConfigureAwait(false);
+                Mission handed = await ManualMissionHandoff.LandAsync(testDb.Driver, admiral, mission).ConfigureAwait(false);
+                AssertEqual("abc123def456", handed.CommitHash);
+                AssertEqual(MissionStatusEnum.WorkProduced, handed.Status);
+                AssertEqual(1, queue.Enqueued.Count, "normal landing pipeline enqueued exactly once");
+                AssertEqual(mission.Id, queue.Enqueued[0].MissionId);
+            }));
+
+            cases.Add(CaseAsync("manual_complete_no_change_inactive_dock", "A no-change mission whose dock was reclaimed completes without landing and its voyage rolls up", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                NoChangeHandoff fx = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.WorkProduced, false).ConfigureAwait(false);
+                AssertNotNull(fx.Mission.FailureReason, "stale failure reason precondition");
+                Mission handed = await ManualMissionHandoff.LandAsync(testDb.Driver, fx.Admiral, fx.Mission, MissionStatusEnum.Complete, fx.Git, fx.Settings).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Complete, handed.Status);
+                AssertNotNull(handed.CompletedUtc);
+                AssertNull(handed.FailureReason, "the stale landing failure reason is cleared");
+                AssertEqual(0, fx.Landings, "landing is not invoked");
+                AssertEqual(0, fx.Captures, "no diff capture without a dock");
+                List<ArmadaEvent> events = (await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery()).ConfigureAwait(false)).Objects;
+                AssertTrue(events.Any(e => e.EventType == "mission.completed" && e.MissionId == fx.Mission.Id && e.VoyageId == fx.Voyage.Id));
+                List<Voyage> settled = await new VoyageService(CreateLogging(), testDb.Driver).CheckCompletionsAsync(_ => false).ConfigureAwait(false);
+                AssertTrue(settled.Any(v => v.Id == fx.Voyage.Id));
+                AssertEqual(VoyageStatusEnum.Complete, (await testDb.Driver.Voyages.ReadAsync(fx.Voyage.Id).ConfigureAwait(false))!.Status);
+
+                NoChangeHandoff failed = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.LandingFailed, false).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Complete, (await ManualMissionHandoff.LandAsync(testDb.Driver, failed.Admiral, failed.Mission, MissionStatusEnum.Complete, failed.Git, failed.Settings).ConfigureAwait(false)).Status, "LandingFailed with no changes also completes");
+            }));
+
+            cases.Add(CaseAsync("manual_complete_inactive_dock_unlanded_commits_refused", "An inactive dock with unlanded commits still requires an active dock and leaves the mission unchanged", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                // Recorded head is an unlanded commit.
+                NoChangeHandoff ahead = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.WorkProduced, true).ConfigureAwait(false);
+                ahead.Mission.CommitHash = ahead.BranchHead;
+                await testDb.Driver.Missions.UpdateAsync(ahead.Mission).ConfigureAwait(false);
+                Mission aheadMission = (await testDb.Driver.Missions.ReadAsync(ahead.Mission.Id).ConfigureAwait(false))!;
+                await AssertActiveDockRequiredAsync(testDb, ahead, aheadMission, MissionStatusEnum.Complete).ConfigureAwait(false);
+
+                // Recorded head is in main, but the branch moved past it afterwards.
+                NoChangeHandoff moved = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.WorkProduced, true).ConfigureAwait(false);
+                await AssertActiveDockRequiredAsync(testDb, moved, moved.Mission, MissionStatusEnum.Complete).ConfigureAwait(false);
+
+                // Unknown commit (cannot be proven absent), no git service, a WorkProduced target, and a missing repository.
+                NoChangeHandoff unknown = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.WorkProduced, false).ConfigureAwait(false);
+                unknown.Mission.CommitHash = "0123456789abcdef0123456789abcdef01234567";
+                await testDb.Driver.Missions.UpdateAsync(unknown.Mission).ConfigureAwait(false);
+                await AssertActiveDockRequiredAsync(testDb, unknown, (await testDb.Driver.Missions.ReadAsync(unknown.Mission.Id).ConfigureAwait(false))!, MissionStatusEnum.Complete).ConfigureAwait(false);
+                NoChangeHandoff plain = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.WorkProduced, false).ConfigureAwait(false);
+                await AssertThrowsAsync<InvalidOperationException>(() => ManualMissionHandoff.LandAsync(testDb.Driver, plain.Admiral, plain.Mission), "legacy call without git keeps the error").ConfigureAwait(false);
+                await AssertActiveDockRequiredAsync(testDb, plain, plain.Mission, MissionStatusEnum.WorkProduced).ConfigureAwait(false);
+                Vessel vessel = (await testDb.Driver.Vessels.ReadAsync(plain.Mission.VesselId!).ConfigureAwait(false))!;
+                vessel.LocalPath = Path.Combine(plain.Repo, "missing");
+                vessel.WorkingDirectory = null;
+                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                await AssertActiveDockRequiredAsync(testDb, plain, plain.Mission, MissionStatusEnum.Complete).ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("manual_complete_no_change_still_refuses_owned_missions", "A no-change mission still owned by its agent is refused", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                NoChangeHandoff running = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.InProgress, false).ConfigureAwait(false);
+                AssertNotNull(ManualMissionHandoff.Refusal(running.Mission, MissionStatusEnum.Complete));
+                await AssertActiveDockRequiredAsync(testDb, running, running.Mission, MissionStatusEnum.Complete).ConfigureAwait(false);
+                NoChangeHandoff exiting = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.WorkProduced, false).ConfigureAwait(false);
+                exiting.Mission.ProcessId = 5150;
+                await testDb.Driver.Missions.UpdateAsync(exiting.Mission).ConfigureAwait(false);
+                Mission owned = (await testDb.Driver.Missions.ReadAsync(exiting.Mission.Id).ConfigureAwait(false))!;
+                AssertNotNull(ManualMissionHandoff.Refusal(owned, MissionStatusEnum.Complete));
+                await AssertActiveDockRequiredAsync(testDb, exiting, owned, MissionStatusEnum.Complete).ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("manual_complete_no_change_detects_concurrent_change", "A no-change completion against a stale mission preserves the newer state", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                NoChangeHandoff fx = await NoChangeHandoff.CreateAsync(testDb, MissionStatusEnum.WorkProduced, false).ConfigureAwait(false);
+                Mission newer = (await testDb.Driver.Missions.ReadAsync(fx.Mission.Id).ConfigureAwait(false))!;
+                newer.Status = MissionStatusEnum.LandingFailed;
+                newer.FailureReason = "newer landing failure";
+                newer.LastUpdateUtc = DateTime.UtcNow.AddSeconds(1);
+                await testDb.Driver.Missions.UpdateAsync(newer).ConfigureAwait(false);
+                InvalidOperationException? error = null;
+                try { await ManualMissionHandoff.LandAsync(testDb.Driver, fx.Admiral, fx.Mission, MissionStatusEnum.Complete, fx.Git, fx.Settings).ConfigureAwait(false); }
+                catch (InvalidOperationException ex) { error = ex; }
+                AssertNotNull(error);
+                AssertContains("changed during manual handoff", error!.Message);
+                Mission stored = (await testDb.Driver.Missions.ReadAsync(fx.Mission.Id).ConfigureAwait(false))!;
+                AssertEqual(MissionStatusEnum.LandingFailed, stored.Status);
+                AssertEqual("newer landing failure", stored.FailureReason);
+                AssertNull(stored.CompletedUtc);
+            }));
+
+            cases.Add(CaseAsync("stage_check_concurrency_override", "An explicit host concurrency limit overrides the default of one", TestTags.Positive, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("if mkdir gate-held 2>/dev/null; then sleep 0.3; rmdir gate-held; else touch parallel; fi").ConfigureAwait(false);
+                AssertEqual(1, fx.Settings.StageCheckConcurrencyPerHarbor);
+                fx.Settings.StageCheckConcurrencyPerHarbor = 2;
+                await fx.CommitStageChangeAsync("notes.txt", "work").ConfigureAwait(false);
+                StageCheckResult[] results = await Task.WhenAll(fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain), fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain)).ConfigureAwait(false);
+                AssertTrue(File.Exists(Path.Combine(fx.Repo, "parallel")), "the configured second slot permits overlap");
+                AssertTrue(results.All(r => r.Status == StageCheckStatusEnum.Passed));
+            }));
+
+            cases.Add(CaseAsync("could_not_run_exit_hands_off_without_resume", "An unavailable stage command continues through the real exit handler without recovery", TestTags.Negative, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("armada-command-that-does-not-exist-7128").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "work").ConfigureAwait(false);
+                fx.Mission.ProcessId = 8282;
+                fx.Mission.CaptainId = fx.Captain.Id;
+                fx.Captain.ProcessId = 8282;
+                fx.Captain.CurrentMissionId = fx.Mission.Id;
+                await fx.Db.Driver.Missions.UpdateAsync(fx.Mission).ConfigureAwait(false);
+                await fx.Db.Driver.Captains.UpdateAsync(fx.Captain).ConfigureAwait(false);
+                int launches = 0;
+                int handoffs = 0;
+                fx.Captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(9999); };
+                fx.Admiral.OnMissionComplete = (_, _) => { handoffs++; return Task.CompletedTask; };
+                await fx.Admiral.HandleProcessExitAsync(8282, new RuntimeExitInfo { ExitCode = 0 }, fx.Captain.Id, fx.Mission.Id).ConfigureAwait(false);
+                Mission handed = (await fx.Db.Driver.Missions.ReadAsync(fx.Mission.Id).ConfigureAwait(false))!;
+                AssertEqual(MissionStatusEnum.WorkProduced, handed.Status);
+                AssertEqual(0, launches, "no captain recovery for CouldNotRun");
+                AssertEqual(1, handoffs, "unverified work still reaches landing");
+            }));
+
             cases.Add(CaseAsync("stage_check_restores_files_its_build_regenerates", "A stage check that rewrites a tracked file leaves the dock as the stage left it", TestTags.Positive, async () =>
             {
                 using StageCheckFixture fx = await StageCheckFixture.CreateAsync("echo regenerated >> gen.txt").ConfigureAwait(false);
@@ -950,6 +1217,21 @@ namespace Test.Shared.Suites.Services
             return settings;
         }
 
+        private static async Task AssertActiveDockRequiredAsync(TestDatabase testDb, NoChangeHandoff fx, Mission mission, MissionStatusEnum target)
+        {
+            Mission before = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+            InvalidOperationException? error = null;
+            try { await ManualMissionHandoff.LandAsync(testDb.Driver, fx.Admiral, mission, target, fx.Git, fx.Settings).ConfigureAwait(false); }
+            catch (InvalidOperationException ex) { error = ex; }
+            AssertNotNull(error, "the handoff is refused");
+            AssertContains("active dock is required", error!.Message);
+            Mission after = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+            AssertEqual(before.Status, after.Status, "status unchanged");
+            AssertEqual(before.FailureReason, after.FailureReason, "failure reason unchanged");
+            AssertEqual(before.LastUpdateUtc, after.LastUpdateUtc, "mission not rewritten");
+            AssertEqual(0, fx.Landings);
+        }
+
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb)
         {
             Vessel vessel = new Vessel("resilience-vessel-" + Guid.NewGuid().ToString("N").Substring(0, 8), "https://github.com/test/repo.git");
@@ -1017,11 +1299,30 @@ namespace Test.Shared.Suites.Services
 
         #region Private-Classes
 
+        private sealed class BudgetExecutor : IHostCommandExecutor
+        {
+            public bool Timeout = true;
+            public List<int> CheckTimeouts = new List<int>();
+            public async Task<HostCommandResult> RunAsync(HostCommandRequest request, CancellationToken token = default)
+            {
+                if (request.Label?.StartsWith("Stage check:", StringComparison.Ordinal) == true)
+                {
+                    CheckTimeouts.Add(request.TimeoutMs);
+                    await Task.Delay(20, token).ConfigureAwait(false);
+                    return new HostCommandResult { TimedOut = Timeout };
+                }
+                return new HostCommandResult();
+            }
+        }
+
         private sealed class StageCheckFixture : IDisposable
         {
             public TestDatabase Db { get; private set; } = null!;
 
             public MissionService Missions { get; private set; } = null!;
+            public CaptainService Captains { get; private set; } = null!;
+            public AdmiralService Admiral { get; private set; } = null!;
+            public ArmadaSettings Settings { get; private set; } = null!;
 
             public Mission Mission { get; private set; } = null!;
 
@@ -1036,10 +1337,13 @@ namespace Test.Shared.Suites.Services
                 DatabaseDriver db = fx.Db.Driver;
                 LoggingModule logging = CreateLogging();
                 ArmadaSettings settings = CreateSettings();
+                fx.Settings = settings;
                 GitService git = new GitService(logging);
                 IDockService docks = new DockService(logging, db, settings, git);
                 CaptainService captains = new CaptainService(logging, db, settings, git, docks);
                 fx.Missions = new MissionService(logging, db, settings, docks, captains, git: git);
+                fx.Captains = captains;
+                fx.Admiral = new AdmiralService(logging, db, settings, captains, fx.Missions, new VoyageService(logging, db), docks);
 
                 fx.Repo = TestTemp.NewDirectory("stagecheck_repo");
                 await Git(fx.Repo, "init", "-q", "-b", "main").ConfigureAwait(false);
@@ -1072,7 +1376,7 @@ namespace Test.Shared.Suites.Services
                 Db?.Dispose();
             }
 
-            private static async Task<string> Git(string directory, params string[] args)
+            public static async Task<string> Git(string directory, params string[] args)
             {
                 ProcessStartInfo info = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
                 foreach (string arg in args) info.ArgumentList.Add(arg);
@@ -1080,6 +1384,64 @@ namespace Test.Shared.Suites.Services
                 string output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
                 await process.WaitForExitAsync().ConfigureAwait(false);
                 return output;
+            }
+        }
+
+        private sealed class NoChangeHandoff
+        {
+            public AdmiralService Admiral { get; private set; } = null!;
+            public ArmadaSettings Settings { get; private set; } = null!;
+            public GitService Git { get; private set; } = null!;
+            public Mission Mission { get; private set; } = null!;
+            public Voyage Voyage { get; private set; } = null!;
+            public string Repo { get; private set; } = "";
+            public string MainHead { get; private set; } = "";
+            public string BranchHead { get; private set; } = "";
+            public int Landings { get; private set; }
+            public int Captures { get; private set; }
+
+            public static async Task<NoChangeHandoff> CreateAsync(TestDatabase testDb, MissionStatusEnum status, bool branchAhead)
+            {
+                NoChangeHandoff fx = new NoChangeHandoff();
+                LoggingModule logging = CreateLogging();
+                fx.Git = new GitService(logging);
+                Harness h = new Harness(testDb, fx.Git);
+                fx.Settings = h.Settings;
+                IDockService docks = new DockService(logging, testDb.Driver, h.Settings, fx.Git);
+                fx.Admiral = new AdmiralService(logging, testDb.Driver, h.Settings, h.Captains, h.Missions, new VoyageService(logging, testDb.Driver), docks);
+                fx.Admiral.OnCaptureDiff = (_, _) => { fx.Captures++; return Task.CompletedTask; };
+                fx.Admiral.OnMissionComplete = (_, _) => { fx.Landings++; return Task.CompletedTask; };
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                fx.Repo = vessel.LocalPath!;
+                string branch = "armada/nochange-" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                await StageCheckFixture.Git(fx.Repo, "init", "-q", "-b", "main").ConfigureAwait(false);
+                File.WriteAllText(Path.Combine(fx.Repo, "base.txt"), "base\n");
+                await StageCheckFixture.Git(fx.Repo, "add", "-A").ConfigureAwait(false);
+                await StageCheckFixture.Git(fx.Repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base").ConfigureAwait(false);
+                fx.MainHead = (await StageCheckFixture.Git(fx.Repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                await StageCheckFixture.Git(fx.Repo, "branch", branch).ConfigureAwait(false);
+                fx.BranchHead = fx.MainHead;
+                if (branchAhead)
+                {
+                    await StageCheckFixture.Git(fx.Repo, "checkout", "-q", branch).ConfigureAwait(false);
+                    File.WriteAllText(Path.Combine(fx.Repo, "work.txt"), "work\n");
+                    await StageCheckFixture.Git(fx.Repo, "add", "-A").ConfigureAwait(false);
+                    await StageCheckFixture.Git(fx.Repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "work").ConfigureAwait(false);
+                    fx.BranchHead = (await StageCheckFixture.Git(fx.Repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await StageCheckFixture.Git(fx.Repo, "checkout", "-q", "main").ConfigureAwait(false);
+                    AssertTrue(fx.BranchHead.Length == 40 && fx.BranchHead != fx.MainHead, "branch has an unlanded commit");
+                }
+
+                fx.Voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("no-change") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id) { BranchName = branch, Active = false }).ConfigureAwait(false);
+                fx.Mission = await testDb.Driver.Missions.CreateAsync(new Mission("no-change", "nothing to do")
+                {
+                    VesselId = vessel.Id, VoyageId = fx.Voyage.Id, DockId = dock.Id, BranchName = branch, Status = status,
+                    CommitHash = fx.MainHead, FailureReason = "Landing was not attempted: the mission diff snapshot is unavailable.",
+                    StartedUtc = DateTime.UtcNow.AddMinutes(-5)
+                }).ConfigureAwait(false);
+                return fx;
             }
         }
 

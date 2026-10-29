@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import CliPermissions from './CliPermissions';
 import {
   createCliPermissionRule,
@@ -9,6 +9,7 @@ import {
   listCliPermissionRequests,
   listCliPermissionRules,
   listVessels,
+  updateCliPermissionRule,
 } from '../api/client';
 import { translateTemplate } from '../i18n/runtime';
 import type { CliPermissionRequest, CliPermissionRule, EnumerationResult, WebSocketMessage } from '../types/models';
@@ -22,6 +23,7 @@ vi.mock('../api/client', () => ({
   listCliPermissionRequests: vi.fn(),
   listCliPermissionRules: vi.fn(),
   listVessels: vi.fn(),
+  updateCliPermissionRule: vi.fn(),
 }));
 
 const localeValue = {
@@ -50,11 +52,17 @@ const rules: CliPermissionRule[] = [
   { id: 'cpl_2', scope: 'Vessel', vesselId: 'vsl_1', pattern: 'Bash(rm -rf:*)', action: 'Deny', description: 'Never wipe', tenantId: 'ten_1' },
 ];
 
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname + location.search}</div>;
+}
+
+/** The page is the CLI Tool Permissions tab of Settings, so it renders at /server?tab=cli-permissions. */
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/cli-permissions" element={<CliPermissions />} />
+        <Route path="/server" element={<><CliPermissions /><LocationProbe /></>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -70,9 +78,52 @@ beforeEach(() => {
 });
 
 describe('CLI Tool Permissions page', () => {
+  it('fits in the Settings tab: no page header, Requests and Rules as sub-sections synced to ?section=', async () => {
+    renderAt('/server?tab=cli-permissions&request=cpr_1');
+    await screen.findByRole('group', { name: 'CLI permission: Bash' });
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    const sections = screen.getByRole('radiogroup', { name: 'CLI Tool Permissions' });
+    expect(within(sections).getByRole('radio', { name: 'Requests' })).toBeChecked();
+    expect(screen.queryByRole('region', { name: 'Rules' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(sections).getByRole('radio', { name: 'Rules' }));
+    expect(await screen.findByText('Bash(git status:*)')).toBeInTheDocument();
+    // The Settings tab stays selected and the request highlight is dropped when leaving Requests.
+    expect(screen.getByTestId('location').textContent).toBe('/server?tab=cli-permissions&section=rules');
+    expect(listCliPermissionRules).toHaveBeenCalledWith({ scope: null });
+  });
+
+  it('edits a rule in place: pattern, action, and description change, scope and target stay locked', async () => {
+    vi.mocked(updateCliPermissionRule).mockResolvedValue({ ...rules[1], pattern: 'Bash(rm -rf build:*)', action: 'Allow' });
+    renderAt('/server?tab=cli-permissions&section=rules');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rule Bash(rm -rf:*)' }));
+    const form = screen.getByRole('form', { name: 'Edit rule' });
+    expect(within(form).getByLabelText('Pattern')).toHaveValue('Bash(rm -rf:*)');
+    expect(within(form).getByLabelText('Scope')).toBeDisabled();
+    expect(within(form).getByLabelText('Vessel')).toBeDisabled();
+    expect(within(form).getByLabelText('Description')).toHaveValue('Never wipe');
+    fireEvent.change(within(form).getByLabelText('Pattern'), { target: { value: 'Bash(rm -rf build:*)' } });
+    fireEvent.change(within(form).getByLabelText('Action'), { target: { value: 'Allow' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save rule' }));
+    await waitFor(() => expect(updateCliPermissionRule).toHaveBeenCalledWith('cpl_2', { pattern: 'Bash(rm -rf build:*)', action: 'Allow', description: 'Never wipe' }));
+    expect(createCliPermissionRule).not.toHaveBeenCalled();
+    expect(await screen.findByRole('form', { name: 'New rule' })).toBeInTheDocument();
+  });
+
+  it('cancels an edit without saving', async () => {
+    renderAt('/server?tab=cli-permissions&section=rules');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rule Bash(git status:*)' }));
+    const form = screen.getByRole('form', { name: 'Edit rule' });
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    const fresh = screen.getByRole('form', { name: 'New rule' });
+    expect(within(fresh).getByLabelText('Pattern')).toHaveValue('');
+    expect(updateCliPermissionRule).not.toHaveBeenCalled();
+  });
+
   it('lists pending requests by default and highlights the deep-linked request even when it is decided', async () => {
     vi.mocked(getCliPermissionRequest).mockResolvedValue(decided);
-    renderAt('/cli-permissions?request=cpr_2');
+    renderAt('/server?tab=cli-permissions&request=cpr_2');
     await waitFor(() => expect(listCliPermissionRequests).toHaveBeenCalledWith({ status: 'Pending', limit: 1000 }));
     const linked = await screen.findByRole('group', { name: 'CLI permission: WebFetch' });
     expect(linked.className).toContain('is-highlighted');
@@ -88,12 +139,12 @@ describe('CLI Tool Permissions page', () => {
   it('says visibly when the request list stops at the route limit', async () => {
     const many = Array.from({ length: 1000 }, (_, i) => ({ ...pending, id: `cpr_many_${i}` }));
     vi.mocked(listCliPermissionRequests).mockResolvedValue(many);
-    renderAt('/cli-permissions');
+    renderAt('/server?tab=cli-permissions');
     expect(await screen.findByText('Showing the first 1,000 requests. Narrow the filter to see the rest.')).toBeInTheDocument();
   });
 
   it('shows no limit notice when fewer requests than the limit come back', async () => {
-    renderAt('/cli-permissions');
+    renderAt('/server?tab=cli-permissions');
     await screen.findByRole('group', { name: 'CLI permission: Bash' });
     expect(screen.queryByText(/Narrow the filter to see the rest/)).not.toBeInTheDocument();
   });
@@ -101,7 +152,7 @@ describe('CLI Tool Permissions page', () => {
   it('lists rules, creates a vessel rule, and deletes a rule after confirming', async () => {
     vi.mocked(createCliPermissionRule).mockResolvedValue({ id: 'cpl_3', scope: 'Vessel', vesselId: 'vsl_1', pattern: 'Bash(npm test:*)', action: 'Allow' });
     vi.mocked(deleteCliPermissionRule).mockResolvedValue(undefined);
-    renderAt('/cli-permissions?tab=rules');
+    renderAt('/server?tab=cli-permissions&section=rules');
     expect(await screen.findByText('Bash(git status:*)')).toBeInTheDocument();
     expect(await screen.findByText('Vessel payments-api')).toBeInTheDocument();
 
@@ -126,13 +177,14 @@ describe('CLI Tool Permissions page', () => {
 
   it('hides rule editing from users who are not admins', async () => {
     authValue.isAdmin = false;
-    renderAt('/cli-permissions?tab=rules');
+    renderAt('/server?tab=cli-permissions&section=rules');
     expect(await screen.findByText('Bash(git status:*)')).toBeInTheDocument();
     expect(screen.queryByRole('form', { name: 'New rule' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Delete rule/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Edit rule/ })).not.toBeInTheDocument();
   });
   it('rules table: shared column chooser with Pattern locked, refresh in the toolbar, patterns on one line', async () => {
-    renderAt('/cli-permissions?tab=rules');
+    renderAt('/server?tab=cli-permissions&section=rules');
     const pattern = await screen.findByText('Bash(rm -rf:*)');
     expect(pattern).toHaveClass('cell-one-line');
     expect(pattern).toHaveAttribute('title', 'Bash(rm -rf:*)');
