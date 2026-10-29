@@ -70,6 +70,20 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// POST /api/v1/harbors/{id}/jobs/enumerate: one page of the captain launches recorded on a Harbor, newest first.
+        /// </summary>
+        /// <param name="id">Harbor id (hbr_ prefix).</param>
+        /// <param name="openOnly">Only jobs that have not ended.</param>
+        /// <param name="query">Paging and date bounds, or null for the first page of 10.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<HarborJobRecord>?> EnumerateHarborJobsAsync(string id, bool openOnly = false, EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<HarborJobRecord>>($"/api/v1/harbors/{E(id)}/jobs/enumerate{(openOnly ? "?open=true" : "")}", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>stopHarborJob</c>: POST `/api/v1/harbors/${encodeURIComponent(id)}/jobs/${encodeURIComponent(jobId)}/stop`.
         /// </summary>
         /// <param name="id">Harbor id.</param>

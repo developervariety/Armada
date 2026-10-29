@@ -6,6 +6,7 @@ import type { Job } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { jobFriendlyName, jobRoute } from '../../lib/vesselImportLabels';
+import { JOBS_PATH } from '../../lib/navTargets';
 
 /** Poll interval while at least one background job is running, in milliseconds. */
 export const ACTIVITY_FAST_POLL_MS = 5000;
@@ -169,7 +170,7 @@ export default function BackgroundActivityIndicator() {
               </li>
             ))}
           </ul>
-          <Link to="/jobs" className="bg-activity-all" onClick={() => setOpen(false)} title={t('Open the Jobs page, which lists every background task with its status and history.')}>{t('Open the Jobs page')}</Link>
+          <Link to={JOBS_PATH} className="bg-activity-all" onClick={() => setOpen(false)} title={t('Open the Jobs page, which lists every background task with its status and history.')}>{t('Open the Jobs page')}</Link>
         </div>
       )}
     </div>

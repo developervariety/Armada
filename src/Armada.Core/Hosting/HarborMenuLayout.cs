@@ -28,7 +28,8 @@ namespace Armada.Core.Hosting
         /// <summary>
         /// The window menu bar: Harbor, Edit (macOS only), View, Window (macOS only), and Help, in the order macOS
         /// apps use. Without an application menu (Windows and Linux), Settings and Quit go in the Harbor menu and About
-        /// in Help; text fields there handle their own editing shortcuts, so there is no Edit menu.
+        /// in Help; text fields there handle their own editing shortcuts, so there is no Edit menu. Open Dashboard is in the
+        /// Harbor menu, next to the other items that open something outside the app.
         /// </summary>
         /// <param name="isMacOS">True on macOS.</param>
         /// <returns>Entries (submenus).</returns>
@@ -42,7 +43,8 @@ namespace Armada.Core.Hosting
                 HarborMenuEntry.Separator(),
                 HarborMenuEntry.Item("Copy Harbor ID", HarborMenuCommandEnum.CopyHarborId),
                 HarborMenuEntry.Item("Copy MCP URL", HarborMenuCommandEnum.CopyMcpUrl),
-                HarborMenuEntry.Item("Open Harbor Folder", HarborMenuCommandEnum.OpenHarborFolder)
+                HarborMenuEntry.Item("Open Harbor Folder", HarborMenuCommandEnum.OpenHarborFolder),
+                HarborMenuEntry.Item("Open Dashboard", HarborMenuCommandEnum.OpenDashboard, HarborMenuKeyEnum.D)
             };
 
             if (isMacOS)
@@ -69,9 +71,7 @@ namespace Armada.Core.Hosting
                     HarborMenuEntry.Radio("System", HarborMenuCommandEnum.AppearanceSystem),
                     HarborMenuEntry.Radio("Light", HarborMenuCommandEnum.AppearanceLight),
                     HarborMenuEntry.Radio("Dark", HarborMenuCommandEnum.AppearanceDark)
-                }),
-                HarborMenuEntry.Separator(),
-                HarborMenuEntry.Item("Open Dashboard", HarborMenuCommandEnum.OpenDashboard, HarborMenuKeyEnum.D)
+                })
             };
 
             List<HarborMenuEntry> help = new List<HarborMenuEntry>

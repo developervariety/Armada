@@ -212,7 +212,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("high", ownerMessage.Priority, "approvals are high priority");
 
                 PushMessage adminMessage = PushNotificationService.BuildMessage(occurrence, new PushRecipient { TenantId = "ten_p", UserId = "usr_admin", IsTenantAdmin = true, CanAct = true }, device, null);
-                AssertEqual("/cli-permissions?request=" + request.Id, adminMessage.Data.Url, "approver opens the permissions page");
+                AssertEqual("/server?tab=cli-permissions&request=" + request.Id, adminMessage.Data.Url, "approver opens the permissions page");
                 AssertNull(adminMessage.Data.ThreadId, "approver does not get the owner's thread");
                 AssertEqual(PushNotificationKinds.ApproveDenyCategoryId, adminMessage.CategoryId, "decider gets approve and deny actions");
                 AssertNull(adminMessage.Badge, "no badge when unknown");
