@@ -1,5 +1,6 @@
 namespace Armada.Core.Services.Interfaces
 {
+    using System.Runtime.CompilerServices;
     using Armada.Core.Models;
 
     /// <summary>
@@ -37,12 +38,42 @@ namespace Armada.Core.Services.Interfaces
         Task<Dock> ProvisionOnHarborAsync(Vessel vessel, Captain captain, string branchName, string missionId, string harborId, CancellationToken token = default);
 
         /// <summary>
-        /// Reclaim a dock by removing the worktree.
+        /// Reclaim a dock by removing the worktree. A dock is leased while a mission that references it is WorkProduced,
+        /// Testing, Review, Verifying, PullRequestOpen or LandingFailed, or while a merge queue entry for such a mission is
+        /// Queued or Testing; a leased dock is kept (the call is a no-op, logged and recorded as a dock.reclaim_refused
+        /// event) unless <paramref name="forceReason"/> says why it may go. Every reclaim is recorded as a dock.reclaimed
+        /// event naming the caller and the mission's status.
         /// </summary>
         /// <param name="dockId">Dock identifier.</param>
         /// <param name="tenantId">Optional tenant ID for tenant-scoped reads. Null for system/admin context.</param>
         /// <param name="token">Cancellation token.</param>
-        Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default);
+        /// <param name="forceReason">Why a leased dock may be removed anyway (for example a pipeline handoff that moves the
+        /// branch to the next stage), or null to respect the lease.</param>
+        /// <param name="caller">Code path asking for the reclaim; defaults to the calling member.</param>
+        /// <returns>False when the reclaim was refused because the dock is leased; true otherwise.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when dockId is null or empty.</exception>
+        Task<bool> ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? forceReason = null, [CallerMemberName] string caller = "");
+
+        /// <summary>
+        /// Whether a dock's worktree directory exists on the dock's host (the Admiral's disk, or its Harbor's).
+        /// </summary>
+        /// <param name="dock">Dock.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True or false, or null when it cannot be told (for example the dock's Harbor does not answer).</returns>
+        Task<bool?> WorktreeExistsAsync(Dock dock, CancellationToken token = default) => Task.FromResult<bool?>(null);
+
+        /// <summary>
+        /// Recreate a dock's missing worktree from its branch, on the dock's own host, at the dock's recorded path. Never
+        /// creates a branch: when the branch is missing from the dock's repository the restore fails. A restored dock is
+        /// recorded as a dock.repaired event.
+        /// </summary>
+        /// <param name="dockId">Dock identifier.</param>
+        /// <param name="trigger">What asked for the repair, for the event.</param>
+        /// <param name="reactivate">Whether a dock already marked reclaimed may be restored (and marked active again).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The outcome.</returns>
+        Task<DockRestoreResult> RestoreWorktreeAsync(string dockId, string trigger, bool reactivate = false, CancellationToken token = default)
+            => Task.FromResult(DockRestoreResult.Failed(dockId, "This dock service cannot restore worktrees."));
 
         /// <summary>
         /// Repair a dock's worktree.
