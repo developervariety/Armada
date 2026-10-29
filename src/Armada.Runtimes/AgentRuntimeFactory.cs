@@ -66,6 +66,8 @@ namespace Armada.Runtimes
                     return new MuxRuntime(_Logging);
                 case AgentRuntimeEnum.OpenCode:
                     return new OpenCodeRuntime(_Logging);
+                case AgentRuntimeEnum.Pi:
+                    return new PiRuntime(_Logging);
                 case AgentRuntimeEnum.ApiEndpoint:
                     if (_EndpointResolver == null)
                         throw new InvalidOperationException("API-endpoint captains are not enabled: no model-endpoint resolver was configured.");

@@ -271,6 +271,22 @@ namespace Armada.Core.Models
         public string? DefinitionOfDoneTestCommand { get; set; } = null;
 
         /// <summary>
+        /// Per-vessel override for the Test intent (e.g. "make test"). When set it beats a repo-declared script and
+        /// the ecosystem default; see <see cref="Services.EcosystemCommandResolver"/>. Null or empty uses detection.
+        /// </summary>
+        public string? TestCommand { get; set; } = null;
+
+        /// <summary>
+        /// Per-vessel override for the Lint intent (e.g. "npm run lint"). Null or empty uses detection.
+        /// </summary>
+        public string? LintCommand { get; set; } = null;
+
+        /// <summary>
+        /// Per-vessel override for the Audit intent (e.g. "osv-scanner -r ."). Null or empty uses detection.
+        /// </summary>
+        public string? AuditCommand { get; set; } = null;
+
+        /// <summary>
         /// Per-phase timeout, in seconds, for each Definition-of-Done command. Exceeding it classifies as
         /// Timeout. Clamped to [30, 7200]; defaults to <see cref="Constants.DefaultDefinitionOfDoneTimeoutSeconds"/>.
         /// </summary>

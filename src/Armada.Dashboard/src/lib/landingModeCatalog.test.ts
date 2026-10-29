@@ -15,7 +15,6 @@ function landingKeys(): string[] {
   for (const m of SETUP_LANDING_MODES) keys.add(m.label);
   for (const hint of Object.values(SETUP_LANDING_MODE_HINTS)) keys.add(hint);
   keys.add(setupLandingWorkingDirectoryError('LocalMerge', '') ?? '');
-  keys.add(setupLandingWorkingDirectoryError('MergeAndPush', '') ?? '');
   keys.add("Controls how completed mission work is landed. None keeps the work on a branch for you to review; Local Merge merges it into the working directory without pushing; Merge and Push also pushes it to that checkout's origin remote.");
   keys.add('How completed mission work is integrated (LocalMerge, MergeAndPush, PullRequest, MergeQueue, None)');
   keys.add('Default Landing Mode');
@@ -43,7 +42,7 @@ describe('Landing mode i18n catalog', () => {
   const keys = landingKeys();
 
   it('collects every landing mode string', () => {
-    expect(keys).toContain('Merge and Push -- local merge, then push to the remote');
+    expect(keys).toContain('Merge and Push -- verify and push to the remote');
     expect(keys).toContain('Default (use vessel or global setting)');
     expect(keys).toContain('None -- manual integration');
     expect(keys).toContain('Finished work is queued; processing the merge queue tests and merges it.');

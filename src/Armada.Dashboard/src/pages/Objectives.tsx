@@ -300,13 +300,6 @@ export default function Objectives() {
       ),
     },
     {
-      key: 'title', label: t('Backlog Item'), required: true, headerTitle: t('Title of the backlog item. Hover a title to read its description; click the row for a summary.'),
-      clearFilter: () => setColFilters(f => ({ ...f, title: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Backlog Item')} title={t('Show only backlog items whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
-      cellTitle: (objective) => objective.description || undefined,
-      render: (objective) => <strong>{objective.title}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique backlog item ID. Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',
       render: (objective) => (
         <span className="id-display">
@@ -314,6 +307,13 @@ export default function Objectives() {
           <CopyButton text={objective.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'title', label: t('Backlog Item'), required: true, headerTitle: t('Title of the backlog item. Hover a title to read its description; click the row for a summary.'),
+      clearFilter: () => setColFilters(f => ({ ...f, title: '' })),
+      filter: <input type="text" className="col-filter" aria-label={t('Backlog Item')} title={t('Show only backlog items whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      cellTitle: (objective) => objective.description || undefined,
+      render: (objective) => <strong>{objective.title}</strong>,
     },
     {
       key: 'owner', label: t('Owner'), headerTitle: t('Person responsible for the item. Free text; it does not have to be an Armada user.'), cellClassName: 'text-dim',

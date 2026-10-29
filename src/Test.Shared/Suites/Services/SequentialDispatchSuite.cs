@@ -309,9 +309,11 @@ namespace Test.Shared.Suites.Services
                     Captain? captainForCompletion = await db.Captains.ReadAsync(captain.Id);
                     await missionService.HandleCompletionAsync(captainForCompletion!, m1.Id);
 
-                    // Verify mission 1 is Complete despite handler failure
+                    // A thrown landing handoff is persisted as LandingFailed with its reason, rather than stranding the
+                    // verified work in the idempotently skipped WorkProduced state.
                     m1 = await db.Missions.ReadAsync(fixture.Missions[0].Id);
-                    AssertEqual(MissionStatusEnum.WorkProduced, m1!.Status, "Mission 1 should be WorkProduced even though handler threw");
+                    AssertEqual(MissionStatusEnum.LandingFailed, m1!.Status, "Mission 1 should be LandingFailed when the landing handler threw");
+                    AssertContains("Simulated push failure", m1.FailureReason ?? "", "the handler failure is recorded as the reason");
 
                     // Verify mission 2 was picked up (re-dispatch was attempted)
                     Mission? m2 = await db.Missions.ReadAsync(fixture.Missions[1].Id);

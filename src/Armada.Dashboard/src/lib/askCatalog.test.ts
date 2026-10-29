@@ -12,6 +12,7 @@ import composerSource from '../components/ask/AskComposer.tsx?raw';
 import quickMenuSource from '../components/ask/AskQuickActionMenu.tsx?raw';
 import dispatchSource from '../components/ask/AskDispatchForm.tsx?raw';
 import fleetActionSource from '../components/ask/AskFleetActionForm.tsx?raw';
+import deleteProgressSource from '../components/ask/AskDeleteProgressDialog.tsx?raw';
 import quickActionsSource from './askQuickActions.ts?raw';
 import commandsSource from './askCommands.ts?raw';
 import askWorkSource from './askWork.ts?raw';
@@ -28,7 +29,7 @@ const HINT = new RegExp(`\\bhint:\\s*(?:value \\? ${S} : )?${S}`, 'g');
 
 const SOURCES = [
   pageSource, threadListSource, headerSource, stripSource, messageListSource, messageViewSource, confirmSource,
-  workCardSource, composerSource, quickMenuSource, dispatchSource, fleetActionSource, askWorkSource,
+  workCardSource, composerSource, quickMenuSource, dispatchSource, fleetActionSource, askWorkSource, deleteProgressSource,
 ];
 
 /** Every literal the Ask Armada home base passes to the translator. */
