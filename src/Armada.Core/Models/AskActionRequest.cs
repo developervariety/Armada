@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using System.Text.Json.Nodes;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Body of POST /api/v1/ask/threads/{id}/actions: a quick action expressed as an MCP tool call.
@@ -22,6 +23,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Tool arguments with the same shape as the MCP tool's input, or null for none.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems, Reason = "Top-level tool arguments of one quick action; SubmitQuickActionAsync rejects more.")]
         public JsonObject? Arguments { get; set; } = null;
 
         #endregion

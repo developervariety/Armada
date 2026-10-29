@@ -9,6 +9,7 @@ namespace Armada.Tui.Screens.Build
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Screens.Operations;
     using Armada.Tui.Services;
     using Armada.Tui.Widgets;
@@ -164,13 +165,13 @@ namespace Armada.Tui.Screens.Build
                 Task<EnumerationResult<Vessel>?> vessels = c.ListVesselsAsync(new ArmadaPageQuery(1, 9999), t);
                 Task<EnumerationResult<Fleet>?> fleets = c.ListFleetsAsync(new ArmadaPageQuery(1, 9999), t);
                 Task<EnumerationResult<MissionSummary>?> mlist = c.ListMissionSummariesAsync(missions, t);
-                Task<EnumerationResult<Pipeline>?> pipelines = c.ListPipelinesAsync(new ArmadaPageQuery(1, 9999), t);
+                Task<List<Pipeline>> pipelines = ArmadaPaging.ReadAllAsync<Pipeline>((p, ct) => c.ListPipelinesAsync(new ArmadaPageQuery(p, 1000), ct), ArmadaPaging.DefaultMaxPages, t);
                 await Task.WhenAll(vessels, fleets, mlist, pipelines).ConfigureAwait(false);
                 VesselLoad result = new VesselLoad();
                 result.Vessel = (vessels.Result?.Objects ?? new List<Vessel>()).FirstOrDefault(v => v.Id == VesselId);
                 result.Fleets = fleets.Result?.Objects ?? new List<Fleet>();
                 result.Missions = mlist.Result?.Objects ?? new List<MissionSummary>();
-                result.Pipelines = pipelines.Result?.Objects ?? new List<Pipeline>();
+                result.Pipelines = pipelines.Result;
                 return result;
             }, r =>
             {
@@ -280,11 +281,11 @@ namespace Armada.Tui.Screens.Build
             string name = Vessel.Name;
             Confirm("Delete Vessel", Tr("Delete vessel \"{{name}}\"? This cannot be undone.", LocalizationArgs.Of("name", name)), () =>
             {
-                Run((c, t) => c.DeleteVesselAsync(VesselId, t), () =>
+                DeleteProgress.RunVoid(Context, "Deleting vessel", t => Context.Client.DeleteVesselAsync(VesselId, t), () =>
                 {
                     Toast(NotificationSeverityEnum.Warning, Tr("Vessel \"{{name}}\" deleted.", LocalizationArgs.Of("name", name)));
                     Context.Navigate("/vessels");
-                }, null, ex => ShowMessage(Tr("Delete failed.")));
+                }, "Delete failed.");
             }, "Delete");
         }
 

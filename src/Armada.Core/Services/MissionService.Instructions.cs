@@ -831,6 +831,7 @@ namespace Armada.Core.Services
                         "- `[ARMADA:MESSAGE] your message here` -- send a progress message\n" +
                         "- `[ARMADA:TOKENS] input=1234 output=567 cached=0` -- report the tokens you consumed this session (input/prompt, output/completion, and cache-read). Emit this once near the end if your runtime can determine the counts; it lets the Admiral record real token usage instead of an estimate.\n" +
                         "- `[ARMADA:RESULT] COMPLETE` -- worker/test engineer mission finished successfully\n" +
+                        CaptainBlockedContract.SignalLine +
                         "- `[ARMADA:VERDICT] PASS` -- judge approves the mission\n" +
                         "- `[ARMADA:VERDICT] FAIL` -- judge rejects the mission\n" +
                         "- `[ARMADA:VERDICT] NEEDS_REVISION` -- judge requests follow-up changes\n" +

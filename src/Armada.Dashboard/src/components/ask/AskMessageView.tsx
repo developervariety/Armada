@@ -52,7 +52,7 @@ export default function AskMessageView({ message, proposal, captainName, proposa
 
   // The captain's reply is reserved (empty) when a turn starts so later cards sort after it; the live
   // streaming bubble shows the text until the turn completes and fills it in.
-  if (kind === 'Text' && role === 'Assistant' && !text.trim() && !(message.toolCalls && message.toolCalls.length > 0)) {
+  if (kind === 'Text' && role === 'Assistant' && !text.trim() && !(message.toolCalls && message.toolCalls.length > 0) && !message.toolCallCount) {
     return null;
   }
 

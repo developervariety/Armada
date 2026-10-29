@@ -109,8 +109,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Add what each of the mission's tenant's captains is doing to a blocker. Idle captains also say whether they
-        /// may take the mission, for example "idle (not assigned: persona not allowed)".
+        /// Add what each of the mission's tenant's captains is doing to a blocker (the first
+        /// <see cref="MissionAssignmentBlocker.MaxListed"/> by name; the full count goes in CaptainCount). Idle captains
+        /// also say whether they may take the mission, for example "idle (not assigned: persona not allowed)".
         /// </summary>
         /// <param name="blocker">Blocker to add captain statuses to.</param>
         /// <param name="captains">Captains to describe.</param>
@@ -128,7 +129,9 @@ namespace Armada.Core.Services
                 ? captains
                 : captains.Where(c => String.Equals(c.TenantId, tenantId, StringComparison.Ordinal));
             CaptainEligibilityContext? eligibility = null;
-            foreach (Captain captain in visible.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+            List<Captain> ordered = visible.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Id, StringComparer.Ordinal).ToList();
+            blocker.CaptainCount = ordered.Count;
+            foreach (Captain captain in ordered.Take(MissionAssignmentBlocker.MaxListed))
             {
                 MissionAssignmentCaptainStatus status = new MissionAssignmentCaptainStatus
                 {
