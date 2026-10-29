@@ -3176,7 +3176,7 @@ generated from the same source.
 | PullRequestOpen | Complete, LandingFailed, Cancelled |
 | Testing | Review, InProgress, Complete, Failed |
 | Review | Complete, InProgress, Failed |
-| LandingFailed | WorkProduced, Failed, Cancelled |
+| LandingFailed | WorkProduced, Complete, Failed, Cancelled |
 
 **Input Schema:**
 

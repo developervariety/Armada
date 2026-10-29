@@ -408,7 +408,7 @@ Valid status transitions for `transition_mission_status`:
 | WorkProduced | Complete, LandingFailed, Cancelled |
 | Testing | Review, InProgress, Complete, Failed |
 | Review | Complete, InProgress, Failed |
-| LandingFailed | WorkProduced, Failed, Cancelled |
+| LandingFailed | WorkProduced, Complete, Failed, Cancelled |
 
 Complete, Failed, and Cancelled are terminal.
 

@@ -221,6 +221,10 @@ namespace Armada.Core.Services
 
         private async Task<bool> TryRejectNoOpCompletionAsync(Mission mission, Dock? dock, CancellationToken token)
         {
+            // A captain that reported BLOCKED and left nothing on its branch is not unfinished: re-dispatching it reruns the
+            // same blocked analysis. Verifier stages keep their own BLOCKED meaning (back to the Worker).
+            if (await TryFailCaptainBlockedAsync(mission, dock, token).ConfigureAwait(false)) return true;
+
             // A work stage that ended without a commit, a diff or its completion line stopped early (a model ending its
             // turn mid-task), however long it ran. Review and planning stages never commit, so they are exempt. The
             // repository decides, not the transcript: a missing or malformed completion line with nothing on the branch is
@@ -273,8 +277,11 @@ namespace Armada.Core.Services
             // Retries exhausted: fail and surface to the operator inbox (LandingFailed/Failed feed it).
             mission.Status = MissionStatusEnum.Failed;
             mission.FailureReason = unfinished
-                ? "Unfinished completion: the captain repeatedly ended its run without a commit, a diff or the completion line, after "
-                    + mission.NoOpRedispatchAttempts + " re-dispatch attempt(s). The model is stopping mid-task; check its context window and output limits, or use a stronger captain."
+                ? (CaptainBlockedContract.HasResultLine(mission.AgentOutput) || CaptainBlockedContract.IsReported(mission.AgentOutput)
+                    ? "Unfinished completion: the captain repeatedly ended its run without a commit or a diff, after "
+                        + mission.NoOpRedispatchAttempts + " re-dispatch attempt(s), although its output carried a result or blocking line. Read its output: the brief may ask for a change that is impossible or already present."
+                    : "Unfinished completion: the captain repeatedly ended its run without a commit, a diff or the completion line, after "
+                        + mission.NoOpRedispatchAttempts + " re-dispatch attempt(s). The model is stopping mid-task; check its context window and output limits, or use a stronger captain.")
                 : "No-op completion: the captain repeatedly completed with no changes after " +
                     mission.NoOpRedispatchAttempts + " re-dispatch attempt(s). Likely an impossible or mis-specified mission.";
             mission.FailureKind = MissionFailureKindEnum.NoOp;
@@ -286,6 +293,63 @@ namespace Armada.Core.Services
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "no-op completion for mission " + mission.Id +
                 " exhausted re-dispatch attempts; failing to operator inbox");
+            await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return true;
+        }
+
+        private async Task<bool> TryFailCaptainBlockedAsync(Mission mission, Dock? dock, CancellationToken token)
+        {
+            if (VerifierContract.Applies(mission.Persona)) return false;
+            string? output = mission.AgentOutput;
+            if (!CaptainBlockedContract.IsReported(output) || CaptainBlockedContract.HasCompletionOrVerdict(output)) return false;
+
+            string? startCommit = dock != null ? TryReadDockStartCommit(dock.Id) : null;
+            if (ContractRepair.HasNewWork(mission.DiffSnapshot, startCommit, mission.CommitHash)) return false;
+
+            if (dock != null)
+            {
+                try { await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "blocked reclaim error for mission " + mission.Id + ": " + ex.ToString()); }
+            }
+
+            string? captainId = mission.CaptainId;
+            mission.Status = MissionStatusEnum.Failed;
+            mission.FailureReason = CaptainBlockedContract.FailureReason(output);
+            mission.FailureKind = MissionFailureKindEnum.Blocked;
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "captain reported BLOCKED for mission " + mission.Id + " with no work on its branch; failing to operator inbox without re-dispatch");
+
+            try
+            {
+                ArmadaEvent blockedEvent = new ArmadaEvent(CaptainBlockedContract.EventType, "Captain reported BLOCKED: " + mission.Title);
+                blockedEvent.TenantId = mission.TenantId;
+                blockedEvent.UserId = mission.UserId;
+                blockedEvent.EntityType = "mission";
+                blockedEvent.EntityId = mission.Id;
+                blockedEvent.CaptainId = captainId;
+                blockedEvent.MissionId = mission.Id;
+                blockedEvent.VesselId = mission.VesselId;
+                blockedEvent.VoyageId = mission.VoyageId;
+                blockedEvent.Payload = JsonSerializer.Serialize(new MissionBlockedByCaptainPayload
+                {
+                    MissionId = mission.Id,
+                    CaptainId = captainId,
+                    Persona = mission.Persona,
+                    Reason = CaptainBlockedContract.ExtractReason(output)
+                });
+                await _Database.Events.CreateAsync(blockedEvent, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Warn(_Header + "could not record " + CaptainBlockedContract.EventType + " for mission " + mission.Id + ": " + ex.Message);
+            }
+
             await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
             await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
             return true;

@@ -96,7 +96,14 @@ namespace Test.Shared.Infrastructure
             return Task.CompletedTask;
         }
         public Func<Task>? OnFetch { get; set; }
-        public Task FetchAsync(string repoPath, CancellationToken token = default) => OnFetch?.Invoke() ?? Task.CompletedTask;
+        public List<string> FetchCalls { get; } = new List<string>();
+        public bool ShouldThrowOnFetch { get; set; } = false;
+        public Task FetchAsync(string repoPath, CancellationToken token = default)
+        {
+            lock (FetchCalls) FetchCalls.Add(repoPath);
+            if (ShouldThrowOnFetch) throw new InvalidOperationException("Stub fetch failure");
+            return OnFetch?.Invoke() ?? Task.CompletedTask;
+        }
 
         public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default)
         {
@@ -214,14 +221,35 @@ namespace Test.Shared.Infrastructure
         public Task FetchRemotesAsync(string repoPath, CancellationToken token = default)
         {
             OperationCalls.Add("fetch-remotes:" + repoPath);
+            lock (FetchCalls) FetchCalls.Add(repoPath);
+            if (ShouldThrowOnFetch) throw new InvalidOperationException("Stub fetch failure");
             return Task.CompletedTask;
         }
 
         public Task<GitDivergenceCounts?> GetDivergenceAsync(string repoPath, string baseRef, string headRef, CancellationToken token = default)
             => Task.FromResult<GitDivergenceCounts?>(new GitDivergenceCounts(0, 0));
 
+        /// <summary>
+        /// When set, answers IsAncestorAsync per (ancestorRef, descendantRef) instead of <see cref="IsAncestorResult"/>.
+        /// </summary>
+        public Func<string, string, bool?>? IsAncestorHandler { get; set; }
+
         public Task<bool?> IsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
-            => Task.FromResult<bool?>(IsAncestorResult);
+            => Task.FromResult<bool?>(IsAncestorHandler != null ? IsAncestorHandler(ancestorRef, descendantRef) : IsAncestorResult);
+
+        public List<string> TrailerSearchCalls { get; } = new List<string>();
+
+        /// <summary>
+        /// When set, answers FindCommitsByTrailerAsync per trailer value; otherwise no commit matches.
+        /// </summary>
+        public Func<string, IReadOnlyList<string>>? TrailerCommitsHandler { get; set; }
+
+        public Task<IReadOnlyList<string>> FindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
+        {
+            lock (TrailerSearchCalls) TrailerSearchCalls.Add(revision + "|" + trailerKey + ": " + trailerValue);
+            IReadOnlyList<string> result = TrailerCommitsHandler != null ? TrailerCommitsHandler(trailerValue) : new List<string>();
+            return Task.FromResult(result);
+        }
 
         public Task<bool> CommitAllAsync(string worktreePath, string message, CancellationToken token = default)
         {

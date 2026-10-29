@@ -70,6 +70,13 @@ namespace Armada.Core.Services
         public Func<CancellationToken, Task<int>>? OnReconcileManualLandings { get; set; }
 
         /// <summary>
+        /// Optional health-check hook that completes LandingFailed missions whose work is proven to be on the vessel's
+        /// remote default branch (see <see cref="LandingReconciler"/>). Returns the number reconciled. Concrete hook, like
+        /// <see cref="OnReconcileManualLandings"/>, so the orchestration interface does not change.
+        /// </summary>
+        public Func<CancellationToken, Task<int>>? OnReconcileLandingFailures { get; set; }
+
+        /// <summary>
         /// Optional hook reporting whether an agent process was launched by this admiral and is still running under
         /// its runtime's exit callback. Such a process is owned by that callback: the health check and the orphan
         /// sweep treat it as alive instead of probing the operating system, which cannot see in-process captains
@@ -735,6 +742,10 @@ namespace Armada.Core.Services
                     if (reconciledManual > 0) _Logging.Info(_Header + "completed " + reconciledManual + " manually merged mission(s)");
                 }, token).ConfigureAwait(false);
             }
+
+            // Complete stale LandingFailed missions whose work reached the remote default branch by another path.
+            if (OnReconcileLandingFailures != null)
+                await RunHealthPhaseAsync("landing failure reconciliation", () => OnReconcileLandingFailures.Invoke(token), token).ConfigureAwait(false);
 
             // Release captains held by missions whose review has gone overdue (dock preserved).
             await RunHealthPhaseAsync("overdue review recovery", () => RecoverOverdueReviewsAsync(token), token).ConfigureAwait(false);
