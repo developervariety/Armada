@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="PolyPrompt" Version="2.6.0" />
-    <PackageReference Include="SyslogLogging" Version="2.2.1" />
+    <PackageReference Include="SyslogLogging" Version="2.2.2" />
   </ItemGroup>
 
   <ItemGroup>
