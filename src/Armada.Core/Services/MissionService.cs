@@ -12855,6 +12855,13 @@ namespace Armada.Core.Services
                 if (restore.Status == DockWorkRestoreStatusEnum.NothingSaved) return;
 
                 bool applied = restore.Status == DockWorkRestoreStatusEnum.Applied;
+                // A saved ref already applied or reported for this mission is not reported again: the work it
+                // holds was restored or announced once, and a later assignment finds the same ref.
+                if (!applied && await HasWorkSnapshotEventAsync(mission.Id, restore.RefName, token).ConfigureAwait(false))
+                {
+                    _Logging.Info(_Header + "saved work " + restore.RefName + " of mission " + mission.Id + " was already applied or reported; not reported again");
+                    return;
+                }
                 string message = applied
                     ? "Uncommitted work of mission " + mission.Id + " was applied to the new checkout from " + restore.RefName + "."
                     : "Uncommitted work of mission " + mission.Id + " saved in " + restore.RefName + " was not applied to the new checkout: " + restore.Message + ".";
@@ -12894,6 +12901,33 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not resume the saved dock work of mission " + mission.Id + ": " + ex.Message);
             }
+        }
+
+        private async Task<bool> HasWorkSnapshotEventAsync(string missionId, string? refName, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(refName)) return false;
+            List<ArmadaEvent> events = await _Database.Events.EnumerateByMissionAsync(missionId, 500, token).ConfigureAwait(false);
+            foreach (ArmadaEvent evt in events)
+            {
+                if (evt.EventType != "mission.work_snapshot_applied" && evt.EventType != "mission.work_snapshot_skipped") continue;
+                if (String.IsNullOrWhiteSpace(evt.Payload)) continue;
+                try
+                {
+                    using (JsonDocument payload = JsonDocument.Parse(evt.Payload))
+                    {
+                        if (payload.RootElement.ValueKind == JsonValueKind.Object
+                            && payload.RootElement.TryGetProperty("RefName", out JsonElement recorded)
+                            && recorded.ValueKind == JsonValueKind.String
+                            && String.Equals(recorded.GetString(), refName, StringComparison.Ordinal))
+                            return true;
+                    }
+                }
+                catch (JsonException)
+                {
+                    _Logging.Warn(_Header + "unreadable payload on event " + evt.Id + " of mission " + missionId + "; it is not counted as an earlier report");
+                }
+            }
+            return false;
         }
 
         private async Task RecordStageStartAsync(Mission mission, Dock dock, CancellationToken token)
@@ -13259,7 +13293,7 @@ namespace Armada.Core.Services
         /// The accepted acceptance-criteria line form. Every Judge prompt that asks for the section states
         /// it, and the format correction repeats it.
         /// </summary>
-        internal const string AcceptanceCriteriaLineForm =
+        public const string AcceptanceCriteriaLineForm =
             "Under `## Acceptance Criteria`, write one line per criterion in the brief. Start the line with `- `, then the criterion's text copied exactly " +
             "as the brief lists it, then ` -- MET.` or ` -- NOT MET.`, then on the SAME line at least one piece of evidence: a location written " +
             "`path/File.ext:LINE`, or a command written `command: `the exact command`` followed by its result. " +

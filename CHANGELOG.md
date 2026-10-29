@@ -17,6 +17,26 @@ upstream integrations and excludes changes already present at that baseline.
 - Two consecutive Judge NEEDS_REVISION verdicts for one objective at frozen source stop a third full-chain dispatch. A retry requires changed prepared input, the exact rejected candidate commit or report hash, and recorded evidence for every named finding. Other objectives and required review stages continue.
 - Blocked-stage questions wake the recorded dispatching participant and remain visible on the board. Unknown or unreadable dispatch origins use a broadcast; explicit owner approval gates retain their owner routing. Retry receipts are exposed on the operator preflight schema.
 
+### README
+
+- The README follows upstream's shape: a short introduction, the fork's differences from upstream, the upstream changes imported and not imported, quick start, and links to the reference docs.
+
+### Saved dock work reports
+
+- A later assignment of a mission that finds a `recover/` ref already applied or reported for that mission records no second `mission.work_snapshot_skipped` event and posts no second `[work not restored]` note.
+
+### Signal recipient tenant
+
+- `armada_send_signal` and `POST /api/v1/signals` refuse a recipient captain outside the caller's tenant, unless the caller is a global administrator. MCP answers `captain_not_found` and REST answers `404`; nothing is stored.
+
+### Rescue of a format-refused Judge PASS
+
+- A rescue of a Judge whose verdict was PASS and whose second run still failed the acceptance-criteria format check no longer lists the PASS review's Correctness, Failure Modes and Tests bullets as blocking findings. Its brief names the acceptance-criteria section and the walk's failure reason as the defect and keeps only items marked blocking or NOT MET. NEEDS_REVISION and FAIL reviews, NOT MET failures and unknown failure reasons keep the full extraction.
+
+### Report-incomplete detector blocks any criterion line it cannot fully parse
+
+- A report-only Worker that ends COMPLETE hands off an unmet criterion only as a prose line of the shape `Criterion N is not met because the <roles> reviews have not run.` Its scope is its own line plus the lines indented deeper than it. Text before the subject in its own sentence must be a label (including an `[ARMADA:...]` marker), complete MET clauses or connective words; an earlier complete sentence is out of scope. Only status words or one parenthetical without an incompleteness word may sit between the subject and the phrase. Every sentence after the phrase must be a future-review clause, the open parent objective, or a fixed process statement. Any other line that holds a criterion reference (`criterion`, `criteria` with a number, range, `#N` or spelled number, `AC3`, `acceptance criteria`) and a NOT MET phrase (not met, not yet met, not fully met, unmet, isn't met, has not been met, partially met, does not meet, cannot be met, bare `Criterion 2: not met`, a table row) fails the stage as `report_incomplete`, as does a regex timeout. A `- <text> - NOT MET. <reason>` list item is read without a criterion reference, a parenthetical must be a pointer or review-stage words, and incomplete, not done, not achieved, unfulfilled, `NOT-MET`, `: FAIL` and `: ✗` count as NOT MET phrases. The report-only brief tells captains the deferral shape.
+
 ### Routing choice evidence
 
 - Existing captain choice events include normal selections, requested and selected captain ids, mode, tier floor, hint, ranking inputs and the selection or fallback reason. This adds provenance without changing routing order or capability scores.
@@ -518,7 +538,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 This is the fork's first 1.0 release. It includes the changes below since the
 full-merge baseline. Fork and upstream version numbers are independent. The
-[README adoption map](README.md#upstream-adoption-in-v100) identifies imported,
+[README adoption map](README.md#upstream-vs-fork) identifies imported,
 adapted and excluded upstream capabilities. The [upgrade guide](docs/UPGRADING.md)
 covers database protection, client compatibility and rollback.
 

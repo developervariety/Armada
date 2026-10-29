@@ -17,6 +17,15 @@ namespace Armada.Core.Services
         /// <summary>Failure reason when a PASS marks a brief criterion NOT MET. This is a substantive rejection, never a format miss.</summary>
         public const string NotMetReason = "Judge PASS names a NOT MET acceptance criterion";
 
+        /// <summary>Failure reason when a PASS has no non-empty acceptance-criteria section although the brief lists criteria. A format miss.</summary>
+        public const string MissingSectionReason = "Judge PASS verdict missing required review sections: " + SectionName;
+
+        /// <summary>Failure reason when a PASS lists a criterion without file:line or command evidence on its line. A format miss.</summary>
+        public const string MissingEvidenceReason = "Judge PASS acceptance criterion lacks file:line or command evidence";
+
+        /// <summary>Failure reason when a PASS leaves a brief criterion out of its walk. A format miss.</summary>
+        public const string UncoveredCriterionReason = "Judge PASS does not list every acceptance criterion from the brief";
+
         private static readonly Regex _NotMet = new Regex(@"\bNOT\s+MET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex _Met = new Regex(@"\b(?:NOT\s+)?MET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex _ObjectiveBriefStart = new Regex(
@@ -28,6 +37,20 @@ namespace Armada.Core.Services
         private static readonly Regex _HandoffMarker = new Regex(
             @"^<!-- ARMADA:HANDOFF:[^>\r\n]+ -->\r?$",
             RegexOptions.Multiline | RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Whether a failure reason is one of the walk's format refusals: the section, its evidence or its
+        /// coverage is wrong, and no criterion is marked NOT MET. Any other text, including a NOT MET
+        /// rejection and an absent reason, is not a format refusal.
+        /// </summary>
+        /// <param name="failureReason">A mission failure reason.</param>
+        /// <returns>True for a format-only refusal.</returns>
+        public static bool IsFormatReason(string? failureReason)
+        {
+            return String.Equals(failureReason, MissingSectionReason, StringComparison.Ordinal)
+                || String.Equals(failureReason, MissingEvidenceReason, StringComparison.Ordinal)
+                || String.Equals(failureReason, UncoveredCriterionReason, StringComparison.Ordinal);
+        }
 
         /// <summary>Bullet items under the brief's Acceptance Criteria heading.</summary>
         public static List<string> ExtractCriteria(string? brief)
@@ -262,7 +285,7 @@ namespace Armada.Core.Services
             // The walk is required exactly when a criterion is expected; read the section from the output
             // against the resolved expected set, not the brief.
             if (String.IsNullOrWhiteSpace(ExtractSection(agentOutput, SectionName)))
-                return "Judge PASS verdict missing required review sections: " + SectionName;
+                return MissingSectionReason;
             string block = ExtractSection(agentOutput, SectionName)!;
             // Criteria that read the same once redacted are one criterion, as the stored output cannot tell them apart.
             List<string> expectedClaims = new List<string>();
@@ -289,7 +312,7 @@ namespace Armada.Core.Services
                             return NotMetReason;
                         if (covered.Contains(index)) break;
                         if (!HasEvidence(evidence))
-                            return "Judge PASS acceptance criterion lacks file:line or command evidence";
+                            return MissingEvidenceReason;
                         covered.Add(index);
                         break;
                     }
@@ -298,7 +321,7 @@ namespace Armada.Core.Services
 
             return covered.Count == expectedClaims.Count
                 ? null
-                : "Judge PASS does not list every acceptance criterion from the brief";
+                : UncoveredCriterionReason;
         }
 
         /// <summary>

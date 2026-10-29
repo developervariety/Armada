@@ -932,6 +932,13 @@ the reason's `code` and the mission `persona`. Read these events
 when a mission with a requested captain waits. A wait that does not change is
 recorded once. A mission with neither field set is assigned by normal routing.
 
+Captain choice events (`mission.requested_captain`) also record normal
+unpinned choices: the requested and selected captain, routing mode, tier floor,
+capability hint, ranking inputs and reason. A choice precedes reservation and
+launch; mission attempts show which captain ran. Provider authentication, quota
+and transport faults affect availability and cooldown only; they do not revise
+configured capability scores.
+
 A Judge stage prefers an admitted captain that ran no earlier non-Judge stage
 of its dependency chain. When every admitted captain is such an author, the
 author takes the Judge, so the Judge never waits for this reason. The

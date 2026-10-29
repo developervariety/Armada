@@ -245,6 +245,16 @@ final `[ARMADA:VERDICT]` is `NEEDS_REVISION` or `FAIL` and no finding can be
 read, the list is the incomplete-findings marker, so a stage is sent to the
 complete output instead of being told there is nothing to fix.
 
+A Judge PASS that Armada refuses only for the format or coverage of its
+`## Acceptance Criteria` section (a missing section, an unlisted criterion or a
+line without evidence) is not a rejection of the reviewed work. When such a
+Judge fails again after its one format re-run, its rescue brief states that
+defect with the walk's failure reason and the accepted line form. The brief
+keeps only the items the review marks blocking or NOT MET, because the
+Correctness, Failure Modes and Tests bullets of a PASS report passing
+behaviour. A review with any other verdict, a NOT MET failure, or an unknown
+failure reason keeps the full extraction.
+
 
 ### Full Research attempt replay
 

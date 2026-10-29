@@ -243,7 +243,20 @@ namespace Armada.Core.Services
         /// <returns>One finding per line, each starting with "- ".</returns>
         public static string BlockingFindings(string? review, int maxChars)
         {
-            BlockingFindingSelection selection = SelectBlockingFindings(review, maxChars);
+            return BlockingFindings(review, maxChars, false);
+        }
+
+        /// <summary>
+        /// The blocking findings of a review, optionally limited to the items the reviewer marked explicitly.
+        /// </summary>
+        /// <param name="review">Review or report text.</param>
+        /// <param name="maxChars">Bound for the list.</param>
+        /// <param name="explicitOnly">True to keep only items that carry an explicit blocking or NOT MET mark, so the
+        /// positive statements of a passing review's Correctness, Failure Modes and Tests sections are not findings.</param>
+        /// <returns>One finding per line, each starting with "- ".</returns>
+        public static string BlockingFindings(string? review, int maxChars, bool explicitOnly)
+        {
+            BlockingFindingSelection selection = SelectBlockingFindings(review, maxChars, explicitOnly);
             if (selection.Items.Count == 0 && !selection.ExtractionMissed) return String.Empty;
             List<string> lines = selection.Items.Select(item => "- " + item).ToList();
             if (selection.Omitted > 0 || selection.ExtractionMissed) lines.Add(IncompleteFindingsLine(maxChars, selection.Omitted));
@@ -260,6 +273,19 @@ namespace Armada.Core.Services
         /// <param name="maxChars">Bound for the rendered items, one character per line break included, before any omission line.</param>
         /// <returns>The kept findings, the count dropped, and whether a rejection yielded no finding at all.</returns>
         public static BlockingFindingSelection SelectBlockingFindings(string? review, int maxChars)
+        {
+            return SelectBlockingFindings(review, maxChars, false);
+        }
+
+        /// <summary>
+        /// The blocking findings of a review that fit a character bound, optionally limited to the items the
+        /// reviewer marked explicitly (a blocking label or a NOT MET, NOT DELIVERED or NOT RESOLVED mark).
+        /// </summary>
+        /// <param name="review">Review or report text.</param>
+        /// <param name="maxChars">Bound for the rendered items.</param>
+        /// <param name="explicitOnly">True to skip items that are findings only by their section.</param>
+        /// <returns>The kept findings, the count dropped, and whether a rejection yielded no finding at all.</returns>
+        public static BlockingFindingSelection SelectBlockingFindings(string? review, int maxChars, bool explicitOnly)
         {
             BlockingFindingSelection selection = new BlockingFindingSelection();
             if (String.IsNullOrWhiteSpace(review)) return selection;
@@ -425,7 +451,7 @@ namespace Armada.Core.Services
                 bool sectionFinding = findingSectionItem && (listFinding || labeledFinding || paragraphFinding || underDefectParagraphLead || IsUnmarkedTestGap(item, section))
                     || section == "Verdict"
                         && (verdictRequired || ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS")));
-                if (!notMetCriterion && !explicitBlocking && !sectionFinding) continue;
+                if (!notMetCriterion && !explicitBlocking && (explicitOnly || !sectionFinding)) continue;
 
                 StringBuilder finding = new StringBuilder(item);
                 while (i + 1 < lines.Length && IsContinuation(lines[i + 1]))
@@ -599,6 +625,24 @@ namespace Armada.Core.Services
 
         private static readonly Regex _VerdictMarker = new Regex(
             @"\[ARMADA:VERDICT\]\s*([A-Z_]+)", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Whether a review carries at least one verdict marker and every marker is PASS. A review with no marker,
+        /// or with any other verdict among its markers, is not a plain PASS.
+        /// </summary>
+        /// <param name="review">Review text.</param>
+        /// <returns>True when the only verdict the review states is PASS.</returns>
+        public static bool IsPassOnly(string? review)
+        {
+            if (String.IsNullOrWhiteSpace(review)) return false;
+            MatchCollection matches = _VerdictMarker.Matches(review);
+            if (matches.Count == 0) return false;
+            foreach (Match match in matches)
+            {
+                if (!String.Equals(match.Groups[1].Value, "PASS", StringComparison.Ordinal)) return false;
+            }
+            return true;
+        }
 
         // The final verdict marker decides; an earlier one may be quoted instruction text.
         private static bool IsRejection(string text)

@@ -121,6 +121,11 @@ namespace Armada.Server.Routes
                     }
                     MissionMailRouting.AddressToMission(signal, addressed);
                 }
+                if (!await SignalDelivery.CanAddressCaptainAsync(_database, ctx, signal.ToCaptainId).ConfigureAwait(false))
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" };
+                }
                 signal = await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
                 signal = await SignalDelivery.AnnotateAsync(_database, signal).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;

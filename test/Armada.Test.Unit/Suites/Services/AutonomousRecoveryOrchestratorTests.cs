@@ -4917,6 +4917,8 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildBlockingFindingsForBrief_ParagraphUnderDefectLeadIn_IsCarried).ConfigureAwait(false);
             await RunTest("BuildRescueDescription keeps unmet criteria from omitted review sections and names those sections",
                 BuildRescueDescription_OversizedJudgeReview_KeepsUnmetCriteriaFromOmittedSections).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription of a format-refused Judge PASS carries no positive bullets and names the format failure",
+                BuildRescueDescription_FormatRefusedJudgePass_CarriesTheFormatFailureNotThePositiveBullets).ConfigureAwait(false);
             await RunTest("Challenge round: a Judge NEEDS_REVISION waits for a Challenger on another model, then the rescue carries only upheld findings", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -6631,6 +6633,94 @@ namespace Armada.Test.Unit.Suites.Services
             AssertFalse(block.Contains("default journal mode", StringComparison.Ordinal), "An item opening 'Observed but not blocking:' is not a finding");
             AssertFalse(block.Contains("without logging the reason", StringComparison.Ordinal), "An item closing 'Cosmetic.' is not a finding");
             await Task.CompletedTask;
+        }
+
+        public async Task BuildRescueDescription_FormatRefusedJudgePass_CarriesTheFormatFailureNotThePositiveBullets()
+        {
+            string[] formatReasons =
+            {
+                JudgeAcceptanceWalk.MissingSectionReason,
+                JudgeAcceptanceWalk.MissingEvidenceReason,
+                JudgeAcceptanceWalk.UncoveredCriterionReason
+            };
+            Incident incident = new Incident
+            {
+                Id = "inc_test_format_pass",
+                Title = "synthetic format-refused review",
+                Summary = "synthetic summary",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium
+            };
+
+            foreach (string reason in formatReasons)
+            {
+                Mission failed = BuildFormatPassJudge(reason, "[ARMADA:VERDICT] PASS", String.Empty);
+                string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+                AssertFalse(brief.Contains("Blocking findings to fix", StringComparison.Ordinal), "A format-only PASS lists no blocking findings: " + reason);
+                AssertFalse(brief.Contains("1. The projection skips malformed entries", StringComparison.Ordinal), "A positive correctness bullet is not numbered as a finding");
+                AssertFalse(brief.Contains("2. Tests cover the truncated frame", StringComparison.Ordinal), "A positive test bullet is not numbered as a finding");
+                AssertContains("Acceptance Criteria", brief, "The brief names the section that was refused");
+                AssertContains(reason, brief, "The brief carries the walk's failure reason");
+
+                MissionOutputArtifactPage output = MissionOutputArtifact.Build(failed, 0, MissionOutputArtifact.MaximumPageLength);
+                string verification = AutonomousRecoveryOrchestrator.BuildChainedRescueVerification(failed, output, false);
+                AssertFalse(verification.Contains("projection skips malformed", StringComparison.Ordinal), "The re-verification stage lists no positive bullet as a finding");
+                AssertContains(reason, verification, "The re-verification stage names the format failure");
+            }
+
+            Mission explicitBlocking = BuildFormatPassJudge(JudgeAcceptanceWalk.MissingEvidenceReason, "[ARMADA:VERDICT] PASS",
+                "\n- Blocking: src/Parser.cs:88 still returns the wrong code on a truncated frame.");
+            string explicitBrief = AutonomousRecoveryOrchestrator.BuildRescueDescription(explicitBlocking, incident, 1);
+            AssertContains("Blocking findings to fix", explicitBrief, "The explicit item makes a findings list");
+            AssertContains("Blocking: src/Parser.cs:88 still returns", explicitBrief, "An explicitly blocking item is kept");
+            AssertFalse(explicitBrief.Contains("1. The projection skips malformed entries", StringComparison.Ordinal), "Positive bullets stay out beside an explicit blocking item");
+
+            Mission notMet = BuildFormatPassJudge(JudgeAcceptanceWalk.NotMetReason, "[ARMADA:VERDICT] PASS", String.Empty);
+            AssertContains("1. The projection skips malformed entries", AutonomousRecoveryOrchestrator.BuildRescueDescription(notMet, incident, 1),
+                "A NOT MET rejection keeps the extraction");
+
+            Mission unknownReason = BuildFormatPassJudge(null, "[ARMADA:VERDICT] PASS", String.Empty);
+            AssertContains("1. The projection skips malformed entries", AutonomousRecoveryOrchestrator.BuildRescueDescription(unknownReason, incident, 1),
+                "An unknown failure reason keeps the extraction");
+
+            Mission revision = BuildFormatPassJudge(JudgeAcceptanceWalk.MissingEvidenceReason, "[ARMADA:VERDICT] NEEDS_REVISION", String.Empty);
+            AssertContains("1. The projection skips malformed entries", AutonomousRecoveryOrchestrator.BuildRescueDescription(revision, incident, 1),
+                "A NEEDS_REVISION review keeps the extraction");
+
+            Mission noVerdict = BuildFormatPassJudge(JudgeAcceptanceWalk.MissingEvidenceReason, String.Empty, String.Empty);
+            AssertContains("1. The projection skips malformed entries", AutonomousRecoveryOrchestrator.BuildRescueDescription(noVerdict, incident, 1),
+                "A review with no verdict marker keeps the extraction");
+            await Task.CompletedTask;
+        }
+
+        private static Mission BuildFormatPassJudge(string? failureReason, string verdictLine, string extraSection)
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "- The projection skips malformed entries and keeps the rest.",
+                "- The parser returns Truncated for a short frame at `src/Parser.cs:88`.",
+                "",
+                "## Failure Modes",
+                "- A missing reply maps to the same failure the port returns.",
+                "",
+                "## Tests",
+                "- Tests cover the truncated frame and the empty reply.",
+                "",
+                "## Verdict",
+                "The change is correct." + extraSection,
+                "",
+                verdictLine
+            });
+            return new Mission("Format-refused review")
+            {
+                Id = "msn_test_format_pass_" + Guid.NewGuid().ToString("N"),
+                Persona = "Judge",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = failureReason,
+                AgentOutput = review,
+                ReviewComment = review
+            };
         }
 
         public async Task BuildBlockingFindingsForBrief_PassingItems_AreLeftOut()

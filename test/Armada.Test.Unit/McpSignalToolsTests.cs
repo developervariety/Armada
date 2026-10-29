@@ -428,6 +428,39 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("SendSignal_TenantCaller_CanAddressOnlyCaptainsInItsTenant", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_sender", Name = "ten_sender" }).ConfigureAwait(false);
+                    await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_other", Name = "ten_other" }).ConfigureAwait(false);
+                    Captain own = await testDb.Driver.Captains.CreateAsync(new Captain("own-captain") { TenantId = "ten_sender" }).ConfigureAwait(false);
+                    Captain foreign = await testDb.Driver.Captains.CreateAsync(new Captain("foreign-captain") { TenantId = "ten_other" }).ConfigureAwait(false);
+                    UserMaster sender = await testDb.Driver.Users.CreateAsync(new UserMaster("ten_sender", "sender@example.com", "sender-pass-1")).ConfigureAwait(false);
+                    AuthContext tenantCaller = AuthContext.Authenticated("ten_sender", sender.Id, false, true, "Test", null, "Tenant caller");
+
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    McpSignalTools.Register(
+                        (name, _, _, h) => { if (name == "armada_send_signal") handler = h; },
+                        testDb.Driver);
+                    AssertNotNull(handler, "armada_send_signal handler must be registered");
+
+                    object refused;
+                    object accepted;
+                    using (McpCallerContext.Begin(tenantCaller))
+                    {
+                        refused = await handler!(JsonSerializer.SerializeToElement(new { captainId = foreign.Id, message = "cross-tenant mail" }, _JsonOpts)).ConfigureAwait(false);
+                        accepted = await handler!(JsonSerializer.SerializeToElement(new { captainId = own.Id, message = "own-tenant mail" }, _JsonOpts)).ConfigureAwait(false);
+                    }
+
+                    AssertContains("captain_not_found", JsonSerializer.Serialize(refused), "a captain in another tenant is not addressable");
+                    List<Signal> foreignMail = await testDb.Driver.Signals.EnumerateByRecipientAsync(foreign.Id, false).ConfigureAwait(false);
+                    AssertEqual(0, foreignMail.Count, "the refused mail is not stored");
+                    AssertTrue(accepted is Signal, "a captain in the caller's tenant is addressable");
+                    AssertEqual(own.Id, ((Signal)accepted).ToCaptainId ?? "(null)");
+                }
+            });
+
             await RunTest("SendSignal_RunningCaptainInAnotherTenant_ReturnsNoDeliveryNotice", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

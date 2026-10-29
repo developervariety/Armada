@@ -3022,7 +3022,7 @@ Send a new signal (message).
 |---|---|---|---|
 | `Type` | string | no | Signal type (default: `Nudge`) |
 | `Payload` | string | no | Signal payload (message content) |
-| `ToCaptainId` | string | no | Recipient captain ID (null = to Admiral) |
+| `ToCaptainId` | string | no | Recipient captain ID (null = to Admiral). A caller that is not a global administrator may address only a captain in its own tenant; any other captain answers `404`. |
 | `MissionId` | string | no | Mission the signal is addressed to. The recipient becomes the mission's current captain, and unread mail of the mission moves to the mission's next captain. An unknown mission answers `404`. |
 | `FromCaptainId` | string | no | Sender captain ID (null = from Admiral) |
 
@@ -5405,7 +5405,7 @@ A recorded event representing a state change in the system.
 - `mission.work_snapshot_saved` - A captain's uncommitted dock work was saved before the final stall relaunch or before a dock removal (reclaim, unstick, delete, purge, or a re-provision over a previous attempt's checkout); the message names the `recover/<missionId>-<n>` branch
 - `mission.work_snapshot_failed` - A captain's uncommitted dock work could not be saved; the message names why. The dock is kept on disk and not removed; only a stall relaunch, which keeps the dock, continues
 - `mission.work_snapshot_applied` - A continued mission's saved dock work was applied to its new checkout as uncommitted changes; the message names the `recover/<missionId>-<n>` branch
-- `mission.work_snapshot_skipped` - A continued mission's saved dock work was not applied (the new checkout is on another commit, is not clean, or the apply conflicted); the message names the branch and the reason, and the checkout is unchanged
+- `mission.work_snapshot_skipped` - A continued mission's saved dock work was not applied (the new checkout is on another commit, is not clean, or the apply conflicted); the message names the branch and the reason, and the checkout is unchanged; it is recorded once per saved ref, so a later assignment that finds a ref already applied or reported records nothing
 - `mission.stopped_by_operator` - An operator stop from REST, MCP or WebSocket ended the captain's running mission Cancelled; the message carries the `operator_stopped:` reason (who, surface, UTC time, and the `recover/<missionId>-<n>` ref when one was written) and the payload repeats them
 - `mission.branch_verified` - At completion capture, the mission branch holds the captured commit
 - `mission.branch_unverified` - At completion capture, the mission branch does not hold the captured commit, or git could not answer; the payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch

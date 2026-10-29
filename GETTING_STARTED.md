@@ -365,7 +365,7 @@ and the explicit override for unattended hosts.
 
 Data is persisted in `docker/armada/db/`. To stop: `docker compose down`. To reset all data: run `docker/factory/reset.sh` (or `reset.bat` on Windows).
 
-See the [README](README.md#running-locally-with-docker) for full Docker details including volume layout, configuration, and building images from source.
+See the [Docker guide](docs/DOCKER.md) for full Docker details including volume layout, configuration, and building images from source.
 
 ---
 

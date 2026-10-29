@@ -92,6 +92,14 @@ namespace Armada.Server.Mcp.Tools
                                 action = "Pass the identifier of an existing mission."
                             };
                     }
+                    if (!await SignalDelivery.CanAddressCaptainAsync(database, sendCaller, signal.ToCaptainId).ConfigureAwait(false))
+                        return (object)new
+                        {
+                            error = "Captain not found: " + signal.ToCaptainId,
+                            code = "captain_not_found",
+                            reason = "No captain in the caller's tenant has the captainId argument as its identifier.",
+                            action = "Pass the identifier of a captain in your tenant, or missionId naming the mission."
+                        };
                     signal = await database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     signal = await SignalDelivery.AnnotateAsync(database, signal).ConfigureAwait(false);
                     return (object)signal;

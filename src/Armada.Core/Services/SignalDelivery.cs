@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -38,6 +39,26 @@ namespace Armada.Core.Services
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Whether a caller may address a signal to a captain. A global administrator may address any captain;
+        /// any other caller may address only a captain in its own tenant. A signal with no recipient captain is
+        /// always allowed.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="caller">Authenticated caller.</param>
+        /// <param name="captainId">Recipient captain, or null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the caller may address the captain.</returns>
+        public static async Task<bool> CanAddressCaptainAsync(DatabaseDriver database, AuthContext caller, string? captainId, CancellationToken token = default)
+        {
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+            if (String.IsNullOrWhiteSpace(captainId)) return true;
+            if (caller.IsAdmin) return true;
+            Captain? captain = await database.Captains.ReadAsync(OwnershipPolicy.TenantOf(caller), captainId, token).ConfigureAwait(false);
+            return captain != null;
         }
 
         /// <summary>

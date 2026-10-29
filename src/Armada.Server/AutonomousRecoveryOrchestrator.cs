@@ -2990,8 +2990,14 @@ namespace Armada.Server
             string review = output.Content ?? String.Empty;
             if (review.Length == 0 && !String.IsNullOrWhiteSpace(failedMission.ReviewComment))
                 review = RuntimeLogFormatter.RedactSecrets(failedMission.ReviewComment).Trim();
-            string blocking = review.Length == 0 ? String.Empty : BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars);
+            bool formatRefusal = review.Length > 0 && IsFormatRefusedJudgePass(failedMission, review);
+            string blocking = review.Length == 0 ? String.Empty : BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars, formatRefusal);
             if (blocking.Length > 0) blocking = NumberFindingsForBrief(blocking, out _);
+            if (formatRefusal && blocking.Length == 0)
+            {
+                return BuildFormatRefusalDefect(failedMission.FailureReason) + Environment.NewLine
+                    + "Confirm the revised branch gives the Judge no cause to refuse the section before it lands.";
+            }
             if (blocking.Length == 0)
             {
                 return "Confirm the revised branch resolves the failed " + persona + "'s review before it lands."
@@ -4255,13 +4261,19 @@ namespace Armada.Server
             if (!String.IsNullOrWhiteSpace(failedMission.BranchName))
                 sb.AppendLine("Original branch: " + failedMission.BranchName);
             int numberedFindings = 0;
+            bool formatRefusal = reviewerMission && !String.IsNullOrWhiteSpace(review) && IsFormatRefusedJudgePass(failedMission, review);
+            if (formatRefusal)
+            {
+                sb.AppendLine();
+                sb.AppendLine(BuildFormatRefusalDefect(failedMission.FailureReason));
+            }
             if (!String.IsNullOrWhiteSpace(review))
             {
                 // A settled challenge replaces the extracted list: only the findings it upheld are to be
                 // fixed, and the refuted ones are named with the evidence that refuted them.
                 string blocking = challenge?.Result != null
                     ? String.Empty
-                    : BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars);
+                    : BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars, formatRefusal);
                 if (challenge?.Result != null)
                 {
                     sb.AppendLine();
@@ -4491,7 +4503,46 @@ namespace Armada.Server
         /// </summary>
         internal static string BuildBlockingFindingsForBrief(string review, int maxChars)
         {
-            return StageReportEssentials.BlockingFindings(review, maxChars).Replace("\n", Environment.NewLine);
+            return BuildBlockingFindingsForBrief(review, maxChars, false);
+        }
+
+        /// <summary>
+        /// The blocking findings of a review for a brief, optionally limited to explicitly marked items.
+        /// </summary>
+        /// <param name="review">Review text.</param>
+        /// <param name="maxChars">Bound for the list.</param>
+        /// <param name="explicitOnly">True for a review whose verdict was PASS, so only items it marks blocking or NOT MET are findings.</param>
+        /// <returns>One finding per line; empty when nothing is marked blocking.</returns>
+        internal static string BuildBlockingFindingsForBrief(string review, int maxChars, bool explicitOnly)
+        {
+            return StageReportEssentials.BlockingFindings(review, maxChars, explicitOnly).Replace("\n", Environment.NewLine);
+        }
+
+        /// <summary>
+        /// Whether a failed Judge mission reached PASS and failed only because Armada refused the format or
+        /// coverage of its acceptance-criteria section. The failure reason must be one of the walk's format
+        /// reasons and the review must state no verdict but PASS; anything else is not a format refusal.
+        /// </summary>
+        /// <param name="failed">The failed mission.</param>
+        /// <param name="review">The review text the rescue reads.</param>
+        /// <returns>True for a format-only refusal of a Judge PASS.</returns>
+        internal static bool IsFormatRefusedJudgePass(Mission failed, string review)
+        {
+            return IsReviewerPersona(failed.Persona)
+                && JudgeAcceptanceWalk.IsFormatReason(failed.FailureReason)
+                && StageReportEssentials.IsPassOnly(review);
+        }
+
+        /// <summary>
+        /// The defect a format-refused Judge PASS leaves for a rescue: the acceptance-criteria section, not the reviewed code.
+        /// </summary>
+        /// <param name="failureReason">The walk's failure reason.</param>
+        /// <returns>The brief lines naming the defect and the accepted line form.</returns>
+        internal static string BuildFormatRefusalDefect(string? failureReason)
+        {
+            return "Defect to fix: the Judge reached PASS and found no code defect, but Armada's mechanical check refused the format or coverage of its `## "
+                + JudgeAcceptanceWalk.SectionName + "` section (" + failureReason + "). The bullets of its other sections report passing behaviour and are not findings."
+                + Environment.NewLine + MissionService.AcceptanceCriteriaLineForm;
         }
 
         /// <summary>

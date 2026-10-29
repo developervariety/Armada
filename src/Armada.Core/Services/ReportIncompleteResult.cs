@@ -15,8 +15,8 @@ namespace Armada.Core.Services
     /// The completion path fails such a stage with a <see cref="FailureReasonPrefix"/> reason that quotes the
     /// captain's statement, so the reviewer stages are cancelled instead of run. Only the final outcome
     /// <c>[ARMADA:RESULT] COMPLETE</c> counts: a stage that ends BLOCKED, refused, or with no result marker is
-    /// read by its own rule. A statement that some other subject does not meet a criterion is not matched; the
-    /// sentence must say that the acceptance criteria themselves are not met.
+    /// read by its own rule. A line holding a criterion reference followed by a NOT MET phrase is a statement; only a
+    /// prose line that defers the criterion to later review stages and carries nothing else hands off.
     /// </remarks>
     public static class ReportIncompleteResult
     {
@@ -46,10 +46,88 @@ namespace Armada.Core.Services
 
         private const string _CompleteWord = "COMPLETE";
 
-        private static readonly Regex _CriteriaNotMet = new Regex(
-            @"\b(?:(?:acceptance\s+)?criterion\s+(?<number>\d+)|acceptance\s+criteri(?:a|on))\b[^.;\n]{0,60}?\b(?:are|is|were|was|remain|remains)\b[^.;\n]{0,40}?\bnot\s+(?:met|satisfied)\b",
+        private const string _NumberWord = @"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)";
+
+        private const string _ReferencePattern = @"(?:(?:acceptance\s+)?criteri(?:on|a)\s*#?\s*(?<number>" + _NumberWord + @"(?:\s*(?:-|\u2013|to|,|and|&)\s*#?" + _NumberWord + @")*)\b"
+            + @"|\bAC[-\s]?(?<number>\d+(?:\s*(?:-|\u2013|,|and|&)\s*\d+)*)\b"
+            + @"|acceptance\s+criteri(?:a|on)\b)";
+
+        private static readonly Regex _CriterionReference = new Regex(
+            @"\b" + _ReferencePattern,
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
+
+        private const string _StatusModifiers = @"(?:\(?(?:yet|fully|currently|been)\)?[\s-]+)*";
+
+        private const string _StatusWords = @"(?:met|satisfied|complete|completed|done|achieved|fulfilled)";
+
+        private const string _NotMetPattern = @"(?<ok>(?:(?:has|have)\s+)?[*_]?not[*_]?[\s-]+" + _StatusModifiers + _StatusWords
+            + @"|unmet|unsatisfied|unfulfilled|incomplete"
+            + @"|(?:isn|aren|wasn|weren|hasn|haven)['\u2019]t\s+" + _StatusModifiers + _StatusWords
+            + @"|(?<=:\s{0,2})(?:FAIL(?:ED)?|\u2717|\u2718|\u274C))"
+            + @"|(?<bad>(?:only\s+)?(?:partially|partly)\s+met|(?:does|do|did)\s+not\s+(?:yet\s+)?meet|(?:doesn|don|didn)['\u2019]t\s+(?:yet\s+)?meet"
+            + @"|cannot\s+be\s+met|can['\u2019]t\s+be\s+met)";
+
+        private static readonly Regex _NotMetPhrase = new Regex(
+            @"(?<![A-Za-z0-9])(?:" + _NotMetPattern + @")(?![A-Za-z0-9])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _StatusSuffix = new Regex(
+            @"(?:\s(?:--|\u2014|\u2013|-)\s+|:\s*)\z",
+            RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _ListItemMarker = new Regex(
+            @"\A\s*(?:(?:[-*+>]|\d+[.)]|\[[ xX]\])\s+)+",
+            RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _ParentheticalReference = new Regex(
+            @"\A\s*(?:see|per|cf|evidence|ref)\b|\b[\w-]+\.[A-Za-z]{1,5}\b|[\\/]|\b\d+(?:\.\d+)+\b|(?:\bsection|\bsec|\u00A7|\btable|\brow|\bstep|\bline)\s*\d",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly HashSet<string> _ParentheticalRoleWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "final", "later", "independent", "review", "reviews", "reviewer", "reviewers", "stage", "stages", "judge", "testengineer",
+            "linter", "worker", "portingreferenceanalyst", "research", "audit", "architect", "current", "precursor", "additional",
+            "revising", "downstream", "future", "role", "roles", "and", "the", "of", "this", "a"
+        };
+
+        private static readonly Regex _GitStatusClause = new Regex(
+            @"`git status --porcelain=v1` returned no output in (?:\.{0,2}/)?[A-Z][\w.-]*(?:/[\w.-]+)*(?:(?:,\s*(?:and\s+)?|\s+and\s+)(?:\.{0,2}/)?[A-Z][\w.-]*(?:/[\w.-]+)*)*",
+            RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private const int _MaxReferenceGap = 120;
+
+        private static readonly Regex _DefectWord = new Regex(
+            @"\b(?:unfinished|incomplete|partial(?:ly)?|half|missing|not\s+written|unimplemented|todo|broken|fails?|failing|stub|placeholder|wip)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _AllowedLabel = new Regex(
+            @"\A(?:\[ARMADA:[A-Za-z_]+\]|(?:note|result|status|summary|acceptance\s+criteria|criteria|current\s+stage|at\s+this\s+stage)\s*:)\s*",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _MetClause = new Regex(
+            @"\A(?:(?:the|all|current-stage|current)\s+)*" + _ReferencePattern + @"\s+(?:is|are)\s+met\b(?:\s*\([^)\n]*\))?",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _PrefixConnective = new Regex(
+            @"\A(?:and|but|the|this|that|current-stage|current|stage|worker|report|our|honestly|therefore|thus|however|so|also|here|overall|finally)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly HashSet<string> _StatusConnectiveWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "are", "is", "were", "was", "be", "been", "being", "remain", "remains", "has", "have", "isn't", "aren't", "wasn't", "weren't",
+            "hasn't", "haven't", "not", "yet", "fully", "currently", "met", "satisfied", "unmet", "unsatisfied", "honestly", "still",
+            "also", "now", "therefore", "thus"
+        };
 
         private static readonly Regex _PendingJudgeOnly = new Regex(
             @"\A\s*(?:only\s+)?(?:because|until)\s+(?:(?:the|final|independent)\s+)*Judge(?:\s+(?:review|acceptance|verdict))?\s+(?:(?:is|remains)\s+)?(?:still\s+)?(?:pending|not\s+(?:yet\s+)?(?:complete|finished|done))\s*[.!]?\s*\z",
@@ -124,6 +202,26 @@ namespace Armada.Core.Services
             }
         }
 
+        private sealed class CriterionCandidate
+        {
+            internal int ReferenceIndex { get; }
+            internal int ReferenceEnd { get; }
+            internal int PhraseIndex { get; }
+            internal int PhraseEnd { get; }
+            internal string Number { get; }
+            internal bool Acceptable { get; }
+
+            internal CriterionCandidate(int referenceIndex, int referenceEnd, int phraseIndex, int phraseEnd, string number, bool acceptable)
+            {
+                ReferenceIndex = referenceIndex;
+                ReferenceEnd = referenceEnd;
+                PhraseIndex = phraseIndex;
+                PhraseEnd = phraseEnd;
+                Number = number;
+                Acceptable = acceptable;
+            }
+        }
+
         #region Public-Methods
 
         /// <summary>
@@ -170,66 +268,82 @@ namespace Armada.Core.Services
         {
             statement = String.Empty;
             if (String.IsNullOrEmpty(agentOutput)) return false;
-            if (!ProgressParser.TryFindFinalOutcome(agentOutput, out ProgressParser.ProgressSignal signal, out ProgressParser.MarkerLine finalOutcome))
+            string output = agentOutput.Replace("\r\n", "\n").Replace('\r', '\n');
+            if (!ProgressParser.TryFindFinalOutcome(output, out ProgressParser.ProgressSignal signal, out ProgressParser.MarkerLine finalOutcome))
                 return false;
             if (!String.Equals(signal.Type, "result", StringComparison.Ordinal)) return false;
             if (!ProgressParser.ValueStartsWithWord(signal.Value, _CompleteWord)) return false;
 
-            string text = agentOutput.Replace("**", String.Empty).Replace("__", String.Empty);
+            string text = output.Replace("**", String.Empty).Replace("__", String.Empty);
             int markerStart = finalOutcome.LineStart;
-            while (markerStart < agentOutput.Length && Char.IsWhiteSpace(agentOutput[markerStart])) markerStart++;
-            int resultIndex = agentOutput.Substring(0, markerStart).Replace("**", String.Empty).Replace("__", String.Empty).Length;
-            MatchCollection matches;
+            while (markerStart < output.Length && Char.IsWhiteSpace(output[markerStart])) markerStart++;
+            int resultIndex = output.Substring(0, markerStart).Replace("**", String.Empty).Replace("__", String.Empty).Length;
+            List<CriterionCandidate> candidates;
             try
             {
-                matches = _CriteriaNotMet.Matches(text);
-                _ = matches.Count;
+                candidates = FindCandidates(text);
             }
             catch (RegexMatchTimeoutException)
             {
-                return false;
+                statement = "Criterion detection timed out.";
+                return true;
             }
             List<CriterionAssertion> assertions = new List<CriterionAssertion>();
-            for (int matchIndex = 0; matchIndex < matches.Count; matchIndex++)
+            for (int matchIndex = 0; matchIndex < candidates.Count; matchIndex++)
             {
-                Match match = matches[matchIndex];
-                int start = SentenceStart(text, match.Index);
-                int nextCriterion = matchIndex + 1 < matches.Count ? matches[matchIndex + 1].Index : text.Length;
-                int end = SentenceEnd(text, match.Index + match.Length, nextCriterion, resultIndex);
+                CriterionCandidate match = candidates[matchIndex];
+                int start = SentenceStart(text, match.ReferenceIndex);
+                int nextCriterion = matchIndex + 1 < candidates.Count ? candidates[matchIndex + 1].ReferenceIndex : text.Length;
+                int end = SentenceEnd(text, match.PhraseEnd, nextCriterion, resultIndex);
                 ObligationKindEnum kind = ObligationKindEnum.Blocking;
                 if (hasPendingDownstreamJudge)
                 {
-                    string reason = text.Substring(match.Index + match.Length, end - match.Index - match.Length);
+                    string reason = text.Substring(match.PhraseEnd, end - match.PhraseEnd);
                     try
                     {
-                        if (obligations == null)
+                        if (match.Acceptable && IsSubjectOnlyStatement(text, match))
                         {
-                            if (_PendingJudgeOnly.IsMatch(reason)) kind = ObligationKindEnum.FutureOnly;
-                            Match futureReviews = _PendingRoleReviewsOnly.Match(reason);
-                            if (futureReviews.Success && pendingDownstreamReviewCount > 0
-                                && (!futureReviews.Groups["count"].Success
-                                    || ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount)) kind = ObligationKindEnum.FutureOnly;
-                        }
-                        else
-                        {
-                            kind = ClassifyObligation(reason, obligations);
-                            if (kind == ObligationKindEnum.BareStage)
+                            if (obligations == null)
                             {
-                                int tailEnd = AssociatedParagraphEnd(text, end, nextCriterion, resultIndex);
-                                string tail = text.Substring(end, tailEnd - end).Trim();
-                                if (tail.Length > 0)
+                                if (_PendingJudgeOnly.IsMatch(reason)) kind = ObligationKindEnum.FutureOnly;
+                                Match futureReviews = _PendingRoleReviewsOnly.Match(reason);
+                                if (futureReviews.Success && pendingDownstreamReviewCount > 0
+                                    && (!futureReviews.Groups["count"].Success
+                                        || ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount)) kind = ObligationKindEnum.FutureOnly;
+                                if (kind == ObligationKindEnum.FutureOnly)
                                 {
-                                    bool future = false;
-                                    foreach (string clause in Regex.Split(tail, @"(?<=[.!?])\s+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                                    int tailEnd = ItemTailEnd(text, match, end, nextCriterion, resultIndex);
+                                    if (NormalizeTail(text.Substring(end, tailEnd - end)).Length > 0) kind = ObligationKindEnum.Blocking;
+                                    end = tailEnd;
+                                }
+                            }
+                            else
+                            {
+                                kind = ClassifyObligation(reason, obligations);
+                                if (kind == ObligationKindEnum.BareStage)
+                                {
+                                    int tailEnd = ItemTailEnd(text, match, end, nextCriterion, resultIndex);
+                                    string tail = NormalizeTail(text.Substring(end, tailEnd - end));
+                                    if (tail.Length > 0)
                                     {
-                                        if (IsFutureClause(clause, obligations)) future = true;
-                                        else if (!Regex.IsMatch(clause, @"\A(?:The\s+)?parent\s+objective\s+(?:is|remains)\s+open[.!]?\s*\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                                        bool future = false;
+                                        foreach (string clause in Regex.Split(tail, @"(?<=[.!?])\s+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
                                         {
-                                            kind = ObligationKindEnum.Blocking;
-                                            break;
+                                            if (IsFutureClause(clause, obligations)) future = true;
+                                            else if (!IsParentObjectiveOpen(clause))
+                                            {
+                                                kind = ObligationKindEnum.Blocking;
+                                                break;
+                                            }
                                         }
+                                        if (kind != ObligationKindEnum.Blocking && future) kind = ObligationKindEnum.FutureOnly;
+                                        end = tailEnd;
                                     }
-                                    if (kind != ObligationKindEnum.Blocking && future) kind = ObligationKindEnum.FutureOnly;
+                                }
+                                else if (kind == ObligationKindEnum.FutureOnly)
+                                {
+                                    int tailEnd = ItemTailEnd(text, match, end, nextCriterion, resultIndex);
+                                    if (!IsFutureOnlyTail(NormalizeTail(text.Substring(end, tailEnd - end)), obligations)) kind = ObligationKindEnum.Blocking;
                                     end = tailEnd;
                                 }
                             }
@@ -243,7 +357,7 @@ namespace Armada.Core.Services
                     }
                 }
                 string sentence = text.Substring(start, end - start).Trim();
-                assertions.Add(new CriterionAssertion(match.Groups["number"].Value, sentence, kind));
+                assertions.Add(new CriterionAssertion(match.Number, sentence, kind));
             }
             HashSet<string> explained = assertions.Where(item => item.Kind == ObligationKindEnum.FutureOnly && item.Number.Length > 0)
                 .Select(item => item.Number).ToHashSet(StringComparer.Ordinal);
@@ -414,23 +528,241 @@ namespace Armada.Core.Services
         private static bool IsProcessStatement(string tail)
         {
             string value = tail.Trim().TrimEnd('.', '!').Trim();
+            value = _GitStatusClause.Replace(value, "the checkouts show no tracked change");
             if (value.Length == 0 || value.Contains(';')) return false;
             foreach (string assertion in _ProcessAssertionSeparator.Split(value))
                 if (!_ProcessAssertion.IsMatch(assertion.Trim())) return false;
             return true;
         }
 
-        private static int AssociatedParagraphEnd(string text, int start, int nextCriterion, int resultIndex)
+        // Every line holding a criterion reference and a NOT MET phrase is a candidate, however the phrase is
+        // worded; only a prose line that fully parses as a future-review deferral can hand off.
+        private static List<CriterionCandidate> FindCandidates(string text)
         {
-            int end = text.IndexOf("\n\n", start, StringComparison.Ordinal);
-            if (end < 0) end = text.Length;
+            List<CriterionCandidate> candidates = new List<CriterionCandidate>();
+            int lineStart = 0;
+            while (lineStart <= text.Length)
+            {
+                int lineEnd = text.IndexOf('\n', lineStart);
+                if (lineEnd < 0) lineEnd = text.Length;
+                if (lineEnd > lineStart) ScanLine(text, lineStart, lineEnd, candidates);
+                if (lineEnd >= text.Length) break;
+                lineStart = lineEnd + 1;
+            }
+            return candidates;
+        }
+
+        private static void ScanLine(string text, int lineStart, int lineEnd, List<CriterionCandidate> candidates)
+        {
+            string line = text.Substring(lineStart, lineEnd - lineStart);
+            int firstOnLine = candidates.Count;
+            MatchCollection phrases = _NotMetPhrase.Matches(line);
+            if (phrases.Count == 0) return;
+            MatchCollection references = _CriterionReference.Matches(line);
+            Match marker = _ListItemMarker.Match(line);
+            bool table = line.TrimStart().StartsWith("|", StringComparison.Ordinal);
+            HashSet<int> used = new HashSet<int>();
+            foreach (Match phrase in phrases)
+            {
+                bool ok = phrase.Groups["ok"].Success;
+                int phraseEnd = phrase.Index + phrase.Length;
+                if (phraseEnd < line.Length && line[phraseEnd] == ':') phraseEnd++;
+                Match? subject = null;
+                bool inParentheses = ParenthesisDepth(line, phrase.Index) > 0;
+                foreach (Match reference in references)
+                    if (reference.Index + reference.Length <= phrase.Index && (inParentheses || ParenthesisDepth(line, reference.Index) == 0)) subject = reference;
+                if (subject == null)
+                    foreach (Match reference in references)
+                        if (reference.Index + reference.Length <= phrase.Index) subject = reference;
+                if (subject != null)
+                {
+                    string gap = line.Substring(subject.Index + subject.Length, phrase.Index - subject.Index - subject.Length);
+                    if (gap.Length <= _MaxReferenceGap && !HasSentenceBreak(gap))
+                    {
+                        if (used.Add(subject.Index))
+                            candidates.Add(new CriterionCandidate(lineStart + subject.Index, lineStart + subject.Index + subject.Length,
+                                lineStart + phrase.Index, lineStart + phraseEnd, subject.Groups["number"].Value, ok && !table));
+                        continue;
+                    }
+                }
+                if (ok && marker.Success && !table)
+                {
+                    Match suffix = _StatusSuffix.Match(line.Substring(0, phrase.Index));
+                    if (suffix.Success && suffix.Index > marker.Length)
+                    {
+                        if (used.Add(marker.Length))
+                            candidates.Add(new CriterionCandidate(lineStart + marker.Length, lineStart + suffix.Index,
+                                lineStart + phrase.Index, lineStart + phraseEnd, String.Empty, true));
+                        continue;
+                    }
+                }
+                if (!ok) continue;
+                foreach (Match reference in references)
+                {
+                    if (reference.Index < phrase.Index + phrase.Length || ParenthesisDepth(line, reference.Index) != 0) continue;
+                    string gap = line.Substring(phrase.Index + phrase.Length, reference.Index - phrase.Index - phrase.Length);
+                    if (gap.Length <= _MaxReferenceGap && !HasSentenceBreak(gap))
+                        candidates.Add(new CriterionCandidate(lineStart + reference.Index, lineStart + reference.Index + reference.Length,
+                            lineStart + phrase.Index, lineStart + phraseEnd, reference.Groups["number"].Value, false));
+                    break;
+                }
+            }
+            candidates.Sort(firstOnLine, candidates.Count - firstOnLine, Comparer<CriterionCandidate>.Create((left, right) => left.ReferenceIndex.CompareTo(right.ReferenceIndex)));
+        }
+
+        private static int ParenthesisDepth(string line, int index)
+        {
+            int depth = 0;
+            for (int i = 0; i < index; i++)
+            {
+                if (line[i] == '(') depth++;
+                else if (line[i] == ')' && depth > 0) depth--;
+            }
+            return depth;
+        }
+
+        // A sentence end outside a parenthetical, or a semicolon, separates a reference from a phrase; a period
+        // followed by a non-space character (a file name or version) does not.
+        private static bool HasSentenceBreak(string gap)
+        {
+            int depth = 0;
+            for (int i = 0; i < gap.Length; i++)
+            {
+                char c = gap[i];
+                if (c == '(') depth++;
+                else if (c == ')' && depth > 0) depth--;
+                else if (depth == 0 && c == ';') return true;
+                else if (depth == 0 && (c == '.' || c == '!' || c == '?') && (i + 1 == gap.Length || Char.IsWhiteSpace(gap[i + 1]))) return true;
+            }
+            return false;
+        }
+
+        // A deferral passes only when its line holds the criterion subject and status words alone: text before the
+        // subject is a label, complete MET clauses, or connective words; text between the subject and the phrase
+        // is status words or one parenthetical without a defect word.
+        private static bool IsSubjectOnlyStatement(string text, CriterionCandidate candidate)
+        {
+            int lineStart = candidate.ReferenceIndex == 0 ? 0 : text.LastIndexOf('\n', candidate.ReferenceIndex - 1) + 1;
+            string prefix = text.Substring(lineStart, candidate.ReferenceIndex - lineStart);
+            if (!IsAllowedPrefix(prefix)) return false;
+            string between = text.Substring(candidate.ReferenceEnd, candidate.PhraseIndex - candidate.ReferenceEnd).Replace('’', '\'');
+            foreach (Match parenthetical in Regex.Matches(between, @"\([^)\n]*\)", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                if (!IsAllowedParenthetical(parenthetical.Value)) return false;
+            between = Regex.Replace(between, @"\([^)\n]*\)", " ", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            foreach (Match word in Regex.Matches(between, @"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)*", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                if (!_StatusConnectiveWords.Contains(word.Value)) return false;
+            return true;
+        }
+
+        // Text before the subject that ends a complete sentence is a prior sentence, out of this detector's scope.
+        private static int LastSentenceBoundary(string prefix)
+        {
+            int depth = 0;
+            int boundary = 0;
+            for (int i = 0; i < prefix.Length; i++)
+            {
+                char c = prefix[i];
+                if (c == '(') depth++;
+                else if (c == ')' && depth > 0) depth--;
+                else if (depth == 0 && (c == '.' || c == '!' || c == '?') && i + 1 < prefix.Length && Char.IsWhiteSpace(prefix[i + 1])) boundary = i + 1;
+            }
+            return boundary;
+        }
+
+        // A parenthetical is a pointer (a file name, path, section number or "see ..." reference) or review-stage
+        // words alone; any other content is a statement of its own.
+        private static bool IsAllowedParenthetical(string parenthetical)
+        {
+            string inner = parenthetical.Trim().TrimStart('(').TrimEnd(')').Trim();
+            if (inner.Length == 0) return true;
+            if (_ParentheticalReference.IsMatch(inner)) return !_DefectWord.IsMatch(inner);
+            foreach (Match word in Regex.Matches(inner, @"[A-Za-z]+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                if (!_ParentheticalRoleWords.Contains(word.Value)) return false;
+            return !Regex.IsMatch(inner, @"[0-9%]", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        }
+
+        private static bool IsAllowedPrefix(string prefix)
+        {
+            string rest = Regex.Replace(prefix, @"\A(?:\s|>|[-*+_`#](?=\s|[A-Za-z])|\d+[.)](?=\s)|\[[ xX]\](?=\s))*", String.Empty,
+                RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            rest = rest.Substring(LastSentenceBoundary(rest)).TrimStart();
+            while (rest.Length > 0)
+            {
+                Match step = _AllowedLabel.Match(rest);
+                if (!step.Success) step = _MetClause.Match(rest);
+                if (step.Success && step.Length > 0)
+                {
+                    Match evidence = Regex.Match(step.Value, @"\([^)\n]*\)", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+                    if (evidence.Success && !IsAllowedParenthetical(evidence.Value)) return false;
+                }
+                if (!step.Success) step = _PrefixConnective.Match(rest);
+                if (!step.Success) step = Regex.Match(rest, @"\A[\s,;.—–*_`-]+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+                if (!step.Success || step.Length == 0) return false;
+                rest = rest.Substring(step.Length).TrimStart();
+            }
+            return true;
+        }
+
+        // The tail of a deferral is the rest of its line plus the following lines indented deeper than it; the next
+        // criterion and the result marker end it first.
+        private static int ItemTailEnd(string text, CriterionCandidate candidate, int end, int nextCriterion, int resultIndex)
+        {
+            int deferLineStart = candidate.PhraseIndex == 0 ? 0 : text.LastIndexOf('\n', candidate.PhraseIndex - 1) + 1;
+            int indent = LeadingWhitespace(text, deferLineStart);
+            int current = end >= text.Length ? text.Length : text.IndexOf('\n', end);
+            if (current < 0) current = text.Length;
+            while (current < text.Length)
+            {
+                int next = current + 1;
+                int lineEnd = text.IndexOf('\n', next);
+                if (lineEnd < 0) lineEnd = text.Length;
+                string line = text.Substring(next, lineEnd - next);
+                if (line.Trim().Length == 0 || LeadingWhitespace(text, next) <= indent) break;
+                current = lineEnd;
+            }
             foreach (int boundary in new[] { nextCriterion, resultIndex })
             {
-                if (boundary < start || boundary >= end) continue;
-                int lineStart = text.LastIndexOf('\n', boundary);
-                end = lineStart >= start && text.Substring(lineStart, boundary - lineStart).Trim(' ', '\t', '\r', '\n', '-', '*', '+').Length == 0 ? lineStart : boundary;
+                if (boundary < end || boundary >= current) continue;
+                int boundaryLine = boundary == 0 ? 0 : text.LastIndexOf('\n', boundary - 1) + 1;
+                if (boundaryLine > end) current = boundaryLine - 1;
             }
-            return end;
+            return Math.Max(current, end);
+        }
+
+        private static int LeadingWhitespace(string text, int lineStart)
+        {
+            int count = 0;
+            while (lineStart + count < text.Length && (text[lineStart + count] == ' ' || text[lineStart + count] == '\t')) count++;
+            return count;
+        }
+
+        private static string NormalizeTail(string tail)
+        {
+            List<string> lines = new List<string>();
+            foreach (string raw in tail.Split('\n'))
+            {
+                string line = Regex.Replace(raw, @"\A\s*(?:(?:[-*+>]|\d+[.)]|\[[ xX]\])\s+)*", String.Empty, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)).Trim();
+                if (line.Length > 0) lines.Add(line);
+            }
+            return String.Join(" ", lines);
+        }
+
+        private static bool IsParentObjectiveOpen(string clause)
+        {
+            return Regex.IsMatch(clause, @"\A(?:The\s+)?parent\s+objective\s+(?:is|remains)\s+open[.!]?\s*\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        }
+
+        // Every sentence after the statement's own must be a future-only clause the grammar accepts, the open
+        // parent objective, or a fixed process statement.
+        private static bool IsFutureOnlyTail(string tail, PendingReviewObligations obligations)
+        {
+            if (tail.Length == 0) return true;
+            foreach (string clause in Regex.Split(tail, @"(?<=[.!?])\s+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+            {
+                if (IsFutureClause(clause, obligations) || IsParentObjectiveOpen(clause) || IsProcessStatement(clause)) continue;
+                return false;
+            }
+            return true;
         }
 
         private static int ReadReviewCount(string value)
