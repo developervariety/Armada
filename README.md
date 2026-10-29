@@ -126,6 +126,7 @@ fork behavior and link to its subsystem guides.
 | Fixture battery languages beyond C# and JavaScript, rubric graders and repeated sampling | Deferred until the reduced battery proves useful. |
 | Voyage-size limits | Deferred; live voyages stay small. |
 | Removal of whole-list routes and a deprecation registry | Not adopted; the whole-list routes stay beside the paged routes. |
+| Bounded enumeration with changed response shapes (status, voyage detail and cancel, pull-request detail, run details) | Not adopted; successful responses keep their shape, and the fork applies request limits only. |
 
 This table records selected integration decisions. It is not an inventory of
 every later upstream change. A capability present in source can also be disabled

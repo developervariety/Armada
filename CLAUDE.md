@@ -187,7 +187,7 @@ you want:
 5. Move the baseline SHA below forward and update the README `## Upstream vs
    Fork` section by capability (see the rule below).
 
-**Sync baseline:** fork `135c36e81` against upstream `a720a74d7`. Each sync starts
+**Sync baseline:** fork `135c36e81` against upstream `bd2e7c1ac`. Each sync starts
 from this line, so a pass only reviews the new upstream delta, never the whole
 history. This line owns the incremental integration baseline.
 
