@@ -89,6 +89,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertNotNull(invalidFact, "the fact is stored even when its optional code is unknown");
                 AssertNull(invalidFact!.ReasonCode, "a numeric enum value is not an allow-listed reason code");
+                AssertNull(MissionAttemptFactReasonCode.Normalize("judge_pass_0"), "numeric review categories are not reason codes");
+                AssertEqual("judge_pass_acceptancecriteria", MissionAttemptFactReasonCode.Normalize("judge_pass_AcceptanceCriteria"));
                 AssertNotNull(validFact, "the valid fact is stored");
                 AssertEqual("review_denied_retrystage", validFact!.ReasonCode,
                     "a declared review action remains a stable reason code");
@@ -111,6 +113,15 @@ namespace Armada.Test.Unit.Suites.Services
                     { EventType = "mission.failure_cause", PageSize = 10 }).ConfigureAwait(false);
                     AssertEqual(2, events.Objects.Count, "every terminal cause has a stored event linked to its fact");
                     AssertTrue(events.Objects.All(item => item.MissionId == mission.Id && item.Payload!.Contains("attemptFactId")));
+                    mission.FailureReason = "no_op_completion_detected: run ended";
+                    mission.AgentOutput = "partial report without a terminal marker";
+                    MissionAttemptFact? interrupted = await MissionAttemptFactRecorder.RecordAsync(testDb.Driver, mission,
+                        MissionAttemptFactTypeEnum.Failed).ConfigureAwait(false);
+                    AssertEqual("no_op_missing_terminal_marker", interrupted!.ReasonCode, "the symptom is factual; its model/provider cause stays unknown");
+                    mission.AgentOutput = "[ARMADA:RESULT] COMPLETE";
+                    MissionAttemptFact? claimed = await MissionAttemptFactRecorder.RecordAsync(testDb.Driver, mission,
+                        MissionAttemptFactTypeEnum.Failed).ConfigureAwait(false);
+                    AssertEqual("no_op_claimed_without_work", claimed!.ReasonCode, "an explicit completion claim is a distinct protocol subtype");
                     Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Rejected voyage")
                     { Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
                     mission.VoyageId = voyage.Id;
