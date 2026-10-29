@@ -1145,6 +1145,7 @@ namespace Armada.Server.WebSocket
 
                 case "create_pipeline":
                     Pipeline newPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
+                    CollectionBounds.Validate(newPipeline);
                     await DuplicateEntityGuard.EnsurePipelineNameAvailableAsync(_Database, newPipeline).ConfigureAwait(false);
                     newPipeline = await _Database.Pipelines.CreateAsync(newPipeline).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_pipeline", data = (object)newPipeline };
@@ -1164,6 +1165,7 @@ namespace Armada.Server.WebSocket
                             foreach (PipelineStage stage in existPipeline.Stages)
                                 stage.PipelineId = existPipeline.Id;
                         }
+                        CollectionBounds.Validate(existPipeline);
                         existPipeline = await _Database.Pipelines.UpdateAsync(existPipeline).ConfigureAwait(false);
                         return new { type = "command.result", action = "update_pipeline", data = (object)existPipeline };
                     }

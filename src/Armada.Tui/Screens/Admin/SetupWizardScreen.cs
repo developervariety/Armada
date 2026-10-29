@@ -1632,13 +1632,13 @@ namespace Armada.Tui.Screens.Admin
                 try
                 {
                     readiness = await Context.Client.GetVesselReadinessAsync(vesselId).ConfigureAwait(false);
-                    EnumerationResult<WorkflowProfile>? profileResult = await Context.Client.ListWorkflowProfilesAsync(new ArmadaPageQuery(1, 9999)).ConfigureAwait(false);
+                    List<WorkflowProfile> allProfiles = await ArmadaPaging.ReadAllAsync<WorkflowProfile>((p, ct) => Context.Client.ListWorkflowProfilesAsync(new ArmadaPageQuery(p, 1000), ct)).ConfigureAwait(false);
                     DeploymentEnvironmentQuery envQuery = new DeploymentEnvironmentQuery();
                     envQuery.PageNumber = 1;
                     envQuery.PageSize = 9999;
                     envQuery.VesselId = vesselId;
                     EnumerationResult<DeploymentEnvironment>? envResult = await Context.Client.ListEnvironmentsAsync(envQuery).ConfigureAwait(false);
-                    profiles = (profileResult?.Objects ?? new List<WorkflowProfile>()).Where(p =>
+                    profiles = allProfiles.Where(p =>
                         p.Scope == WorkflowProfileScopeEnum.Global
                         || (p.Scope == WorkflowProfileScopeEnum.Fleet && fleetId.Length > 0 && p.FleetId == fleetId)
                         || (p.Scope == WorkflowProfileScopeEnum.Vessel && p.VesselId == vesselId)).ToList();

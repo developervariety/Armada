@@ -100,12 +100,12 @@ namespace Armada.Tui.Screens.Build
             {
                 Task<EnumerationResult<Fleet>?> fleets = c.ListFleetsAsync(new ArmadaPageQuery(1, 9999), t);
                 Task<EnumerationResult<Vessel>?> vessels = c.ListVesselsAsync(new ArmadaPageQuery(1, 9999), t);
-                Task<EnumerationResult<Pipeline>?> pipelines = c.ListPipelinesAsync(new ArmadaPageQuery(1, 9999), t);
+                Task<List<Pipeline>> pipelines = ArmadaPaging.ReadAllAsync<Pipeline>((p, ct) => c.ListPipelinesAsync(new ArmadaPageQuery(p, 1000), ct), ArmadaPaging.DefaultMaxPages, t);
                 await Task.WhenAll(fleets, vessels, pipelines).ConfigureAwait(false);
                 FleetLoad result = new FleetLoad();
                 result.Fleet = (fleets.Result?.Objects ?? new List<Fleet>()).FirstOrDefault(f => f.Id == FleetId);
                 result.Vessels = (vessels.Result?.Objects ?? new List<Vessel>()).Where(v => v.FleetId == FleetId).ToList();
-                result.Pipelines = pipelines.Result?.Objects ?? new List<Pipeline>();
+                result.Pipelines = pipelines.Result;
                 return result;
             }, r =>
             {

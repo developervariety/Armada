@@ -138,7 +138,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteCommand cmd = conn.CreateCommand())
             {
                 cmd.CommandText = "SELECT * FROM skills" + whereClause +
-                    " ORDER BY name ASC" +
+                    " ORDER BY name ASC, id ASC" +
                     " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                 foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(new SqliteParameter(parameter.ParameterName, parameter.Value));
                 using SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false);
@@ -169,7 +169,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             List<SqliteParameter> parameters = new List<SqliteParameter>();
             ApplyQueryFilters(query, conditions, parameters);
             string whereClause = conditions.Count > 0 ? " WHERE " + String.Join(" AND ", conditions) : String.Empty;
-            cmd.CommandText = "SELECT * FROM skills" + whereClause + " ORDER BY name ASC;";
+            cmd.CommandText = "SELECT * FROM skills" + whereClause + " ORDER BY name ASC, id ASC;";
             foreach (SqliteParameter parameter in parameters) cmd.Parameters.Add(parameter);
 
             List<Skill> results = new List<Skill>();
@@ -192,6 +192,13 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 conditions.Add("user_id = @user_id");
                 parameters.Add(new SqliteParameter("@user_id", query.UserId));
+            }
+            if (!String.IsNullOrWhiteSpace(query.ViewerUserId))
+            {
+                // A regular user sees tenant-wide rows plus their own (ScopedVisibility.CanView), counted in the data source.
+                conditions.Add("(scope = @tenant_wide_scope OR user_id = @viewer_user_id)");
+                parameters.Add(new SqliteParameter("@tenant_wide_scope", Armada.Core.Enums.ScopeEnum.TenantWide.ToString()));
+                parameters.Add(new SqliteParameter("@viewer_user_id", query.ViewerUserId));
             }
             if (!String.IsNullOrWhiteSpace(query.Category))
             {

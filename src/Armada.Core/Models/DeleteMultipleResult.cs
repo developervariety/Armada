@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Result of a batch delete operation.
@@ -23,6 +24,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Entities that were skipped (not found, actively in use, etc.).
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxRequestItems, Reason = "One entry per requested id at most; request ids are limited by CollectionLimits.RequireRequestItems")]
         public List<DeleteMultipleSkipped> Skipped { get; set; } = new List<DeleteMultipleSkipped>();
 
         #endregion
