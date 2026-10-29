@@ -112,6 +112,7 @@ namespace Armada.Core.Services
         private static bool RunsVendorDefaultModel(Captain captain)
         {
             if (captain.Tier.HasValue || !String.IsNullOrWhiteSpace(captain.Model)) return false;
+            // Provider-neutral CLIs (OpenCode, Pi) have no single vendor default model, so they are not listed here.
             return captain.Runtime == AgentRuntimeEnum.ClaudeCode
                 || captain.Runtime == AgentRuntimeEnum.Codex
                 || captain.Runtime == AgentRuntimeEnum.Gemini;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Captain } from '../types/models';
 import {
+  CAPTAIN_RUNTIMES,
+  CAPTAIN_RUNTIME_TOOLTIP,
   buildCaptainCreatePayload,
   buildCaptainPayload,
   captainDetailActions,
@@ -91,5 +93,13 @@ describe('captainForm', () => {
     expect(captainDetailActions('Working')).toEqual({ recall: true, stop: true });
     expect(captainDetailActions('Planning')).toEqual({ recall: false, stop: true });
     expect(captainDetailActions('Idle')).toEqual({ recall: false, stop: false });
+  });
+
+  it('offers pi as a runtime and names it in the runtime tooltip', () => {
+    expect(CAPTAIN_RUNTIMES).toContainEqual({ value: 'Pi', label: 'pi' });
+    expect(CAPTAIN_RUNTIMES.findIndex(r => r.value === 'Pi')).toBe(CAPTAIN_RUNTIMES.findIndex(r => r.value === 'OpenCode') + 1);
+    expect(CAPTAIN_RUNTIME_TOOLTIP).toContain('OpenCode, pi)');
+    const form = { ...emptyCaptainForm(), name: 'pi-1', runtime: 'Pi', autoApprove: false };
+    expect(buildCaptainCreatePayload(form)).toMatchObject({ name: 'pi-1', runtime: 'Pi', modelEndpointId: null, runtimeOptionsJson: '{"autoApprove":false}' });
   });
 });

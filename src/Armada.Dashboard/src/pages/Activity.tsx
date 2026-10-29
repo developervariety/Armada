@@ -6,6 +6,7 @@ const RequestHistory = lazy(() => import('./RequestHistory'));
 const Events = lazy(() => import('./Events'));
 const Signals = lazy(() => import('./Signals'));
 const TokenUsage = lazy(() => import('./TokenUsage'));
+const Jobs = lazy(() => import('./Jobs'));
 
 function panel(node: ReactNode): ReactNode {
   return <Suspense fallback={<p className="text-dim" style={{ padding: '1rem' }}>Loading...</p>}>{node}</Suspense>;
@@ -18,7 +19,8 @@ function panel(node: ReactNode): ReactNode {
  * Requests source keeps its KPIs, activity chart, and request inspector modal;
  * Events and Signals keep their audit/message detail routes. The active source
  * lives in the URL (?source=), so Needs You and Dashboard links land here
- * pre-filtered.
+ * pre-filtered. Background jobs are the Jobs source (?source=jobs; /jobs
+ * redirects there).
  */
 export default function Activity() {
   const tabs: TabDef[] = [
@@ -27,6 +29,7 @@ export default function Activity() {
     { key: 'events', label: 'Events', tooltip: 'The server\'s event log: state changes such as missions starting, finishing, or failing.', render: () => panel(<Events />) },
     { key: 'signals', label: 'Signals', tooltip: 'Messages sent between the Admiral and captains.', render: () => panel(<Signals />) },
     { key: 'tokens', label: 'Token Usage', tooltip: 'Model tokens and cost used by captains, by day, captain, vessel, and model.', render: () => panel(<TokenUsage />) },
+    { key: 'jobs', label: 'Jobs', tooltip: 'Background jobs such as vessel imports and health checks, with their status, progress, and Cancel.', render: () => panel(<Jobs />) },
   ];
 
   return <Tabs tabs={tabs} param="source" defaultTabKey="history" ariaLabel="Activity sources" />;
