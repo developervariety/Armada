@@ -45,6 +45,27 @@ namespace Test.Shared.Suites.E2E
         {
             ["GET /api/v1/ask/quick-actions"] = 10,
             ["MCP list_ask_quick_actions"] = 10,
+            ["GET /api/v1/doctor"] = 11,
+        };
+
+        // Models in Armada.Core.Models that no REST route, MCP tool or WebSocket command returns, with why. They are not
+        // roots of the declared-bounds check, but a response model that reaches one makes it checked again.
+        private static readonly Dictionary<string, string> _InternalModels = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["CaptainChatTurnResult"] = "In-process result of an Ask turn; its tool calls are stored and read through the paged Ask tool-call enumerations",
+            ["DetectedEcosystem"] = "Workflow-profile provisioning input built from a repository scan",
+            ["EcosystemCommand"] = "Workflow-profile provisioning input built from a repository scan",
+            ["ResolvedEcosystemCommand"] = "Workflow-profile provisioning input built from a repository scan",
+            ["RepositoryLayout"] = "Repository file list used by provisioning on the server",
+            ["GitAnchorsSnapshot"] = "Git evidence collected for prompt rendering",
+            ["GitCommitMergeResult"] = "Result of the git integration barrier, consumed by the landing pipeline",
+            ["RemoteTunnelHandshakePayload"] = "Remote tunnel protocol frame (proxy link), not a REST or MCP response",
+            ["RemoteTunnelHandshakeResponse"] = "Remote tunnel protocol frame (proxy link), not a REST or MCP response",
+            ["RemoteTunnelHttpRelayRequest"] = "Remote tunnel protocol frame (proxy link), not a REST or MCP response",
+            ["RemoteTunnelHttpRelayResponse"] = "Remote tunnel protocol frame (proxy link), not a REST or MCP response",
+            ["ShellCommandSplit"] = "Parser output for CLI permission matching",
+            ["UnifiedDiffFile"] = "Diff parser output used by landing and scope checks",
+            ["UrlPathCanonicalizationResult"] = "Route matcher output used by authorization",
         };
 
         // Read-only MCP tools exercised by the live scan: names with these prefixes, plus the named tools.
@@ -83,7 +104,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
                 List<ApiRestRoute> routes = ApiSurfaceBuilder.Build(fx.Server).Rest;
                 List<Type> roots = new List<Type>();
-                roots.AddRange(ModelTypes());
+                roots.AddRange(ModelTypes().Where(t => !_InternalModels.ContainsKey(t.Name)));
                 foreach (ApiRestRoute route in routes)
                 {
                     foreach (string declared in route.Responses.Values)
@@ -411,7 +432,7 @@ namespace Test.Shared.Suites.E2E
         {
             return type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanRead && p.GetIndexParameters().Length == 0)
-                .Where(p => !p.IsDefined(typeof(JsonIgnoreAttribute), true));
+                .Where(p => !CollectionBounds.IsNeverSerialized(p));
         }
 
         private static Dictionary<string, int> BoundedPropertyNames()

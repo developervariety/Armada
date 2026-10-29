@@ -24,10 +24,10 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 412 | 15 |
-| MCP tools | 200 | 8 |
+| REST routes | 436 | 15 |
+| MCP tools | 210 | 8 |
 | WebSocket endpoints | 2 | 1 |
-| WebSocket commands | 61 | 0 |
+| WebSocket commands | 62 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
 | Settings keys | 217 | 12 |
@@ -53,17 +53,23 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/ask/threads/{id}/cli-permission-policy` | Authenticated | `CliPermissionPolicyUpdateRequest` | 200 `AskThread`, 403 `ApiErrorResponse`, 404 |  |
 | POST | `/api/v1/ask/threads/{id}/messages` | Authenticated | `AskMessageSendRequest` | 202 `AskMessageSendResponse` |  |
 | POST | `/api/v1/ask/threads/{id}/messages/enumerate` | Authenticated | `AskMessageEnumerateRequest` (optional) | 200 `AskMessagePage`, 404 |  |
+| POST | `/api/v1/ask/threads/{id}/messages/{messageId}/tool-calls/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<AskMessageToolCall>`, 400, 404 |  |
+| POST | `/api/v1/ask/threads/{id}/proposals/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<AskActionProposal>`, 400, 404 |  |
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/approve` | Authenticated |  | 200 `AskActionProposal` |  |
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/reject` | Authenticated |  | 200 `AskActionProposal` |  |
 | POST | `/api/v1/ask/threads/{id}/read` | Authenticated |  | 200 `AskThread`, 404 |  |
 | POST | `/api/v1/ask/threads/{id}/summarize` | Authenticated |  | 202 `AskMessageSendResponse` |  |
+| POST | `/api/v1/ask/threads/{id}/turn/tool-calls/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<AskMessageToolCall>`, 404 |  |
 | POST | `/api/v1/ask/threads/{id}/unread` | Authenticated |  | 200 `AskThread`, 404 |  |
+| POST | `/api/v1/ask/threads/{id}/work/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<AskTrackedWork>`, 400, 404 |  |
 | GET | `/api/v1/ask/threads/{id}/work/{workId}` | Authenticated |  | 200 `AskWorkSnapshot`, 404 |  |
+| POST | `/api/v1/ask/threads/{id}/work/{workId}/missions/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<AskWorkMissionSnapshot>`, 400, 404 |  |
+| POST | `/api/v1/ask/threads/{id}/work/{workId}/targets/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<AskWorkTargetSnapshot>`, 400, 404 |  |
 | POST | `/api/v1/authenticate` | NoAuthRequired |  |  |  |
 | GET | `/api/v1/backlog` | Authenticated |  | 200 `EnumerationResult<Objective>` |  |
 | POST | `/api/v1/backlog` | TenantAdmin | `ObjectiveUpsertRequest` | 201 `Objective` |  |
 | POST | `/api/v1/backlog/enumerate` | Authenticated | `ObjectiveQuery` (optional) | 200 `EnumerationResult<Objective>` |  |
-| POST | `/api/v1/backlog/reorder` | TenantAdmin | `ObjectiveReorderRequest` | 200 `List<Objective>` |  |
+| POST | `/api/v1/backlog/reorder` | TenantAdmin | `ObjectiveReorderRequest` | 200 `ObjectiveReorderResult`, 400 |  |
 | DELETE | `/api/v1/backlog/{id}` | TenantAdmin |  | 204, 404 |  |
 | GET | `/api/v1/backlog/{id}` | Authenticated |  | 200 `Objective`, 404 |  |
 | PUT | `/api/v1/backlog/{id}` | TenantAdmin | `ObjectiveUpsertRequest` | 200 `Objective`, 404 |  |
@@ -74,6 +80,8 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/battery/packs/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<BatteryPackInfo>`, 400 |  |
 | POST | `/api/v1/battery/runs` | TenantAdmin | `BatteryRunRequest` | 201 `BatteryRun`, 400, 403 `ApiErrorResponse`, 404 |  |
 | GET | `/api/v1/battery/runs/{id}` | Authenticated |  | 200 `BatteryRun`, 404 |  |
+| GET | `/api/v1/battery/runs/{id}/results` | Authenticated |  | 200 `EnumerationResult<BatteryTaskResult>`, 400, 404 |  |
+| POST | `/api/v1/battery/runs/{id}/results/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<BatteryTaskResult>`, 400, 404 |  |
 | GET | `/api/v1/captains` | Authenticated |  | 200 `EnumerationResult<Captain>` |  |
 | POST | `/api/v1/captains` | TenantAdmin | `Captain` | 201 `Captain`, 400, 409 `ApiErrorResponse` |  |
 | POST | `/api/v1/captains/delete/multiple` | TenantAdmin | `DeleteMultipleRequest` | 200 `DeleteMultipleResult`, 400 |  |
@@ -87,7 +95,8 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/captains/{id}/evaluate` | TenantAdmin | `EvaluateCaptainRequest` (optional) | 201 `ModelProbeRun`, 400, 403 `ApiErrorResponse`, 404 |  |
 | GET | `/api/v1/captains/{id}/log` | Authenticated |  | 200, 404 |  |
 | POST | `/api/v1/captains/{id}/stop` | TenantAdmin |  | 200, 404, 409 `ApiErrorResponse` |  |
-| GET | `/api/v1/captains/{id}/tools` | Authenticated |  | 200 `CaptainToolAccessResult`, 404 |  |
+| GET | `/api/v1/captains/{id}/tools` | Authenticated |  | 200 `CaptainToolAccessResult`, 400, 404 |  |
+| POST | `/api/v1/captains/{id}/tools/enumerate` | Authenticated | `CaptainToolsQuery` (optional) | 200 `CaptainToolAccessResult`, 400, 404 |  |
 | POST | `/api/v1/captains/{id}/unquarantine` | TenantAdmin |  | 200, 404 |  |
 | GET | `/api/v1/check-runs` | Authenticated |  | 200 `EnumerationResult<CheckRun>` |  |
 | POST | `/api/v1/check-runs` | TenantAdmin | `CheckRunRequest` | 201 `CheckRun` |  |
@@ -164,7 +173,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/fleets/delete/multiple` | TenantAdmin | `DeleteMultipleRequest` | 200 `DeleteMultipleResult`, 400 |  |
 | POST | `/api/v1/fleets/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
 | DELETE | `/api/v1/fleets/{id}` | TenantAdmin |  | 204, 404 |  |
-| GET | `/api/v1/fleets/{id}` | Authenticated |  | 200 `Fleet`, 404 |  |
+| GET | `/api/v1/fleets/{id}` | Authenticated |  | 200 `FleetDetailResponse`, 404 |  |
 | PUT | `/api/v1/fleets/{id}` | TenantAdmin | `Fleet` | 200 `Fleet`, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/handoff-artifacts/{id}` | Authenticated |  | 200 `HandoffArtifact`, 404 |  |
 | POST | `/api/v1/harbors` | Authenticated | `Harbor` | 201 `Harbor`, 400 | experimental |
@@ -211,7 +220,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/missions` | TenantAdmin | `Mission` | 201 `Mission` |  |
 | POST | `/api/v1/missions/delete/multiple` | TenantAdmin | `DeleteMultipleRequest` | 200 `DeleteMultipleResult`, 400 |  |
 | POST | `/api/v1/missions/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
-| GET | `/api/v1/missions/history` | Authenticated |  | 200 `MissionHistorySummaryResult` |  |
+| GET | `/api/v1/missions/history` | Authenticated |  | 200 `MissionHistorySummaryResult`, 400 |  |
 | GET | `/api/v1/missions/summaries` | Authenticated |  | 200 `EnumerationResult<MissionSummary>` |  |
 | POST | `/api/v1/missions/summaries/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<MissionSummary>` |  |
 | DELETE | `/api/v1/missions/{id}` | TenantAdmin |  | 200 `Mission`, 404 |  |
@@ -220,6 +229,9 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/missions/{id}/diff` | Authenticated |  | 200, 404, 503 `ApiStatusErrorResponse` |  |
 | GET | `/api/v1/missions/{id}/evaluate-autoland` | Authenticated |  | 200 `AutoLandDecision`, 400, 404 |  |
 | GET | `/api/v1/missions/{id}/github/pull-request` | Authenticated |  | 200 `GitHubPullRequestDetail`, 404 |  |
+| POST | `/api/v1/missions/{id}/github/pull-request/checks/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<GitHubPullRequestCheck>`, 400, 404 |  |
+| POST | `/api/v1/missions/{id}/github/pull-request/comments/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<GitHubPullRequestComment>`, 400, 404 |  |
+| POST | `/api/v1/missions/{id}/github/pull-request/reviews/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<GitHubPullRequestReview>`, 400, 404 |  |
 | GET | `/api/v1/missions/{id}/handoff-artifacts` | Authenticated |  | 200 `EnumerationResult<HandoffArtifact>`, 404 |  |
 | POST | `/api/v1/missions/{id}/handoff-artifacts/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<HandoffArtifact>`, 400, 404 |  |
 | GET | `/api/v1/missions/{id}/instructions` | Authenticated |  | 200, 404 |  |
@@ -247,13 +259,14 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/objective-refinement-sessions/{id}` | Authenticated |  | 200 `ObjectiveRefinementSessionDetail`, 404, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/objective-refinement-sessions/{id}/apply` | TenantAdmin | `ObjectiveRefinementApplyRequest` (optional) | 200 `ObjectiveRefinementApplyResponse`, 404, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/objective-refinement-sessions/{id}/messages` | TenantAdmin | `ObjectiveRefinementMessageRequest` | 200 `ObjectiveRefinementSessionDetail`, 400, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/objective-refinement-sessions/{id}/messages/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<ObjectiveRefinementMessage>`, 400, 404 |  |
 | POST | `/api/v1/objective-refinement-sessions/{id}/stop` | TenantAdmin |  | 200 `ObjectiveRefinementSessionDetail`, 404, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/objective-refinement-sessions/{id}/summarize` | TenantAdmin | `ObjectiveRefinementSummaryRequest` (optional) | 200 `ObjectiveRefinementSummaryResponse`, 404, 501 `ApiStatusErrorResponse` |  |
 | GET | `/api/v1/objectives` | Authenticated |  | 200 `EnumerationResult<Objective>` |  |
 | POST | `/api/v1/objectives` | TenantAdmin | `ObjectiveUpsertRequest` | 201 `Objective` |  |
 | POST | `/api/v1/objectives/enumerate` | Authenticated | `ObjectiveQuery` (optional) | 200 `EnumerationResult<Objective>` |  |
 | POST | `/api/v1/objectives/import/github` | TenantAdmin | `GitHubObjectiveImportRequest` | 200 `Objective`, 201 `Objective` |  |
-| POST | `/api/v1/objectives/reorder` | TenantAdmin | `ObjectiveReorderRequest` | 200 `List<Objective>` |  |
+| POST | `/api/v1/objectives/reorder` | TenantAdmin | `ObjectiveReorderRequest` | 200 `ObjectiveReorderResult`, 400 |  |
 | DELETE | `/api/v1/objectives/{id}` | TenantAdmin |  | 204, 404 |  |
 | GET | `/api/v1/objectives/{id}` | Authenticated |  | 200 `Objective`, 404 |  |
 | PUT | `/api/v1/objectives/{id}` | TenantAdmin | `ObjectiveUpsertRequest` | 200 `Objective`, 404 |  |
@@ -262,28 +275,29 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/onboarding` | NoAuthRequired |  | 200, 400, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/personas` | Authenticated |  | 200 `EnumerationResult<Persona>` |  |
 | POST | `/api/v1/personas` | Authenticated | `Persona` | 201 `Persona`, 400, 409 `ApiErrorResponse` |  |
-| POST | `/api/v1/personas/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
+| POST | `/api/v1/personas/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<Persona>` |  |
 | DELETE | `/api/v1/personas/{name}` | Authenticated |  | 204, 400, 404 |  |
 | GET | `/api/v1/personas/{name}` | Authenticated |  | 200 `Persona`, 404 |  |
 | PUT | `/api/v1/personas/{name}` | Authenticated | `PersonaUpdateRequest` | 200 `Persona`, 400, 404 |  |
 | GET | `/api/v1/pipelines` | Authenticated |  | 200 `EnumerationResult<Pipeline>` |  |
 | POST | `/api/v1/pipelines` | Authenticated | `Pipeline` | 201 `Pipeline`, 409 `ApiErrorResponse` |  |
-| POST | `/api/v1/pipelines/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
+| POST | `/api/v1/pipelines/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<Pipeline>` |  |
 | DELETE | `/api/v1/pipelines/{name}` | Authenticated |  | 204, 400, 404 |  |
 | GET | `/api/v1/pipelines/{name}` | Authenticated |  | 200 `Pipeline`, 404 |  |
 | PUT | `/api/v1/pipelines/{name}` | Authenticated | `Pipeline` | 200 `Pipeline`, 404 |  |
-| POST | `/api/v1/planning-sessions` | TenantAdmin | `PlanningSessionCreateRequest` | 201 `Object`, 400, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/planning-sessions` | TenantAdmin | `PlanningSessionCreateRequest` | 201 `PlanningSessionDetail`, 400, 404, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/planning-sessions/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<PlanningSession>` |  |
 | DELETE | `/api/v1/planning-sessions/{id}` | TenantAdmin |  | 204, 404, 501 `ApiStatusErrorResponse` |  |
-| GET | `/api/v1/planning-sessions/{id}` | Authenticated |  | 200, 404, 501 `ApiStatusErrorResponse` |  |
+| GET | `/api/v1/planning-sessions/{id}` | Authenticated |  | 200 `PlanningSessionDetail`, 404, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/planning-sessions/{id}/dispatch` | TenantAdmin | `PlanningSessionDispatchRequest` (optional) | 200, 404, 501 `ApiStatusErrorResponse` |  |
-| POST | `/api/v1/planning-sessions/{id}/messages` | TenantAdmin | `PlanningSessionMessageRequest` | 200, 400, 404, 501 `ApiStatusErrorResponse` |  |
-| POST | `/api/v1/planning-sessions/{id}/stop` | TenantAdmin |  | 200, 404, 501 `ApiStatusErrorResponse` |  |
-| POST | `/api/v1/planning-sessions/{id}/stop-turn` | TenantAdmin |  | 200, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/planning-sessions/{id}/messages` | TenantAdmin | `PlanningSessionMessageRequest` | 200 `PlanningSessionDetail`, 400, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/planning-sessions/{id}/messages/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<PlanningSessionMessage>`, 400, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/planning-sessions/{id}/stop` | TenantAdmin |  | 200 `PlanningSessionDetail`, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/planning-sessions/{id}/stop-turn` | TenantAdmin |  | 200 `PlanningSessionDetail`, 404, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/planning-sessions/{id}/summarize` | TenantAdmin | `PlanningSessionSummaryRequest` (optional) | 200, 404, 501 `ApiStatusErrorResponse` |  |
 | GET | `/api/v1/playbooks` | Authenticated |  | 200 `EnumerationResult<Playbook>` |  |
 | POST | `/api/v1/playbooks` | TenantAdmin | `Playbook` | 201 `Playbook`, 409 `ApiErrorResponse` |  |
-| POST | `/api/v1/playbooks/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
+| POST | `/api/v1/playbooks/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<Playbook>` |  |
 | DELETE | `/api/v1/playbooks/{id}` | TenantAdmin |  | 200 `Object`, 404 |  |
 | GET | `/api/v1/playbooks/{id}` | Authenticated |  | 200 `Playbook`, 404 |  |
 | PUT | `/api/v1/playbooks/{id}` | TenantAdmin | `Playbook` | 200 `Playbook`, 404, 409 `ApiErrorResponse` |  |
@@ -298,7 +312,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/project-profiles/{id}/persona-preview/{persona}` | Authenticated |  | 200 `PersonaPromptPreview`, 404 |  |
 | GET | `/api/v1/prompt-templates` | Authenticated |  | 200 `EnumerationResult<PromptTemplate>` |  |
 | POST | `/api/v1/prompt-templates` | Authenticated | `PromptTemplate` | 201 `PromptTemplate`, 400, 409 `ApiErrorResponse` |  |
-| POST | `/api/v1/prompt-templates/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
+| POST | `/api/v1/prompt-templates/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<PromptTemplate>` |  |
 | GET | `/api/v1/prompt-templates/{name}` | Authenticated |  | 200 `PromptTemplate`, 404 |  |
 | PUT | `/api/v1/prompt-templates/{name}` | Authenticated | `PromptTemplate` | 200 `PromptTemplate`, 404 |  |
 | POST | `/api/v1/prompt-templates/{name}/reset` | Authenticated |  | 200 `PromptTemplate`, 404 |  |
@@ -319,7 +333,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/request-history/delete/by-filter` | TenantAdmin | `RequestHistoryQuery` (optional) | 200 `DeleteMultipleResult` |  |
 | POST | `/api/v1/request-history/delete/multiple` | TenantAdmin | `DeleteMultipleRequest` | 200 `DeleteMultipleResult`, 400 |  |
 | POST | `/api/v1/request-history/enumerate` | Authenticated | `RequestHistoryQuery` (optional) | 200 `EnumerationResult<RequestHistoryEntry>` |  |
-| GET | `/api/v1/request-history/summary` | Authenticated |  | 200 `RequestHistorySummaryResult` |  |
+| GET | `/api/v1/request-history/summary` | Authenticated |  | 200 `RequestHistorySummaryResult`, 400 |  |
 | DELETE | `/api/v1/request-history/{id}` | TenantAdmin |  | 204, 404 |  |
 | GET | `/api/v1/request-history/{id}` | Authenticated |  | 200 `RequestHistoryRecord`, 404 |  |
 | POST | `/api/v1/restore` | AdminOnly |  | 200, 400 |  |
@@ -335,7 +349,8 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/runbooks/{id}` | Authenticated |  | 200 `Runbook`, 404 |  |
 | PUT | `/api/v1/runbooks/{id}` | TenantAdmin | `RunbookUpsertRequest` | 200 `Runbook`, 404 |  |
 | POST | `/api/v1/runbooks/{id}/executions` | TenantAdmin | `RunbookExecutionStartRequest` (optional) | 201 `RunbookExecution`, 404 |  |
-| GET | `/api/v1/runtimes/mux/endpoints` | Authenticated |  | 200 `MuxEndpointListResult`, 400 |  |
+| GET | `/api/v1/runtimes/mux/endpoints` | Authenticated |  | 200 `MuxEndpointPage`, 400 |  |
+| POST | `/api/v1/runtimes/mux/endpoints/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `MuxEndpointPage`, 400 |  |
 | GET | `/api/v1/runtimes/mux/endpoints/{name}` | Authenticated |  | 200 `MuxEndpointShowResult`, 400, 404 |  |
 | POST | `/api/v1/server/rebuild` | AdminOnly |  | 200, 409 `ApiErrorResponse` | experimental |
 | GET | `/api/v1/server/rebuild/status` | AdminOnly |  |  | experimental |
@@ -367,18 +382,20 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/status` | Authenticated |  | 200 `ArmadaStatus` |  |
 | GET | `/api/v1/status/health` | NoAuthRequired |  |  |  |
 | GET | `/api/v1/storage` | AdminOnly |  | 200 `StorageSnapshot`, 401, 403 |  |
+| GET | `/api/v1/storage/hosts` | AdminOnly |  | 200 `EnumerationResult<StorageHostReport>`, 401, 403 |  |
+| POST | `/api/v1/storage/hosts/enumerate` | AdminOnly | `EnumerationQuery` (optional) | 200 `EnumerationResult<StorageHostReport>`, 400, 401, 403 |  |
 | POST | `/api/v1/storage/refresh` | AdminOnly | `StorageRefreshRequest` (optional) | 202 `StorageSnapshot`, 400, 401, 403 |  |
 | GET | `/api/v1/tenants` | AdminOnly |  | 200 `EnumerationResult<TenantMetadata>` |  |
 | POST | `/api/v1/tenants` | AdminOnly |  | 201 `TenantCreateResult`, 400 |  |
 | POST | `/api/v1/tenants/enumerate` | AdminOnly | `EnumerationQuery` (optional) | 200 `EnumerationResult<TenantMetadata>` |  |
-| POST | `/api/v1/tenants/lookup` | NoAuthRequired |  | 200, 400 |  |
+| POST | `/api/v1/tenants/lookup` | NoAuthRequired | `TenantLookupRequest` (optional) | 200 `TenantLookupResult`, 400 |  |
 | DELETE | `/api/v1/tenants/{id}` | AdminOnly |  | 200, 404 |  |
 | GET | `/api/v1/tenants/{id}` | Authenticated |  | 200, 404 |  |
 | PUT | `/api/v1/tenants/{id}` | AdminOnly |  | 200, 400, 404 |  |
 | GET | `/api/v1/token-usage` | Authenticated |  | 200 `EnumerationResult<TokenUsageRecord>` |  |
 | POST | `/api/v1/token-usage/delete/by-filter` | Authenticated | `TokenUsageQuery` (optional) | 200 `DeleteMultipleResult` |  |
 | POST | `/api/v1/token-usage/enumerate` | Authenticated | `TokenUsageQuery` (optional) | 200 `EnumerationResult<TokenUsageRecord>` |  |
-| GET | `/api/v1/token-usage/summary` | Authenticated |  | 200 `TokenUsageSummaryResult` |  |
+| GET | `/api/v1/token-usage/summary` | Authenticated |  | 200 `TokenUsageSummaryResult`, 400 |  |
 | POST | `/api/v1/token-usage/synthetic` | AdminOnly | `TokenUsageSyntheticRequest` | 200 `TokenUsageSyntheticResult`, 400, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/users` | Authenticated |  | 200 `EnumerationResult<UserMaster>` |  |
 | POST | `/api/v1/users` | TenantAdmin |  | 201 `UserMaster`, 400, 409 `ApiErrorResponse` |  |
@@ -410,9 +427,13 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/vessels/{id}/build-context` | TenantAdmin | `VesselBuildContextRequest` | 200 `Vessel`, 400, 404, 501 `ApiStatusErrorResponse`, 504 `ApiStatusErrorResponse` |  |
 | GET | `/api/v1/vessels/{id}/cleanup` | Authenticated |  | 200 `VesselCleanupInventory`, 404 |  |
 | POST | `/api/v1/vessels/{id}/cleanup` | TenantAdmin | `VesselCleanupRequest` | 200 `VesselCleanupResult`, 400, 404 |  |
+| GET | `/api/v1/vessels/{id}/cleanup/resources` | Authenticated |  | 200 `EnumerationResult<VesselCleanupResource>`, 400, 404 |  |
+| POST | `/api/v1/vessels/{id}/cleanup/resources/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<VesselCleanupResource>`, 400, 404 |  |
 | PATCH | `/api/v1/vessels/{id}/context` | TenantAdmin | `Vessel` | 200 `Vessel`, 404 |  |
 | GET | `/api/v1/vessels/{id}/git-status` | Authenticated |  | 200, 404 |  |
 | GET | `/api/v1/vessels/{id}/health` | Authenticated |  | 200 `VesselHealthDetail`, 404 |  |
+| GET | `/api/v1/vessels/{id}/health/dependencies` | Authenticated |  | 200 `EnumerationResult<VesselDependency>`, 404 |  |
+| POST | `/api/v1/vessels/{id}/health/dependencies/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<VesselDependency>`, 400, 404 |  |
 | DELETE | `/api/v1/vessels/{id}/health/overrides/{criterion}` | TenantAdmin |  | 200 `VesselHealthDetail`, 404 |  |
 | PUT | `/api/v1/vessels/{id}/health/overrides/{criterion}` | TenantAdmin | `VesselHealthOverrideRequest` | 200 `VesselHealthDetail`, 404 |  |
 | GET | `/api/v1/vessels/{id}/history/activity` | Authenticated |  | 200 `VesselCommitActivity`, 400 `ApiErrorResponse`, 404, 503 `ApiStatusErrorResponse` |  |
@@ -422,9 +443,10 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/voyages` | Authenticated |  | 200 `EnumerationResult<Voyage>` |  |
 | POST | `/api/v1/voyages` | TenantAdmin | `VoyageRequest` | 201 `Voyage`, 400, 404 |  |
 | POST | `/api/v1/voyages/delete/multiple` | TenantAdmin | `DeleteMultipleRequest` | 200 `DeleteMultipleResult`, 400 |  |
-| POST | `/api/v1/voyages/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
-| DELETE | `/api/v1/voyages/{id}` | TenantAdmin |  | 200, 404 |  |
-| GET | `/api/v1/voyages/{id}` | Authenticated |  | 200, 404 |  |
+| POST | `/api/v1/voyages/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<Voyage>` |  |
+| POST | `/api/v1/voyages/progress/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<VoyageProgress>`, 400 |  |
+| DELETE | `/api/v1/voyages/{id}` | TenantAdmin |  | 200 `VoyageCancelResult`, 404 |  |
+| GET | `/api/v1/voyages/{id}` | Authenticated |  | 200 `VoyageProgress`, 404 |  |
 | DELETE | `/api/v1/voyages/{id}/purge` | TenantAdmin |  | 200 `Object`, 404, 409 `Object` |  |
 | GET | `/api/v1/whoami` | Authenticated |  |  |  |
 | GET | `/api/v1/workflow-profiles` | Authenticated |  | 200 `EnumerationResult<WorkflowProfile>` |  |
@@ -437,6 +459,8 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | DELETE | `/api/v1/workflow-profiles/{id}` | TenantAdmin |  | 204, 404 |  |
 | GET | `/api/v1/workflow-profiles/{id}` | Authenticated |  | 200 `WorkflowProfile`, 404 |  |
 | PUT | `/api/v1/workflow-profiles/{id}` | TenantAdmin | `WorkflowProfile` | 200 `WorkflowProfile`, 400, 404 |  |
+| GET | `/api/v1/workspace/vessels/{vesselId}/active-missions` | Authenticated |  | 200 `EnumerationResult<WorkspaceActiveMission>`, 404 |  |
+| POST | `/api/v1/workspace/vessels/{vesselId}/active-missions/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<WorkspaceActiveMission>`, 400, 404 |  |
 | GET | `/api/v1/workspace/vessels/{vesselId}/changes` | Authenticated |  | 200 `WorkspaceChangesResult`, 404 |  |
 | GET | `/api/v1/workspace/vessels/{vesselId}/diff` | Authenticated |  | 200 `WorkspaceDiffResult`, 404 |  |
 | POST | `/api/v1/workspace/vessels/{vesselId}/directory` | Authenticated | `WorkspaceCreateDirectoryRequest` | 201 `WorkspaceOperationResult`, 404 |  |
@@ -544,7 +568,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `get_battery_run` | Authenticated | `id*: string` |  |
 | `get_captain` | Authenticated | `captainId*: string` |  |
 | `get_captain_log` | Authenticated | `captainId*: string`, `lines: integer`, `offset: integer` |  |
-| `get_captain_tools` | Authenticated | `captainId*: string` |  |
+| `get_captain_tools` | Authenticated | `captainId*: string`, `pageNumber: integer`, `pageSize: integer`, `refresh: boolean`, `sourceKind: string` |  |
 | `get_check_run` | Authenticated | `checkRunId*: string` |  |
 | `get_cli_permission_request` | Authenticated | `requestId*: string` |  |
 | `get_deployment` | Authenticated | `deploymentId*: string` |  |
@@ -574,11 +598,19 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `health_check_model_endpoints` | Authenticated |  |  |
 | `import_vessels` | TenantAdmin | `allNew: boolean`, `applyFleetsAutomatically: boolean`, `batchId*: string`, `captainId: string`, `categorize: boolean`, `defaultPipelineId: string`, `fleetId: string`, `landingMode: string`, `paths: array<string>`, `prompt: string` |  |
 | `list_ask_messages` | Authenticated | `beforeSequence: integer`, `pageSize: integer`, `threadId*: string` |  |
+| `list_ask_proposals` | Authenticated | `order: string`, `pageNumber: integer`, `pageSize: integer`, `status: string`, `threadId*: string` |  |
 | `list_ask_quick_actions` | Authenticated |  |  |
 | `list_ask_threads` | Authenticated | `includeArchived: boolean`, `pageNumber: integer`, `pageSize: integer`, `search: string` |  |
+| `list_ask_tool_calls` | Authenticated | `messageId: string`, `order: string`, `pageNumber: integer`, `pageSize: integer`, `threadId*: string` |  |
+| `list_ask_work` | Authenticated | `order: string`, `pageNumber: integer`, `pageSize: integer`, `status: string`, `threadId*: string` |  |
+| `list_ask_work_missions` | Authenticated | `order: string`, `pageNumber: integer`, `pageSize: integer`, `threadId*: string`, `workId*: string` |  |
+| `list_ask_work_targets` | Authenticated | `pageNumber: integer`, `pageSize: integer`, `threadId*: string`, `workId*: string` |  |
 | `list_backlog` | Authenticated | `backlogState: string`, `category: string`, `effort: string`, `fleetId: string`, `kind: string`, `owner: string`, `pageNumber: integer`, `pageSize: integer`, `parentObjectiveId: string`, `priority: string`, `search: string`, `status: string`, `targetVersion: string`, `vesselId: string` |  |
+| `list_backlog_planning_session_messages` | Authenticated | `order: string`, `pageNumber: integer`, `pageSize: integer`, `sessionId*: string` |  |
+| `list_backlog_refinement_session_messages` | Authenticated | `order: string`, `pageNumber: integer`, `pageSize: integer`, `sessionId*: string` |  |
 | `list_backlog_refinement_sessions` | Authenticated | `objectiveId*: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `list_battery_packs` | Authenticated | `pageNumber: integer`, `pageSize: integer` |  |
+| `list_battery_results` | Authenticated | `order: string`, `pageNumber: integer`, `pageSize: integer`, `runId*: string`, `status: string` |  |
 | `list_failure_cause_rules` | Authenticated | `pageNumber: integer`, `pageSize: integer` |  |
 | `list_handoff_artifacts` | Authenticated | `missionId*: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `list_harbor_jobs` | Authenticated | `harborId*: string`, `openOnly: boolean`, `pageNumber: integer`, `pageSize: integer` | experimental |
@@ -586,6 +618,8 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `list_objectives` | Authenticated | `backlogState: string`, `category: string`, `effort: string`, `fleetId: string`, `kind: string`, `owner: string`, `pageNumber: integer`, `pageSize: integer`, `parentObjectiveId: string`, `priority: string`, `search: string`, `status: string`, `targetVersion: string`, `vesselId: string` |  |
 | `list_prompt_templates` | Authenticated | `category: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `list_stage_outcomes` | Authenticated | `captainId: string`, `causeSource: string`, `disposition: string`, `fromUtc: string`, `isEvaluation: boolean`, `missionId: string`, `model: string`, `pageNumber: integer`, `pageSize: integer`, `persona: string`, `suspectedCause: string`, `tenantId: string`, `toUtc: string`, `vesselId: string`, `voyageId: string` |  |
+| `list_vessel_dependencies` | Authenticated | `pageNumber: integer`, `pageSize: integer`, `vesselId*: string` |  |
+| `list_voyage_progress` | Authenticated | `order: string`, `pageNumber: integer`, `pageSize: integer`, `status: string` |  |
 | `mark_ask_thread_read` | Authenticated | `threadId*: string` |  |
 | `mission_status` | Authenticated | `missionId*: string` |  |
 | `papercut_summary` | Authenticated | `category: string`, `limit: integer`, `minSeverity: string`, `scanLimit: integer`, `sinceHours: integer`, `ungrouped: boolean`, `vesselId: string` |  |
@@ -631,7 +665,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `stop_server` | AdminOnly |  |  |
 | `summarize_ask_thread` | Authenticated | `threadId*: string` |  |
 | `summarize_backlog_refinement_session` | TenantAdmin | `messageId: string`, `sessionId*: string` |  |
-| `token_usage_summary` | Authenticated | `bucketMinutes: number`, `captainId: string`, `fromUtc: string`, `harborId: string`, `model: string`, `runtime: string`, `sinceHours: integer`, `source: string`, `sourceId: string`, `toUtc: string`, `vesselId: string` |  |
+| `token_usage_summary` | Authenticated | `bucketMinutes: number`, `captainId: string`, `fromUtc: string`, `harborId: string`, `model: string`, `modelLimit: integer`, `runtime: string`, `sinceHours: integer`, `source: string`, `sourceId: string`, `toUtc: string`, `vesselId: string` |  |
 | `transition_mission_status` | TenantAdmin | `missionId*: string`, `status*: string` |  |
 | `unstick_dock` | TenantAdmin | `dockId*: string` |  |
 | `update_ask_thread` | Authenticated | `archived: boolean`, `autoApprove: boolean`, `captainId: string`, `clearCaptain: boolean`, `pinned: boolean`, `threadId*: string`, `title: string` |  |
@@ -656,8 +690,8 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `validate_model_endpoint` | Authenticated | `endpointId*: string` |  |
 | `validate_workflow_profile` | TenantAdmin | `abbreviatedUnitTestCommand: string`, `active: boolean`, `buildCommand: string`, `changelogGenerationCommand: string`, `deploymentVerificationCommand: string`, `description: string`, `e2eTestCommand: string`, `environments: array<object>`, `expectedArtifacts: array<string>`, `fleetId: string`, `integrationTestCommand: string`, `isDefault: boolean`, `languageHints: array<string>`, `lintCommand: string`, `migrationCommand: string`, `name*: string`, `ownershipScope: string`, `packageCommand: string`, `performanceCommand: string`, `publishArtifactCommand: string`, `releaseVersioningCommand: string`, `requiredInputs: array<object>`, `rollbackVerificationCommand: string`, `scope: string`, `securityScanCommand: string`, `unitTestCommand: string`, `vesselId: string` |  |
 | `verify_deployment` | TenantAdmin | `deploymentId*: string` |  |
-| `vessel_health` | Authenticated | `includeDependencies: boolean`, `vesselId*: string` |  |
-| `voyage_status` | Authenticated | `includeDescription: boolean`, `includeDiffs: boolean`, `includeLogs: boolean`, `includeMissions: boolean`, `summary: boolean`, `voyageId*: string` |  |
+| `vessel_health` | Authenticated | `vesselId*: string` |  |
+| `voyage_status` | Authenticated | `summary: boolean`, `voyageId*: string` |  |
 
 ## WebSocket
 
@@ -680,7 +714,7 @@ Server-to-client messages are camelCase JSON; client field names are matched cas
 
 ### Commands
 
-`backup`, `cancel_merge`, `cancel_mission`, `cancel_voyage`, `create_captain`, `create_fleet`, `create_mission`, `create_persona`, `create_pipeline`, `create_vessel`, `create_voyage`, `decide_cli_permission_request`, `delete_captain`, `delete_fleet`, `delete_persona`, `delete_pipeline`, `delete_vessel`, `enqueue_merge`, `enumerate`, `get_captain`, `get_captain_log`, `get_fleet`, `get_merge_entry`, `get_mission`, `get_mission_diff`, `get_mission_log`, `get_persona`, `get_pipeline`, `get_prompt_template`, `get_vessel`, `get_voyage`, `list_captains`, `list_cli_permission_requests`, `list_docks`, `list_events`, `list_fleets`, `list_merge_queue`, `list_missions`, `list_missions_summary`, `list_signals`, `list_vessels`, `list_voyages`, `process_merge_queue`, `purge_mission`, `purge_voyage`, `restart_mission`, `restore`, `send_signal`, `status`, `stop_all`, `stop_captain`, `stop_server`, `transition_mission_status`, `update_captain`, `update_fleet`, `update_mission`, `update_persona`, `update_pipeline`, `update_prompt_template`, `update_vessel`, `update_vessel_context`
+`backup`, `cancel_merge`, `cancel_mission`, `cancel_voyage`, `create_captain`, `create_fleet`, `create_mission`, `create_persona`, `create_pipeline`, `create_vessel`, `create_voyage`, `decide_cli_permission_request`, `delete_captain`, `delete_fleet`, `delete_persona`, `delete_pipeline`, `delete_vessel`, `enqueue_merge`, `enumerate`, `get_captain`, `get_captain_log`, `get_fleet`, `get_merge_entry`, `get_mission`, `get_mission_diff`, `get_mission_log`, `get_persona`, `get_pipeline`, `get_prompt_template`, `get_vessel`, `get_voyage`, `list_captains`, `list_cli_permission_requests`, `list_docks`, `list_events`, `list_fleets`, `list_merge_queue`, `list_missions`, `list_missions_summary`, `list_signals`, `list_vessels`, `list_voyage_progress`, `list_voyages`, `process_merge_queue`, `purge_mission`, `purge_voyage`, `restart_mission`, `restore`, `send_signal`, `status`, `stop_all`, `stop_captain`, `stop_server`, `transition_mission_status`, `update_captain`, `update_fleet`, `update_mission`, `update_persona`, `update_pipeline`, `update_prompt_template`, `update_vessel`, `update_vessel_context`
 
 ### Events
 

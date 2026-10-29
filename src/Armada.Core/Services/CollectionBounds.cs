@@ -52,6 +52,21 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Whether a property is never part of a serialized response: it carries <see cref="JsonIgnoreAttribute"/> with
+        /// <see cref="JsonIgnoreCondition.Always"/>. A conditional ignore (for example WhenWritingNull) still serializes
+        /// the value when it is set, so such a property counts.
+        /// </summary>
+        /// <param name="property">Property.</param>
+        /// <returns>True when the property is never serialized.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="property"/> is null.</exception>
+        public static bool IsNeverSerialized(PropertyInfo property)
+        {
+            if (property == null) throw new ArgumentNullException(nameof(property));
+            JsonIgnoreAttribute? ignore = property.GetCustomAttribute<JsonIgnoreAttribute>(true);
+            return ignore != null && ignore.Condition == JsonIgnoreCondition.Always;
+        }
+
+        /// <summary>
         /// Whether a type is a collection the bound applies to: an array, or anything implementing
         /// <see cref="IEnumerable"/> other than a string.
         /// </summary>
@@ -141,7 +156,7 @@ namespace Armada.Core.Services
             return _Properties.GetOrAdd(type, t => t
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanRead && p.GetIndexParameters().Length == 0)
-                .Where(p => !p.IsDefined(typeof(JsonIgnoreAttribute), true))
+                .Where(p => !IsNeverSerialized(p))
                 .Where(p => IsCollectionType(p.PropertyType) || IsArmadaModel(p.PropertyType) || p.PropertyType == typeof(object))
                 .Select(p => new BoundProperty(p, BoundOf(p)))
                 .ToList());
