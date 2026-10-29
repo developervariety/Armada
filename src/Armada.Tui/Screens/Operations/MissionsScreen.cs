@@ -10,6 +10,7 @@ namespace Armada.Tui.Screens.Operations
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Services;
     using Armada.Tui.Widgets;
 
@@ -238,12 +239,12 @@ namespace Armada.Tui.Screens.Operations
             Confirm("Delete Selected Missions", Tr("Delete {{count}} selected mission(s)? This cannot be undone.", LocalizationArgs.Of("count", ids.Count)), () =>
             {
                 Grid.ClearMarks();
-                Call(async (c, t) =>
+                DeleteProgress.Run(Context, "{count, plural, one {Purging # mission} other {Purging # missions}}", async t =>
                 {
                     int failed = 0;
                     foreach (string id in ids)
                     {
-                        try { await c.PurgeMissionAsync(id, t).ConfigureAwait(false); }
+                        try { await Context.Client.PurgeMissionAsync(id, t).ConfigureAwait(false); }
                         catch (Armada.Client.ArmadaApiException) { failed++; }
                     }
 
@@ -260,7 +261,7 @@ namespace Armada.Tui.Screens.Operations
 
                     if (failed > 0) ShowMessage(Tr("Deleted {{success}} missions, {{failed}} failed.", LocalizationArgs.Of("success", success, "failed", failed)));
                     Refresh();
-                }, "Delete failed.");
+                }, "Delete failed.", ids.Count);
             }, "Delete");
         }
 

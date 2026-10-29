@@ -80,7 +80,7 @@ namespace Armada.Core.Services
             {
                 mission.Status = MissionStatusEnum.LandingFailed;
                 mission.FailureReason = "Review approved but the mission dock was unavailable for landing.";
-                mission.FailureKind = MissionFailureKindEnum.LandingConflict;
+                mission.FailureKind = MissionFailureKindEnum.Infra;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -93,7 +93,11 @@ namespace Armada.Core.Services
                 await OnMissionComplete.Invoke(mission, dock).ConfigureAwait(false);
             }
 
-            await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+            // Unlanded work keeps its dock (the lease refuses the reclaim) so retry_landing can land it; an opened pull
+            // request has published the branch, so its dock may go.
+            Mission? afterApproval = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            await ReclaimMissionDockAsync(dock.Id, token,
+                afterApproval?.Status == MissionStatusEnum.PullRequestOpen ? "pull request opened: the branch is published" : null).ConfigureAwait(false);
             await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
             await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
 
@@ -277,7 +281,8 @@ namespace Armada.Core.Services
 
             if (dock != null)
             {
-                await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+                // Rework and retries take the branch into a new dock, so a denied review always releases this one.
+                await ReclaimMissionDockAsync(dock.Id, token, "review denied").ConfigureAwait(false);
             }
 
             if (effectiveAction == ReviewDenyActionEnum.FailPipeline)

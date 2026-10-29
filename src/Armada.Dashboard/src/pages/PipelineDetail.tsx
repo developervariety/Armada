@@ -15,6 +15,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPipelineDuplicatePayload } from '../lib/duplicates';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 interface StageForm {
   personaName: string;
@@ -61,6 +62,7 @@ const RUN_DESCRIPTION_TIP = 'What you want done, in plain words. It becomes the 
 
 export default function PipelineDetail() {
   const { t, formatDateTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
   const { isAdmin, isTenantAdmin, user } = useAuth();
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
@@ -186,11 +188,9 @@ export default function PipelineDetail() {
       message: t('Delete pipeline "{{name}}"? This cannot be undone.', { name: pipeline.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await deletePipeline(pipeline.name);
-          pushToast('warning', t('Pipeline "{{name}}" deleted.', { name: pipeline.name }));
-          navigate('/pipelines');
-        } catch { setError(t('Delete failed.')); }
+        if (!(await deletion.run({ kind: 'pipeline', action: () => deletePipeline(pipeline.name) }))) return;
+        pushToast('warning', t('Pipeline "{{name}}" deleted.', { name: pipeline.name }));
+        navigate('/pipelines');
       },
     });
   }
@@ -352,6 +352,7 @@ export default function PipelineDetail() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      {deletion.dialog}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
