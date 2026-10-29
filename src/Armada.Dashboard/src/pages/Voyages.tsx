@@ -20,10 +20,12 @@ import { useResourceTable } from '../lib/useResourceTable';
 import { findLandingMode, getVoyageLandingModes } from '../lib/vesselForm';
 import { reconcileServerPage, useListRequestGuard } from '../lib/serverPage';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 export default function Voyages() {
   const navigate = useNavigate();
   const { t } = useLocale();
+  const deletion = useDeleteProgress();
   const landingModes = getVoyageLandingModes(t);
   const { pushToast } = useNotifications();
   const [voyages, setVoyages] = useState<Voyage[]>([]);
@@ -114,11 +116,9 @@ export default function Voyages() {
       message: t('Delete voyage "{{title}}"? This will permanently remove the voyage and all associated missions. This cannot be undone.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await purgeVoyage(id);
-          pushToast('warning', t('Voyage "{{title}}" deleted.', { title }));
-          load();
-        } catch { setError(t('Delete failed.')); }
+        if (!(await deletion.run({ kind: 'voyagePurge', action: () => purgeVoyage(id) }))) return;
+        pushToast('warning', t('Voyage "{{title}}" deleted.', { title }));
+        load();
       },
     });
   }
@@ -161,9 +161,16 @@ export default function Voyages() {
         setDeleting(true);
         const failedIds: string[] = [];
         try {
-          for (const id of ids) {
-            try { await purgeVoyage(id); } catch { failedIds.push(id); }
-          }
+          await deletion.run({
+            kind: 'voyagePurge',
+            count: ids.length,
+            action: async () => {
+              failedIds.length = 0;
+              for (const id of ids) {
+                try { await purgeVoyage(id); } catch { failedIds.push(id); }
+              }
+            },
+          });
           table.setSelected(failedIds);
           const success = ids.length - failedIds.length;
           if (success > 0) {
@@ -268,6 +275,7 @@ export default function Voyages() {
         onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/voyages/${(r as { id: string }).id}`); }}
         editLabel={t('Open Details')}
       />
+      {deletion.dialog}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         confirmLabel={confirm.confirmLabel} danger={confirm.danger}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />

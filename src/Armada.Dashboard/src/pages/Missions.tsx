@@ -29,6 +29,7 @@ import { useLocale } from '../context/LocaleContext';
 import { MISSION_LIST_STATUSES, canRetryLanding, matchesMissionColumnFilters } from '../lib/missionActions';
 import { canRestartFromHome } from '../lib/dashboardStatus';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'title' | 'status' | 'priority' | 'createdUtc';
@@ -45,6 +46,7 @@ export default function Missions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
 
   // Pagination (server-side)
   const [pageNumber, setPageNumber] = useState(1);
@@ -233,11 +235,9 @@ export default function Missions() {
       message: t('Purge mission "{{title}}"? This will permanently remove it and clean up all associated resources. This cannot be undone.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await purgeMission(id);
-          pushToast('warning', t('Mission "{{title}}" purged.', { title }));
-          load();
-        } catch { setError(t('Purge failed.')); }
+        if (!(await deletion.run({ kind: 'missionPurge', action: () => purgeMission(id), errorMessage: (err) => apiErrorMessage(err, t('Purge failed.')) }))) return;
+        pushToast('warning', t('Mission "{{title}}" purged.', { title }));
+        load();
       },
     });
   }
@@ -252,9 +252,16 @@ export default function Missions() {
         const ids = [...selected];
         setSelected([]);
         let failed = 0;
-        for (const id of ids) {
-          try { await purgeMission(id); } catch { failed++; }
-        }
+        if (!(await deletion.run({
+          kind: 'missionPurge',
+          count: ids.length,
+          action: async () => {
+            failed = 0;
+            for (const id of ids) {
+              try { await purgeMission(id); } catch { failed++; }
+            }
+          },
+        }))) return;
         const success = ids.length - failed;
         if (success > 0) {
           pushToast(failed > 0 ? 'warning' : 'success', failed > 0
@@ -467,6 +474,7 @@ export default function Missions() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+      {deletion.dialog}
       <DiffViewer open={diffModal !== null} title={diffModal?.title ?? ''} rawDiff={diffModal?.rawDiff ?? ''} onClose={() => setDiffModal(null)} />
       <LogViewer
         open={logModal !== null}
