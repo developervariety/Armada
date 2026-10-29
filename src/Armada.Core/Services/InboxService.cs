@@ -40,6 +40,11 @@ namespace Armada.Core.Services
         /// </summary>
         public const string LandingReconcileKind = "landing_reconcile";
 
+        /// <summary>
+        /// Kind of the item for a Failed merge entry whose work is proven to be on the target branch.
+        /// </summary>
+        public const string MergeFailedDeliveredKind = "merge_failed_delivered";
+
         #endregion
 
         #region Constructors-and-Factories
@@ -314,12 +319,16 @@ namespace Armada.Core.Services
                 List<MergeEntry> mergeFailed = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Failed, token).ConfigureAwait(false);
                 foreach (MergeEntry entry in mergeFailed.Take(_MaxPerCategory))
                 {
+                    // A failure whose work is proven to be on the target branch needs no rescue: it is context, not an alarm.
+                    bool delivered = entry.DeliveryEvidence != null;
                     items.Add(new InboxItem
                     {
-                        Kind = "merge_failed",
-                        Severity = InboxSeverityEnum.Critical,
-                        Title = "Merge failed: " + entry.TargetBranch,
-                        Detail = "A queued merge failed testing or landing and needs attention.",
+                        Kind = delivered ? MergeFailedDeliveredKind : "merge_failed",
+                        Severity = delivered ? InboxSeverityEnum.Info : InboxSeverityEnum.Critical,
+                        Title = (delivered ? "Merge failed, work already delivered: " : "Merge failed: ") + entry.TargetBranch,
+                        Detail = delivered
+                            ? "A queued merge failed, but its work is already on the target branch. " + entry.DeliveryEvidence!.Describe()
+                            : "A queued merge failed testing or landing and needs attention.",
                         EntityType = "merge_entry",
                         EntityId = entry.Id,
                         VesselIds = VesselsOf(entry.VesselId),

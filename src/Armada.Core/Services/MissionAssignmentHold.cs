@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
     using System;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
 
     /// <summary>
     /// The reasons the assignment pass holds a Pending mission back from a captain, stored on
@@ -95,6 +97,19 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(reason)) return false;
             return !String.Equals(reason, DependencyUnfinished, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Drop the hold from a Cancelled mission. A cancelled mission waits for nothing, and a leftover reason reads
+        /// as a live wait that hides the cancel. Every mission write applies this, so no cancel path can keep a hold.
+        /// </summary>
+        /// <param name="mission">Mission about to be stored.</param>
+        public static void ReleaseWhenCancelled(Mission mission)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (mission.Status != MissionStatusEnum.Cancelled) return;
+            mission.AssignmentHoldReason = null;
+            mission.AssignmentHoldEntityId = null;
         }
 
         #endregion

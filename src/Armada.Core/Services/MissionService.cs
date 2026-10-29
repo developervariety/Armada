@@ -103,6 +103,8 @@ namespace Armada.Core.Services
         private PrestagedFileCopier _Prestaging;
         private JudgeFollowUpService _JudgeFollowUps;
         private readonly SiblingLaneAdmission _SiblingLaneAdmission;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _DeliveryFetchUtc =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
 
         // Optional provider of the built context-retrieval service, resolved lazily at
         // brief-generation time because the service is built after this service is
@@ -421,6 +423,7 @@ namespace Armada.Core.Services
         }
 
         private TimeSpan _JudgeCheckWaitBudget = TimeSpan.FromHours(2);
+        private static readonly TimeSpan _DeliveryFetchInterval = TimeSpan.FromMinutes(1);
 
         /// <summary>
         /// Clock for the check-wait hold. Tests replace it to move time instead of waiting.
@@ -1156,7 +1159,8 @@ namespace Armada.Core.Services
                     await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
                     return false;
                 }
-                else if (!String.IsNullOrEmpty(savedBranchHead))
+                else if (!String.IsNullOrEmpty(savedBranchHead)
+                    && !await SavedBranchHoldsNoCommittedWorkAsync(mission, vessel, savedBranchHead!, checkoutRoute, token).ConfigureAwait(false))
                 {
                     // Committed work exists on the persisted branch but no active dock authorizes
                     // continuation (a failed provision left no live dock). Hold rather than cut a fresh
@@ -1169,8 +1173,8 @@ namespace Armada.Core.Services
                     await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
                     return false;
                 }
-                // Neither an active dock nor a resolvable branch: nothing to continue and no committed
-                // work to lose, so fall through to a fresh captain branch.
+                // Neither an active dock nor committed work on a resolvable branch: nothing to continue and
+                // no committed work to lose, so fall through to a fresh captain branch.
             }
 
             // Reuse the saved branch for an inherited stage OR a reassigned root continuation; both
@@ -1943,6 +1947,78 @@ namespace Armada.Core.Services
             return decided;
         }
 
+        /// <summary>
+        /// Complete a Judge held for its Checks when its reviewed work is already on the vessel's default branch.
+        /// A Judge that runs again would review work that is delivered, and the voyage would stay open until it
+        /// ended. The proof is the one the landing reconcile sweep reads; without proof the hold is decided as usual.
+        /// </summary>
+        /// <returns>True when the Judge was completed.</returns>
+        private async Task<bool> TryCompleteDeliveredCheckWaitHoldAsync(Mission mission, CancellationToken token)
+        {
+            LandingReconcileEvidence? evidence = await ReadDeliveryEvidenceAsync(mission, token).ConfigureAwait(false);
+            if (evidence == null) return false;
+
+            Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+            ClearOperatorReviewHold(mission);
+            mission.Status = MissionStatusEnum.Complete;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.FailureReason = null;
+            mission.ProcessId = null;
+            mission.DockId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, MissionStatusEnum.WorkProduced, token).ConfigureAwait(false)) return false;
+
+            await RecordCheckWaitDecisionAsync(mission, "delivered",
+                evidence.Describe() + " The Judge does not run again and the mission completes without landing.", token).ConfigureAwait(false);
+            _Logging.Info(_Header + "judge mission " + mission.Id + " completed from its check-wait hold: " + evidence.Describe());
+
+            if (dock != null) await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return true;
+        }
+
+        private async Task<LandingReconcileEvidence?> ReadDeliveryEvidenceAsync(Mission mission, CancellationToken token)
+        {
+            if (_Git == null || String.IsNullOrEmpty(mission.VesselId)) return null;
+            try
+            {
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (vessel == null || String.IsNullOrWhiteSpace(vessel.LocalPath)) return null;
+
+                // The default branch reflects the remote only after a fetch; a hold is decided every cycle, so
+                // the fetch is repeated at most once per interval for a vessel.
+                DateTime now = _UtcNow();
+                if (!_DeliveryFetchUtc.TryGetValue(vessel.Id, out DateTime fetchedUtc) || now - fetchedUtc >= _DeliveryFetchInterval)
+                {
+                    await _Git.FetchAsync(vessel.LocalPath, token).ConfigureAwait(false);
+                    _DeliveryFetchUtc[vessel.Id] = now;
+                }
+
+                // A later stage starts from its predecessor's tip, so "before any work" is the first stage's start.
+                Mission firstStage = mission;
+                HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal) { mission.Id };
+                while (!String.IsNullOrEmpty(firstStage.DependsOnMissionId))
+                {
+                    Mission? predecessor = await _Database.Missions.ReadAsync(firstStage.DependsOnMissionId, token).ConfigureAwait(false);
+                    if (predecessor == null || !seen.Add(predecessor.Id)) break;
+                    firstStage = predecessor;
+                }
+
+                LandingReconcileProof proof = new LandingReconcileProof(_Database, _Git, _Logging, _Settings.LogDirectory);
+                return await proof.ProveDeliveredAsync(mission, vessel, firstStage, null, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Without proof the hold is decided as it would be for work that is not delivered.
+                _Logging.Warn(_Header + "could not read whether the work of judge mission " + mission.Id + " is already delivered: " + ex.Message);
+                return null;
+            }
+        }
+
         private async Task<bool> DecideJudgeCheckWaitHoldAsync(Mission mission, CancellationToken token)
         {
             string holdReason = mission.HeldForOperatorReviewReason ?? String.Empty;
@@ -1951,6 +2027,8 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "judge mission " + mission.Id + " check-wait hold reason is not readable; it stays held: " + holdReason);
                 return false;
             }
+
+            if (await TryCompleteDeliveredCheckWaitHoldAsync(mission, token).ConfigureAwait(false)) return true;
 
             if (!JudgeCheckWaitHold.IsSameReviewedCommit(recordedCommit, mission.CommitHash))
             {
@@ -2059,6 +2137,8 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "judge mission " + mission.Id + " revision check-wait hold reason is not readable; it stays held: " + holdReason);
                 return false;
             }
+
+            if (await TryCompleteDeliveredCheckWaitHoldAsync(mission, token).ConfigureAwait(false)) return true;
 
             string why;
             if (!JudgeCheckWaitHold.IsSameReviewedCommit(recordedCommit, mission.CommitHash))

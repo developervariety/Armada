@@ -98,8 +98,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Why the assignment pass is holding this Pending mission back from a captain, as a reason code from
         /// <see cref="Armada.Core.Services.MissionAssignmentHold"/>. Null when nothing holds it. The assignment pass
-        /// clears it when it releases the hold; a mission that leaves Pending another way, such as a cancel, keeps
-        /// the last hold it recorded.
+        /// clears it when it releases the hold, and storing a Cancelled mission clears it too.
         /// </summary>
         public string? AssignmentHoldReason { get; set; } = null;
 

@@ -100,6 +100,7 @@ namespace Armada.Core.Database
         internal static void Write(StoredParameters parameters, Mission mission)
         {
             if (mission.Tier.HasValue && !System.Enum.IsDefined(mission.Tier.Value)) throw new System.ArgumentOutOfRangeException(nameof(mission), "Mission tier is not a defined member.");
+            Armada.Core.Services.MissionAssignmentHold.ReleaseWhenCancelled(mission);
             parameters
                 .Text("id", mission.Id)
                 .Text("tenant_id", mission.TenantId)

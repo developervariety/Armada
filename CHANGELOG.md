@@ -19,6 +19,19 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The dispatch hold is stored in the database and restored at startup before any dispatch path runs. A restart no longer opens dispatch while a hold is engaged. A restored hold posts one system note on the coordination board naming its reason and setter, and it stays engaged until `armada_dispatch_hold action=clear`. Migrations: SQLite 141, PostgreSQL 146, MySQL 134, SQL Server 137.
 
+### Delivered Judge holds
+
+- A Judge held for its independent Checks, either a PASS or a NEEDS_REVISION, completes without a re-run when its reviewed commit is already on `origin/<default branch>` or a commit there carries its exact `Armada-Mission-Id` trailer, using the landing sweep's proof. The decision records `delivered` on `mission.check_hold_decided`, and the voyage ends by the ordinary completion rule, so it no longer holds a sibling-lane slot.
+
+### Failed merges with delivered work
+
+- The landing sweep also checks a rotating page of `Failed` merge entries per cycle. When the entry's mission commit is an ancestor of `origin/<target branch>`, or a commit there carries the mission's exact `Armada-Mission-Id` trailer, it stores the evidence on the entry (`DeliveryEvidence`, a new `merge_entries.delivery_evidence` column) and records `merge.delivery_proven`. The entry keeps its `Failed` outcome. The inbox lists it as an `Info` item of kind `merge_failed_delivered` with the evidence; an unproven entry stays a `Critical` `merge_failed` item.
+
+### Cancelled missions keep no assignment hold
+
+- Storing a Cancelled mission clears its assignment hold reason and holder, so a cancelled mission no longer reads as waiting on a dependency or a continuation dock.
+- A reassigned root mission whose saved branch holds no commit beyond its start ref (or the default branch) takes a fresh dock and branch instead of holding on `root_continuation_dock_missing`.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

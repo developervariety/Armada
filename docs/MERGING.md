@@ -439,3 +439,10 @@ gates run, and only then is the mission written `Complete`. The confirmation
 records `mission.landing_reconciled`, applies voyage completion, and closes the
 mission's active incidents. `LandingFailed` has no other route to `Complete`;
 `retry_landing` stays the way to land work that is not on the branch.
+
+The same sweep reads the same proof for `Failed` merge entries, against the entry's
+target branch, and stores it on the entry as `DeliveryEvidence`; it records
+`merge.delivery_proven` once. The entry keeps its `Failed` outcome and history. The
+inbox lists such an entry as an `Info` item of kind `merge_failed_delivered` that
+carries the evidence. An entry with no proof, or whose ancestry cannot be read, stays
+a `Critical` `merge_failed` item.
