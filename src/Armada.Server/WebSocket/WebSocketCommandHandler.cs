@@ -942,10 +942,8 @@ namespace Armada.Server.WebSocket
                 {
                     EnumerationQuery mergeQuery = command.Query ?? new EnumerationQuery();
                     Stopwatch mergeSw = Stopwatch.StartNew();
-                    List<MergeEntry> mergeAll = await _MergeQueue.ListAsync().ConfigureAwait(false);
-                    int mergeTotal = mergeAll.Count;
-                    List<MergeEntry> mergePage = mergeAll.Skip(mergeQuery.Offset).Take(mergeQuery.PageSize).ToList();
-                    EnumerationResult<MergeEntry> mergeResult = EnumerationResult<MergeEntry>.Create(mergeQuery, mergePage, mergeTotal);
+                    // Paged in the database (LIMIT/OFFSET with a COUNT), never loaded whole and sliced.
+                    EnumerationResult<MergeEntry> mergeResult = await _Database.MergeEntries.EnumerateAsync(mergeQuery).ConfigureAwait(false);
                     mergeResult.TotalMs = Math.Round(mergeSw.Elapsed.TotalMilliseconds, 2);
                     return new { type = "command.result", action = "list_merge_queue", data = (object)mergeResult };
                 }
@@ -1034,10 +1032,7 @@ namespace Armada.Server.WebSocket
                         case "merge_queue":
                         case "merge-queue":
                         case "mergequeue":
-                            List<MergeEntry> enumMqAll = await _MergeQueue.ListAsync().ConfigureAwait(false);
-                            int enumMqTotal = enumMqAll.Count;
-                            List<MergeEntry> enumMqPage = enumMqAll.Skip(enumQuery.Offset).Take(enumQuery.PageSize).ToList();
-                            EnumerationResult<MergeEntry> enumMerge = EnumerationResult<MergeEntry>.Create(enumQuery, enumMqPage, enumMqTotal);
+                            EnumerationResult<MergeEntry> enumMerge = await _Database.MergeEntries.EnumerateAsync(enumQuery).ConfigureAwait(false);
                             enumMerge.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
                             enumData = enumMerge;
                             break;

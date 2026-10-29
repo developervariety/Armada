@@ -376,6 +376,39 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(await db.FailureCauseRules.DeleteAsync("fcr_missing").ConfigureAwait(false), "delete missing");
             }));
 
+            cases.Add(CaseAsync("rules_enumerate_page_in_database", "EnumeratePageAsync pages rules in evaluation order with the id tie-break, counts the same tenant scope, and returns an empty page past the end", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                for (int i = 0; i < 5; i++)
+                {
+                    // Same priority and name prefix pairs, so the id decides ties.
+                    await db.FailureCauseRules.CreateAsync(new FailureCauseRule { TenantId = "ten_p", Name = "rule " + (i / 2), Priority = 10 + (i / 2), Cause = FailureCauseEnum.ToolUse, Match = new FailureCauseRuleMatch { TextPattern = "x" + i } }).ConfigureAwait(false);
+                }
+
+                await db.FailureCauseRules.CreateAsync(new FailureCauseRule { TenantId = null, Name = "global", Priority = 1, Cause = FailureCauseEnum.Context, Match = new FailureCauseRuleMatch { TextPattern = "g" } }).ConfigureAwait(false);
+                await db.FailureCauseRules.CreateAsync(new FailureCauseRule { TenantId = "ten_q", Name = "other", Priority = 1, Cause = FailureCauseEnum.Context, Match = new FailureCauseRuleMatch { TextPattern = "o" } }).ConfigureAwait(false);
+
+                List<string> expected = (await db.FailureCauseRules.EnumerateAsync("ten_p").ConfigureAwait(false)).Select(r => r.Id).ToList();
+                AssertEqual(6, expected.Count, "tenant plus global");
+                List<string> paged = new List<string>();
+                for (int pageNumber = 1; pageNumber <= 3; pageNumber++)
+                {
+                    EnumerationResult<FailureCauseRule> page = await db.FailureCauseRules.EnumeratePageAsync("ten_p", new EnumerationQuery { PageNumber = pageNumber, PageSize = 2 }).ConfigureAwait(false);
+                    AssertEqual(6L, page.TotalRecords, "count over the same scope");
+                    AssertEqual(3, page.TotalPages, "pages");
+                    AssertEqual(2, page.Objects.Count, "page size");
+                    paged.AddRange(page.Objects.Select(r => r.Id));
+                }
+
+                AssertEqual(String.Join(",", expected), String.Join(",", paged), "evaluation order, id tie-break, no gaps or overlap");
+                EnumerationResult<FailureCauseRule> past = await db.FailureCauseRules.EnumeratePageAsync("ten_p", new EnumerationQuery { PageNumber = 9, PageSize = 2 }).ConfigureAwait(false);
+                AssertEqual(0, past.Objects.Count, "empty past the end");
+                AssertEqual(6L, past.TotalRecords, "accurate total");
+                EnumerationResult<FailureCauseRule> all = await db.FailureCauseRules.EnumeratePageAsync(null, new EnumerationQuery { PageSize = 1000 }).ConfigureAwait(false);
+                AssertEqual(7L, all.TotalRecords, "every tenant for a null scope");
+            }));
+
             cases.Add(CaseAsync("record_attempt_provenance_and_classification", "Recording an attempt stores provenance, disposition, attempt number and a rule cause", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

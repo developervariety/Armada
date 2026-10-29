@@ -1264,6 +1264,24 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("list_merge_queue", resp.GetProperty("action").GetString());
             }));
 
+            cases.Add(CaseAsync("list_merge_queue_pages_in_database", "ListMergeQueue_PagesWithExactTotals", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                int restPort = fx.RestPort;
+                for (int i = 0; i < 3; i++)
+                    await WsCommandAsync(restPort, "enqueue_merge", new { data = new { BranchName = "feature/ws-page-" + i, TargetBranch = "main" } }).ConfigureAwait(false);
+
+                JsonElement first = await WsCommandAsync(restPort, "list_merge_queue", new { query = new { pageNumber = 1, pageSize = 2 } }).ConfigureAwait(false);
+                EnumerationResult<MergeEntry> page = DeserializeData<EnumerationResult<MergeEntry>>(first);
+                AssertEqual(2, page.Objects.Count, "one bounded page");
+                AssertTrue(page.TotalRecords >= 3, "exact total from the database: " + page.TotalRecords);
+                AssertEqual((int)Math.Ceiling(page.TotalRecords / 2.0), page.TotalPages, "pages");
+                JsonElement past = await WsCommandAsync(restPort, "enumerate", new { entityType = "merge_queue", query = new { pageNumber = 100000, pageSize = 2 } }).ConfigureAwait(false);
+                EnumerationResult<MergeEntry> empty = DeserializeData<EnumerationResult<MergeEntry>>(past);
+                AssertEqual(0, empty.Objects.Count, "past the end is empty");
+                AssertEqual(page.TotalRecords, empty.TotalRecords, "with the same total");
+            }));
+
             cases.Add(CaseAsync("enqueue_merge_returns_created_entry", "EnqueueMerge_ReturnsCreatedEntry", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);

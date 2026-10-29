@@ -155,6 +155,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [list_battery_packs](#list_battery_packs)
     - [run_battery](#run_battery)
     - [get_battery_run](#get_battery_run)
+    - [list_battery_results](#list_battery_results)
   - **Ask Armada**
     - [list_ask_threads](#list_ask_threads)
     - [get_ask_thread](#get_ask_thread)
@@ -924,6 +925,11 @@ Create a reusable action.
 | `timeoutSeconds` | int | No | Per-target timeout, 5-7200 (default from settings) |
 | `defaultConcurrency` | int | No | 1-32, default 4 |
 | `requiresCleanWorkingTree` | bool | No | Skip dirty working trees; default true for Command |
+| `requiredTools` | string[] | No | Executable names required on the host (at most 256) |
+| `inputs` | object[] | No | Typed runtime inputs (at most 256; each `allowedValues` at most 256) |
+
+A list over its limit is `InvalidArgument` with `Code` `CollectionLimitExceeded` (also on `update_fleet_action` and
+`run_fleet_action`, where `vesselIds` may hold at most 1000 entries and `inputValues` at most 256).
 
 **Response:** the created [FleetAction](REST_API.md#fleet-action-models).
 
@@ -949,7 +955,7 @@ Start a run. Pass `actionId` for a saved action, or the inline definition fields
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `vesselIds` | string[] | Yes | Target vessel IDs in the caller's tenant (1-500). One unknown or cross-tenant vessel rejects the whole request (404). |
+| `vesselIds` | string[] | Yes | Target vessel IDs in the caller's tenant (1-500; more than 1000 entries is `CollectionLimitExceeded`). One unknown or cross-tenant vessel rejects the whole request (404). |
 | `actionId` | string | No | Saved action ID (`fac_`). Omit for ad hoc. |
 | `concurrency` | int | No | 1-32; defaults to the action's `defaultConcurrency` |
 | `name`, `kind`, `commandText`, `promptTemplate` | string | Ad hoc | Inline definition |
@@ -967,7 +973,7 @@ Start a run. Pass `actionId` for a saved action, or the inline definition fields
 |---|---|---|---|
 | `runId` | string | Yes | Run ID (`far_`) |
 
-**Response:** `{ "Run": FleetActionRun, "Targets": [FleetActionRunTargetSummary, ...] }`. Target summaries carry `Status`, `SkipReason`, `FailureReason`, `ExitCode`, `VoyageId`, `DurationMs`, and `OutputLength` / `ErrorLength` / `RenderedLength` hints instead of text.
+**Response:** `{ "Run": FleetActionRun }` with the target counts (`TargetCount`, `SucceededCount`, `FailedCount`, `SkippedCount`, `CancelledCount`). Targets are not embedded: page them with `enumerate` (`entityType` `fleet_action_run_target`, `runId`, `pageNumber`, `pageSize`, optional `status`). Target summaries carry `Status`, `SkipReason`, `FailureReason`, `ExitCode`, `VoyageId`, `DurationMs`, and `OutputLength` / `ErrorLength` / `RenderedLength` hints instead of text.
 
 ### cancel_fleet_action_run
 
@@ -1222,7 +1228,9 @@ it to `create_failure_cause_rule`. `Conflict` when the outcome's cause is `None`
 |---|---|---|---|
 | `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 100) |
 
-**Response:** `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name), built-in rules included.
+**Response:** `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name, then id), built-in rules
+included, paged in the database. Each `match` list holds at most 256 entries; `create_failure_cause_rule` and
+`update_failure_cause_rule` reject more with `InvalidArgument`, `Code` `CollectionLimitExceeded`.
 
 ### get_failure_cause_rule
 
@@ -1284,7 +1292,10 @@ Errors are `McpToolError`s: `NotFound` (missing or out of scope), `Forbidden` (a
 |---|---|---|---|
 | `artifactId` | string | Yes | Artifact ID (`hoa_`) |
 
-**Response:** the complete HandoffArtifact, with `output` and `diff`.
+**Response:** the complete HandoffArtifact, with `output` and `diff`. `findings`, `acceptanceCriteria` and
+`completionLines` hold at most 256 entries: a longer list keeps its first 255 and ends with a marker entry naming how
+many more there were (a `completionLines` marker starts with `[ARMADA:TRUNCATED]`); the full text stays in `output`.
+`requiredActions` holds at most 8, `checkResults` at most 1 and `commitReferences` at most 20.
 
 ### list_handoff_artifacts
 
@@ -1364,14 +1375,14 @@ Errors are `McpToolError`s:
   `createFixtureVessel`.
 - `Unavailable`: on the stdio server.
 
-`list_battery_packs` and `get_battery_run` are on the Ask read-only list. `run_battery` becomes a proposal inside an
+`list_battery_packs`, `get_battery_run` and `list_battery_results` are on the Ask read-only list. `run_battery` becomes a proposal inside an
 Ask conversation.
 
 | Tool | Caller |
 |---|---|
 | `list_battery_packs` | Any authenticated person |
 | `run_battery` | Global admin, or a tenant admin of the captain's tenant |
-| `get_battery_run` | Any authenticated person: global admins every tenant, everyone else their own tenant |
+| `get_battery_run`, `list_battery_results` | Any authenticated person: global admins every tenant, everyone else their own tenant |
 
 ### list_battery_packs
 
@@ -1379,14 +1390,16 @@ Ask conversation.
 |---|---|---|---|
 | `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 100) |
 
-**Response:** `EnumerationResult<BatteryPackInfo>`, ordered by id. Malformed packs are listed with `valid: false` and
-their `errors`.
+**Response:** `EnumerationResult<BatteryPackInfo>`, ordered by pack directory name; only the page's manifests are read.
+Malformed packs are listed with `valid: false` and their `errors` (at most 256). Every manifest list holds at most 256
+entries; a pack with more is malformed and lists the first 256 tasks and toolchain entries with `taskCount` and
+`toolchainCount`.
 
 ### run_battery
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `packs` | string[] | Yes | Pack ids, for example `["csharp"]` |
+| `packs` | string[] | Yes | Pack ids, for example `["csharp"]` (at most 256) |
 | `captainId` | string | Yes | Captain to run the tasks (`cpt_`) |
 | `runCount` | integer | No | Runs of each task (1-10, default 3) |
 | `seed` | integer | No | Seed to record (default: picked at random) |
@@ -1400,7 +1413,21 @@ their `errors`.
 |---|---|---|---|
 | `id` | string | Yes | Run ID (`bat_`) |
 
-**Response:** the BatteryRun with `results` (one per task attempt, with the grader's evidence and the raw output).
+**Response:** the BatteryRun with its outcome counts. The per-task results are not embedded; page them with
+`list_battery_results`.
+
+### list_battery_results
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `runId` | string | Yes | Run ID (`bat_`) |
+| `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 10) |
+| `status` | string | No | Outcome filter: `Passed`, `Failed`, `CouldNotRun`, `PendingEvaluation` |
+| `order` | string | No | `CreatedDescending` (default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<BatteryTaskResult>` paged in the database: one result per task attempt, with the
+grader's evidence (the first 256 false positives, with `falsePositiveCount`) and the raw output. `NotFound` for a
+missing run or another tenant's run.
 
 ---
 
@@ -4248,7 +4275,7 @@ Permanently delete multiple terminal merge queue entries from the database by ID
 {
   "type": "object",
   "properties": {
-    "entryIds": { "type": "array", "items": { "type": "string" }, "description": "List of merge entry IDs to purge (mrg_ prefix)" }
+    "entryIds": { "type": "array", "items": { "type": "string" }, "description": "List of merge entry IDs to purge (mrg_ prefix), at most 1000" }
   },
   "required": ["entryIds"]
 }
@@ -4256,7 +4283,7 @@ Permanently delete multiple terminal merge queue entries from the database by ID
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `entryIds` | string[] | Yes | List of merge entry IDs to purge (prefix `mrg_`) |
+| `entryIds` | string[] | Yes | List of merge entry IDs to purge (prefix `mrg_`), at most 1000; more is `InvalidArgument` with `Code` `CollectionLimitExceeded` and nothing is purged |
 
 **Response:**
 

@@ -12,6 +12,7 @@ namespace Test.Shared.Suites.E2E
     using Armada.Runtimes.Mcp;
     using McpToolCallResult = Armada.Runtimes.Mcp.McpToolCallResult;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -224,6 +225,51 @@ namespace Test.Shared.Suites.E2E
                 AssertContains("RunId", valid.Text);
             }));
 
+            cases.Add(CaseAsync("collection_limits_rest", "REST rejects RequiredTools, Inputs, AllowedValues and InputValues over 256 and VesselIds over 1000 with 400 CollectionLimitExceeded", TestTags.Negative, async () =>
+            {
+                await E2EServerFixture.AcquireAsync(this);
+                List<string> tools = Enumerable.Range(0, 257).Select(i => "tool" + i).ToList();
+                HttpResponseMessage tooManyTools = await _AdminA!.PostAsync("/api/v1/fleet-actions", JsonHelper.ToJsonContent(new FleetActionUpsertRequest { Name = "many tools", CommandText = "echo", RequiredTools = tools }));
+                await AssertLimitAsync(tooManyTools, "RequiredTools", 256, 257);
+                List<FleetActionInput> inputs = Enumerable.Range(0, 257).Select(i => new FleetActionInput { Name = "i" + i }).ToList();
+                HttpResponseMessage tooManyInputs = await _AdminA.PostAsync("/api/v1/fleet-actions", JsonHelper.ToJsonContent(new FleetActionUpsertRequest { Name = "many inputs", CommandText = "echo", Inputs = inputs }));
+                await AssertLimitAsync(tooManyInputs, "Inputs", 256, 257);
+                FleetActionInput wide = new FleetActionInput { Name = "choice", Type = "enum", AllowedValues = Enumerable.Range(0, 257).Select(i => "v" + i).ToList() };
+                HttpResponseMessage tooManyValues = await _AdminA.PostAsync("/api/v1/fleet-actions", JsonHelper.ToJsonContent(new FleetActionUpsertRequest { Name = "wide enum", CommandText = "echo", Inputs = new() { wide } }));
+                await AssertLimitAsync(tooManyValues, "Inputs[choice].AllowedValues", 256, 257);
+
+                HttpResponseMessage create = await _AdminA.PostAsync("/api/v1/fleet-actions", JsonHelper.ToJsonContent(new FleetActionUpsertRequest { Name = "bounded", CommandText = "echo", RequiredTools = new() { "git" } }));
+                AssertStatusCode(HttpStatusCode.Created, create);
+                FleetAction action = await JsonHelper.DeserializeAsync<FleetAction>(create);
+                HttpResponseMessage update = await _AdminA.PutAsync("/api/v1/fleet-actions/" + action.Id, JsonHelper.ToJsonContent(new FleetActionUpsertRequest { RequiredTools = tools }));
+                await AssertLimitAsync(update, "RequiredTools", 256, 257);
+                FleetAction? unchanged = await JsonHelper.DeserializeAsync<FleetAction>(await _AdminA.GetAsync("/api/v1/fleet-actions/" + action.Id));
+                AssertEqual(1, unchanged!.RequiredTools.Count, "a rejected update changes nothing");
+
+                Dictionary<string, string> values = Enumerable.Range(0, 257).ToDictionary(i => "k" + i, i => "v");
+                HttpResponseMessage tooManyValuesRun = await _AdminA.PostAsync("/api/v1/fleet-actions/" + action.Id + "/run", JsonHelper.ToJsonContent(new FleetActionRunRequest { VesselIds = new() { _VesselAId }, InputValues = values }));
+                await AssertLimitAsync(tooManyValuesRun, "InputValues", 256, 257);
+                List<string> vessels = Enumerable.Range(0, 1001).Select(i => "vsl_missing" + i).ToList();
+                HttpResponseMessage tooManyVessels = await _AdminA.PostAsync("/api/v1/fleet-actions/" + action.Id + "/run", JsonHelper.ToJsonContent(new FleetActionRunRequest { VesselIds = vessels }));
+                await AssertLimitAsync(tooManyVessels, "VesselIds", 1000, 1001);
+            }));
+
+            cases.Add(CaseAsync("collection_limits_mcp", "MCP create, update and run reject oversized lists with InvalidArgument and Code CollectionLimitExceeded", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                using McpToolClient client = new("http://127.0.0.1:" + fx.McpPort + "/mcp", null, new Dictionary<string, string> { ["Authorization"] = _AdminA!.DefaultRequestHeaders.Authorization!.ToString() });
+                await client.InitializeAsync();
+                string[] tools = Enumerable.Range(0, 257).Select(i => "tool" + i).ToArray();
+                McpToolCallResult create = await client.CallToolResultAsync("create_fleet_action", JsonHelper.Serialize(new { name = "mcp many tools", kind = "Command", commandText = "echo", requiredTools = tools }));
+                AssertMcpLimit(create, "RequiredTools");
+                McpToolCallResult ok = await client.CallToolResultAsync("create_fleet_action", JsonHelper.Serialize(new { name = "mcp bounded", kind = "Command", commandText = "echo" }));
+                FleetAction action = JsonHelper.Deserialize<FleetAction>(ok.Text);
+                McpToolCallResult update = await client.CallToolResultAsync("update_fleet_action", JsonHelper.Serialize(new { actionId = action.Id, requiredTools = tools }));
+                AssertMcpLimit(update, "RequiredTools");
+                McpToolCallResult run = await client.CallToolResultAsync("run_fleet_action", JsonHelper.Serialize(new { actionId = action.Id, vesselIds = Enumerable.Range(0, 1001).Select(i => "vsl_missing" + i).ToArray() }));
+                AssertMcpLimit(run, "VesselIds");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Fleet Action API",
@@ -233,6 +279,25 @@ namespace Test.Shared.Suites.E2E
         #endregion
 
         #region Private-Methods
+
+        private static async Task AssertLimitAsync(HttpResponseMessage response, string field, int limit, long actual)
+        {
+            AssertStatusCode(HttpStatusCode.BadRequest, response);
+            string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            CollectionLimitErrorDetail? detail = JsonHelper.Deserialize<E2eLimitErrorBody>(body).Data;
+            AssertNotNull(detail, "limit detail: " + body);
+            AssertEqual(CollectionLimitExceededException.ErrorCode, detail!.Code, "typed limit code: " + body);
+            AssertEqual(field, detail.Field, "field");
+            AssertEqual(limit, detail.Limit, "limit");
+            AssertEqual(actual, detail.Actual, "actual");
+        }
+
+        private static void AssertMcpLimit(McpToolCallResult result, string field)
+        {
+            AssertContains("InvalidArgument", result.Text);
+            AssertContains(CollectionLimitExceededException.ErrorCode, result.Text);
+            AssertContains(field, result.Text);
+        }
 
         private static async Task<TenantMetadata> CreateTenantAsync(HttpClient adminClient, string label)
         {

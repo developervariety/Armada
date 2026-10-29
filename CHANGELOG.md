@@ -10,6 +10,29 @@ All notable changes to Armada are documented in this file.
 - After building and verifying both Harbor DMGs, `build-harbor-app.sh` installs the native app into `~/Applications`, staging and signature-checking a fresh bundle before replacement. `--no-install` opts out, and `--no-build` remains verification-only.
 - Helm's NuGet tool package preserves battery fixture `.gitignore` and `.gitattributes` files instead of excluding them with NU5119 warnings. Installer verification checks every packaged framework for those files.
 
+### Bounded collections: merge queue, fleet actions, check runs, battery, stage outcomes, handoff artifacts
+
+Part of the bounded enumeration contract ([docs/ENUMERATION.md](docs/ENUMERATION.md)). Breaking shape changes:
+
+- `GET /api/v1/fleet-action-runs/{id}` and MCP `fleet_action_run_status` return `{ Run }` only; `Targets` is removed.
+  Page targets with `POST /api/v1/fleet-action-runs/{id}/targets/enumerate` or MCP `enumerate` (`fleet_action_run_target`).
+  The Helm `action status` command, the TUI re-run action and the dashboard page every target page explicitly.
+- `GET /api/v1/battery/runs/{id}` and MCP `get_battery_run` no longer embed `Results`. New: `GET /api/v1/battery/runs/{id}/results`,
+  `POST /api/v1/battery/runs/{id}/results/enumerate` and MCP `list_battery_results` (paged in the database in all four
+  providers; `Status` filters by outcome). Armada.Client adds `ListBatteryRunResultsAsync` and `EnumerateBatteryRunResultsAsync`.
+- `POST /api/v1/check-runs/sync/github-actions` returns `CheckRunIds` instead of embedded `CheckRuns`, reads one GitHub
+  page (`RunCount` 1-100, new `PageNumber`) and reports `SourceTotalCount`, `SourceTotalPages`, `FetchedCount` and `FilteredOutCount`.
+- Limits (REST 400 / MCP `InvalidArgument`, `Code` `CollectionLimitExceeded`): merge purge `EntryIds` (1000); fleet action
+  `RequiredTools`, `Inputs`, each input's `AllowedValues` and run `InputValues` (256), run `VesselIds` (1000; the per-run
+  target maximum is now at most 1000, was 5000); check-run import `Artifacts` and workflow `ExpectedArtifacts` used by a
+  check run (256); battery run `Packs` (256); failure-cause rule `Match` lists (256).
+- Battery packs are paged from disk (only the page's manifests are read), ordered by pack directory name. A manifest list
+  over 256 entries makes the pack malformed; `BatteryPackInfo` adds `TaskCount` and `ToolchainCount`, and `Errors` holds at
+  most 256. Seeded-set grading stores the first 256 false positives and adds `FalsePositiveCount`.
+- Failure-cause rules are paged in the database (all four providers) instead of loaded whole.
+- Handoff artifacts bound `Findings`, `AcceptanceCriteria` and `CompletionLines` to 256 entries at build time, ending a
+  longer list with a marker entry that names the omitted count.
+
 ### Handoff and landing integrity
 
 - Final landing verifies the integrated commit on the owning host and publishes that exact SHA. Failed, timed-out, unavailable or mutating checks refuse publication; merge-queue passes and explicit skips now have durable receipts with commit, command, exit code and timestamps. Armada additionally runs focused integration suites even with a smoke-only workflow profile.

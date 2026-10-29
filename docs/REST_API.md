@@ -284,7 +284,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/model-probe-runs` | GET, POST `.../enumerate`; `GET .../{id}` | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
 | `/api/v1/battery/packs` | GET, POST `.../enumerate` | Authenticated | Any signed-in person. Captain sessions get `403` |
 | `/api/v1/battery/runs` | POST | TenantAdmin | Global admin, or a tenant admin of the captain's tenant (`404` for another tenant's captain). Captain sessions get `403` |
-| `/api/v1/battery/runs/{id}` | GET | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
+| `/api/v1/battery/runs/{id}`, `/api/v1/battery/runs/{id}/results`, POST `/api/v1/battery/runs/{id}/results/enumerate` | GET | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
 | `/api/v1/ask/threads/{id}/cli-permission-policy` | PUT | Authenticated | Thread owner only (`404` otherwise); `Bypass` requires a global or tenant admin (`403`) |
 | `/api/v1/push/devices`, `/api/v1/push/devices/enumerate` | POST | Authenticated | Register for yourself (captain sessions get `403`); enumerate your own devices, or (`userId`) another user's as a tenant admin of their tenant or a global admin (`403` otherwise) |
 | `/api/v1/push/devices/{id}` | PUT, DELETE | Authenticated | Owner, tenant admins of the device's tenant, global admins; `404` otherwise (also `POST .../test`) |
@@ -4372,9 +4372,9 @@ Captain sessions (mission- and thread-scoped tokens) are refused (`403`).
 | PUT | `/api/v1/stage-outcomes/{id}/cause` | `StageOutcomeClassifyRequest` (`Cause`, `Note`) | `200` `StageOutcome` with `CauseSource` `Manual`, `ClassifiedByUserId` the caller, `ClassifiedUtc` now; rules never overwrite a manual cause. A null `Cause` clears the manual cause and re-applies the rules. `400` for `Cause` `None`; `404` |
 | POST | `/api/v1/stage-outcomes/{id}/rule` | | `200` an **unsaved** `FailureCauseRule` drafted from the outcome: its `Cause` and `TenantId`, `Priority` 5 (ahead of the built-ins), and a `Match` on its failure kind, runtime failure kind, stage-check status and reason, disposition, and persona. Nothing is stored: edit the draft and `POST` it to `/api/v1/failure-cause-rules`. `404`; `409` when the outcome's cause is `None` |
 | POST | `/api/v1/stage-outcomes/reclassify` | `StageOutcomeQuery` (optional; paging ignored) | `200` `StageOutcomeReclassifyResult` (`Examined`, `Changed`, `SkippedManual`); `400`; `403` not an admin |
-| GET | `/api/v1/failure-cause-rules` | | `200` `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name). Query: `pageNumber`, `pageSize` (1-1000, default 10) |
+| GET | `/api/v1/failure-cause-rules` | | `200` `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name, then id), paged in the database. Query: `pageNumber`, `pageSize` (1-1000, default 10) |
 | POST | `/api/v1/failure-cause-rules/enumerate` | `EnumerationQuery` (optional): `PageNumber`, `PageSize` (1-1000, default 10) | `200` `EnumerationResult<FailureCauseRule>` in evaluation order, the same page as the GET; querystring paging overrides the body |
-| POST | `/api/v1/failure-cause-rules` | `FailureCauseRule` (`Name`, `Description`, `Priority`, `Enabled`, `Match`, `Cause`; `TenantId` for global admins) | `201` `FailureCauseRule` (`IsBuiltIn` false, `CreatedByUserId` the caller); `400` invalid; `409` duplicate name |
+| POST | `/api/v1/failure-cause-rules` | `FailureCauseRule` (`Name`, `Description`, `Priority`, `Enabled`, `Match`, `Cause`; `TenantId` for global admins). Each `Match` list holds at most 256 entries | `201` `FailureCauseRule` (`IsBuiltIn` false, `CreatedByUserId` the caller); `400` invalid (a `Match` list over 256 is `400` with `Data.Code` `CollectionLimitExceeded`, also on update); `409` duplicate name |
 | GET | `/api/v1/failure-cause-rules/{id}` | | `200` `FailureCauseRule`; `404` when missing or another tenant's |
 | PUT | `/api/v1/failure-cause-rules/{id}` | `FailureCauseRule` | `200` `FailureCauseRule`: replaces `Name`, `Description`, `Priority`, `Enabled`, `Match`, `Cause` (`TenantId` and `IsBuiltIn` are fixed); `400`; `403`; `404`; `409` |
 | DELETE | `/api/v1/failure-cause-rules/{id}` | | `204`; `403`; `404` |
@@ -4411,7 +4411,12 @@ attempt's exit has been handled, linked to its stage outcome (`StageOutcomeId`),
 `RequiredActions`, `CheckResults` (`StageCheckResult`: passed, failed, skipped with a reason, could not run),
 `CommitReferences` (the produced commit first), `CompletionLines` (the `[ARMADA:...]` protocol lines), the full `Output`
 and `Diff` (up to 1,000,000 characters each; a longer one is not stored, `OutputComplete`/`DiffComplete` are false and
-`OutputLength`/`DiffLength` keep the size) and `DiffPointer` (where to regenerate the diff).
+`OutputLength`/`DiffLength` keep the size) and `DiffPointer` (where to regenerate the diff). `Findings`,
+`AcceptanceCriteria` and `CompletionLines` come from agent output and the task description, so they are bounded when
+the artifact is built: each holds at most 256 entries, and a longer list keeps its first 255 and ends with one marker
+entry that names how many more there were (a `CompletionLines` marker starts with `[ARMADA:TRUNCATED]`). The verdict
+and `RequiredActions` (at most 8) are decided from the full lists; `CheckResults` holds at most 1 and
+`CommitReferences` at most 20.
 
 When the next stage launches, Armada renders the prior stage's artifact for that captain within a token budget: one
 eighth of the captain's served context when its model endpoint sets a context length, otherwise the `handoffBudgetTokens`
@@ -4499,13 +4504,16 @@ and `Evaluation.BatteryTaskTimeoutMinutes` (default 60) bounds each task's missi
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/api/v1/battery/packs` | | `200` `EnumerationResult<BatteryPackInfo>` ordered by id: `Id`, `Version`, `Valid`, `Errors` (validation errors of a malformed manifest), `Toolchain`, `Tasks` (`Id`, `Persona`, `Grader`, `Toolchain`), `ManifestHash`. Query: `pageNumber`, `pageSize` (default 100) |
-| POST | `/api/v1/battery/packs/enumerate` | `EnumerationQuery` (optional): `PageNumber`, `PageSize` (1-1000, default 10) | `200` `EnumerationResult<BatteryPackInfo>` ordered by id, the same page as the GET; querystring paging overrides the body |
-| POST | `/api/v1/battery/runs` | `BatteryRunRequest`: `Packs` (required), `CaptainId` (required), `RunCount` (1-10, default 3), `Seed` (optional), `CreateFixtureVessel` (default false) | `201` `BatteryRun` (queued; the tasks run in the background); `400` for no packs, an unknown or malformed pack, a bad run count, or a missing fixture vessel without `CreateFixtureVessel`; `403` not an admin; `404` unknown captain |
-| GET | `/api/v1/battery/runs/{id}` | | `200` `BatteryRun` with `Results`, one per task attempt: `PackId`, `TaskId`, `Persona`, `Grader`, `Attempt`, `Outcome` (`Passed`/`Failed`/`CouldNotRun`/`PendingEvaluation`), `Score`, `Summary`, `Reason`, `Details` (commands, files, mutants, matched/missed seeded items, false positives, verdict, schema error, rubric), `Output`, `VoyageId`, `MissionId`, `FixtureCommit`; `404` |
+| GET | `/api/v1/battery/packs` | | `200` `EnumerationResult<BatteryPackInfo>` ordered by pack directory name (only the page's manifests are read): `Id`, `Version`, `Valid`, `Errors` (validation errors of a malformed manifest, at most 256), `Toolchain`, `ToolchainCount`, `Tasks` (`Id`, `Persona`, `Grader`, `Toolchain`), `TaskCount`, `ManifestHash`. Every list in a manifest holds at most 256 entries; a manifest with more is malformed, and its info lists the first 256 with the true count. Query: `pageNumber`, `pageSize` (default 100) |
+| POST | `/api/v1/battery/packs/enumerate` | `EnumerationQuery` (optional): `PageNumber`, `PageSize` (1-1000, default 10) | `200` `EnumerationResult<BatteryPackInfo>`, the same page as the GET; querystring paging overrides the body |
+| POST | `/api/v1/battery/runs` | `BatteryRunRequest`: `Packs` (required, at most 256), `CaptainId` (required), `RunCount` (1-10, default 3), `Seed` (optional), `CreateFixtureVessel` (default false) | `201` `BatteryRun` (queued; the tasks run in the background); `400` for no packs, an unknown or malformed pack, a bad run count, or a missing fixture vessel without `CreateFixtureVessel`; `403` not an admin; `404` unknown captain |
+| GET | `/api/v1/battery/runs/{id}` | | `200` `BatteryRun` with its outcome counts (`TotalTasks`, `PassedCount`, `FailedCount`, `CouldNotRunCount`, `PendingEvaluationCount`). The per-task results are not embedded; page them with the routes below. `404` |
+| GET | `/api/v1/battery/runs/{id}/results` | | `200` `EnumerationResult<BatteryTaskResult>` paged in the database, one per task attempt: `PackId`, `TaskId`, `Persona`, `Grader`, `Attempt`, `Outcome` (`Passed`/`Failed`/`CouldNotRun`/`PendingEvaluation`), `Score`, `Summary`, `Reason`, `Details` (commands, files, mutants, matched/missed seeded items, the first 256 false positives with `FalsePositiveCount`, verdict, schema error, rubric), `Output`, `VoyageId`, `MissionId`, `FixtureCommit`. Query: `pageNumber`, `pageSize` (1-1000, default 10), `status` (outcome filter), `order` (`CreatedDescending` default, `CreatedAscending`); `400` unknown outcome; `404` |
+| POST | `/api/v1/battery/runs/{id}/results/enumerate` | `EnumerationQuery` (optional): `PageNumber`, `PageSize`, `Order`, `Status` (outcome) | `200` the same page as the GET; querystring values override the body |
 
 A run is `Failed` only when the run itself could not finish (for example the Admiral restarted while it ran). Poll
-`GET /api/v1/battery/runs/{id}` until `Status` is `Completed` or `Failed`.
+`GET /api/v1/battery/runs/{id}` until `Status` is `Completed` or `Failed`, then page
+`GET /api/v1/battery/runs/{id}/results`.
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/battery/runs \
@@ -5195,7 +5203,7 @@ Permanently delete a single terminal merge queue entry from the database. Only e
 
 #### `POST /api/v1/merge-queue/purge`
 
-Batch purge multiple terminal merge queue entries from the database by ID. Returns a summary of purged and skipped entries. **This cannot be undone.**
+Batch purge multiple terminal merge queue entries from the database by ID. Returns a summary of purged and skipped entries. **This cannot be undone.** `EntryIds` holds at most 1000 ids; more is `400` with `Data.Code` `CollectionLimitExceeded` and nothing is purged, so `Skipped` holds at most 1000 entries.
 
 **Permission:** TenantAdmin
 
@@ -5564,9 +5572,11 @@ Create an action. Command kind requires tenant admin.
 | `TimeoutSeconds` | int | Default `FleetActions.DefaultTimeoutSeconds`; clamped 5-7200 |
 | `DefaultConcurrency` | int | Default 4; clamped 1-32 |
 | `RequiresCleanWorkingTree` | bool | Default `true` for Command, `false` for Mission |
+| `RequiredTools` | string[] | Executable names; at most 256 |
+| `Inputs` | `FleetActionInput[]` | Typed runtime inputs; at most 256, each `AllowedValues` at most 256 |
 
 - Response: `201 Created` - `FleetAction`
-- Errors: `400`, `403`. A command or prompt template that uses an unknown template variable is `400` with `Data: {"Code": "UnknownTemplateVariable", "VariableName": "<name>"}` (also on update and ad-hoc runs; MCP returns `Code` `UnknownTemplateVariable`).
+- Errors: `400`, `403`. A list over its limit (on create, update and ad hoc runs) is `400` with `Data: {"Code": "CollectionLimitExceeded", "Field", "Limit", "Actual"}` (MCP `InvalidArgument`, `Code` `CollectionLimitExceeded`). A command or prompt template that uses an unknown template variable is `400` with `Data: {"Code": "UnknownTemplateVariable", "VariableName": "<name>"}` (also on update and ad-hoc runs; MCP returns `Code` `UnknownTemplateVariable`).
 
 #### GET /api/v1/fleet-actions/{id}
 
@@ -5612,7 +5622,8 @@ Start a run of a saved action. Every vessel is re-read with the tenant-scoped re
 
 | Field | Type | Notes |
 |---|---|---|
-| `VesselIds` | string[] | Required; 1-500 after de-duplication |
+| `VesselIds` | string[] | Required; 1-500 after de-duplication; more than 1000 entries is `400` `CollectionLimitExceeded` |
+| `InputValues` | object | Values for the action's `Inputs`; at most 256 entries |
 | `Concurrency` | int | Optional; defaults to the action's `DefaultConcurrency`; clamped 1-32 |
 | `Overrides.TimeoutSeconds` | int | Optional; clamped 5-7200 |
 | `Overrides.RequiresCleanWorkingTree` | bool | Optional; Command only |
@@ -5663,22 +5674,14 @@ Paged runs, newest first. `Status` filters by run status (`Pending`, `Running`, 
 
 #### GET /api/v1/fleet-action-runs/{id}
 
-Run plus summaries of every target, ordered by creation. No output text.
+The run with its target counts. Targets are not embedded (see [ENUMERATION.md](ENUMERATION.md)): page them with
+`POST /api/v1/fleet-action-runs/{id}/targets/enumerate`.
 
 **Permission:** Authenticated
 
 ```json
 {
-  "Run": { "Id": "far_...", "ActionName": "Build", "Kind": "Command", "Status": "Running", "TargetCount": 3, "SucceededCount": 1, "FailedCount": 0, "SkippedCount": 1, "CancelledCount": 0, "...": "..." },
-  "Targets": [
-    {
-      "Id": "fat_...", "RunId": "far_...", "VesselId": "vsl_...", "VesselName": "api",
-      "Status": "Succeeded", "SkipReason": null, "FailureReason": null, "ExitCode": 0,
-      "OutputTruncated": false, "OutputLength": 1834, "ErrorLength": 0, "RenderedLength": 18,
-      "VoyageId": null, "StartedUtc": "2026-10-03T20:00:00Z", "CompletedUtc": "2026-10-03T20:00:04Z",
-      "DurationMs": 4021, "CreatedUtc": "...", "LastUpdateUtc": "..."
-    }
-  ]
+  "Run": { "Id": "far_...", "ActionName": "Build", "Kind": "Command", "Status": "Running", "TargetCount": 3, "SucceededCount": 1, "FailedCount": 0, "SkippedCount": 1, "CancelledCount": 0, "...": "..." }
 }
 ```
 
@@ -5686,7 +5689,17 @@ Run plus summaries of every target, ordered by creation. No output text.
 
 #### POST /api/v1/fleet-action-runs/{id}/targets/enumerate
 
-Paged target summaries (same shape as `Targets` above).
+Paged target summaries, ordered by creation. No output text.
+
+```json
+{
+  "Id": "fat_...", "RunId": "far_...", "VesselId": "vsl_...", "VesselName": "api",
+  "Status": "Succeeded", "SkipReason": null, "FailureReason": null, "ExitCode": 0,
+  "OutputTruncated": false, "OutputLength": 1834, "ErrorLength": 0, "RenderedLength": 18,
+  "VoyageId": null, "StartedUtc": "2026-10-03T20:00:00Z", "CompletedUtc": "2026-10-03T20:00:04Z",
+  "DurationMs": 4021, "CreatedUtc": "...", "LastUpdateUtc": "..."
+}
+```
 
 **Permission:** Authenticated
 
@@ -7717,8 +7730,9 @@ Import an externally executed or provider-hosted check run into Armada history.
 }
 ```
 
-- Request body: `CheckRunImportRequest`: `VesselId` (required), `WorkflowProfileId`, `MissionId`, `VoyageId`, `DeploymentId`, `Type`, `Status`, `ProviderName`, `ExternalId`, `ExternalUrl`, `EnvironmentName`, `Label`, `BranchName`, `CommitHash`, `Command`, `Summary`, `Output`, `ExitCode`, `TestSummary`, `CoverageSummary`, `Artifacts`, `DurationMs`, `StartedUtc`, `CompletedUtc`
+- Request body: `CheckRunImportRequest`: `VesselId` (required), `WorkflowProfileId`, `MissionId`, `VoyageId`, `DeploymentId`, `Type`, `Status`, `ProviderName`, `ExternalId`, `ExternalUrl`, `EnvironmentName`, `Label`, `BranchName`, `CommitHash`, `Command`, `Summary`, `Output`, `ExitCode`, `TestSummary`, `CoverageSummary`, `Artifacts` (at most 256), `DurationMs`, `StartedUtc`, `CompletedUtc`
 - Response: `201 Created` - `CheckRun`
+- Errors: `400` with `Data.Code` `CollectionLimitExceeded` when `Artifacts` holds more than 256 entries. A run started by Armada collects one artifact per workflow profile `ExpectedArtifacts` entry; a profile with more than 256 is rejected before the check runs.
 
 #### POST /api/v1/check-runs/sync/github-actions
 
@@ -7738,12 +7752,13 @@ Credential resolution order:
   "DeploymentId": "dep_ghi789",
   "EnvironmentName": "staging",
   "BranchName": "main",
-  "RunCount": 10
+  "RunCount": 10,
+  "PageNumber": 1
 }
 ```
 
-- Request body: `GitHubActionsSyncRequest`
-- Response: `200 OK` - `GitHubActionsSyncResult`
+- Request body: `GitHubActionsSyncRequest`. `RunCount` is the GitHub page size (normalized to 1-100) and `PageNumber` the GitHub page (newest first, default 1); one call imports one page.
+- Response: `200 OK` - `GitHubActionsSyncResult`: `ProviderName`, `VesselId`, `DeploymentId`, `CreatedCount`, `UpdatedCount`, `PageNumber`, `PageSize`, `SourceTotalCount` (GitHub's `total_count` for the branch, status and commit filters), `SourceTotalPages`, `FetchedCount` (runs on the page), `FilteredOutCount` (runs on the page that did not match `WorkflowName` or `CommitHash`), and `CheckRunIds` (the imported runs, at most 100; read them with `GET /api/v1/check-runs/{id}`). The result no longer embeds the check runs.
 - Notes:
   - Imported runs are normalized into `CheckRun` records with `Source = External` and `ProviderName = GitHubActions`
   - When `DeploymentId` is supplied, synced runs are linked back to that deployment

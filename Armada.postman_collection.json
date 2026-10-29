@@ -257,6 +257,12 @@
             "description": "Fleet action run ID (far_ prefix)."
         },
         {
+            "key": "batteryRunId",
+            "value": "",
+            "type": "string",
+            "description": "Battery run ID (bat_ prefix)."
+        },
+        {
             "key": "targetId",
             "value": "",
             "type": "string",
@@ -4244,7 +4250,39 @@
                                 "enumerate"
                             ]
                         },
-                        "description": "One page of the fixture battery packs the Admiral found, ordered by id. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10). Captain sessions get 403."
+                        "description": "One page of the fixture battery packs the Admiral found, ordered by pack directory name. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10). Captain sessions get 403."
+                    }
+                },
+                {
+                    "name": "Enumerate Battery Run Results",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Order\": \"CreatedAscending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/battery/runs/{{batteryRunId}}/results/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "battery",
+                                "runs",
+                                "{{batteryRunId}}",
+                                "results",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of a battery run's per-task results, paged in the database. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10, Order, Status as the outcome filter). The run read no longer embeds results."
                     }
                 },
                 {
@@ -6138,7 +6176,7 @@
                                 "purge"
                             ]
                         },
-                        "description": "Batch purge multiple terminal merge queue entries by ID. Returns a summary of purged and skipped entries."
+                        "description": "Batch purge multiple terminal merge queue entries by ID (at most 1000; more is 400 CollectionLimitExceeded). Returns a summary of purged and skipped entries."
                     },
                     "response": [
                         {
@@ -6912,7 +6950,7 @@
                                 "{{runId}}"
                             ]
                         },
-                        "description": "Run with target summaries (no output)."
+                        "description": "The run with its target counts. Targets are not embedded: page them with Enumerate Run Targets."
                     }
                 },
                 {
@@ -10478,10 +10516,10 @@
                                 "github-actions"
                             ]
                         },
-                        "description": "Pull recent GitHub Actions workflow runs into Armada check history. Saves the first synced check-run ID to checkRunId when present.",
+                        "description": "Pull one GitHub page of Actions workflow runs (RunCount 1 to 100 per page, PageNumber selects the page) into Armada check history. Returns counts, GitHub's total, and CheckRunIds. Saves the first synced check-run ID to checkRunId when present.",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"VesselId\": \"{{vesselId}}\",\n  \"WorkflowProfileId\": \"{{workflowProfileId}}\",\n  \"DeploymentId\": \"{{deploymentId}}\",\n  \"EnvironmentName\": \"staging\",\n  \"BranchName\": \"main\",\n  \"RunCount\": 10\n}"
+                            "raw": "{\n  \"VesselId\": \"{{vesselId}}\",\n  \"WorkflowProfileId\": \"{{workflowProfileId}}\",\n  \"DeploymentId\": \"{{deploymentId}}\",\n  \"EnvironmentName\": \"staging\",\n  \"BranchName\": \"main\",\n  \"RunCount\": 10,\n  \"PageNumber\": 1\n}"
                         }
                     },
                     "event": [
@@ -10491,9 +10529,8 @@
                                 "exec": [
                                     "if (pm.response.code === 200) {",
                                     "    const json = pm.response.json();",
-                                    "    if (json.CheckRuns && json.CheckRuns.length > 0) {",
-                                    "        const first = json.CheckRuns[0];",
-                                    "        pm.collectionVariables.set('checkRunId', first.Id || first.id);",
+                                    "    if (json.CheckRunIds && json.CheckRunIds.length > 0) {",
+                                    "        pm.collectionVariables.set('checkRunId', json.CheckRunIds[0]);",
                                     "    }",
                                     "}"
                                 ],
