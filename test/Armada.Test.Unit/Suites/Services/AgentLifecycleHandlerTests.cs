@@ -2657,7 +2657,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 : scenario == "natural-duplicate-role" ? "PortingReferenceAnalyst, TestEngineer, Judge and Judge"
                                 : "PortingReferenceAnalyst, TestEngineer, Linter and Judge";
                             string revising = scenario == "natural-malformed" ? ", and the additional Revising Worker stage;" : ", and the additional Revising Worker stage has not run;";
-                            string process = " only this Worker artifact exists, although the four checkouts show no tracked change and this report contains no copied body or restricted value.";
+                            string process = " only this Worker artifact exists, although the four checkouts show no tracked change and this report contains no vendor-body copy or restricted value.";
                             string criterion = "Criterion 3 is NOT MET because the current " + roles + " reviews have not run" + revising + process;
                             if (scenario == "natural-current-qualifier") criterion = "Criterion 3 is NOT MET because the current " + roles + " reviews have not run.";
                             if (scenario == "natural-two-clause") criterion = "Criterion 3 is NOT MET because the later reviews have not run, and the additional Revising Worker stage has not run.";

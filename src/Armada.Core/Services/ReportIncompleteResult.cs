@@ -69,7 +69,7 @@ namespace Armada.Core.Services
         private static readonly Regex _ProcessAssertion = new Regex(
             @"\A(?:only\s+this\s+[A-Za-z]+\s+(?:artifact|report)\s+exists"
             + @"|(?:the\s+)?(?:[A-Za-z]+\s+){0,2}(?:checkouts?|worktrees?)\s+shows?\s+no\s+(?:tracked\s+)?changes?"
-            + @"|this\s+report\s+contains\s+no\s+(?:(?:copied|vendor|restricted)\s+)?(?:bod(?:y|ies)|values?|cop(?:y|ies)|text)(?:\s+or\s+(?:(?:copied|vendor|restricted)\s+)?(?:bod(?:y|ies)|values?|cop(?:y|ies)|text))*)\z",
+            + @"|this\s+report\s+contains\s+no\s+(?:(?:copied|vendor|restricted|body)[\s-]+)*(?:bod(?:y|ies)|values?|cop(?:y|ies)|text)(?:\s+or\s+(?:(?:copied|vendor|restricted|body)[\s-]+)*(?:bod(?:y|ies)|values?|cop(?:y|ies)|text))*)\z",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
