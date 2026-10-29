@@ -33,7 +33,6 @@ namespace Armada.Core.Services.Ask
             // Status and enumeration
             "status",
             "enumerate",
-            "inbox",
             "voyage_status",
             "mission_status",
             "fleet_action_run_status",
@@ -42,9 +41,7 @@ namespace Armada.Core.Services.Ask
             "token_usage_summary",
             "search_memory",
             "evaluate_autoland",
-            "list_cli_permission_requests",
             "get_cli_permission_request",
-            "list_cli_permission_rules",
 
             // get_* readers
             "get_backlog_item",
@@ -72,12 +69,18 @@ namespace Armada.Core.Services.Ask
             "get_runbook",
             "get_runbook_execution",
             "get_vessel",
+            "get_workflow_profile",
 
             // list_* readers
             "list_backlog",
             "list_backlog_refinement_sessions",
             "list_objectives",
             "list_prompt_templates",
+
+            // Workflow profile readers (validate only checks a definition, it saves nothing)
+            "validate_workflow_profile",
+            "resolve_workflow_profile",
+            "preview_workflow_profile",
 
             // Ask Armada readers
             "list_ask_threads",

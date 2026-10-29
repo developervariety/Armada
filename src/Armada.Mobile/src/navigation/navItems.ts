@@ -4,9 +4,10 @@ import type { TabKey } from './routeTypes';
 
 /**
  * The mobile navigation, built from the dashboard's shared nav model (lib/navModel.ts) so both clients list the
- * same destinations in the same groups: Ask, Approvals, Notifications, then OPERATIONS, DELIVERY, BUILD,
- * CONFIGURATION, ACTIVITY, SYSTEM. Phones split the sections over the Work and More tabs; tablets show them all in
- * the sidebar.
+ * same destinations in the same groups: Ask, Approvals, Notifications, then OPERATIONS (with Activity), BUILD (with
+ * Delivery), CONFIGURATION, SYSTEM. Phones split the sections over the Work and More tabs; tablets show them all in
+ * the sidebar. Jobs, Planning, Storage, and CLI Tool Permissions are hub tabs (Activity, Dispatch, Settings), not
+ * nav items.
  */
 export interface MobileNavItem {
   key: string;
@@ -78,10 +79,8 @@ export const NAV_SECTIONS: MobileNavSection[] = navModelSections.map(fromSection
 /** Which phone tab lists each section (Work: day-to-day operations; More: setup and administration). */
 export const SECTION_TAB: Record<string, TabKey> = {
   operations: 'work',
-  delivery: 'work',
   fleet: 'work',
   configuration: 'more',
-  activity: 'more',
   system: 'more',
 };
 

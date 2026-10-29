@@ -122,7 +122,6 @@ namespace Armada.Server.Mcp
             if (register == null) throw new ArgumentNullException(nameof(register));
             register = MapToolExceptions(MarkExperimental(register));
             McpStatusTools.Register(register, admiral, onStop, stopServerUnavailableMessage);
-            if (logging != null) McpInboxTools.Register(register, database, logging, settings);
             McpEnumerateTools.Register(register, database, mergeQueue, logging != null ? new InboxService(database, logging, settings) : null, cliPermissionService);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService, vesselService, settings, admiral);
@@ -145,6 +144,7 @@ namespace Armada.Server.Mcp
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
+            McpWorkflowProfileTools.Register(register, logging != null ? new WorkflowProfileAccessService(database, new WorkflowProfileService(database, logging)) : null);
             if (logging != null) McpMemoryTools.Register(register, database, logging);
             if (settings != null) McpBackupTools.Register(register, database, settings);
             if (modelEndpointService != null) McpModelEndpointTools.Register(register, modelEndpointService);
@@ -156,6 +156,7 @@ namespace Armada.Server.Mcp
             McpAskTools.Register(register, askThreads, askTurns, askActions);
             McpMissionReviewTools.Register(register, database, missionService);
             McpStageOutcomeTools.Register(register, stageOutcomes);
+            McpHandoffArtifactTools.Register(register, new HandoffArtifactAccessService(database));
             McpModelProbeTools.Register(register, modelProbes);
             McpBatteryTools.Register(register, battery);
         }
@@ -211,7 +212,6 @@ namespace Armada.Server.Mcp
             }
 
             RegisterCatalogGroup("Armada MCP / Status", register => McpStatusTools.Register(register, admiral, onStop));
-            if (logging != null) RegisterCatalogGroup("Armada MCP / Inbox", register => McpInboxTools.Register(register, database, logging, settings));
             RegisterCatalogGroup("Armada MCP / Enumeration", register => McpEnumerateTools.Register(register, database, mergeQueue, logging != null ? new InboxService(database, logging, settings) : null, cliPermissionService));
             RegisterCatalogGroup("Armada MCP / Fleets", register => McpFleetTools.Register(register, database));
             RegisterCatalogGroup("Armada MCP / Vessels", register => McpVesselTools.Register(register, database, dockService, vesselService, settings, admiral));
@@ -235,6 +235,7 @@ namespace Armada.Server.Mcp
             if (templateService != null) RegisterCatalogGroup("Armada MCP / Prompt Templates", register => McpPromptTemplateTools.Register(register, database, templateService));
             RegisterCatalogGroup("Armada MCP / Personas", register => McpPersonaTools.Register(register, database));
             RegisterCatalogGroup("Armada MCP / Pipelines", register => McpPipelineTools.Register(register, database));
+            RegisterCatalogGroup("Armada MCP / Workflow Profiles", register => McpWorkflowProfileTools.Register(register, null));
             if (logging != null) RegisterCatalogGroup("Armada MCP / Memory", register => McpMemoryTools.Register(register, database, logging));
             if (settings != null) RegisterCatalogGroup("Armada MCP / Backup", register => McpBackupTools.Register(register, database, settings));
             if (modelEndpointService != null) RegisterCatalogGroup("Armada MCP / Model Endpoints", register => McpModelEndpointTools.Register(register, modelEndpointService));
@@ -245,6 +246,7 @@ namespace Armada.Server.Mcp
             RegisterCatalogGroup("Armada MCP / Ask Armada", register => McpAskTools.Register(register, null, null, null));
             RegisterCatalogGroup("Armada MCP / Review Gates", register => McpMissionReviewTools.Register(register, database, null));
             RegisterCatalogGroup("Armada MCP / Stage Outcomes", register => McpStageOutcomeTools.Register(register, null));
+            RegisterCatalogGroup("Armada MCP / Handoff Artifacts", register => McpHandoffArtifactTools.Register(register, null));
             RegisterCatalogGroup("Armada MCP / Evaluate", register => McpModelProbeTools.Register(register, null));
             RegisterCatalogGroup("Armada MCP / Battery", register => McpBatteryTools.Register(register, null));
 

@@ -68,6 +68,9 @@ export default function VesselFormModal({ vessel, fleets, pipelines, onClose, on
     dod: t('Run the build and test commands below inside the mission worktree before the mission is accepted. A failure, or a timeout, blocks acceptance and records the reason. Off by default.'),
     buildCmd: t('Shell command that builds the project in the mission worktree, e.g. dotnet build or npm run build. A non-zero exit blocks acceptance as a compile failure. Blank skips the build step.'),
     testCmd: t('Shell command that runs the unit tests in the mission worktree, e.g. dotnet test or npm test. A non-zero exit blocks acceptance as a test failure. Blank skips the test step.'),
+    testOverride: t('Command fleet actions run for the Test intent on this vessel. Overrides the repo script and the detected ecosystem default. Blank uses detection.'),
+    lintOverride: t('Command fleet actions run for the Lint intent on this vessel. Overrides the repo script and the detected ecosystem default. Blank uses detection.'),
+    auditOverride: t('Command fleet actions run for the Audit intent on this vessel. Overrides the repo script and the detected ecosystem default. Blank uses detection.'),
     timeout: t('Time limit in seconds for each of the build and test commands, from 30 to 7200. Blank uses 1800 (30 minutes). Going over counts as a timeout failure.'),
     projectContext: t('What this project is: purpose, architecture, key files and dependencies. Added to every captain prompt for this vessel, so keep it accurate and concise.'),
     styleGuide: t('Coding rules captains must follow here: naming, patterns, language restrictions, preferred libraries. Added to every captain prompt for this vessel.'),
@@ -93,7 +96,7 @@ export default function VesselFormModal({ vessel, fleets, pipelines, onClose, on
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <form className="modal" aria-label={editing ? t('Edit Vessel') : t('Create Vessel')} style={{ width: 'min(1080px, 95vw)', maxWidth: 'min(1080px, 95vw)', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+      <form className="modal" aria-label={editing ? t('Edit Vessel') : t('Create Vessel')} style={{ width: '95vw', maxWidth: '95vw', height: '95vh', maxHeight: '95vh', overflowY: 'auto', boxSizing: 'border-box' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
         <h3>{editing ? t('Edit Vessel') : t('Create Vessel')}</h3>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1.5rem' }}>
@@ -278,6 +281,22 @@ export default function VesselFormModal({ vessel, fleets, pipelines, onClose, on
               <input title={tip.timeout} type="number" min={30} max={7200} value={form.definitionOfDoneTimeoutSeconds} onChange={e => setForm({ ...form, definitionOfDoneTimeoutSeconds: e.target.value })} placeholder="1800" />
             </label>
           </div>
+        </div>
+
+        {/* Fleet action command overrides (Test, Lint, Audit intents) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1.5rem', marginBottom: '0.5rem' }}>
+          <label style={columnLabelStyle} title={tip.testOverride}>
+            {t('Test Command Override')}
+            <input title={tip.testOverride} value={form.testCommand} onChange={e => setForm({ ...form, testCommand: e.target.value })} placeholder={t('e.g. make test')} />
+          </label>
+          <label style={columnLabelStyle} title={tip.lintOverride}>
+            {t('Lint Command Override')}
+            <input title={tip.lintOverride} value={form.lintCommand} onChange={e => setForm({ ...form, lintCommand: e.target.value })} placeholder={t('e.g. npm run lint')} />
+          </label>
+          <label style={columnLabelStyle} title={tip.auditOverride}>
+            {t('Audit Command Override')}
+            <input title={tip.auditOverride} value={form.auditCommand} onChange={e => setForm({ ...form, auditCommand: e.target.value })} placeholder={t('e.g. osv-scanner scan source -r .')} />
+          </label>
         </div>
 
         {/* Context */}
