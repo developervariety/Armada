@@ -44,7 +44,12 @@ Two more properties are not traits of intelligence but decide whether a model ca
   `num_ctx`); check what the endpoint actually serves, not the model card.
 - **Contract fidelity.** Armada reads structured output: the Architect's `[ARMADA:MISSION]` blocks, the Judge's
   `[ARMADA:VERDICT]` line and `## Affected Case` section, a Worker's commit and completion line. A model that
-  paraphrases instead of following the format fails these stages no matter how good its reasoning is.
+  paraphrases instead of following the format fails these stages no matter how good its reasoning is. Armada repairs
+  only what it can decide without guessing, and records each repair as a `mission.contract_repaired` event: a missing
+  or malformed `[ARMADA:RESULT] COMPLETE` line from a Worker or Test Engineer whose dock branch holds new work, work
+  left uncommitted (committed by Armada), exactly one Judge verdict written in a nearby form such as
+  `**[ARMADA:VERDICT] PASS**`, and exactly one valid plan outside a closed `armada-plan` fence. Two verdicts, an
+  ambiguous verdict, two plan blocks, or a stage with no completion line and nothing on its branch are not repaired.
 
 ## Hard requirements
 
@@ -52,13 +57,13 @@ Check these before judging quality. A model that fails one should not run a pers
 
 | Requirement | Needed by | How to check |
 |---|---|---|
-| Reliable tool calling through the captain's runtime | Every persona that edits files or runs commands (Worker, Usability Engineer, Test Engineer, Linter), and any persona on the ApiEndpoint, Mux, or OpenCode runtimes | The captain's Available Tools view in the dashboard shows what the runtime exposes. Then run one small mission and look for malformed tool calls and repetition loops in the mission log |
+| Reliable tool calling through the captain's runtime | Every persona that edits files or runs commands (Worker, Usability Engineer, Test Engineer, Linter), and any persona on the ApiEndpoint, Mux, OpenCode, or pi runtimes | The captain's Available Tools view in the dashboard shows what the runtime exposes. Then run one small mission and look for malformed tool calls and repetition loops in the mission log |
 | Context window that fits the vessel | Every persona; most of all the Architect and Judge, which read the most | Compare the endpoint's served context size with the vessel's project context length plus a typical diff |
 | Follows Armada's output contracts | Architect, Judge (strict); Worker (commit and completion line) | Run the persona once and check that Armada parsed the result: missions created, a verdict recorded, work produced |
 | Stops cleanly | Every persona | No iteration-limit hits and no runaway output on a small task |
 
 Armada's runtimes differ here. Claude Code, Codex, Gemini, and Cursor are vendor harnesses with their own tool loop
-tuned to their own models. ApiEndpoint, Mux, and OpenCode drive a model you choose through a generic tool loop, so
+tuned to their own models. ApiEndpoint, Mux, OpenCode, and pi drive a model you choose through a generic tool loop, so
 tool-calling reliability is the model's responsibility. Most tool-use failures seen so far were local models on Mux.
 
 ## Persona by persona
@@ -102,7 +107,8 @@ Worker. Usually the most frequent and most expensive stage.
 
 - **Matters most:** tool-calling reliability and coding accuracy equally, then staying on task over a long
   edit, build, and test loop, then speed. It must commit its work and print its completion line; a Worker that ends
-  with no commit is re-dispatched as a no-op.
+  with no commit and no completion line is re-dispatched as unfinished work. When the line is missing or malformed but
+  the branch holds new work, Armada inspects the repository and accepts the work instead of failing the stage.
 - **Failure looks like:** malformed tool calls, broken builds handed downstream, coordinated edits done halfway (the
   method written but never registered in the suite list), encoding and line-ending damage, stray backup files picked
   up by the leftover-work commit, never committing.
@@ -303,7 +309,7 @@ These help build a shortlist and explain behavior. Read them with care:
 | [Terminal-Bench](https://www.tbench.ai/leaderboard) | Completing tasks in a real terminal environment | Worker, Test Engineer, Linter | Closest to a captain working in a dock; scores are per agent and model pair |
 | [Aider leaderboards](https://aider.chat/docs/leaderboards/) | Editing existing code across several languages in a fixed edit loop (Polyglot) | Worker, Usability Engineer | Good signal for precise edits to existing files; languages do not include C# |
 | [LiveCodeBench](https://livecodebench.github.io/) | Code generation, self-repair, and execution on contest problems released after a date | Worker (rough signal) | Contamination-aware by release date; algorithmic problems, not repository work |
-| [Berkeley Function Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) | Tool and function calling, including multi-turn and agentic cases | Every tool-using persona; the hard requirement | The best public signal for whether a model can drive ApiEndpoint, Mux, or OpenCode |
+| [Berkeley Function Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) | Tool and function calling, including multi-turn and agentic cases | Every tool-using persona; the hard requirement | The best public signal for whether a model can drive ApiEndpoint, Mux, OpenCode, or pi |
 | [tau-bench](https://taubench.com/) ([repository](https://github.com/sierra-research/tau2-bench)) | Multi-turn tool use while following a policy, with a simulated user | Linter, Worker, contract fidelity | Tests following rules over a long interaction, close to following Armada's contracts |
 | [METR time horizons](https://arxiv.org/abs/2503.14499) | The length of task (in human expert time) a model completes at a given success rate | Architect (mission sizing), Worker | Explains why big missions fail on weaker models; updated by METR over time |
 | [Artificial Analysis](https://artificialanalysis.ai/leaderboards/models) | A composite intelligence index, output speed, latency, and price, per model and per API provider | Every persona; the speed trait | Independent speed and latency measurements; shows that the same model differs across providers |

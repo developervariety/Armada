@@ -94,7 +94,7 @@ async function loadHome(): Promise<HomeData> {
  * Home (the dashboard's System Status page, W2.1): server health, quick actions, alert banners, KPI cards, vessel
  * health tiles, the mission history chart, voyage progress, recent missions (filters and row actions), and recent
  * signals. Live: reloads on WebSocket activity (debounced), on reconnect, and every 30 s in the foreground. On
- * phones it is the Work tab's root, so the OPERATIONS, DELIVERY, and BUILD destinations follow the overview.
+ * phones it is the Work tab's root, so the OPERATIONS and BUILD destinations follow the overview.
  */
 export function HomeScreen() {
   const { t, formatRelativeTime } = useLocale();

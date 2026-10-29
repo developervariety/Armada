@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -37,6 +38,12 @@ namespace Armada.Core.Services
         /// How long to wait for the mission to finish, in milliseconds.
         /// </summary>
         public int TimeoutMs { get; }
+
+        /// <summary>
+        /// Persona prompt variant the mission renders with, or null to use the captain's own setting. Dispatch records
+        /// it on the voyage's captain override.
+        /// </summary>
+        public PromptVariantEnum? PromptVariant { get; set; } = null;
 
         /// <summary>
         /// Instantiate.

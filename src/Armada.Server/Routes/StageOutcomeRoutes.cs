@@ -89,6 +89,29 @@ namespace Armada.Server.Routes
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/stage-outcomes/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    return await _Service.ListOutcomesAsync(ctx, ReadBody<StageOutcomeQuery>(req)).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("StageOutcomes")
+                .WithSummary("Enumerate stage outcomes")
+                .WithDescription("One page of stage outcomes visible to the caller, newest first. The JSON body (StageOutcomeQuery) carries the same filters as GET /api/v1/stage-outcomes plus PageNumber and PageSize (1-1000, default 100).")
+                .WithRequestBody(OpenApiJson.BodyFor<StageOutcomeQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<StageOutcome>>("One page"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithSecurity("ApiKey"));
+
             app.Post("/api/v1/stage-outcomes/reclassify", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -210,6 +233,29 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Page number (default 1)", false, OpenApiSchemaMetadata.Integer()))
                 .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size (1-1000, default 10)", false, OpenApiSchemaMetadata.Integer()))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<FailureCauseRule>>("One page"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/failure-cause-rules/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    return await _Service.ListRulesAsync(ctx, ReadBody<EnumerationQuery>(req)).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("FailureCauseRules")
+                .WithSummary("Enumerate failure-cause rules")
+                .WithDescription("One page of the failure-cause rules visible to the caller in evaluation order (priority ascending, then name). The JSON body (EnumerationQuery) carries PageNumber and PageSize (1-1000, default 10).")
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<FailureCauseRule>>("One page"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/failure-cause-rules", async (ApiRequest req) =>

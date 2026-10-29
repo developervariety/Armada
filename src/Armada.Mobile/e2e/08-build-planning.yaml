@@ -1,4 +1,4 @@
-# Signed in, with the captain from 07: Planning (the session list and the start sheet with the captain and vessel
+# Signed in, with the captain from 07: Planning (the Dispatch hub's Planning tab: the session list and the start sheet with the captain and vessel
 # pickers; no session is started, which would launch a real agent), then the backlog: create an item through the
 # form, see its page, and find it in the list.
 appId: ${APP_ID}
@@ -12,7 +12,7 @@ name: 08-build-planning
 - runFlow:
     file: common/open-link.yaml
     env:
-      LINK: "armada://planning"
+      LINK: "armada://dispatch?tab=planning"
 - extendedWaitUntil:
     visible:
       id: "planning-list"

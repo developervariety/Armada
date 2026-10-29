@@ -52,35 +52,25 @@ namespace Armada.Server.Routes
         /// <param name="authz">Route authorization.</param>
         public void Register(Webserver app, Func<HttpContextBase, Task<AuthContext>> authenticate, IAuthorizationService authz)
         {
-            app.Get("/api/v1/cli-permissions/requests", async (ApiRequest req) =>
+            app.Post("/api/v1/cli-permissions/requests/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 ApiErrorResponse? denied = Deny(req, ctx, authz);
                 if (denied != null) return denied;
                 try
                 {
-                    CliPermissionRequestQuery query = new CliPermissionRequestQuery
-                    {
-                        MissionId = Blank(req.Query.GetValueOrDefault("missionId")),
-                        ThreadId = Blank(req.Query.GetValueOrDefault("threadId")),
-                        CaptainId = Blank(req.Query.GetValueOrDefault("captainId")),
-                        VesselId = Blank(req.Query.GetValueOrDefault("vesselId"))
-                    };
-                    string? status = Blank(req.Query.GetValueOrDefault("status"));
-                    if (status != null)
-                    {
-                        if (!EnumNames.TryParse(status, true, out CliPermissionRequestStatusEnum parsed)) throw new ArgumentException("Invalid status: " + status);
-                        query.Status = parsed;
-                    }
-
-                    string? limit = Blank(req.Query.GetValueOrDefault("limit"));
-                    if (limit != null)
-                    {
-                        if (!Int32.TryParse(limit, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int parsedLimit)) throw new ArgumentException("Invalid limit: " + limit);
-                        query.Limit = parsedLimit;
-                    }
-
-                    return await _Service.ListAsync(ctx, query).ConfigureAwait(false);
+                    string body = req.Http.Request.DataAsString;
+                    CliPermissionRequestEnumerateRequest page = String.IsNullOrWhiteSpace(body)
+                        ? new CliPermissionRequestEnumerateRequest()
+                        : JsonSerializer.Deserialize<CliPermissionRequestEnumerateRequest>(body, _JsonOptions) ?? new CliPermissionRequestEnumerateRequest();
+                    page.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                    page.ThreadId = Blank(req.Query.GetValueOrDefault("threadId")) ?? page.ThreadId;
+                    return await _Service.EnumerateAsync(ctx, page.ToFilter(), page.PageNumber, page.PageSize).ConfigureAwait(false);
+                }
+                catch (JsonException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid request body: " + ex.Message };
                 }
                 catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
                 {
@@ -89,15 +79,10 @@ namespace Armada.Server.Routes
             },
             api => api
                 .WithTag("CliPermissions")
-                .WithSummary("List CLI permission requests")
-                .WithDescription("Lists the permission prompts CLI captains raised for their own tools (newest first). Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Inputs are redacted. Each request carries canDecide and canRemember for the caller.")
-                .WithParameter(OpenApiParameterMetadata.Query("status", "Pending, Allowed, Denied, Expired, or Cancelled", false))
-                .WithParameter(OpenApiParameterMetadata.Query("missionId", "Mission filter (msn_ prefix)", false))
-                .WithParameter(OpenApiParameterMetadata.Query("threadId", "Ask thread filter (ath_ prefix)", false))
-                .WithParameter(OpenApiParameterMetadata.Query("captainId", "Captain filter (cpt_ prefix)", false))
-                .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Vessel filter (vsl_ prefix)", false))
-                .WithParameter(OpenApiParameterMetadata.Query("limit", "Maximum rows (1-1000, default 100)", false, OpenApiSchemaMetadata.Integer()))
-                .WithResponse(200, OpenApiJson.For<List<CliPermissionRequest>>("Requests"))
+                .WithSummary("Enumerate CLI permission requests")
+                .WithDescription("One page of the permission prompts CLI captains raised for their own tools, newest first, with the total. Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Inputs are redacted. Each request carries canDecide and canRemember for the caller. The JSON body (CliPermissionRequestEnumerateRequest) or the querystring carries Status (Pending, Allowed, Denied, Expired, or Cancelled), MissionId, ThreadId, CaptainId, VesselId, PageNumber, and PageSize (1 to 1000, default 10).")
+                .WithRequestBody(OpenApiJson.BodyFor<CliPermissionRequestEnumerateRequest>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<CliPermissionRequest>>("One page"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
@@ -178,42 +163,6 @@ namespace Armada.Server.Routes
                 .WithDescription("One page of the rules visible to the caller (the caller's tenant plus rules for every tenant; global admins see all). Filters: vesselId and captainId (body or querystring) and scope (querystring: Global, Vessel, or Captain). Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<CliPermissionRule>>("One page"))
-                .WithSecurity("ApiKey"));
-
-            app.Get("/api/v1/cli-permissions/rules", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                ApiErrorResponse? denied = Deny(req, ctx, authz);
-                if (denied != null) return denied;
-                try
-                {
-                    CliPermissionRuleQuery query = new CliPermissionRuleQuery
-                    {
-                        VesselId = Blank(req.Query.GetValueOrDefault("vesselId")),
-                        CaptainId = Blank(req.Query.GetValueOrDefault("captainId"))
-                    };
-                    string? scope = Blank(req.Query.GetValueOrDefault("scope"));
-                    if (scope != null)
-                    {
-                        if (!EnumNames.TryParse(scope, true, out CliPermissionRuleScopeEnum parsed)) throw new ArgumentException("Invalid scope: " + scope);
-                        query.Scope = parsed;
-                    }
-
-                    return await _Service.ListRulesAsync(ctx, query).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
-                {
-                    return RouteErrorMapper.ToResponse(req, ex);
-                }
-            },
-            api => api
-                .WithTag("CliPermissions")
-                .WithSummary("List CLI permission rules")
-                .WithDescription("Lists the rules visible to the caller: the caller's tenant plus rules for every tenant (global admins see all). Rules use Claude Code permission rule syntax; deny rules win over allow rules.")
-                .WithParameter(OpenApiParameterMetadata.Query("scope", "Global, Vessel, or Captain", false))
-                .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Vessel filter (vsl_ prefix)", false))
-                .WithParameter(OpenApiParameterMetadata.Query("captainId", "Captain filter (cpt_ prefix)", false))
-                .WithResponse(200, OpenApiJson.For<List<CliPermissionRule>>("Rules"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/cli-permissions/rules", async (ApiRequest req) =>
