@@ -174,6 +174,11 @@ namespace Armada.Core.Database
         /// </summary>
         public IBatteryRunMethods BatteryRuns { get; protected set; } = null!;
 
+        /// <summary>
+        /// The persisted dispatch hold, so an admiral restart restores it.
+        /// </summary>
+        public IDispatchHoldMethods DispatchHolds { get; protected set; } = null!;
+
         /// <summary>Atomic full Research replay and immutable prior-attempt history.</summary>
         public IResearchReplayMethods ResearchReplays { get; protected set; } = null!;
 

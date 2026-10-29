@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Dispatch hold across restarts
+
+- The dispatch hold is stored in the database and restored at startup before any dispatch path runs. A restart no longer opens dispatch while a hold is engaged. A restored hold posts one system note on the coordination board naming its reason and setter, and it stays engaged until `armada_dispatch_hold action=clear`. Migrations: SQLite 141, PostgreSQL 146, MySQL 134, SQL Server 137.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

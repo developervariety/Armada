@@ -63,6 +63,7 @@ namespace Armada.Core.Database.SqlServer
                 { "ask_tool_permission_requests.decided_utc", StoredTimestampEnum.Timestamp },
                 { "ask_tool_permission_requests.expires_utc", StoredTimestampEnum.Timestamp },
                 { "ask_tool_permission_rules.created_utc", StoredTimestampEnum.Timestamp },
+                { "dispatch_holds.set_utc", StoredTimestampEnum.Timestamp },
                 { "battery_runs.started_utc", StoredTimestampEnum.Timestamp },
                 { "battery_runs.completed_utc", StoredTimestampEnum.Timestamp },
                 { "incidents.detected_utc", StoredTimestampEnum.Timestamp },
@@ -167,6 +168,7 @@ namespace Armada.Core.Database.SqlServer
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttempts = new MissionAttemptProvenanceMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             BatteryRuns = new BatteryRunMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            DispatchHolds = new DispatchHoldMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);

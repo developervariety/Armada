@@ -61,6 +61,43 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("An engaged hold survives a restart and refuses dispatch until cleared", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    (Func<JsonElement?, Task<object>> handler, _, _) = BuildToolHarness(testDb, new DispatchHold(testDb.Driver.DispatchHolds));
+                    JsonElement engage = JsonSerializer.SerializeToElement(new { action = "engage", reason = "deploy under verification", setBy = "session-a" }, _JsonOpts);
+                    await handler(engage).ConfigureAwait(false);
+
+                    DispatchHold restarted = new DispatchHold(testDb.Driver.DispatchHolds);
+                    AssertNull(restarted.Snapshot(), "a new instance holds nothing until it restores");
+                    DispatchHoldSnapshot? restored = await restarted.RestoreAsync().ConfigureAwait(false);
+                    AssertNotNull(restored, "the stored hold must be restored");
+                    AssertEqual("deploy under verification", restored!.Reason);
+                    AssertEqual("session-a", restored.SetBy);
+                    Exception? refusal = Capture(() => restarted.ThrowIfActive());
+                    AssertNotNull(refusal, "a restored hold must refuse dispatch");
+                    AssertContains("deploy under verification", refusal!.Message);
+
+                    (Func<JsonElement?, Task<object>> restartedHandler, _, _) = BuildToolHarness(testDb, restarted);
+                    JsonElement clear = JsonSerializer.SerializeToElement(new { action = "clear" }, _JsonOpts);
+                    await restartedHandler(clear).ConfigureAwait(false);
+
+                    DispatchHold afterClear = new DispatchHold(testDb.Driver.DispatchHolds);
+                    AssertNull(await afterClear.RestoreAsync().ConfigureAwait(false), "a cleared hold must not be restored");
+                    afterClear.ThrowIfActive();
+                }
+            });
+
+            await RunTest("The restored-hold board note names the reason and the setter", () =>
+            {
+                string note = DispatchHold.RestoredNote(new DispatchHoldSnapshot { Reason = "deploy under verification", SetBy = "session-a" });
+                AssertContains("restored", note);
+                AssertContains("deploy under verification", note);
+                AssertContains("session-a", note);
+                return Task.CompletedTask;
+            });
+
             await RunTest("ThrowIfActive names the holder reason and recovery action", () =>
             {
                 DispatchHold hold = new DispatchHold();
@@ -738,11 +775,11 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private (Func<JsonElement?, Task<object>> Handler, CoordinationService Coordination, DispatchHold Hold) BuildToolHarness(TestDatabase testDb)
+        private (Func<JsonElement?, Task<object>> Handler, CoordinationService Coordination, DispatchHold Hold) BuildToolHarness(TestDatabase testDb, DispatchHold? existingHold = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
-            DispatchHold hold = new DispatchHold();
+            DispatchHold hold = existingHold ?? new DispatchHold();
             CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
 
             Func<JsonElement?, Task<object>>? handler = null;

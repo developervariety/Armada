@@ -302,8 +302,8 @@ presence default; a deploy with verification finishes well inside that). It
 wakes every active session and posts a board note naming the stale owner, the
 recorded reason, the set time and the measured absence, then clears once and
 persists. An unattributed pause is refused and stays an operator's to clear.
-The dispatch hold is never touched: it clears itself on a successful redeploy,
-so a hold that survives is a deploy that stopped halfway and needs a human.
+The dispatch hold is never touched: only `armada_dispatch_hold action=clear`
+releases it.
 Pass `dryRun=true` to read the decision and evidence without acting. Scheduler dispatches use the same Build and
 UnitTest Check arming path as operator dispatches. A dispatch hold blocks both.
 The Admiral also requests a debounced immediate sweep when an eligible objective
@@ -719,8 +719,10 @@ deployment names a different candidate, or when the environment's
 
 The hold is fleet-wide: while it is engaged every new dispatch is refused,
 whichever session or scheduler asks, and in-flight voyages continue. Engage it
-with a reason before an Admiral rebuild; a successful restart clears it by
-design. `setBy` names the session that engaged it; without it the hold takes
+with a reason before an Admiral rebuild. The hold is stored in the database:
+a restart restores it before any dispatch path runs and posts one system note
+on the coordination board naming its reason and setter, and it stays engaged
+until `action=clear`. `setBy` names the session that engaged it; without it the hold takes
 the caller's participant board name, then the name of the credential the call
 authenticated with, and an engage that carries neither is refused. Hold changes require an authorized operator.
 

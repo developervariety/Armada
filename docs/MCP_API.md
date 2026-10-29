@@ -425,7 +425,8 @@ submission with `dispatch_hold_active`, the holder (`SetBy`), `SetByUtc` and
 the reason, and accepts no job: `armada_dispatch` (plain and alias-ordered),
 REST `POST /api/v1/voyages`, WebSocket `create_voyage`, planning-session
 dispatch, and mission, architect and remote-control dispatch. The objective
-scheduler records `dispatch_hold` and autonomous rescue defers. Automatic
+scheduler records `dispatch_hold` and autonomous rescue defers. The hold is
+stored in the database and survives an Admiral restart. Automatic
 Checks for eligible work on active voyages may run so those voyages can drain;
 Checks for idle vessels, completed voyages and unrelated work wait until the
 hold clears.
