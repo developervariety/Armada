@@ -140,7 +140,7 @@ namespace Armada.Server.Mcp.Tools
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
                         muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path" },
                         muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override" },
-                        autoApprove = new { type = "boolean", description = "Whether the CLI captain runs with its auto-approve or permission-bypass flag (default true). False runs it without auto-approve where the runtime supports it (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, Mux deny)." }
+                        autoApprove = new { type = "boolean", description = "Whether the CLI captain runs with its auto-approve or permission-bypass flag (default true). False runs it without auto-approve where the runtime supports it (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, Pi without its bash and powershell tools, Mux deny)." }
                     },
                     required = new[] { "name" }
                 },

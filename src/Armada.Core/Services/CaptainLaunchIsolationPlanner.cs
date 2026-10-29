@@ -43,7 +43,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// Build the isolation plan for a runtime, optionally binding the scoped Armada MCP connection to a session token
         /// (sent as an X-Token header) so the agent's tool calls reach Armada as that caller. Mux carries the token as API-key
-        /// authentication in its server document. OpenCode has no isolation plan (see <see cref="CarriesSessionToken"/>).
+        /// authentication in its server document. OpenCode and Pi have no isolation plan (see <see cref="CarriesSessionToken"/>).
         /// </summary>
         /// <param name="runtime">The captain's runtime.</param>
         /// <param name="mcpPort">The Admiral MCP port (must be positive).</param>
@@ -118,7 +118,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// True when <see cref="Plan(AgentRuntimeEnum, int, string, string?, string)"/> binds a session token for this
-        /// runtime. A token launch with full isolation for any other runtime (OpenCode, which has no isolation plan) must
+        /// runtime. A token launch with full isolation for any other runtime (OpenCode and Pi, which have no isolation plan) must
         /// use the per-invocation binding of <see cref="CaptainThreadMcpPlanner"/> instead, so it is never launched without
         /// its token.
         /// </summary>

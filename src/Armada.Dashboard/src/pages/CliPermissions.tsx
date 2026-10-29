@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   createCliPermissionRule,
   deleteCliPermissionRule,
@@ -8,6 +8,7 @@ import {
   listCliPermissionRequests,
   listCliPermissionRules,
   listVessels,
+  updateCliPermissionRule,
 } from '../api/client';
 import { listAll } from '../api/paging';
 import type {
@@ -22,8 +23,6 @@ import type {
 import { useLocale } from '../context/LocaleContext';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
-import PageHeader from '../components/shared/PageHeader';
-import Tabs, { type TabDef } from '../components/shared/Tabs';
 import RefreshButton from '../components/shared/RefreshButton';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
@@ -40,7 +39,7 @@ function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
-/** Requests tab: filter by status (Pending by default), decide inline, and highlight the ?request= deep link. */
+/** Requests section: filter by status (Pending by default), decide inline, and highlight the ?request= deep link. */
 function RequestsPanel() {
   const { t } = useLocale();
   const [searchParams] = useSearchParams();
@@ -133,7 +132,7 @@ interface RuleDraft {
 
 const EMPTY_RULE: RuleDraft = { pattern: '', action: 'Allow', scope: 'Global', vesselId: '', captainId: '', description: '' };
 
-/** Rules tab: list (filter by scope), create, and delete allow / deny rules. */
+/** Rules section: list (filter by scope), create, edit, and delete allow / deny rules. */
 function RulesPanel() {
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { isAdmin, isTenantAdmin } = useAuth();
@@ -146,6 +145,8 @@ function RulesPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<RuleDraft>(EMPTY_RULE);
+  /** Rule being edited in the form; null while the form creates a new rule. Scope and target cannot change on edit. */
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CliPermissionRule | null>(null);
 
@@ -185,10 +186,46 @@ function RulesPanel() {
         ? t('Choose a captain.')
         : null;
 
-  async function create(e: React.FormEvent) {
+  function startEdit(rule: CliPermissionRule) {
+    setEditingId(rule.id);
+    setDraft({
+      pattern: rule.pattern,
+      action: rule.action,
+      scope: rule.scope,
+      vesselId: rule.vesselId ?? '',
+      captainId: rule.captainId ?? '',
+      description: rule.description ?? '',
+    });
+    document.getElementById('cli-rule-pattern')?.focus();
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setDraft(EMPTY_RULE);
+  }
+
+  async function save(e: React.FormEvent) {
     e.preventDefault();
     if (draftError || saving) return;
     setSaving(true);
+    if (editingId) {
+      try {
+        await updateCliPermissionRule(editingId, {
+          pattern: draft.pattern.trim(),
+          action: draft.action,
+          description: draft.description.trim() || null,
+        });
+        pushToast('success', t('Rule updated.'));
+        setEditingId(null);
+        setDraft(EMPTY_RULE);
+        void load();
+      } catch (err: unknown) {
+        setError(errorText(err, t('The rule could not be updated.')));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     try {
       await createCliPermissionRule({
         pattern: draft.pattern.trim(),
@@ -215,6 +252,7 @@ function RulesPanel() {
     try {
       await deleteCliPermissionRule(rule.id);
       setRules((prev) => prev.filter((r) => r.id !== rule.id));
+      if (editingId === rule.id) cancelEdit();
       pushToast('success', t('Rule deleted.'));
     } catch (err: unknown) {
       setError(errorText(err, t('The rule could not be deleted.')));
@@ -246,16 +284,21 @@ function RulesPanel() {
       key: 'actions', label: t('Actions'), fixed: true, interactive: true,
       header: <span className="sr-only">{t('Actions')}</span>,
       render: (rule: CliPermissionRule) => (
-        <button type="button" className="btn btn-sm btn-danger" onClick={() => setDeleteTarget(rule)} aria-label={t('Delete rule {{pattern}}', { pattern: rule.pattern })} title={t('Delete this rule. Matching calls go back to following the policy. Asks first.')}>
-          {t('Delete')}
-        </button>
+        <span className="cli-rule-row-actions">
+          <button type="button" className="btn btn-sm" onClick={() => startEdit(rule)} aria-label={t('Edit rule {{pattern}}', { pattern: rule.pattern })} title={t('Change the pattern, action, or description of this rule in the form below.')}>
+            {t('Edit')}
+          </button>
+          <button type="button" className="btn btn-sm btn-danger" onClick={() => setDeleteTarget(rule)} aria-label={t('Delete rule {{pattern}}', { pattern: rule.pattern })} title={t('Delete this rule. Matching calls go back to following the policy. Asks first.')}>
+            {t('Delete')}
+          </button>
+        </span>
       ),
     }] : []),
   ];
 
   return (
     <section aria-label={t('Rules')}>
-      <p className="text-dim" style={{ marginTop: 0 }}>
+      <p className="text-dim cli-perm-hint">
         {t('Rules use Claude Code permission rule syntax, for example Bash(git status:*), Bash(npm run *), WebFetch(domain:example.com), Edit(src/**), or mcp__server__tool. Deny rules win over allow rules; every part of a compound shell command must be allowed.')}
       </p>
       <div className="cli-perm-toolbar">
@@ -282,8 +325,8 @@ function RulesPanel() {
       />
 
       {canEdit && (
-        <form className="card cli-rule-form" onSubmit={(e) => void create(e)} aria-label={t('New rule')}>
-          <h3 style={{ marginTop: 0 }}>{t('New rule')}</h3>
+        <form className="card cli-rule-form" onSubmit={(e) => void save(e)} aria-label={editingId ? t('Edit rule') : t('New rule')}>
+          <h3 style={{ marginTop: 0 }}>{editingId ? t('Edit rule') : t('New rule')}</h3>
           <div className="settings-grid">
             <div className="form-group">
               <label htmlFor="cli-rule-pattern" title={t('Which calls the rule matches, in Claude Code rule syntax, for example Bash(npm run *), WebFetch(domain:example.com), or Edit(src/**).')}>{t('Pattern')}</label>
@@ -298,7 +341,7 @@ function RulesPanel() {
             </div>
             <div className="form-group">
               <label htmlFor="cli-rule-scope" title={t('Where the rule applies: Global covers every captain in the tenant, Vessel covers missions on one vessel, Captain covers one captain (missions and Ask turns).')}>{t('Scope')}</label>
-              <select id="cli-rule-scope" title={t('Where the rule applies: Global covers every captain in the tenant, Vessel covers missions on one vessel, Captain covers one captain (missions and Ask turns).')} value={draft.scope} onChange={(e) => setDraft({ ...draft, scope: e.target.value as CliPermissionRuleScope })}>
+              <select id="cli-rule-scope" disabled={!!editingId} title={t('Where the rule applies: Global covers every captain in the tenant, Vessel covers missions on one vessel, Captain covers one captain (missions and Ask turns).')} value={draft.scope} onChange={(e) => setDraft({ ...draft, scope: e.target.value as CliPermissionRuleScope })}>
                 <option value="Global">{t('Global')}</option>
                 <option value="Vessel">{t('Vessel')}</option>
                 <option value="Captain">{t('Captain')}</option>
@@ -307,7 +350,7 @@ function RulesPanel() {
             {draft.scope === 'Vessel' && (
               <div className="form-group">
                 <label htmlFor="cli-rule-vessel" title={t('The vessel whose missions this rule applies to.')}>{t('Vessel')}</label>
-                <select id="cli-rule-vessel" title={t('The vessel whose missions this rule applies to.')} value={draft.vesselId} onChange={(e) => setDraft({ ...draft, vesselId: e.target.value })}>
+                <select id="cli-rule-vessel" disabled={!!editingId} title={t('The vessel whose missions this rule applies to.')} value={draft.vesselId} onChange={(e) => setDraft({ ...draft, vesselId: e.target.value })}>
                   <option value="">{t('Select a vessel...')}</option>
                   {vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
@@ -316,7 +359,7 @@ function RulesPanel() {
             {draft.scope === 'Captain' && (
               <div className="form-group">
                 <label htmlFor="cli-rule-captain" title={t('The captain this rule applies to, in both its missions and its Ask turns.')}>{t('Captain')}</label>
-                <select id="cli-rule-captain" title={t('The captain this rule applies to, in both its missions and its Ask turns.')} value={draft.captainId} onChange={(e) => setDraft({ ...draft, captainId: e.target.value })}>
+                <select id="cli-rule-captain" disabled={!!editingId} title={t('The captain this rule applies to, in both its missions and its Ask turns.')} value={draft.captainId} onChange={(e) => setDraft({ ...draft, captainId: e.target.value })}>
                   <option value="">{t('Select a captain...')}</option>
                   {captains.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -328,7 +371,8 @@ function RulesPanel() {
             </div>
           </div>
           <div className="settings-actions">
-            <button type="submit" className="btn btn-primary btn-sm" disabled={!!draftError || saving} title={draftError ?? t('Save the rule. It applies to the next matching call right away.')}>{saving ? t('Saving...') : t('Create rule')}</button>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={!!draftError || saving} title={draftError ?? t('Save the rule. It applies to the next matching call right away.')}>{saving ? t('Saving...') : editingId ? t('Save rule') : t('Create rule')}</button>
+            {editingId && <button type="button" className="btn btn-sm" onClick={cancelEdit} title={t('Stop editing and clear the form. The rule keeps its saved values.')}>{t('Cancel')}</button>}
             {draftError && draft.pattern && <span className="text-dim">{draftError}</span>}
           </div>
         </form>
@@ -351,23 +395,56 @@ function RulesPanel() {
   );
 }
 
+type Section = 'requests' | 'rules';
+
+const SECTIONS: Array<{ key: Section; label: string; tooltip: string }> = [
+  { key: 'requests', label: 'Requests', tooltip: 'Tool permission prompts from CLI captains (shell commands, web fetches, file access) waiting for your answer, and past decisions.' },
+  { key: 'rules', label: 'Rules', tooltip: 'Saved allow and deny rules that answer matching CLI permission prompts without asking.' },
+];
+
 /**
- * CLI Tool Permissions: the CLI tool calls captains asked Armada to approve (Requests) and the allow / deny rules that
- * decide matching calls without asking (Rules). The inbox links here with ?request={id}.
+ * CLI Tool Permissions, a tab of Settings (`/server?tab=cli-permissions`): the CLI tool calls captains asked Armada to
+ * approve (Requests) and the allow / deny rules that decide matching calls without asking (Rules), as two compact
+ * sub-sections under the Settings tab strip (no page header of its own). The sub-section lives in `?section=`
+ * (`requests` by default) and the inbox and push notifications link here with `?request={id}`; the old
+ * `/cli-permissions` route redirects here. Default policies and timeouts stay in the Server tab's settings.
  */
 export default function CliPermissions() {
   const { t } = useLocale();
-  const tabs: TabDef[] = [
-    { key: 'requests', label: 'Requests', tooltip: 'Tool permission prompts from CLI captains (shell commands, web fetches, file access) waiting for your answer, and past decisions.', render: () => <RequestsPanel /> },
-    { key: 'rules', label: 'Rules', tooltip: 'Saved allow and deny rules that answer matching CLI permission prompts without asking.', render: () => <RulesPanel /> },
-  ];
+  const { isAdmin } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = searchParams.get('section');
+  const section: Section = requested === 'rules' ? 'rules' : 'requests';
+
+  function select(next: Section) {
+    const params = new URLSearchParams(searchParams);
+    params.set('section', next);
+    if (next === 'rules') params.delete('request');
+    setSearchParams(params);
+  }
+
   return (
-    <div>
-      <PageHeader
-        title={t('CLI Tool Permissions')}
-        subtitle={t('Shell commands, file edits, and fetches that CLI captains asked to run, and the rules that allow or deny them.')}
-      />
-      <Tabs tabs={tabs} defaultTabKey="requests" ariaLabel={t('CLI Tool Permissions')} />
+    <div className="cli-perm-tab">
+      <div className="cli-perm-tab-header">
+        <div className="segmented cli-perm-sections" role="radiogroup" aria-label={t('CLI Tool Permissions')}>
+          {SECTIONS.map((entry) => (
+            <label key={entry.key} className={`segmented-option${section === entry.key ? ' active' : ''}`} title={t(entry.tooltip)}>
+              <input type="radio" name="cli-perm-section" checked={section === entry.key} onChange={() => select(entry.key)} />
+              <span>{t(entry.label)}</span>
+            </label>
+          ))}
+        </div>
+        <p className="text-dim cli-perm-hint">
+          {t('Shell commands, file edits, and fetches that CLI captains asked to run, and the rules that allow or deny them.')}
+          {isAdmin && (
+            <>
+              {' '}
+              <Link to="/server?tab=server" title={t('Default policies for Ask conversations and missions, owner approval, and the request timeout are server settings.')}>{t('Default policies')}</Link>
+            </>
+          )}
+        </p>
+      </div>
+      {section === 'rules' ? <RulesPanel /> : <RequestsPanel />}
     </div>
   );
 }
