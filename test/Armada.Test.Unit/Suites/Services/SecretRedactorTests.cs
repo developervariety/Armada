@@ -50,6 +50,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("(" + keyword + " = [REDACTED];", redacted);
                 AssertContains("secret: [REDACTED])", redacted);
             });
+
+            await RunTest("Redact_KeywordInsideALongerName_IsStillRedacted", () =>
+            {
+                string value = "abc" + "def123";
+                string[] names = { "access_" + "tok" + "en", "client_" + "sec" + "ret", "DB_" + "PASS" + "WORD", "GITHUB_" + "TOK" + "EN" };
+                foreach (string name in names)
+                {
+                    string redacted = SecretRedactor.Redact(name + "=" + value + ",next");
+                    AssertFalse(redacted.Contains(value, StringComparison.Ordinal), name + " keeps its value hidden");
+                    AssertEqual(name + "=[REDACTED],next", redacted, name + " keeps the delimiter and the text after it");
+                }
+            });
         }
     }
 }
