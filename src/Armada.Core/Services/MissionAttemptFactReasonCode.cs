@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Exact stable reason codes that may be stored on mission attempt facts.
@@ -38,6 +39,15 @@ namespace Armada.Core.Services
             "unknown",
             "captain_blocked",
             "judge_needs_revision",
+            "judge_failed_checks",
+            "judge_missing_checks",
+            "report_incomplete",
+            "planner_committed_code",
+            "operator_review_hold_failed",
+            "no_op_missing_terminal_marker",
+            "no_op_claimed_without_work",
+            "start_from_ref_missing",
+            "landing_handoff_failed",
             "terminal_voyage_work_unlanded",
             "terminal_voyage_commit_absent",
             "terminal_voyage_no_commit",
@@ -55,6 +65,13 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(value)) return null;
             string candidate = value.Trim();
             if (_Known.Contains(candidate)) return candidate.ToLowerInvariant();
+            const string judgePrefix = "judge_pass_";
+            if (candidate.StartsWith(judgePrefix, StringComparison.OrdinalIgnoreCase)
+                && Enum.TryParse(candidate.Substring(judgePrefix.Length), true, out ReviewSubstanceRuleCategory category)
+                && category != ReviewSubstanceRuleCategory.Valid
+                && Enum.IsDefined(typeof(ReviewSubstanceRuleCategory), category)
+                && String.Equals(candidate.Substring(judgePrefix.Length), category.ToString(), StringComparison.OrdinalIgnoreCase))
+                return judgePrefix + category.ToString().ToLowerInvariant();
             const string reviewPrefix = "review_denied_";
             if (candidate.StartsWith(reviewPrefix, StringComparison.OrdinalIgnoreCase)
                 && Enum.TryParse(candidate.Substring(reviewPrefix.Length), true, out ReviewDenyActionEnum action)
@@ -62,6 +79,18 @@ namespace Armada.Core.Services
                 && String.Equals(candidate.Substring(reviewPrefix.Length), action.ToString(), StringComparison.OrdinalIgnoreCase))
                 return reviewPrefix + action.ToString().ToLowerInvariant();
             return null;
+        }
+
+        /// <summary>Read only exact protocol markers and allow-listed failure prefixes; unknown causes stay unknown.</summary>
+        public static string? FromMissionFailure(Mission mission)
+        {
+            if (CaptainBlockedResult.IsBlockedFailure(mission.FailureReason)) return "captain_blocked";
+            if (mission.FailureReason == "Judge verdict: NEEDS_REVISION") return "judge_needs_revision";
+            string reason = mission.FailureReason ?? String.Empty;
+            if (reason.StartsWith("no_op_completion_detected:", StringComparison.Ordinal))
+                return ProgressParser.HasTerminalMarker(mission.AgentOutput) ? "no_op_claimed_without_work" : "no_op_missing_terminal_marker";
+            int colon = reason.IndexOf(':');
+            return colon > 0 ? Normalize(reason.Substring(0, colon)) : Normalize(reason);
         }
 
         /// <summary>Maps a typed runtime result to its stable attempt-fact reason.</summary>

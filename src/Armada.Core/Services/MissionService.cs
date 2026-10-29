@@ -2223,6 +2223,8 @@ namespace Armada.Core.Services
             mission.DockId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed,
+                "judge_needs_revision", _Logging, token).ConfigureAwait(false);
             await RecordCheckWaitDecisionAsync(mission, "revision_worker", why, token).ConfigureAwait(false);
 
             // D21 revision_kind runs exactly as in the inline path; it is a no-op while the decision is Off.
@@ -2272,6 +2274,8 @@ namespace Armada.Core.Services
             mission.DockId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed,
+                failureReason == JudgeNoChecksFailureReason ? "judge_missing_checks" : null, _Logging, token).ConfigureAwait(false);
             await RecordCheckWaitDecisionAsync(mission, "rejected", failureReason, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "judge mission " + mission.Id + " held PASS rejected: " + failureReason);
 
@@ -2360,6 +2364,8 @@ namespace Armada.Core.Services
             mission.DockId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed,
+                "operator_review_hold_failed", _Logging, token).ConfigureAwait(false);
             await AppendMissionActivityAsync(mission.Id, "operator review hold failed by " + operatorText + ": " + reasonText, token).ConfigureAwait(false);
             await RecordHoldEventAsync(mission, OperatorHoldFailedEventType,
                 "Operator " + operatorText + " failed the held Judge PASS on mission " + mission.Id + " (" + previousHold + "): " + reasonText,
@@ -2413,6 +2419,8 @@ namespace Armada.Core.Services
                 mission.DockId = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed,
+                    "review_denied_" + effectiveAction.ToString(), _Logging, token).ConfigureAwait(false);
 
                 await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
                 await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
@@ -3496,7 +3504,7 @@ namespace Armada.Core.Services
             // stage that committed production code re-verifies the declared consumers of the branch.
             bool failedForDodGate = false;
             bool dodGateCancelled = false;
-            string? dodFailureReasonCode = null;
+            string? terminalFailureReasonCode = null;
             if (!failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify && !dodSkippedForReadOnlyNoCommit)
             {
@@ -3524,7 +3532,7 @@ namespace Armada.Core.Services
                         else
                         {
                             failedForDodGate = true;
-                            dodFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(dodResult.FailureClass);
+                            terminalFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(dodResult.FailureClass);
                             mission.Status = MissionStatusEnum.Failed;
                             mission.CompletedUtc = DateTime.UtcNow;
                             mission.LastUpdateUtc = DateTime.UtcNow;
@@ -3564,7 +3572,7 @@ namespace Armada.Core.Services
                 catch (Exception dodEx)
                 {
                     failedForDodGate = true;
-                    dodFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(DefinitionOfDoneFailureClassEnum.Infra);
+                    terminalFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(DefinitionOfDoneFailureClassEnum.Infra);
                     mission.Status = MissionStatusEnum.Failed;
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
@@ -3599,6 +3607,8 @@ namespace Armada.Core.Services
                     IReadOnlyList<string>? currentCriteria = await ReadCurrentAcceptanceCriteriaAsync(mission, token).ConfigureAwait(false);
                     JudgePassValidation ruleValidation = EvaluateJudgePassValidation(mission.AgentOutput, mission.IsReadOnlyMode, mission.Description, currentCriteria);
                     verdictFailureReason = ruleValidation.FailureReason;
+                    if (ruleValidation.Category != ReviewSubstanceRuleCategory.Valid)
+                        terminalFailureReasonCode = "judge_pass_" + ruleValidation.Category.ToString();
                     ReviewSubstanceVerdict substanceVerdict = await RefineReviewSubstanceAsync(mission, ruleValidation, token).ConfigureAwait(false);
                     if (!substanceVerdict.Validated)
                     {
@@ -3655,6 +3665,7 @@ namespace Armada.Core.Services
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
                                 mission.FailureReason = BuildFailedCheckRejectionReason(_LastJudgeGateChecks, _LastJudgeGatePatterns);
+                                terminalFailureReasonCode = "judge_failed_checks";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 ClearOperatorReviewHold(mission);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -3691,6 +3702,7 @@ namespace Armada.Core.Services
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
                                 mission.FailureReason = JudgeNoChecksFailureReason;
+                                terminalFailureReasonCode = "judge_missing_checks";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 ClearOperatorReviewHold(mission);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -3892,7 +3904,7 @@ namespace Armada.Core.Services
                 await ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
             }
 
-            await EmitMissionOutcomeTelemetryAsync(mission, captain, token, dodFailureReasonCode).ConfigureAwait(false);
+            await EmitMissionOutcomeTelemetryAsync(mission, captain, token, terminalFailureReasonCode).ConfigureAwait(false);
 
             // D23 seam B. A Recorder stage that finished its work gets its memory records reviewed. The
             // review may lower salience, link duplicates, and store memory proposals; it never deletes
@@ -10813,6 +10825,8 @@ namespace Armada.Core.Services
                 current.CompletedUtc = DateTime.UtcNow;
                 current.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(current, token).ConfigureAwait(false);
+                await MissionAttemptFactRecorder.RecordAsync(_Database, current, MissionAttemptFactTypeEnum.Failed,
+                    MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(result.FailureClass), _Logging, token).ConfigureAwait(false);
                 await AppendMissionActivityAsync(current.Id, "validation failed: definition-of-done gate re-run: " + current.FailureReason, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + current.Id + " failed the re-run definition-of-done gate classification=" + result.FailureClass);
                 await CancelDependentPipelineStagesAsync(current, token).ConfigureAwait(false);
@@ -14547,6 +14561,8 @@ namespace Armada.Core.Services
             planner.CompletedUtc = DateTime.UtcNow;
             planner.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(planner, token).ConfigureAwait(false);
+            await MissionAttemptFactRecorder.RecordAsync(_Database, planner, MissionAttemptFactTypeEnum.Failed,
+                PlannerCommittedCodeReason, _Logging, token).ConfigureAwait(false);
 
             try
             {

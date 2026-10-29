@@ -48,8 +48,8 @@ namespace Armada.Core.Services
                 string? terminalReason = factType == MissionAttemptFactTypeEnum.Failed
                     ? MissionAttemptFactReasonCode.Normalize(mission.ReconciledReason)
                         ?? MissionAttemptFactReasonCode.Normalize(reasonCode)
-                        ?? (mission.FailureReason == "Judge verdict: NEEDS_REVISION" ? "judge_needs_revision" : null)
-                        ?? (CaptainBlockedResult.IsBlockedFailure(mission.FailureReason) ? "captain_blocked" : "unknown")
+                        ?? MissionAttemptFactReasonCode.FromMissionFailure(mission)
+                        ?? "unknown"
                     : MissionAttemptFactReasonCode.Normalize(reasonCode);
                 MissionAttemptFact fact = new MissionAttemptFact
                 {

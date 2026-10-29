@@ -13,7 +13,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Terminal failure facts and bounded review retries
 
-- Terminal failure facts preserve typed reason codes, including post-test failures. Failure-cause events link derivative unlanded work to original failed stages; ambiguous endings remain unknown and do not imply a model error.
+- Terminal failure facts preserve typed reason codes, including post-test failures, Judge rejection categories, held-review failures and exact protocol subtypes. Failure-cause events link derivative unlanded work to original failed stages; ambiguous endings remain unknown and do not imply a model error.
 - Two consecutive Judge NEEDS_REVISION verdicts for one objective at frozen source stop a third full-chain dispatch. A retry requires changed prepared input, the exact rejected candidate commit or report hash, and recorded evidence for every named finding. Other objectives and required review stages continue.
 - Blocked-stage questions wake the recorded dispatching participant and remain visible on the board. Unknown or unreadable dispatch origins use a broadcast; explicit owner approval gates retain their owner routing. Retry receipts are exposed on the operator preflight schema.
 
