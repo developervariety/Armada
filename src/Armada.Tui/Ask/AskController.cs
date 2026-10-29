@@ -11,6 +11,7 @@ namespace Armada.Tui.Ask
     using Armada.Client.Socket;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Services;
 
     /// <summary>
@@ -1159,34 +1160,23 @@ namespace Armada.Tui.Ask
         public void DeleteNow(AskThread target)
         {
             ArmadaClient client = Context.Client;
-            _ = Task.Run(async () =>
+            DeleteProgress.RunVoid(Context, "Deleting conversation", ct => client.DeleteAskThreadAsync(target.Id, ct), () =>
             {
-                try
+                Threads = Threads.Where(t => t.Id != target.Id).ToList();
+                foreach (ApprovalItem item in Context.Approvals.Items.Where(i => i.Kind == ApprovalKindEnum.AskProposal && i.ParentId == target.Id).ToList())
+                    Context.Approvals.Remove(ApprovalKindEnum.AskProposal, item.EntityId);
+                Context.Notifications.Toast(NotificationSeverityEnum.Success, Context.Loc.T("Conversation deleted."));
+                if (target.Id == Conversation.ThreadId)
                 {
-                    await client.DeleteAskThreadAsync(target.Id).ConfigureAwait(false);
-                    Context.Dispatcher.Post(() =>
-                    {
-                        Threads = Threads.Where(t => t.Id != target.Id).ToList();
-                        foreach (ApprovalItem item in Context.Approvals.Items.Where(i => i.Kind == ApprovalKindEnum.AskProposal && i.ParentId == target.Id).ToList())
-                            Context.Approvals.Remove(ApprovalKindEnum.AskProposal, item.EntityId);
-                        Context.Notifications.Toast(NotificationSeverityEnum.Success, Context.Loc.T("Conversation deleted."));
-                        if (target.Id == Conversation.ThreadId)
-                        {
-                            // Navigate first: the screen saves its draft under the deleted thread, and the new
-                            // conversation starts empty.
-                            if (Viewing) Context.Navigate("/ask");
-                            Conversation.Reset(null);
-                            _Drafts[""] = "";
-                        }
+                    // Navigate first: the screen saves its draft under the deleted thread, and the new
+                    // conversation starts empty.
+                    if (Viewing) Context.Navigate("/ask");
+                    Conversation.Reset(null);
+                    _Drafts[""] = "";
+                }
 
-                        _Drafts.Remove(target.Id);
-                    });
-                }
-                catch (ArmadaApiException ex)
-                {
-                    Context.Dispatcher.Post(() => Fail("The conversation could not be deleted.", ex));
-                }
-            });
+                _Drafts.Remove(target.Id);
+            }, "The conversation could not be deleted.");
         }
 
         /// <summary>
