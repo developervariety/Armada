@@ -319,7 +319,7 @@ Valid status transitions for `transition_mission_status`:
 | WorkProduced | Complete, LandingFailed, Cancelled |
 | Testing | Review, InProgress, Complete, Failed |
 | Review | Complete, InProgress, Failed |
-| LandingFailed | WorkProduced, Failed, Cancelled |
+| LandingFailed | WorkProduced, Complete, Failed, Cancelled |
 
 Complete, Failed, and Cancelled are terminal.
 
@@ -391,7 +391,7 @@ Use `enumerate` for all collection queries. Use a small `pageSize` (10-25) to co
 
 **When to use the merge queue?** When multiple missions complete and you want their branches tested and merged in order (or set the vessel's landing mode to MergeQueue so Armada enqueues them for you). Enqueue completed mission branches; the Admiral tests and lands them on its next pass, or call `process_merge_queue` to run one now. This prevents broken merges from landing. After merges land, use `purge_merge_queue` to bulk-delete old terminal entries (Landed/Failed/Cancelled) and keep the queue clean. You can filter by `vesselId` or `status`. For selective cleanup, use `purge_merge_entries` with an array of entry IDs.
 
-**How to handle a stalled captain?** Check `enumerate({ entityType: "captains", status: "Stalled" })` -- stalled captains have stopped sending heartbeats. Read the log with `get_captain_log` to diagnose. Stop it with `stop_captain` and the mission will be marked Failed for redispatch.
+**How to handle a stalled captain?** Check `enumerate({ entityType: "captains", status: "Stalled" })` -- stalled captains have stopped sending heartbeats. Read the log with `get_captain_log` to diagnose. Stop it with `stop_captain`: the mission is marked Cancelled (failure kind OperatorAction) with the stop recorded in its failure reason, and uncommitted work in its dock is kept as a WIP commit on the mission branch. Restart it with `restart_mission` to redispatch.
 
 ## Emergency Controls
 
