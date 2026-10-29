@@ -28,7 +28,9 @@ namespace Armada.Core.Authorization
             Add("status", "Status", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_backlog_item", "Objective", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_backlog_planning_session", "PlanningSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_backlog_planning_session_messages", "PlanningSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_backlog_refinement_session", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_backlog_refinement_session_messages", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_captain_log", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_captain_tools", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_captain", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
@@ -73,6 +75,11 @@ namespace Armada.Core.Authorization
             Add("approve_ask_proposal", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("reject_ask_proposal", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("get_ask_work", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_work", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_work_missions", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_work_targets", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_proposals", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_tool_calls", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_backlog_refinement_sessions", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_backlog", "Objective", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_objectives", "Objective", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
@@ -82,7 +89,9 @@ namespace Armada.Core.Authorization
             Add("search_memory", "Memory", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("token_usage_summary", "TokenUsage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("vessel_health", "VesselHealth", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_vessel_dependencies", "VesselHealth", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("voyage_status", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_voyage_progress", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("fleet_action_run_status", "FleetActionRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("evaluate_autoland", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_cli_permission_request", "CliPermission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
@@ -116,6 +125,7 @@ namespace Armada.Core.Authorization
             Add("list_battery_packs", "BatteryPack", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("run_battery", "BatteryRun", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("get_battery_run", "BatteryRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_battery_results", "BatteryRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
 
             // Writes to caller-owned resources (memories, model endpoints, harbors), scoped to the caller in the tool handlers
             Add("create_memory", "Memory", ResourceOperationEnum.Create, PermissionLevel.Authenticated);

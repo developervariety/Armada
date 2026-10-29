@@ -391,6 +391,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new SqliteParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new SqliteParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -424,7 +429,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
@@ -547,6 +552,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new SqliteParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new SqliteParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -574,7 +584,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 List<Mission> results = new List<Mission>();
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + ", id " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
@@ -798,6 +808,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new SqliteParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new SqliteParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -825,7 +840,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 List<Mission> results = new List<Mission>();
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + ", id " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (SqliteParameter p in parameters) cmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
