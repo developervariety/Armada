@@ -854,14 +854,14 @@ namespace Armada.Tui.Screens.Admin
                 string error = "";
                 try
                 {
-                    MuxEndpointListResult? result = await Context.Client.ListMuxEndpointsAsync(dir.Length > 0 ? dir : null).ConfigureAwait(false);
+                    MuxEndpointPage? result = await Context.Client.ListMuxEndpointsAsync(dir.Length > 0 ? dir : null).ConfigureAwait(false);
                     if (result == null || !result.Success)
                     {
                         error = result != null && !String.IsNullOrEmpty(result.ErrorMessage) ? result.ErrorMessage : result != null && !String.IsNullOrEmpty(result.ErrorCode) ? result.ErrorCode : L("Mux endpoint discovery failed.");
                     }
                     else
                     {
-                        endpoints = result.Endpoints ?? new List<MuxEndpointInfo>();
+                        endpoints = result.Objects ?? new List<MuxEndpointInfo>();
                     }
                 }
                 catch (ArmadaApiException ex)

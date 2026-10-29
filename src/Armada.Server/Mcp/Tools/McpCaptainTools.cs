@@ -94,24 +94,41 @@ namespace Armada.Server.Mcp.Tools
             {
                 register(
                     "get_captain_tools",
-                    "Describe the runtime-visible tool sources and named tools available to a specific captain.",
+                    "Describe the runtime-visible tool sources (at most 256) and tool counts of a specific captain, with one page of its named tools (Tools: pageNumber, pageSize 1 to 1000 default 10, ordered by source kind, source, and name). A snapshot from the last 60 seconds is reused for paging unless refresh is true.",
                     new
                     {
                         type = "object",
                         properties = new
                         {
-                            captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" }
+                            captainId = new { type = "string", description = "Captain ID (cpt_ prefix)" },
+                            pageNumber = new { type = "integer", description = "One-based page of tools (default 1)" },
+                            pageSize = new { type = "integer", description = "Tools per page, 1 to 1000 (default 10)" },
+                            sourceKind = new { type = "string", description = "Only tools of this source kind: McpServer, RuntimeBuiltIn, or Internal" },
+                            refresh = new { type = "boolean", description = "true to probe the runtime again instead of reusing the recent snapshot" }
                         },
                         required = new[] { "captainId" }
                     },
                     async (args) =>
                     {
                         AuthContext caller = McpToolHelpers.ResolveCallerContext();
-                        CaptainIdArgs request = JsonSerializer.Deserialize<CaptainIdArgs>(args!.Value, _JsonOptions)!;
+                        CaptainToolsArgs request = JsonSerializer.Deserialize<CaptainToolsArgs>(args!.Value, _JsonOptions)!;
                         string captainId = request.CaptainId;
+                        CaptainToolsQuery query = new CaptainToolsQuery
+                        {
+                            PageNumber = request.PageNumber ?? 1,
+                            PageSize = request.PageSize ?? 10,
+                            Refresh = request.Refresh ?? false
+                        };
+                        if (!String.IsNullOrWhiteSpace(request.SourceKind))
+                        {
+                            if (!EnumNames.TryParse(request.SourceKind.Trim(), true, out CaptainToolSourceKindEnum kind))
+                                return (object)McpToolError.InvalidArgument("sourceKind must be McpServer, RuntimeBuiltIn, or Internal.");
+                            query.SourceKind = kind;
+                        }
+
                         Captain? captain = await McpCallerScope.ReadCaptainAsync(database, caller, captainId).ConfigureAwait(false);
                         if (captain == null) return (object)McpToolError.NotFound("Captain not found");
-                        return await captainToolService.DescribeAsync(captain).ConfigureAwait(false);
+                        return await captainToolService.DescribeAsync(captain, query).ConfigureAwait(false);
                     });
             }
 
@@ -341,7 +358,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "delete_captains",
-                "Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.",
+                "Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. At most 1000 ids (InvalidArgument, Code CollectionLimitExceeded, otherwise). Returns a summary of deleted and skipped entries. This cannot be undone.",
                 new
                 {
                     type = "object",
@@ -357,6 +374,7 @@ namespace Armada.Server.Mcp.Tools
                     DeleteMultipleArgs request = JsonSerializer.Deserialize<DeleteMultipleArgs>(args!.Value, _JsonOptions)!;
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)McpToolError.InvalidArgument("ids is required and must not be empty");
+                    CollectionLimits.RequireRequestItems(request.Ids, "Ids");
 
                     DeleteMultipleResult result = new DeleteMultipleResult();
                     foreach (string id in request.Ids)

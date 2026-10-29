@@ -468,7 +468,7 @@ namespace Test.Shared.Suites.Services
                 CliPermissionPromptOutcome next = await svc.PromptAsync(ThreadContext(thread, null), "WebFetch", "{\"url\":\"https://example.com/other\"}").ConfigureAwait(false);
                 AssertTrue(next.Allowed, "the remembered rule allows the next call without waiting");
                 AssertEqual(remembered.Id, next.Request!.RuleId);
-                AssertEqual(0, (await svc.ListRulesAsync(stranger, null).ConfigureAwait(false)).Count, "another tenant does not see the rule");
+                AssertEqual(0L, (await svc.EnumerateRulesAsync(stranger, null, 1, 10).ConfigureAwait(false)).TotalRecords, "another tenant does not see the rule");
                 await AssertThrowsAsync<KeyNotFoundException>(() => svc.DeleteRuleAsync(stranger, remembered.Id), "another tenant cannot delete it").ConfigureAwait(false);
             }));
 

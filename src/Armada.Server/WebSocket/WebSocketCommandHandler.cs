@@ -148,6 +148,12 @@ namespace Armada.Server.WebSocket
                 // A taken name (or any unique value) is a Conflict reply for this action, never provider text.
                 return WebSocketCommandError.FromException(action, ex);
             }
+            catch (CollectionLimitExceededException ex)
+            {
+                // A collection over its limit (for example a persona's CaptainPriorities) is InvalidArgument naming the
+                // field and the limit, never an internal error.
+                return WebSocketCommandError.FromException(action, ex);
+            }
         }
 
         private async Task<object> DispatchCommandAsync(string action, WebSocketCommand command, string rawBody, AuthContext? caller)

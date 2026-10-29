@@ -24,6 +24,17 @@ namespace Armada.Core.Models
         public string? UserId { get; set; } = null;
 
         /// <summary>
+        /// When true, only tenant-wide skills plus the user-specific skills owned by <see cref="ViewerUserId"/> are
+        /// returned (the visibility rule for a caller who is neither a global nor a tenant admin), applied before counting.
+        /// </summary>
+        public bool RestrictToViewer { get; set; } = false;
+
+        /// <summary>
+        /// Viewer whose user-specific skills are included when <see cref="RestrictToViewer"/> is true.
+        /// </summary>
+        public string? ViewerUserId { get; set; } = null;
+
+        /// <summary>
         /// Category filter.
         /// </summary>
         public string? Category { get; set; } = null;

@@ -1,4 +1,4 @@
-namespace Armada.Core.Models
+namespace Armada.Core.Services
 {
     using System.Collections.Generic;
     using System.Text.Json.Serialization;

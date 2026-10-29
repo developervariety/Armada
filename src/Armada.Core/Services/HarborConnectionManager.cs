@@ -183,6 +183,17 @@ namespace Armada.Core.Services
                     Reason = "Harbor id is registered to a different identity."
                 };
             }
+            catch (CollectionLimitExceededException ex)
+            {
+                // Reject, never truncate: the Harbor must advertise a bounded capability list.
+                _Logging.Warn(_Header + "refused harbor " + handshake.HarborId + ": " + ex.Message);
+                return new HarborHandshakeAck
+                {
+                    CorrelationId = handshake.CorrelationId,
+                    Accepted = false,
+                    Reason = ex.Message
+                };
+            }
 
             DateTime now = _Clock();
             HarborConnection connection = new HarborConnection(handshake.HarborId, tenantId, userId, send);

@@ -53,8 +53,6 @@ namespace Armada.Server.Routes
 
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Skill> result = await _database.Skills.EnumerateAsync(query).ConfigureAwait(false);
-                if (!ctx.IsAdmin && !ctx.IsTenantAdmin)
-                    result.Objects = result.Objects.Where(s => ScopedVisibility.CanView(ctx, s.Scope, s.TenantId, s.UserId)).ToList();
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -81,8 +79,6 @@ namespace Armada.Server.Routes
 
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Skill> result = await _database.Skills.EnumerateAsync(query).ConfigureAwait(false);
-                if (!ctx.IsAdmin && !ctx.IsTenantAdmin)
-                    result.Objects = result.Objects.Where(s => ScopedVisibility.CanView(ctx, s.Scope, s.TenantId, s.UserId)).ToList();
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -250,8 +246,11 @@ namespace Armada.Server.Routes
 
         private static void ApplyReadScope(AuthContext ctx, SkillQuery query)
         {
+            // Visibility applies in the database before counting, so TotalRecords is exact for the caller.
             if (ctx.IsAdmin) return;
             query.TenantId = ctx.TenantId;
+            query.RestrictToViewer = !ctx.IsTenantAdmin;
+            query.ViewerUserId = ctx.IsTenantAdmin ? null : ctx.UserId;
             query.UserId = null;
         }
 
