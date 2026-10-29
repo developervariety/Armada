@@ -70,6 +70,18 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Captain delete retries SQL Server deadlock error 1205 up to two more times, then surfaces the error.
 
+### Operator mail delivery notice
+
+- `armada_send_signal`, REST `POST /api/v1/signals` and WebSocket `send_signal` return `Delivery=stored_until_next_launch` and a reason that names the runtime when the recipient captain is running on a runtime that does not inject mail into a live process. Every shipped runtime is in that class. A description change on a running mission (`armada_update_mission`, REST `PUT /api/v1/missions/{id}`, WebSocket `update_mission`) returns the same notice. The stored mail or brief is used at the next launch; this is not a new delivery channel.
+
+### Planning token usage
+
+- A planning-session turn that reports runtime token usage writes a token-usage record through `TokenUsageCapture` with `source=planning`, the captain id and the session id.
+
+### Battery fixture workflow profile
+
+- Creating or reusing a battery fixture vessel writes a vessel-scoped default workflow profile named `battery-<pack id> fixture` with the pack's `buildCommand` and `unitTestCommand`. A pack with neither command is refused before launch with reason `pack_missing_workflow_commands`. The shipped `csharp` pack declares `dotnet build Inventory.sln` and `dotnet run --project tests/Inventory.Tests`; the shipped `javascript` pack declares `npm test`.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

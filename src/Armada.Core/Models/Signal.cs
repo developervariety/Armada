@@ -69,6 +69,19 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
+        /// <summary>
+        /// How this send reaches a running captain. Set on a send response only; not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Delivery { get; set; } = null;
+
+        /// <summary>
+        /// Why <see cref="Delivery"/> has that value, naming the runtime when mail is stored until the next launch.
+        /// Set on a send response only; not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? DeliveryReason { get; set; } = null;
+
         #endregion
 
         #region Private-Members

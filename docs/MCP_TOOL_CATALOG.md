@@ -107,6 +107,11 @@ expiry and offer **Quarantine** and **Lift Quarantine**.
 | --- | --- |
 | Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_mission_change_summary` (caller-scoped; the stage's recorded commit pair, no dock), `armada_mission_attempts` (caller-scoped; captain, runtime, model, runtime version and outcome of each attempt), `armada_get_mission_log`, `armada_battery_packs`, `armada_battery_runs`, `armada_battery_run` (global administrators; fixture battery packs and runs) |
 | Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26), `armada_review_hold` (`action=fail`), `armada_handoff_hold` (`action=rescue`) |
+
+When `armada_update_mission` changes the description of a running mission (Assigned or InProgress) on a runtime
+that does not apply a brief mid-mission, the result includes `Delivery` `stored_until_next_launch` and a
+`DeliveryReason` that names the runtime. REST `PUT /api/v1/missions/{id}` and WebSocket `update_mission` return
+the same notice. The stored description is used at the next launch.
 | Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_review_hold` (`action=clear` lands or hands off the held PASS), `armada_handoff_hold` (`action=release` or `mail_release` hands off the held stage) |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
@@ -400,6 +405,12 @@ Pass `includeHandled: true` to list every item, each with its `Handled` marker
 | --- | --- |
 | Read | `armada_get_dock`, `armada_list_papercuts`, `armada_list_memory_proposals` |
 | Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read`, `armada_repair_dock`, `armada_dismiss_memory_proposal`, `armada_promote_memory_proposal` |
+
+`armada_send_signal` stores the Mail and returns it. When the recipient captain is running (Working or Stalled) on
+a runtime that does not inject mail into a live process, the result includes `Delivery` `stored_until_next_launch`
+and a `DeliveryReason` that names the runtime. Every shipped runtime is in that class. REST `POST /api/v1/signals`
+and WebSocket `send_signal` return the same notice. Mail is not a new channel: the captain reads stored mail at
+the next launch.
 | Destructive | `armada_delete_dock`, `armada_purge_dock`, `armada_unstick_dock`, `armada_delete_docks`, `armada_delete_signals`, `armada_delete_event`, `armada_delete_events` |
 
 `armada_send_signal` takes `captainId`, `missionId`, or both. Mail that names a

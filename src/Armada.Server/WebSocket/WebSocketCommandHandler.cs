@@ -1037,6 +1037,7 @@ namespace Armada.Server.WebSocket
             newSignal.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
             newSignal.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
             newSignal = await _Database.Signals.CreateAsync(newSignal).ConfigureAwait(false);
+            newSignal = await SignalDelivery.AnnotateAsync(_Database, newSignal).ConfigureAwait(false);
             return new { type = "command.result", action = "send_signal", data = (object)newSignal };
         }
 

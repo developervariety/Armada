@@ -50,6 +50,7 @@ namespace Armada.Test.Unit.TestHelpers
     public sealed class ReplayRuntimeFactory : AgentRuntimeFactory
     {
         private readonly IReadOnlyList<string> _Records;
+        private readonly RuntimeTokenUsage? _Usage;
 
         public ReplayAgentRuntime? LastRuntime { get; private set; }
 
@@ -58,15 +59,17 @@ namespace Armada.Test.Unit.TestHelpers
         /// </summary>
         /// <param name="logging">Logging module.</param>
         /// <param name="records">Records every created runtime raises.</param>
-        public ReplayRuntimeFactory(LoggingModule logging, IReadOnlyList<string> records) : base(logging)
+        /// <param name="usage">Optional runtime usage sample every created runtime raises.</param>
+        public ReplayRuntimeFactory(LoggingModule logging, IReadOnlyList<string> records, RuntimeTokenUsage? usage = null) : base(logging)
         {
             _Records = records ?? throw new ArgumentNullException(nameof(records));
+            _Usage = usage;
         }
 
         /// <inheritdoc />
         public override IAgentRuntime Create(AgentRuntimeEnum runtimeType)
         {
-            LastRuntime = new ReplayAgentRuntime(_Records);
+            LastRuntime = new ReplayAgentRuntime(_Records, _Usage);
             return LastRuntime;
         }
     }
@@ -78,6 +81,7 @@ namespace Armada.Test.Unit.TestHelpers
     {
         private const int _ProcessId = 4242;
         private readonly IReadOnlyList<string> _Records;
+        private readonly RuntimeTokenUsage? _Usage;
 
         public CaptainLaunchIsolationPlan? ReceivedIsolationPlan { get; private set; }
         public string? ReceivedWorkingDirectory { get; private set; }
@@ -86,9 +90,11 @@ namespace Armada.Test.Unit.TestHelpers
         /// Instantiate.
         /// </summary>
         /// <param name="records">Records to raise.</param>
-        public ReplayAgentRuntime(IReadOnlyList<string> records)
+        /// <param name="usage">Optional runtime usage sample raised after the records.</param>
+        public ReplayAgentRuntime(IReadOnlyList<string> records, RuntimeTokenUsage? usage = null)
         {
             _Records = records ?? throw new ArgumentNullException(nameof(records));
+            _Usage = usage;
         }
 
         /// <inheritdoc />
@@ -142,7 +148,8 @@ namespace Armada.Test.Unit.TestHelpers
                     OnOutputReceived?.Invoke(_ProcessId, record);
                     OnStdoutReceived?.Invoke(_ProcessId, record);
                 }
-                GC.KeepAlive(OnTokenUsageReceived);
+                if (_Usage != null)
+                    OnTokenUsageReceived?.Invoke(_ProcessId, _Usage);
                 GC.KeepAlive(OnProviderProgressReceived);
                 OnProcessExited?.Invoke(_ProcessId, 0);
             });

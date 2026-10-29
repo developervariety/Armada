@@ -42,6 +42,13 @@ namespace Armada.Core.Services
         /// </summary>
         public bool IsValid => Manifest != null && Errors.Count == 0;
 
+        /// <summary>
+        /// Whether the pack declares a build or unit-test command for the fixture vessel workflow profile.
+        /// </summary>
+        public bool HasWorkflowCommands =>
+            Manifest != null
+            && (!String.IsNullOrWhiteSpace(Manifest.BuildCommand) || !String.IsNullOrWhiteSpace(Manifest.UnitTestCommand));
+
         #endregion
 
         #region Constructors-and-Factories

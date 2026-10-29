@@ -4,6 +4,7 @@ namespace Armada.Test.Unit
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
@@ -378,6 +379,68 @@ namespace Armada.Test.Unit
                     AssertNotNull(readBack);
                     AssertEqual("Mail", readBack!.Type.ToString(), "Lowercase 'mail' should map to the Mail signal type");
                     AssertContains("lowercase type should work", readBack.Payload!);
+                }
+            });
+
+            await RunTest("SendSignal_RunningCaptainWithoutMidMissionMail_ReturnsStoredUntilNextLaunch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Captain running = await testDb.Driver.Captains.CreateAsync(
+                        new Captain("running-cursor", AgentRuntimeEnum.Cursor) { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                    Captain idle = await testDb.Driver.Captains.CreateAsync(
+                        new Captain("idle-cursor", AgentRuntimeEnum.Cursor) { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    McpSignalTools.Register(
+                        (name, _, _, h) => { if (name == "armada_send_signal") handler = McpTestCaller.Wrap(h); },
+                        testDb.Driver);
+                    AssertNotNull(handler, "armada_send_signal handler must be registered");
+
+                    JsonElement runningArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        captainId = running.Id,
+                        message = "check the stored mail path"
+                    }, _JsonOpts);
+                    object runningResult = await handler!(runningArgs).ConfigureAwait(false);
+                    string runningJson = JsonSerializer.Serialize(runningResult);
+                    Signal? sent = JsonSerializer.Deserialize<Signal>(runningJson);
+                    AssertNotNull(sent);
+                    AssertEqual(SignalDelivery.StoredUntilNextLaunch, sent!.Delivery, runningJson);
+                    AssertContains("Cursor", sent.DeliveryReason!, runningJson);
+                    AssertContains("stored until the next launch", sent.DeliveryReason!, runningJson);
+
+                    Signal? stored = await testDb.Driver.Signals.ReadAsync(sent.Id).ConfigureAwait(false);
+                    AssertNotNull(stored);
+                    AssertNull(stored!.Delivery, "Delivery is a send-response notice and is not stored");
+                    AssertNull(stored.DeliveryReason);
+
+                    JsonElement idleArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        captainId = idle.Id,
+                        message = "idle captain has no live process"
+                    }, _JsonOpts);
+                    object idleResult = await handler!(idleArgs).ConfigureAwait(false);
+                    Signal? idleSent = JsonSerializer.Deserialize<Signal>(JsonSerializer.Serialize(idleResult));
+                    AssertNotNull(idleSent);
+                    AssertNull(idleSent!.Delivery, "an idle captain is not running, so the send has no mid-mission notice");
+                    AssertNull(idleSent.DeliveryReason);
+                }
+            });
+
+            await RunTest("SendSignal_RunningCaptainInAnotherTenant_ReturnsNoDeliveryNotice", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_other", Name = "ten_other" }).ConfigureAwait(false);
+                    Captain foreign = await testDb.Driver.Captains.CreateAsync(
+                        new Captain("foreign-cursor", AgentRuntimeEnum.Cursor) { State = CaptainStateEnum.Working, TenantId = "ten_other" }).ConfigureAwait(false);
+                    Signal sent = new Signal(SignalTypeEnum.Mail, "cross-tenant probe") { TenantId = "ten_sender", ToCaptainId = foreign.Id };
+
+                    Signal annotated = await SignalDelivery.AnnotateAsync(testDb.Driver, sent).ConfigureAwait(false);
+
+                    AssertNull(annotated.Delivery, "a captain in another tenant reveals no running state");
+                    AssertNull(annotated.DeliveryReason);
                 }
             });
         }

@@ -2075,6 +2075,11 @@ Only the fields the body names change: `Title`, `Description`, `Priority`, `Bran
 
 Mission metadata updates preserve omitted `vesselId` and `voyageId`. Explicit changes, including clearing an existing binding with null, return 409.
 
+When the body names `Description` and the mission is running (Assigned or InProgress) on a runtime that does not
+apply a brief mid-mission, the response includes `Delivery` `stored_until_next_launch` and a `DeliveryReason` that
+names the runtime. Those fields are response-only and are not stored. The stored description is used at the next
+launch. MCP `armada_update_mission` and WebSocket `update_mission` return the same notice.
+
 **Path Parameters:**
 | Parameter | Description |
 |---|---|
@@ -3022,6 +3027,11 @@ Send a new signal (message).
 | `FromCaptainId` | string | no | Sender captain ID (null = from Admiral) |
 
 **Response:** `201 Created` - [Signal](#signal)
+
+When the recipient captain is running (Working or Stalled) on a runtime that does not inject mail into a live
+process, the created signal includes `Delivery` `stored_until_next_launch` and a `DeliveryReason` that names the
+runtime. Every shipped runtime is in that class. Those fields are response-only and are not stored. The captain
+reads stored mail at the next launch. MCP `armada_send_signal` and WebSocket `send_signal` return the same notice.
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/signals \
@@ -5269,6 +5279,8 @@ An atomic unit of work assigned to a captain.
 | `CompletedUtc` | datetime? | null | Completion timestamp (UTC) |
 | `TotalRuntimeMs` | long? | null | Total execution runtime in milliseconds |
 | `LastUpdateUtc` | datetime | now | Last update timestamp (UTC) |
+| `Delivery` | string? | omitted | Set on a description-update response when the mission is running on a runtime that does not apply a brief mid-mission; value `stored_until_next_launch`. Not stored. |
+| `DeliveryReason` | string? | omitted | Why `Delivery` has that value; names the runtime. Not stored. |
 
 ---
 
@@ -5342,6 +5354,8 @@ A message between the admiral and captains.
 | `Payload` | string? | null | Message payload |
 | `Read` | bool | false | Whether signal has been read |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
+| `Delivery` | string? | omitted | Set on a send response when the recipient captain is running on a runtime that does not inject mail mid-mission; value `stored_until_next_launch`. Not stored. |
+| `DeliveryReason` | string? | omitted | Why `Delivery` has that value; names the runtime. Not stored. |
 
 ---
 
