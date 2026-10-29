@@ -334,10 +334,10 @@ namespace Test.Shared.Suites.Services
                 throw new NotImplementedException();
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+            public Task<bool> ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? forceReason = null, string caller = "")
             {
                 ReclaimCalls++;
-                return Task.CompletedTask;
+                return Task.FromResult(true);
             }
 
             public Task RepairAsync(string dockId, string? tenantId = null, CancellationToken token = default)

@@ -498,6 +498,16 @@ namespace Armada.Server
             missionService.ResolveDockPlacementAsync = _AgentLifecycle.ResolveDockPlacementAsync;
             _MissionLanding.DockHosts = dockHosts;
             _LandingService.DockHosts = dockHosts;
+            _LandingService.Docks = dockService;
+
+            // Keep unlanded work landable: recreate missing docks of unlanded missions, and retry LocalMerge landings
+            // that waited on a dirty checkout once it is clean (bounded per health tick).
+            LandingIntegrityService landingIntegrity = new LandingIntegrityService(_Logging, _Database, _Settings, dockService, _LandingService, _Git)
+            {
+                Hosts = dockHosts,
+                IsCompletionInFlight = missionService.IsCompletionInFlight
+            };
+            admiralService.OnLandingIntegritySweep = landingIntegrity.SweepAsync;
 
             // Evaluate (probe-only model probes): each probe runs through the captain's own runtime as a Harbor job,
             // under the evaluation budget and concurrency limits. Nothing it records changes routing or captain settings.

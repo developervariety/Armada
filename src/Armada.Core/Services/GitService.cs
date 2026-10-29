@@ -396,6 +396,7 @@ namespace Armada.Core.Services
         /// </summary>
         /// <exception cref="ArgumentNullException">Thrown when targetWorkDir, sourceRepoPath, or branchName is null or empty.</exception>
         /// <exception cref="GitDirtyCheckoutException">Thrown when the checkout has uncommitted changes to tracked files.</exception>
+        /// <exception cref="GitMergeConflictException">Thrown when git reports conflicted files merging the branch.</exception>
         /// <exception cref="InvalidOperationException">Thrown when git cannot check out the target or merge the branch.</exception>
         public async Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default)
         {
@@ -484,9 +485,10 @@ namespace Armada.Core.Services
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 string failure = "Merge conflict or merge failure: " + ex.Message;
+                IReadOnlyList<string> conflicts = Array.Empty<string>();
                 try
                 {
-                    IReadOnlyList<string> conflicts = await GetConflictedFilesAsync(targetWorkDir, CancellationToken.None).ConfigureAwait(false);
+                    conflicts = await GetConflictedFilesAsync(targetWorkDir, CancellationToken.None).ConfigureAwait(false);
                     if (conflicts.Count > 0) failure += " Conflicted files: " + String.Join(", ", conflicts) + ".";
                     if (await ChangelogLandingConflict.TryResolveAsync(_Commands ?? new LocalHostCommandExecutor(), targetWorkDir, IsWindowsHost(targetWorkDir), token).ConfigureAwait(false)) return;
                 }
@@ -499,6 +501,8 @@ namespace Armada.Core.Services
                     try { await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, CancellationToken.None).ConfigureAwait(false); }
                     catch (Exception secondary) { failure += " Merge cleanup failed: " + secondary.Message; }
                 }
+                // Only a merge git reports as conflicted is a landing conflict; any other merge failure is not.
+                if (conflicts.Count > 0) throw new GitMergeConflictException(failure, conflicts, ex as GitCommandException);
                 if (ex is GitCommandException gitFailure)
                     throw new GitCommandException(gitFailure.Executable, gitFailure.Arguments, gitFailure.ExitCode, gitFailure.StandardOutput, failure);
                 throw new InvalidOperationException(failure, ex);

@@ -20218,6 +20218,12 @@
       "experimental": false
     },
     {
+      "key": "landingDeferralDeadlineHours",
+      "type": "int",
+      "default": "24",
+      "experimental": false
+    },
+    {
       "key": "landingMode",
       "type": "enum LandingModeEnum (LocalMerge|PullRequest|MergeQueue|None|MergeAndPush)?",
       "default": "\"MergeAndPush\"",

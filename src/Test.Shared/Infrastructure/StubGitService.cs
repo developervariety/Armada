@@ -211,10 +211,16 @@ namespace Test.Shared.Infrastructure
             return Task.CompletedTask;
         }
 
+        /// <summary>
+        /// Runs inside FetchRemotesAsync (the first git step of landing's target synchronization), so a test can act
+        /// while a landing is in progress.
+        /// </summary>
+        public Func<Task>? OnFetchRemotes { get; set; }
+
         public Task FetchRemotesAsync(string repoPath, CancellationToken token = default)
         {
             OperationCalls.Add("fetch-remotes:" + repoPath);
-            return Task.CompletedTask;
+            return OnFetchRemotes?.Invoke() ?? Task.CompletedTask;
         }
 
         public Task<GitDivergenceCounts?> GetDivergenceAsync(string repoPath, string baseRef, string headRef, CancellationToken token = default)

@@ -51,7 +51,7 @@ namespace Armada.Core.Services
 
             if (dock != null)
             {
-                try { await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false); }
+                try { await ReclaimMissionDockAsync(dock.Id, token, "boundary violation fails the mission").ConfigureAwait(false); }
                 catch (Exception ex) { _Logging.Warn(_Header + "boundary reclaim error for mission " + mission.Id + ": " + ex.ToString()); }
             }
 
@@ -236,7 +236,7 @@ namespace Armada.Core.Services
             // Release the dock/captain before re-dispatching or failing.
             if (dock != null)
             {
-                try { await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false); }
+                try { await ReclaimMissionDockAsync(dock.Id, token, "no-op completion is re-dispatched or failed").ConfigureAwait(false); }
                 catch (Exception ex) { _Logging.Warn(_Header + "no-op reclaim error for mission " + mission.Id + ": " + ex.ToString()); }
             }
 
@@ -397,6 +397,9 @@ namespace Armada.Core.Services
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 }
+
+                // The branch, not the dock directory, is the durable copy of the work landing and repair rebuild from.
+                await EnsureBranchHoldsCommitAsync(mission, dock, token).ConfigureAwait(false);
             }
 
             // Capture diff BEFORE pipeline handoff so the next stage gets the actual diff
@@ -780,9 +783,15 @@ namespace Armada.Core.Services
                 && !(mission.Status == MissionStatusEnum.WorkProduced
                     && !hasDependentPipelineStages && !preparedDownstreamStages))
             {
+                // The dock lease (DockService) keeps a worktree that still has unlanded work. This path only forces the
+                // cases it decided on: a pipeline handoff moves the branch to the next stage (which needs it checked out
+                // in its own dock), and an opened pull request has already published the branch.
+                string? completionForceReason = hasDependentPipelineStages || preparedDownstreamStages
+                    ? "pipeline handoff: the next stage takes over branch " + (mission.BranchName ?? dock?.BranchName)
+                    : mission.Status == MissionStatusEnum.PullRequestOpen ? "pull request opened: the branch is published" : null;
                 try
                 {
-                    await _Docks.ReclaimAsync(completionDockId, token: token).ConfigureAwait(false);
+                    await _Docks.ReclaimAsync(completionDockId, token: token, forceReason: completionForceReason, caller: "MissionCompletion").ConfigureAwait(false);
                 }
                 catch (Exception reclaimEx)
                 {

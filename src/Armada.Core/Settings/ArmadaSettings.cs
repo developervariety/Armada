@@ -417,6 +417,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// How long, in hours, a LocalMerge landing refused because the target checkout had tracked changes is retried
+        /// automatically once that checkout is clean again. After it the mission stays LandingFailed for a person to retry.
+        /// 0 disables the automatic retry. Must be in range [0, 720].
+        /// </summary>
+        public int LandingDeferralDeadlineHours
+        {
+            get => _LandingDeferralDeadlineHours;
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 720) value = 720;
+                _LandingDeferralDeadlineHours = value;
+            }
+        }
+
+        /// <summary>
         /// Maximum number of automatic recovery attempts for a stalled captain before its mission
         /// is failed.
         /// </summary>
@@ -977,6 +993,7 @@ namespace Armada.Core.Settings
         private int _MaxMissionRecoveryAttempts = 2;
         private int _TransientResumeDelaySeconds = 5;
         private int _TransientOutageGraceMinutes = 10;
+        private int _LandingDeferralDeadlineHours = 24;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _MaxConcurrentMissions = Constants.DefaultMaxConcurrentMissions;

@@ -1847,13 +1847,14 @@ namespace Armada.Core.Services
                 : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
         }
 
-        private async Task ReclaimMissionDockAsync(string dockId, CancellationToken token)
+        private async Task ReclaimMissionDockAsync(string dockId, CancellationToken token, string? forceReason = null,
+            [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             if (String.IsNullOrEmpty(dockId)) return;
 
             try
             {
-                await _Docks.ReclaimAsync(dockId, token: token).ConfigureAwait(false);
+                await _Docks.ReclaimAsync(dockId, token: token, forceReason: forceReason, caller: caller).ConfigureAwait(false);
             }
             catch (Exception reclaimEx)
             {

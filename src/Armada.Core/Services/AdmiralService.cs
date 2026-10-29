@@ -70,6 +70,13 @@ namespace Armada.Core.Services
         public Func<CancellationToken, Task<int>>? OnReconcileManualLandings { get; set; }
 
         /// <summary>
+        /// Optional health-check hook that keeps unlanded work landable (LandingIntegrityService): it recreates missing
+        /// dock worktrees of unlanded missions from their branches and retries landings deferred on a dirty checkout.
+        /// Returns the number of repairs and retries. Concrete hook, so the orchestration interface does not change.
+        /// </summary>
+        public Func<CancellationToken, Task<int>>? OnLandingIntegritySweep { get; set; }
+
+        /// <summary>
         /// Optional hook reporting whether an agent process was launched by this admiral and is still running under
         /// its runtime's exit callback. Such a process is owned by that callback: the health check and the orphan
         /// sweep treat it as alive instead of probing the operating system, which cannot see in-process captains
@@ -733,6 +740,15 @@ namespace Armada.Core.Services
                 {
                     int reconciledManual = await OnReconcileManualLandings.Invoke(token).ConfigureAwait(false);
                     if (reconciledManual > 0) _Logging.Info(_Header + "completed " + reconciledManual + " manually merged mission(s)");
+                }, token).ConfigureAwait(false);
+            }
+
+            if (OnLandingIntegritySweep != null)
+            {
+                await RunHealthPhaseAsync("landing integrity", async () =>
+                {
+                    int repaired = await OnLandingIntegritySweep.Invoke(token).ConfigureAwait(false);
+                    if (repaired > 0) _Logging.Info(_Header + "landing integrity repaired or retried " + repaired + " mission dock(s) or landing(s)");
                 }, token).ConfigureAwait(false);
             }
 
@@ -2324,7 +2340,8 @@ namespace Armada.Core.Services
         /// Clears CurrentDockId on the captain and DockId on the mission after reclaim.
         /// Handles gracefully if the dock or worktree is already gone.
         /// </summary>
-        private async Task ReclaimDockAsync(Captain captain, Mission? mission, CancellationToken token)
+        private async Task ReclaimDockAsync(Captain captain, Mission? mission, CancellationToken token,
+            [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             string? dockId = captain.CurrentDockId;
             if (String.IsNullOrEmpty(dockId) && mission != null)
@@ -2341,10 +2358,11 @@ namespace Armada.Core.Services
                 return;
             }
 
+            bool reclaimed = true;
             try
             {
-                await _Docks.ReclaimAsync(dockId, token: token).ConfigureAwait(false);
-                _Logging.Info(_Header + "reclaimed dock " + dockId + " for captain " + captain.Id);
+                reclaimed = await _Docks.ReclaimAsync(dockId, token: token, caller: caller).ConfigureAwait(false);
+                if (reclaimed) _Logging.Info(_Header + "reclaimed dock " + dockId + " for captain " + captain.Id);
             }
             catch (Exception ex)
             {
@@ -2358,7 +2376,8 @@ namespace Armada.Core.Services
                 await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
             }
 
-            if (mission != null && !String.IsNullOrEmpty(mission.DockId))
+            // A refused reclaim means the dock still holds unlanded work (its lease); the mission keeps pointing at it.
+            if (reclaimed && mission != null && !String.IsNullOrEmpty(mission.DockId))
             {
                 // Conditional on the status this caller holds: a stale copy must never move the mission back.
                 mission.DockId = null;
