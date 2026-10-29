@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Rescue of a format-refused Judge PASS
+
+- A rescue of a Judge whose verdict was PASS and whose second run still failed the acceptance-criteria format check no longer lists the PASS review's Correctness, Failure Modes and Tests bullets as blocking findings. Its brief names the acceptance-criteria section and the walk's failure reason as the defect and keeps only items marked blocking or NOT MET. NEEDS_REVISION and FAIL reviews, NOT MET failures and unknown failure reasons keep the full extraction.
+
 ### Review inbox items
 
 - The inbox `review` item lists a mission in Review only when its stage requires review, the same rule approve and deny apply. A captain that reports Review as progress on a stage without a review gate no longer produces an "Awaiting your review" item.
