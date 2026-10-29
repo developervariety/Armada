@@ -56,6 +56,8 @@ namespace Armada.Core.Database.Postgresql
             StoredTimestampEnum.Timestamp,
             new Dictionary<string, StoredTimestampEnum>
             {
+                { "battery_runs.started_utc", StoredTimestampEnum.TimestampWithZone },
+                { "battery_runs.completed_utc", StoredTimestampEnum.TimestampWithZone },
                 { "research_replays.created_utc", StoredTimestampEnum.Timestamp },
                 { "check_runs.completed_utc", StoredTimestampEnum.TimestampWithZone },
                 { "schema_repairs.applied_utc", StoredTimestampEnum.TimestampWithZone },

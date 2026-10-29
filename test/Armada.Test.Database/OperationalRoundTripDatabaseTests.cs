@@ -31,6 +31,40 @@ namespace Armada.Test.Database
             _NoCleanup = noCleanup;
         }
 
+        internal async Task VerifyBatteryRunsAsync(CancellationToken token)
+        {
+            string suffix = Guid.NewGuid().ToString("N");
+            DateTime started = new DateTime(2031, 5, 6, 7, 8, 9, 123, DateTimeKind.Utc);
+            BatteryRun run = new BatteryRun
+            {
+                PackId = "round-trip-" + suffix,
+                PackVersion = 1,
+                CaptainId = "cpt_" + suffix,
+                StartedUtc = started
+            };
+            await _Driver.BatteryRuns.CreateAsync(run, token).ConfigureAwait(false);
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                BatteryRun stored = await reopened.BatteryRuns.ReadAsync(run.Id, token).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("Battery run was lost across startup.");
+                DatabaseAssert.UtcInstant(started, stored.StartedUtc, "Battery start time");
+                DatabaseAssert.True(stored.CompletedUtc == null, "A running Battery has no end time");
+                stored.CompletedUtc = started.AddMinutes(1);
+                stored.Status = BatteryRunStatusEnum.Completed;
+                stored.Results.Add(new BatteryTaskResult { TaskId = "one", Grade = BatteryTaskGradeEnum.Passed, Score = 1 });
+                await reopened.BatteryRuns.UpdateAsync(stored, token).ConfigureAwait(false);
+            }
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                List<BatteryRun> runs = await reopened.BatteryRuns.EnumerateAsync(run.CaptainId, run.PackId, 1, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1, runs.Count, "Battery filters find the saved run");
+                DatabaseAssert.Equal(BatteryRunStatusEnum.Completed, runs[0].Status, "Battery status survives startup");
+                DatabaseAssert.UtcInstant(started.AddMinutes(1), runs[0].CompletedUtc!.Value, "Battery end time");
+                DatabaseAssert.Equal("one", runs[0].Results.Single().TaskId, "Battery task result survives startup");
+                DatabaseAssert.Equal(1, runs[0].Passed, "Battery grade survives startup");
+            }
+        }
+
         internal async Task VerifySkillsAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

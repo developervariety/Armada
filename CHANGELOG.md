@@ -9,6 +9,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Routing preview and planning storage
 
+- PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.
+
 - PostgreSQL upgrades add the optional objective link to existing planning tables and preserve stored sessions across restart.
 
 - Routing preview accepts capability hints and shows the ranking inputs used by the Legacy selector.
