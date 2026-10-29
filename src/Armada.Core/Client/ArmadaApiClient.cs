@@ -1230,7 +1230,7 @@ namespace Armada.Core.Client
         /// <param name="query">Paging, or null for the first page.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>One page.</returns>
-        public async Task<EnumerationResult<GitHubPullRequestDetail>?> EnumerateReleaseGitHubPullRequestsAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
+        public async Task<EnumerationResult<GitHubPullRequestDetail>?> GetReleaseGitHubPullRequestsAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<GitHubPullRequestDetail>, EnumerationQuery>("/api/v1/releases/" + id + "/github/pull-requests/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
         }

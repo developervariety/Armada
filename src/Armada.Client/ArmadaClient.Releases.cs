@@ -110,7 +110,7 @@ namespace Armada.Client
         /// <param name="token">Cancellation token.</param>
         /// <returns>One page.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<EnumerationResult<GitHubPullRequestDetail>?> EnumerateReleaseGitHubPullRequestsAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
+        public Task<EnumerationResult<GitHubPullRequestDetail>?> GetReleaseGitHubPullRequestsAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
         {
             return PostAsync<EnumerationResult<GitHubPullRequestDetail>>($"/api/v1/releases/{E(id)}/github/pull-requests/enumerate", query ?? new EnumerationQuery(), null, token);
         }

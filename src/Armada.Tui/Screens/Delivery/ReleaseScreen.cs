@@ -386,7 +386,7 @@ namespace Armada.Tui.Screens.Delivery
             if (String.IsNullOrEmpty(releaseId)) return new GridPage<GitHubPullRequestDetail>();
             try
             {
-                EnumerationResult<GitHubPullRequestDetail>? page = await Context.Client.EnumerateReleaseGitHubPullRequestsAsync(
+                EnumerationResult<GitHubPullRequestDetail>? page = await Context.Client.GetReleaseGitHubPullRequestsAsync(
                     releaseId,
                     new EnumerationQuery { PageNumber = query.PageNumber, PageSize = query.PageSize },
                     token).ConfigureAwait(false);
