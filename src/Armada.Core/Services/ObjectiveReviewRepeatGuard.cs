@@ -63,9 +63,13 @@ namespace Armada.Core.Services
                 frozen = source;
             }
             Mission latest = judges[0];
-            string? candidate = latest.CommitHash ?? chains[latest.VoyageId!]
-                .Where(item => !String.IsNullOrWhiteSpace(item.CommitHash)).OrderByDescending(item => item.CompletedUtc)
-                .Select(item => item.CommitHash).FirstOrDefault() ?? frozen;
+            Mission? reviewed = chains[latest.VoyageId!].FirstOrDefault(item => item.Id == latest.DependsOnMissionId);
+            string? candidate = latest.IsReadOnlyMode
+                ? (String.IsNullOrWhiteSpace(reviewed?.AgentOutput) ? null
+                    : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(reviewed.AgentOutput))).ToLowerInvariant())
+                : latest.CommitHash ?? reviewed?.CommitHash ?? chains[latest.VoyageId!]
+                    .Where(item => !String.IsNullOrWhiteSpace(item.CommitHash)).OrderByDescending(item => item.CompletedUtc)
+                    .Select(item => item.CommitHash).FirstOrDefault() ?? frozen;
             string inputHash = InputHash(objective, sourceCommit);
             ObjectiveReviewRetry? receipt = objective.Preparation?.Preflight?.ReviewRetry;
             EnumerationResult<ArmadaEvent> origins = await database.Events.EnumerateAsync(new EnumerationQuery
@@ -74,10 +78,19 @@ namespace Armada.Core.Services
             }, token).ConfigureAwait(false);
             VoyageDispatchOrigin? origin = origins.Objects.Where(item => (item.TenantId ?? Constants.DefaultTenantId) == (objective.TenantId ?? Constants.DefaultTenantId) && (item.UserId ?? Constants.DefaultUserId) == (objective.UserId ?? Constants.DefaultUserId))
                 .Select(item => JsonSerializer.Deserialize<VoyageDispatchOrigin>(item.Payload ?? "{}")).FirstOrDefault();
+            Voyage? priorVoyage = await database.Voyages.ReadAsync(latest.VoyageId!, token).ConfigureAwait(false);
+            bool priorBriefKnown = priorVoyage != null
+                && (priorVoyage.TenantId ?? Constants.DefaultTenantId) == (objective.TenantId ?? Constants.DefaultTenantId)
+                && (priorVoyage.UserId ?? Constants.DefaultUserId) == (objective.UserId ?? Constants.DefaultUserId)
+                && !String.IsNullOrWhiteSpace(priorVoyage.Description)
+                && VoyageObjectiveResolver.ReadBriefObjectiveId(priorVoyage.Description) == objective.Id;
+            bool legacyBriefChanged = priorBriefKnown && !String.IsNullOrWhiteSpace(objective.Description)
+                && !priorVoyage!.Description!.Contains(objective.Description, StringComparison.Ordinal);
             bool changed = origin?.InputHash != null
                 ? !String.Equals(origin.InputHash, inputHash, StringComparison.Ordinal)
-                : !String.Equals(sourceCommit, frozen, StringComparison.OrdinalIgnoreCase);
-            if (changed && receipt != null && receipt.JudgeMissionId == latest.Id
+                : legacyBriefChanged || (!String.IsNullOrWhiteSpace(sourceCommit)
+                    && !String.Equals(sourceCommit, frozen, StringComparison.OrdinalIgnoreCase));
+            if (changed && !String.IsNullOrWhiteSpace(candidate) && receipt != null && receipt.JudgeMissionId == latest.Id
                 && String.Equals(receipt.CandidateHash, candidate, StringComparison.OrdinalIgnoreCase)
                 && receipt.InputHash == inputHash && receipt.AllFindingsAddressed
                 && !String.IsNullOrWhiteSpace(receipt.ChangedInput) && !String.IsNullOrWhiteSpace(receipt.FindingsEvidence)) return null;
@@ -86,7 +99,7 @@ namespace Armada.Core.Services
                 Code = IssueCode, Area = "review", Severity = ReadinessSeverityEnum.Error,
                 RelatedValue = latest.Id,
                 Message = "Two consecutive Judge NEEDS_REVISION verdicts rejected frozen source " + frozen
-                    + ". Stop this objective before another full-chain dispatch. Preserve candidate " + candidate
+                    + ". Stop this objective before another full-chain dispatch. Preserve candidate " + (candidate ?? "unknown; restore the full reviewed report first")
                     + "; record changed input and evidence for every named finding in preflight ReviewRetry. Latest Judge "
                     + latest.Id + "; current input hash " + inputHash + "."
             };

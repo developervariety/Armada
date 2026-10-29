@@ -7,7 +7,7 @@ namespace Armada.Core.Models
     {
         /// <summary>The latest rejected Judge mission this receipt addresses.</summary>
         public string JudgeMissionId { get; set; } = String.Empty;
-        /// <summary>The exact rejected candidate commit, preserved for review.</summary>
+        /// <summary>The exact rejected candidate commit or SHA-256 of the reviewed report, preserved for review.</summary>
         public string CandidateHash { get; set; } = String.Empty;
         /// <summary>Hash of the new prepared input, as reported by dispatch preview.</summary>
         public string InputHash { get; set; } = String.Empty;

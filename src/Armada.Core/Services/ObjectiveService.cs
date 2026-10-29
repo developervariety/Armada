@@ -2577,7 +2577,7 @@ namespace Armada.Core.Services
             if (retry != null)
             {
                 EnsureMaximumLength(retry.JudgeMissionId, _MaxPreparationIdChars, "Review retry Judge");
-                EnsureMaximumLength(retry.CandidateHash, 40, "Review retry candidate hash");
+                EnsureMaximumLength(retry.CandidateHash, 64, "Review retry candidate hash");
                 EnsureMaximumLength(retry.InputHash, 64, "Review retry input hash");
                 EnsureMaximumLength(retry.ChangedInput, _MaxPreparationClaimTextChars, "Review retry changed input");
                 EnsureMaximumLength(retry.FindingsEvidence, _MaxPreparationClaimTextChars, "Review retry findings evidence");

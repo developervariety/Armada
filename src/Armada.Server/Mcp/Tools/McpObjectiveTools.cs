@@ -1191,7 +1191,7 @@ namespace Armada.Server.Mcp.Tools
                                 properties = new
                                 {
                                     judgeMissionId = new { type = "string" },
-                                    candidateHash = new { type = "string", maxLength = 40 },
+                                    candidateHash = new { type = "string", maxLength = 64 },
                                     inputHash = new { type = "string", maxLength = 64 },
                                     changedInput = new { type = "string", maxLength = 2000 },
                                     findingsEvidence = new { type = "string", maxLength = 2000 },

@@ -111,6 +111,23 @@ namespace Armada.Test.Unit.Suites.Services
                     { EventType = "mission.failure_cause", PageSize = 10 }).ConfigureAwait(false);
                     AssertEqual(2, events.Objects.Count, "every terminal cause has a stored event linked to its fact");
                     AssertTrue(events.Objects.All(item => item.MissionId == mission.Id && item.Payload!.Contains("attemptFactId")));
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Rejected voyage")
+                    { Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
+                    mission.VoyageId = voyage.Id;
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    Mission derivative = new Mission("Retained work") { VoyageId = voyage.Id, Status = MissionStatusEnum.Failed };
+                    TerminalVoyageMissionRule.RecordReconciledOutcome(derivative, VoyageStatusEnum.Failed,
+                        TerminalVoyageMissionRule.ReasonWorkUnlanded, DateTime.UtcNow);
+                    derivative = await testDb.Driver.Missions.CreateAsync(derivative).ConfigureAwait(false);
+                    MissionAttemptFact? derived = await MissionAttemptFactRecorder.RecordAsync(testDb.Driver, derivative,
+                        MissionAttemptFactTypeEnum.Failed).ConfigureAwait(false);
+                    AssertEqual("terminal_voyage_work_unlanded", derived!.ReasonCode);
+                    EnumerationResult<ArmadaEvent> linked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                    { EventType = "mission.failure_cause", MissionId = derivative.Id, PageSize = 10 }).ConfigureAwait(false);
+                    AssertEqual(1, linked.Objects.Count);
+                    AssertContains(mission.Id, linked.Objects[0].Payload!, "derivative failure retains the original failed-stage link");
+                    AssertContains("upstream_work_unlanded", linked.Objects[0].Payload!);
+                    AssertFalse(linked.Objects[0].Payload!.Contains("model_error"), "derivative status does not blame reasoning");
                 }
             }).ConfigureAwait(false);
 

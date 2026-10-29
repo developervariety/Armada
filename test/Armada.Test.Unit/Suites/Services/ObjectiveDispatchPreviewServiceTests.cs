@@ -62,18 +62,42 @@ namespace Armada.Test.Unit.Suites.Services
                         Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Rejected chain")
                         { TenantId = objective.TenantId, UserId = objective.UserId, Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
                         objective.VoyageIds.Add(voyage.Id);
-                        await testDb.Driver.Missions.CreateAsync(new Mission("Worker", "report")
+                        Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Worker", "report")
                         { TenantId = objective.TenantId, UserId = objective.UserId, VoyageId = voyage.Id,
-                            Persona = "Worker", StartFromRef = source, Status = MissionStatusEnum.Complete }).ConfigureAwait(false);
+                            Persona = "Worker", StartFromRef = source, Status = MissionStatusEnum.Complete,
+                            Mode = MissionModeEnum.Research, AgentOutput = "Reviewed report " + attempt }).ConfigureAwait(false);
                         await testDb.Driver.Missions.CreateAsync(new Mission("Judge", "review")
                         { TenantId = objective.TenantId, UserId = objective.UserId, VoyageId = voyage.Id,
-                            Persona = "Judge", Status = MissionStatusEnum.Failed,
+                            Persona = "Judge", Status = MissionStatusEnum.Failed, Mode = MissionModeEnum.Research,
+                            DependsOnMissionId = worker.Id,
                             FailureReason = "Judge verdict: NEEDS_REVISION", CompletedUtc = DateTime.UtcNow.AddMinutes(attempt) }).ConfigureAwait(false);
                     }
                     await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
                     ObjectiveDispatchPreview stopped = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     AssertTrue(stopped.Issues.Any(item => item.Code == "objective_repeat_review_stop"), "a third full-chain reissue is refused");
                     AssertEqual(PreflightGateOutcomeEnum.BlockedByOther, ObjectivePreflightGate.Classify(stopped, true), "forcePreflight cannot bypass the review stop");
+                    ObjectiveDispatchPreviewIssue stop = stopped.Issues.Single(item => item.Code == "objective_repeat_review_stop");
+                    string reportHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                        System.Text.Encoding.UTF8.GetBytes("Reviewed report 1"))).ToLowerInvariant();
+                    AssertContains(reportHash, stop.Message, "research preserves the exact reviewed report, not only its source commit");
+                    objective.Preparation!.Preflight.ReviewRetry = new ObjectiveReviewRetry
+                    {
+                        JudgeMissionId = stop.RelatedValue!, CandidateHash = reportHash,
+                        InputHash = ObjectiveReviewRepeatGuard.InputHash(objective, source),
+                        ChangedInput = "Claimed correction", FindingsEvidence = "Every named finding addressed", AllFindingsAddressed = true
+                    };
+                    ObjectiveDispatchPreview unchanged = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(unchanged.Issues.Any(item => item.Code == "objective_repeat_review_stop"), "an attestation alone cannot retry unchanged input");
+                    const string nextSource = "abcdef0123456789abcdef0123456789abcdef01";
+                    objective.StartFromRef = nextSource;
+                    harness.Git.RevisionCommitShaResult = nextSource;
+                    objective.Preparation.Preflight.ReviewRetry.InputHash = ObjectiveReviewRepeatGuard.InputHash(objective, nextSource);
+                    objective.Preparation.Preflight.ReviewRetry.CandidateHash = source;
+                    ObjectiveDispatchPreview wrongCandidate = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(wrongCandidate.Issues.Any(item => item.Code == "objective_repeat_review_stop"), "a changed input cannot lose the rejected report hash");
+                    objective.Preparation.Preflight.ReviewRetry.CandidateHash = reportHash;
+                    ObjectiveDispatchPreview retry = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(retry.Issues.Any(item => item.Code == "objective_repeat_review_stop"), "changed input and the full receipt admit a fresh required review");
                     Objective other = harness.CreateReadyObjective("unrelated-review");
                     ObjectiveDispatchPreview open = await harness.Service.PreviewAsync(harness.Auth, other).ConfigureAwait(false);
                     AssertFalse(open.Issues.Any(item => item.Code == "objective_repeat_review_stop"), "another objective is unaffected");

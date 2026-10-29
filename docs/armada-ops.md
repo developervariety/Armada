@@ -12,10 +12,11 @@ owner destination.
 Two consecutive Judge NEEDS_REVISION verdicts on an objective at the same frozen
 source add `objective_repeat_review_stop` to dispatch preview. This issue is not
 subject to `forcePreflight`. Preflight `ReviewRetry` records the latest Judge id,
-the exact rejected candidate hash, the current prepared input hash, the changed
+the exact rejected candidate commit or reviewed-report SHA-256, the current prepared input hash, the changed
 input, and evidence addressing every named finding. Preview reports the hashes.
 A receipt admits a retry only when the prepared input changed. Legacy dispatches
-without an input hash require a changed source commit as well. The next Judge
+without an input hash require a changed source commit or a changed objective
+description compared with the preserved objective brief in that voyage. The next Judge
 still checks all findings and acceptance criteria.
 
 Terminal failed attempts store a bounded reason code and a `mission.failure_cause`
