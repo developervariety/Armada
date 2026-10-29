@@ -34,18 +34,18 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="database">Database driver for entity enumeration.</param>
         /// <param name="mergeQueue">Optional merge queue service for merge queue enumeration.</param>
         /// <param name="inbox">Optional inbox service, for entityType inbox.</param>
-        /// <param name="cliPermissions">Optional CLI permission service, for entityType cli_permission_rules.</param>
+        /// <param name="cliPermissions">Optional CLI permission service, for entityTypes cli_permission_rules and cli_permission_requests.</param>
         public static void Register(RegisterToolDelegate register, DatabaseDriver database, IMergeQueueService? mergeQueue = null, InboxService? inbox = null, CliPermissionService? cliPermissions = null)
         {
             register(
                 "enumerate",
-                "Find and browse entities with paginated, filtered, sorted access to: inbox (the needs-you items, most urgent first), cli_permission_rules, objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+                "Find and browse entities with paginated, filtered, sorted access to: inbox (the needs-you items, most urgent first), cli_permission_rules, cli_permission_requests, objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        entityType = new { type = "string", description = "Entity type to enumerate: inbox (needs-you items, most urgent first), cli_permission_rules (vesselId and captainId filter), objectives, jobs, model_endpoints, harbors, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target (requires runId), vessel_health (status filters overall status, fleetId and search narrow by fleet and vessel name)" },
+                        entityType = new { type = "string", description = "Entity type to enumerate: inbox (needs-you items, most urgent first), cli_permission_rules (vesselId and captainId filter), cli_permission_requests (newest first; status, missionId, threadId, captainId, vesselId filter), objectives, jobs, model_endpoints, harbors, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target (requires runId), vessel_health (status filters overall status, fleetId and search narrow by fleet and vessel name)" },
                         pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
                         pageSize = new { type = "integer", description = "Results per page (default 10, max 1000)" },
                         order = new { type = "string", description = "Sort order: CreatedAscending, CreatedDescending (default)" },
@@ -68,6 +68,7 @@ namespace Armada.Server.Mcp.Tools
                         includePayload = new { type = "boolean", description = "Include full Payload on events (default false; returns payloadLength hint when false)" },
                         includeMessage = new { type = "boolean", description = "Include full Message on signals (default false; returns messageLength hint when false)" },
                         runId = new { type = "string", description = "Fleet action run ID (far_ prefix); required for fleet_action_run_target" },
+                        threadId = new { type = "string", description = "Filter by Ask thread ID (ath_ prefix; cli_permission_requests)" },
                         includeOutput = new { type = "boolean", description = "Include RenderedText, OutputText and ErrorText on fleet_action_run_target (default false; returns outputLength, errorLength and renderedLength hints when false)" },
                         includeInactive = new { type = "boolean", description = "Include soft-deleted built-in actions for fleet_action (default false)" }
                     },
@@ -142,6 +143,28 @@ namespace Armada.Server.Mcp.Tools
                                 CaptainId = String.IsNullOrWhiteSpace(query.CaptainId) ? null : query.CaptainId
                             };
                             return (object)EnumerationResult<CliPermissionRule>.Page(query, await cliPermissions.ListRulesAsync(callerCtx, ruleQuery).ConfigureAwait(false));
+                        case "cli_permission_requests":
+                        case "cli-permission-requests":
+                            if (cliPermissions == null) return (object)McpToolError.Unavailable("CLI permissions are not available on this server.");
+                            CliPermissionRequestEnumerateRequest requestQuery = new CliPermissionRequestEnumerateRequest
+                            {
+                                Status = query.Status,
+                                MissionId = query.MissionId,
+                                CaptainId = query.CaptainId,
+                                VesselId = query.VesselId,
+                                ThreadId = request.ThreadId
+                            };
+                            CliPermissionRequestQuery requestFilter;
+                            try
+                            {
+                                requestFilter = requestQuery.ToFilter();
+                            }
+                            catch (ArgumentException)
+                            {
+                                return (object)McpToolError.InvalidArgument("status must be one of " + McpToolHelpers.EnumNames<CliPermissionRequestStatusEnum>() + ".");
+                            }
+
+                            return (object)await cliPermissions.EnumerateAsync(callerCtx, requestFilter, query.PageNumber, query.PageSize).ConfigureAwait(false);
                         case "harbors":
                         case "harbor":
                             System.Collections.Generic.List<Harbor> allHarbors = await new HarborService(database, new SyslogLogging.LoggingModule()).EnumerateAsync(callerCtx).ConfigureAwait(false);
@@ -430,8 +453,11 @@ namespace Armada.Server.Mcp.Tools
                             return (object)personas;
                         case "memories":
                         case "memory":
+                            MemoryEnumerateRequest memoryQuery = MemoryEnumerateRequest.FromQuery(query);
+                            if (!String.IsNullOrWhiteSpace(request.Search)) memoryQuery.Search = request.Search.Trim();
+                            memoryQuery.ApplyDefaultSort(!String.IsNullOrEmpty(request.Order));
                             EnumerationResult<Memory> memoryResult = await new MemoryService(database, new SyslogLogging.LoggingModule())
-                                .EnumerateAsync(callerCtx, query, request.Search).ConfigureAwait(false);
+                                .EnumerateAsync(callerCtx, memoryQuery).ConfigureAwait(false);
                             return (object)memoryResult;
                         case "prompt_templates":
                         case "prompt_template":
@@ -594,7 +620,7 @@ namespace Armada.Server.Mcp.Tools
                                 TotalMs = targets.TotalMs
                             };
                         default:
-                            return (object)McpToolError.InvalidArgument("Unknown entity type: " + entityType + ". Valid types: inbox, cli_permission_rules, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health");
+                            return (object)McpToolError.InvalidArgument("Unknown entity type: " + entityType + ". Valid types: inbox, cli_permission_rules, cli_permission_requests, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health");
                     }
                 });
         }

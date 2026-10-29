@@ -50,30 +50,26 @@ export const navModelSections: NavModelSection[] = [
   {
     key: 'operations',
     label: 'OPERATIONS',
-    matchers: ['/inbox', '/dispatch', '/fleet-actions', '/planning', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
+    matchers: [
+      '/inbox', '/dispatch', '/fleet-actions', '/planning', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue',
+      '/activity', '/history', '/requests', '/events', '/signals', '/jobs',
+    ],
     items: [
       { to: '/inbox', label: 'Needs You', tooltip: 'Reviews, failures, and stalls awaiting your attention', icon: 'needsYou' },
-      { to: '/planning', label: 'Planning', tooltip: 'Plan with a captain, preserve the transcript, and dispatch directly from the session', icon: 'planning' },
-      { to: '/dispatch', label: 'Dispatch', tooltip: 'Send work to vessels; capture and refine backlog on the Backlog tab', icon: 'dispatch' },
+      { to: '/dispatch', label: 'Dispatch', tooltip: 'Send work to vessels, plan with a captain on the Planning tab, and capture and refine backlog on the Backlog tab', icon: 'dispatch' },
       { to: '/fleet-actions', label: 'Fleet Actions', tooltip: 'Run a command or mission across many vessels and watch each run', icon: 'fleetActions' },
       { to: '/missions', label: 'Missions', tooltip: 'Work units, plus Voyages and the full Merge Queue as tabs', icon: 'missions' },
-    ],
-  },
-  {
-    key: 'delivery',
-    label: 'DELIVERY',
-    matchers: ['/delivery', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
-    items: [
-      { to: '/delivery', label: 'Delivery', tooltip: 'Deployments, Environments, Releases, Incidents, Checks, and Runbooks as tabs', icon: 'delivery' },
+      { to: '/activity', label: 'Activity', tooltip: 'One log across requests, events, signals, and history, plus background jobs on the Jobs tab', icon: 'activity' },
     ],
   },
   {
     key: 'fleet',
     label: 'BUILD',
-    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks'],
+    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks', '/delivery', '/checks', '/environments', '/deployments', '/releases', '/incidents', '/runbooks'],
     items: [
       { to: '/vessels', label: 'Vessels', tooltip: 'Repositories grouped by fleet, plus the vessel workspace, on one surface', icon: 'vessels' },
       { to: '/captains', label: 'Captains', tooltip: 'AI coding agents that execute missions', icon: 'captains' },
+      { to: '/delivery', label: 'Delivery', tooltip: 'Deployments, Environments, Releases, Incidents, Checks, and Runbooks as tabs', icon: 'delivery' },
     ],
   },
   {
@@ -85,23 +81,12 @@ export const navModelSections: NavModelSection[] = [
     ],
   },
   {
-    key: 'activity',
-    label: 'ACTIVITY',
-    matchers: ['/activity', '/history', '/requests', '/events', '/signals', '/jobs'],
-    items: [
-      { to: '/activity', label: 'Activity', tooltip: 'One log across requests, events, signals, and history; filter by source type', icon: 'activity' },
-      { to: '/jobs', label: 'Jobs', tooltip: 'Background jobs and their status', icon: 'activity' },
-    ],
-  },
-  {
     key: 'system',
     label: 'SYSTEM',
     matchers: ['/storage', '/server', '/doctor', '/settings', '/admin', '/api-explorer', '/cli-permissions'],
     items: [
-      { to: '/cli-permissions', label: 'CLI Tool Permissions', tooltip: 'Approve CLI tool requests from captains and manage allow and deny rules', icon: 'cliPermissions' },
       { to: '/api-explorer', label: 'API Explorer', tooltip: 'Browse the live OpenAPI document, execute requests, and inspect responses', icon: 'apiExplorer' },
-      { to: '/storage', label: 'Storage', tooltip: 'Inspect managed files, database allocation, host capacity and record counts', icon: 'server' },
-      { to: '/server', label: 'Settings', tooltip: 'Server settings, diagnostics, and tenant/user/credential administration', icon: 'server' },
+      { to: '/server', label: 'Settings', tooltip: 'Server settings, Storage, CLI Tool Permissions, Diagnostics, and tenant/user/credential administration as tabs', icon: 'server' },
     ],
   },
 ];
@@ -109,16 +94,26 @@ export const navModelSections: NavModelSection[] = [
 /** Section keys whose collapse-state defaults to open on first paint (daily drivers). */
 export const DEFAULT_EXPANDED_SECTIONS: Record<string, boolean> = {
   operations: true,
-  delivery: true,
   fleet: true,
   configuration: true,
-  activity: true,
   system: true,
 };
 
 /**
- * Flatten every reachable destination (Dashboard, Ask Armada, and each section
- * item) into a simple list the command palette can search. Icons are dropped.
+ * Destinations that used to be their own nav item and now live as a tab inside a hub. They are not sidebar items,
+ * but the command palette still lists them under their old names so muscle memory ("Jobs", "Storage") keeps
+ * working; each points at the tab's URL (the old routes redirect there too).
+ */
+export const navShortcuts: Array<NavModelItem & { section: string }> = [
+  { to: '/dispatch?tab=planning', label: 'Planning', section: 'OPERATIONS', tooltip: 'Plan with a captain, preserve the transcript, and dispatch directly from the session', icon: 'planning' },
+  { to: '/activity?source=jobs', label: 'Jobs', section: 'OPERATIONS', tooltip: 'Background jobs and their status', icon: 'activity' },
+  { to: '/server?tab=storage', label: 'Storage', section: 'SYSTEM', tooltip: 'Inspect managed files, database allocation, host capacity and record counts', icon: 'server' },
+  { to: '/server?tab=cli-permissions', label: 'CLI Tool Permissions', section: 'SYSTEM', tooltip: 'Approve CLI tool requests from captains and manage allow and deny rules', icon: 'cliPermissions' },
+];
+
+/**
+ * Flatten every reachable destination (Dashboard, Ask Armada, each section item, then the hub-tab shortcuts) into a
+ * simple list the command palette can search. Icons are dropped.
  */
 export function flattenNavCommands(): Array<{ to: string; label: string; section: string }> {
   const commands: Array<{ to: string; label: string; section: string }> = [
@@ -130,6 +125,9 @@ export function flattenNavCommands(): Array<{ to: string; label: string; section
       if (item.hidden) continue;
       commands.push({ to: item.to, label: item.label, section: section.label });
     }
+  }
+  for (const shortcut of navShortcuts) {
+    commands.push({ to: shortcut.to, label: shortcut.label, section: shortcut.section });
   }
   return commands;
 }

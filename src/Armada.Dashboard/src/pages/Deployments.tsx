@@ -288,13 +288,6 @@ export default function Deployments() {
 
   const columns: DataTableColumn<Deployment>[] = [
     {
-      key: 'title', label: t('Deployment'), required: true, headerTitle: t('Deployment title. Hover a row for its summary and whether approval is required.'),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only deployments whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
-      // One line: the summary and approval requirement are in the tooltip and in their own (optional) columns.
-      cellTitle: (deployment) => [deployment.title, deployment.summary, deployment.approvalRequired ? t('Approval required') : ''].filter(Boolean).join('\n'),
-      render: (deployment) => <strong className="cell-one-line">{deployment.title}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Deployment ID (dpl_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (deployment) => (
         <span className="id-display">
@@ -302,6 +295,13 @@ export default function Deployments() {
           <CopyButton text={deployment.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'title', label: t('Deployment'), required: true, headerTitle: t('Deployment title. Hover a row for its summary and whether approval is required.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only deployments whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      // One line: the summary and approval requirement are in the tooltip and in their own (optional) columns.
+      cellTitle: (deployment) => [deployment.title, deployment.summary, deployment.approvalRequired ? t('Approval required') : ''].filter(Boolean).join('\n'),
+      render: (deployment) => <strong className="cell-one-line">{deployment.title}</strong>,
     },
     { key: 'status', label: t('Status'), headerTitle: t('Rollout state: pending approval, running, succeeded, failed, denied, or rolled back.'), cellClassName: 'cell-nowrap', render: (deployment) => <StatusBadge status={deployment.status} /> },
     { key: 'verification', label: t('Verification'), headerTitle: t('Outcome of the smoke test, health check, and verification commands run after deploy. Skipped means none are configured.'), cellClassName: 'cell-nowrap', render: (deployment) => <StatusBadge status={deployment.verificationStatus} /> },

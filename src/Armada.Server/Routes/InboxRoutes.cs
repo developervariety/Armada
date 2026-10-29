@@ -57,29 +57,6 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<InboxItem>>("One page"))
                 .WithSecurity("ApiKey"));
-
-            app.Get("/api/v1/inbox", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
-                }
-
-                List<InboxItem> items = await _inbox.GetInboxAsync(ctx).ConfigureAwait(false);
-                return items;
-            },
-            api => api
-                .WithTag("Inbox")
-                .WithSummary("Get the needs-you inbox")
-                .WithDescription("Returns a consolidated, most-urgent-first list of items awaiting operator attention (reviews, failed landings, failed missions, stalled captains).")
-                .WithResponse(200, OpenApiJson.For<List<InboxItem>>("Inbox items"))
-                .WithSecurity("ApiKey"));
         }
     }
 }
