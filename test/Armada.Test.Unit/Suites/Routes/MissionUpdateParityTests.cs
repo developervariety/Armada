@@ -25,6 +25,27 @@ namespace Armada.Test.Unit.Suites.Routes
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("UpdateMission_UnsupportedFieldsAreNamedAndNothingChangesOnEverySurface", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    foreach (string surface in Surfaces)
+                    {
+                        foreach (string field in new[] { "PreferredModel", "RecoveryAttempts", "UnknownField" })
+                        {
+                            Mission mission = await SeedAsync(harness, surface + field).ConfigureAwait(false);
+                            SurfaceReply reply = await UpdateAsync(harness, surface, mission.Id,
+                                new Dictionary<string, object?> { { "Priority", 7 }, { field, "high" } }).ConfigureAwait(false);
+                            AssertTrue(reply.Refused, surface + ": unsupported field must not report success: " + field);
+                            AssertContains(field.ToLowerInvariant(), reply.Body.ToLowerInvariant(), "the refusal names the field");
+                            Mission? stored = await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                            AssertEqual(100, stored!.Priority, "a refused patch changes no named field");
+                            AssertEqual(mission.LastUpdateUtc, stored.LastUpdateUtc, "a refusal does not save the mission");
+                        }
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("UpdateMission_PartialBody_KeepsTheFieldsItOmitsOnEverySurface", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
