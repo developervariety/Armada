@@ -207,7 +207,7 @@ namespace Armada.Tui.Screens.Activity
             string id = Event.Id;
             Context.Confirm("Delete", Context.Loc.T("Delete {{entity}} {{name}}?", LocalizationArgs.Of("entity", Context.Loc.T("Event").ToLowerInvariant(), "name", id)), () =>
             {
-                ScreenOps.Run(Context, () => Context.Client.DeleteEventsBatchAsync(new List<string> { id }), r =>
+                DeleteProgress.Run(Context, "Deleting event", ct => Context.Client.DeleteEventsBatchAsync(new List<string> { id }, ct), r =>
                 {
                     ScreenOps.Toast(Context, NotificationSeverityEnum.Warning, "Event {{id}} deleted.", LocalizationArgs.Of("id", id));
                     Context.Navigate("/activity?source=events");

@@ -8,6 +8,7 @@ namespace Armada.Tui.Screens.Build
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Screens.Operations;
     using Armada.Tui.Services;
     using Armada.Tui.Widgets;
@@ -247,11 +248,11 @@ namespace Armada.Tui.Screens.Build
             string name = Captain.Name;
             Confirm("Remove Captain", Tr("Remove captain \"{{name}}\"? This cannot be undone.", LocalizationArgs.Of("name", name)), () =>
             {
-                Run((c, t) => c.DeleteCaptainAsync(CaptainId, t), () =>
+                DeleteProgress.RunVoid(Context, "Deleting captain", t => Context.Client.DeleteCaptainAsync(CaptainId, t), () =>
                 {
                     Toast(NotificationSeverityEnum.Warning, Tr("Captain \"{{name}}\" removed.", LocalizationArgs.Of("name", name)));
                     Context.Navigate("/captains");
-                }, null, ex => ShowMessage(Tr("Remove failed.")));
+                }, "Remove failed.");
             }, "Remove");
         }
 
