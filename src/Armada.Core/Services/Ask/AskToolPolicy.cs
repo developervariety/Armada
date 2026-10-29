@@ -34,9 +34,11 @@ namespace Armada.Core.Services.Ask
             "status",
             "enumerate",
             "voyage_status",
+            "list_voyage_progress",
             "mission_status",
             "fleet_action_run_status",
             "vessel_health",
+            "list_vessel_dependencies",
             "papercut_summary",
             "token_usage_summary",
             "search_memory",
@@ -73,6 +75,8 @@ namespace Armada.Core.Services.Ask
 
             // list_* readers
             "list_backlog",
+            "list_backlog_planning_session_messages",
+            "list_backlog_refinement_session_messages",
             "list_backlog_refinement_sessions",
             "list_objectives",
             "list_prompt_templates",
@@ -88,6 +92,11 @@ namespace Armada.Core.Services.Ask
             "list_ask_messages",
             "list_ask_quick_actions",
             "get_ask_work",
+            "list_ask_work",
+            "list_ask_work_missions",
+            "list_ask_work_targets",
+            "list_ask_proposals",
+            "list_ask_tool_calls",
 
             // Evaluate run readers
             "get_model_probe_run",
@@ -95,7 +104,8 @@ namespace Armada.Core.Services.Ask
 
             // Fixture battery readers
             "list_battery_packs",
-            "get_battery_run"
+            "get_battery_run",
+            "list_battery_results"
         };
 
         private static readonly HashSet<string> _GateExempt = new HashSet<string>(StringComparer.Ordinal)

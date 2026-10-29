@@ -309,7 +309,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM events" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.NpgsqlDbType) { Value = p.Value });
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
@@ -465,7 +465,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM events" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.NpgsqlDbType) { Value = p.Value });
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
@@ -718,7 +718,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM events" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.NpgsqlDbType) { Value = p.Value });
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))

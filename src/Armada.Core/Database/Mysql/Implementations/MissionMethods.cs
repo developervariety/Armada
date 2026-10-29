@@ -417,6 +417,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new MySqlParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new MySqlParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -450,7 +455,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
@@ -593,6 +598,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new MySqlParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new MySqlParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -624,7 +634,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
@@ -870,6 +880,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new MySqlParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new MySqlParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -901,7 +916,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))

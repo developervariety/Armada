@@ -7,12 +7,13 @@ import {
   getVesselReadiness,
   getWorkspaceFile,
   getWorkspaceStatus,
-  getWorkspaceTree,
+  listAllWorkspaceActiveMissions,
+  listWorkspaceDirectory,
   listVessels,
   renameWorkspaceEntry,
   saveWorkspaceFile,
 } from '@dashboard/api/client';
-import type { Vessel, VesselReadinessResult, WorkspaceFileResponse, WorkspaceStatusResult, WorkspaceTreeEntry } from '@dashboard/types/models';
+import type { Vessel, VesselReadinessResult, WorkspaceActiveMission, WorkspaceFileResponse, WorkspaceStatusResult, WorkspaceTreeEntry } from '@dashboard/types/models';
 import { readinessLabel, readinessTone, readinessBranchSummary, readinessDriftSummary } from '@dashboard/lib/readiness';
 import {
   buildWorkspaceContextSnippet,
@@ -68,6 +69,8 @@ export function WorkspaceScreen({ vesselId, initialPanel = 'files' }: { vesselId
   const [panel, setPanel] = useState<WorkspacePanel>(initialPanel);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [status, setStatus] = useState<WorkspaceStatusResult | null>(null);
+  // The status carries only activeMissionCount; the missions and their scoped files are paged explicitly.
+  const [activeMissions, setActiveMissions] = useState<WorkspaceActiveMission[]>([]);
   const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [entriesByDir, setEntriesByDir] = useState<Record<string, WorkspaceTreeEntry[]>>({});
   const [currentDir, setCurrentDir] = useState('');
@@ -95,10 +98,11 @@ export function WorkspaceScreen({ vesselId, initialPanel = 'files' }: { vesselId
     const sel = selected.map(normalizeWorkspacePath).filter(Boolean);
     return sel.length > 0 ? sel : activePath ? [activePath] : [];
   }, [selected, activePath]);
-  const overlapping = useMemo(() => (status?.activeMissions ?? []).filter((m) => m.scopedFiles.some((p) => actionable.includes(normalizeWorkspacePath(p)))), [status, actionable]);
+  const overlapping = useMemo(() => activeMissions.filter((m) => (m.scopedFiles ?? []).some((p) => actionable.includes(normalizeWorkspacePath(p)))), [activeMissions, actionable]);
 
   const loadDir = useCallback(async (dir: string) => {
-    const tree = await getWorkspaceTree(vesselId, dir || undefined);
+    // Every page of the directory (1000 per page), never just the first.
+    const tree = await listWorkspaceDirectory(vesselId, dir || undefined);
     setEntriesByDir((cur) => ({ ...cur, [dir]: tree?.entries ?? [] }));
   }, [vesselId]);
 
@@ -106,6 +110,7 @@ export function WorkspaceScreen({ vesselId, initialPanel = 'files' }: { vesselId
     try {
       const next = await getWorkspaceStatus(vesselId);
       setStatus(next);
+      setActiveMissions((next?.activeMissionCount ?? 0) > 0 ? await listAllWorkspaceActiveMissions(vesselId).catch(() => [] as WorkspaceActiveMission[]) : []);
       const toLoad = Array.from(new Set(['', ...(dirs ?? [])]));
       for (const dir of toLoad) {
         try { await loadDir(dir); } catch (e) { if (dir === '') throw e; }

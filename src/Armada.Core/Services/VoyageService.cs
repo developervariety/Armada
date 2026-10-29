@@ -86,29 +86,20 @@ namespace Armada.Core.Services
                 ? await _Database.Missions.EnumerateSummariesByVoyageAsync(tenantId, voyage.Id, token).ConfigureAwait(false)
                 : await _Database.Missions.EnumerateSummariesByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
 
-            VoyageProgress progress = new VoyageProgress
-            {
-                Voyage = voyage,
-                TotalMissions = missions.Count,
-                CompletedMissions = missions.Count(m =>
-                    m.Status == MissionStatusEnum.Complete ||
-                    m.Status == MissionStatusEnum.WorkProduced),
-                FailedMissions = missions.Count(m => m.Status == MissionStatusEnum.Failed || m.Status == MissionStatusEnum.LandingFailed),
-                InProgressMissions = missions.Count(m =>
-                    m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Verifying ||
-                    m.Status == MissionStatusEnum.Assigned ||
-                    m.Status == MissionStatusEnum.Testing ||
-                    m.Status == MissionStatusEnum.Review ||
-                    m.Status == MissionStatusEnum.PullRequestOpen),
-                VesselIds = missions
-                    .Select(m => m.VesselId)
-                    .Where(v => !String.IsNullOrEmpty(v))
-                    .Distinct(StringComparer.Ordinal)
-                    .Cast<string>()
-                    .ToList()
-            };
-
+            VoyageProgress progress = VoyageProgressReader.BuildProgress(voyage, missions);
             return progress;
+        }
+
+        /// <inheritdoc />
+        public Task<VoyageProgress> GetProgressAsync(Voyage voyage, CancellationToken token = default)
+        {
+            return VoyageProgressReader.ReadAsync(_Database, voyage, token);
+        }
+
+        /// <inheritdoc />
+        public Task<EnumerationResult<VoyageProgress>> EnumerateProgressAsync(AuthContext auth, EnumerationQuery query, CancellationToken token = default)
+        {
+            return VoyageProgressReader.EnumerateAsync(_Database, auth, query, token);
         }
 
         #endregion
