@@ -42,6 +42,7 @@ namespace Armada.Core.Services
             {
                 mission.Status = MissionStatusEnum.Complete;
                 mission.FailureReason = null;
+                mission.FailureKind = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
@@ -75,6 +76,7 @@ namespace Armada.Core.Services
             Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
             mission.Status = MissionStatusEnum.WorkProduced;
             mission.FailureReason = null;
+            mission.FailureKind = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
@@ -107,11 +109,21 @@ namespace Armada.Core.Services
         public async Task<Mission> RestartAsync(Mission mission, string? title = null, string? description = null, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.LandingFailed)
-                throw new InvalidOperationException("Only Failed, LandingFailed, or Cancelled missions can be restarted (current: " + mission.Status + ").");
+            if (mission.Status != MissionStatusEnum.Pending && mission.Status != MissionStatusEnum.Failed
+                && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.LandingFailed)
+                throw new InvalidOperationException("Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted (current: " + mission.Status + ").");
 
             if (!String.IsNullOrEmpty(title)) mission.Title = title!;
             if (!String.IsNullOrEmpty(description)) mission.Description = description!;
+
+            // A Pending mission has nothing to reset: apply the new instructions and try to start it now.
+            if (mission.Status == MissionStatusEnum.Pending)
+            {
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "restart requested for pending mission " + mission.Id + "; attempting dispatch");
+                return await TryDispatchRestartedMissionAsync(mission, token).ConfigureAwait(false);
+            }
 
             if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
             {
@@ -192,7 +204,28 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "restarted mission " + mission.Id + (keptBranch != null ? " on branch " + keptBranch : ""));
-            return mission;
+            return await TryDispatchRestartedMissionAsync(mission, token).ConfigureAwait(false);
+        }
+
+        private async Task<Mission> TryDispatchRestartedMissionAsync(Mission mission, CancellationToken token)
+        {
+            // Normal dispatch rules apply (voyage, pipeline dependency, vessel locks, requested captain). When no
+            // captain can take it the mission stays Pending and the regular dispatcher picks it up later.
+            if (!String.IsNullOrEmpty(mission.VesselId))
+            {
+                try
+                {
+                    Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+                    if (vessel != null) await TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    _Logging.Warn(_Header + "restarted mission " + mission.Id + " stays Pending: immediate dispatch failed: " + ex.Message);
+                }
+            }
+
+            Mission? latest = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            return latest ?? mission;
         }
 
         private static void ResetForRestart(Mission mission, string? branchName)

@@ -23,6 +23,9 @@ namespace Armada.Core.Database.Interfaces
         /// </summary>
         Task<MergeEntry> UpdateAsync(MergeEntry entry, CancellationToken token = default);
 
+        /// <summary>Update only the observed version, preserving cancellation and newer processing attempts.</summary>
+        Task<bool> TryUpdateIfUnchangedAsync(MergeEntry entry, DateTime expectedVersion, CancellationToken token = default);
+
         /// <summary>
         /// Delete a merge entry by identifier.
         /// </summary>

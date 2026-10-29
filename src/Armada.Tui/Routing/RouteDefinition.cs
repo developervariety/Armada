@@ -34,9 +34,18 @@ namespace Armada.Tui.Routing
         public string Workstream { get; }
 
         /// <summary>
-        /// Redirect target (path and query), or null.
+        /// Redirect target (path and query), or null. Query values written as <c>:name</c> take the matched route
+        /// parameter of that name (for example <c>/planning/:id</c> redirects to
+        /// <c>/dispatch?tab=planning&amp;session=:id</c>); the source query is carried over for keys the target does not
+        /// set.
         /// </summary>
         public string? RedirectTo { get; }
+
+        /// <summary>
+        /// Source query keys renamed before they are carried to <see cref="RedirectTo"/> (for example
+        /// <c>/cli-permissions?tab=rules</c> carries <c>tab</c> as <c>section</c>). Never null.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> RedirectQueryRenames { get; }
 
         /// <summary>
         /// Hub tabs, or null when the route is not a hub.
@@ -74,8 +83,9 @@ namespace Armada.Tui.Routing
         /// <param name="hub">Hub, or null.</param>
         /// <param name="isExtension">TUI-only route.</param>
         /// <param name="defaultTab">Hub tab used when the query names none, or null.</param>
+        /// <param name="redirectQueryRenames">Source query keys renamed before a redirect carries them, or null.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="pattern"/> is null.</exception>
-        public RouteDefinition(string pattern, string title, string screenName, string workstream, string? redirectTo = null, HubDefinition? hub = null, bool isExtension = false, string? defaultTab = null)
+        public RouteDefinition(string pattern, string title, string screenName, string workstream, string? redirectTo = null, HubDefinition? hub = null, bool isExtension = false, string? defaultTab = null, IReadOnlyDictionary<string, string>? redirectQueryRenames = null)
         {
             Pattern = pattern ?? throw new ArgumentNullException(nameof(pattern));
             Title = title ?? "";
@@ -85,6 +95,9 @@ namespace Armada.Tui.Routing
             Hub = hub;
             IsExtension = isExtension;
             DefaultTab = defaultTab;
+            RedirectQueryRenames = redirectQueryRenames != null
+                ? new Dictionary<string, string>(redirectQueryRenames.ToDictionary(k => k.Key, k => k.Value), StringComparer.Ordinal)
+                : new Dictionary<string, string>(StringComparer.Ordinal);
             Segments = pattern.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).ToList().AsReadOnly();
         }
 
