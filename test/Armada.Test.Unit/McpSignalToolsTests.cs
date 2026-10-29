@@ -305,6 +305,52 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("SendSignal_ToMission_GoesToTheMissionsCurrentCaptainNotAStaleOne", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Captain stale = await testDb.Driver.Captains.CreateAsync(new Captain("stale-captain")).ConfigureAwait(false);
+                    Captain current = await testDb.Driver.Captains.CreateAsync(new Captain("current-captain")).ConfigureAwait(false);
+                    Mission mission = new Mission("Moved slice", "Implements the slice.");
+                    mission.CaptainId = current.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    McpSignalTools.Register(
+                        (name, _, _, h) => { if (name == "armada_send_signal") handler = McpTestCaller.Wrap(h); },
+                        testDb.Driver);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { captainId = stale.Id, missionId = mission.Id, message = "fix list" }, _JsonOpts);
+                    Signal sent = (Signal)await handler!(args).ConfigureAwait(false);
+
+                    Signal? stored = await testDb.Driver.Signals.ReadAsync(sent.Id).ConfigureAwait(false);
+                    AssertEqual(current.Id, stored!.ToCaptainId ?? "(null)", "Mail to a mission reaches the captain that holds the mission");
+                    AssertEqual(mission.Id, stored.MissionId ?? "(null)", "The signal records the mission it is addressed to");
+                }
+            });
+
+            await RunTest("SendSignal_ToMissionWithoutCaptain_IsStoredForItsNextCaptain_UnknownMissionIsRefused", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission waiting = await testDb.Driver.Missions.CreateAsync(new Mission("Waiting slice", "Implements the slice.")).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    McpSignalTools.Register(
+                        (name, _, _, h) => { if (name == "armada_send_signal") handler = McpTestCaller.Wrap(h); },
+                        testDb.Driver);
+
+                    Signal sent = (Signal)await handler!(JsonSerializer.SerializeToElement(new { missionId = waiting.Id, message = "read this first" }, _JsonOpts)).ConfigureAwait(false);
+                    Signal? stored = await testDb.Driver.Signals.ReadAsync(sent.Id).ConfigureAwait(false);
+                    AssertNull(stored!.ToCaptainId, "A mission with no captain leaves the mail without a recipient");
+                    AssertEqual(waiting.Id, stored.MissionId ?? "(null)", "The mail waits on the mission");
+
+                    object refused = await handler(JsonSerializer.SerializeToElement(new { missionId = "msn_missing", message = "lost" }, _JsonOpts)).ConfigureAwait(false);
+                    AssertContains("mission_not_found", JsonSerializer.Serialize(refused));
+                }
+            });
+
             await RunTest("NudgeVoyage_LowercaseType_AcceptedCaseInsensitively", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

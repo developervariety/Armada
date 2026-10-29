@@ -402,6 +402,14 @@ Pass `includeHandled: true` to list every item, each with its `Handled` marker
 | Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read`, `armada_repair_dock`, `armada_dismiss_memory_proposal`, `armada_promote_memory_proposal` |
 | Destructive | `armada_delete_dock`, `armada_purge_dock`, `armada_unstick_dock`, `armada_delete_docks`, `armada_delete_signals`, `armada_delete_event`, `armada_delete_events` |
 
+`armada_send_signal` takes `captainId`, `missionId`, or both. Mail that names a
+mission goes to the captain that holds the mission when it is sent, and unread
+mail of a mission moves to the next captain when the mission is assigned to a
+different one. A mission with no captain yet leaves the mail without a recipient
+until its next captain takes the mission. When a mission moves to a different
+captain, the Admiral posts one `[reassigned]` system note on the coordination
+board naming the mission and both captains.
+
 #### Coordination Board (Chatroom)
 
 Every coordination tool resolves a blank room key, `fleet`, and the literal

@@ -1247,7 +1247,7 @@ $convert$;"),
                 new SchemaMigration(144, "Persist fixture battery runs", BatteryRunSchema.PostgresqlStatements),
                 new SchemaMigration(145, "Persist objective links on existing planning sessions",
                     @"ALTER TABLE planning_sessions ADD COLUMN IF NOT EXISTS objective_id TEXT NULL;"),
-                new SchemaMigration(146, "Persist the dispatch hold", DispatchHoldSchema.PostgresqlStatements)
+                new SchemaMigration(146, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.PostgresqlStatements.Concat(SignalMissionSchema.PostgresqlStatements).ToArray())
             };
         }
 

@@ -33,6 +33,16 @@ namespace Armada.Core.Database.Interfaces
         Task MarkReadAsync(string id, CancellationToken token = default);
 
         /// <summary>
+        /// Address the unread mail of a mission to a captain. Mail that names the mission and sits unread with
+        /// another recipient, or with none, moves to the captain.
+        /// </summary>
+        /// <param name="missionId">Mission the mail names.</param>
+        /// <param name="captainId">Captain that now holds the mission.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of signals re-addressed.</returns>
+        Task<int> ReaddressUnreadMissionMailAsync(string missionId, string captainId, CancellationToken token = default);
+
+        /// <summary>
         /// Mark a signal as read (tenant-scoped).
         /// </summary>
         Task MarkReadAsync(string tenantId, string id, CancellationToken token = default);

@@ -3017,6 +3017,7 @@ Send a new signal (message).
 | `Type` | string | no | Signal type (default: `Nudge`) |
 | `Payload` | string | no | Signal payload (message content) |
 | `ToCaptainId` | string | no | Recipient captain ID (null = to Admiral) |
+| `MissionId` | string | no | Mission the signal is addressed to. The recipient becomes the mission's current captain, and unread mail of the mission moves to the mission's next captain. An unknown mission answers `404`. |
 | `FromCaptainId` | string | no | Sender captain ID (null = from Admiral) |
 
 **Response:** `201 Created` - [Signal](#signal)
@@ -5335,6 +5336,7 @@ A message between the admiral and captains.
 | `Id` | string | auto-generated | Unique ID with `sig_` prefix |
 | `FromCaptainId` | string? | null | Sender captain ID (null = from Admiral) |
 | `ToCaptainId` | string? | null | Recipient captain ID (null = to Admiral) |
+| `MissionId` | string? | null | Mission the signal is addressed to; the signal follows the mission to its current captain |
 | `Type` | [SignalTypeEnum](#signaltypeenum) | `Nudge` | Signal type |
 | `Payload` | string? | null | Message payload |
 | `Read` | bool | false | Whether signal has been read |

@@ -944,6 +944,7 @@ using WatsonWebserver.Core.Routing;
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOwnerNotePoster = ownerNotePoster;
+                missionService.ReassignmentNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Mission Assignment");
                 // D3 runtime_failure reports a fleet-wide provider fault as a broadcast board note. The
                 // adapter was built before the coordination service existed, so the poster is set here.
                 if (admiralService.RuntimeFailureAdapter != null)

@@ -1035,7 +1035,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(134, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.SqlServerStatements),
                 new SchemaMigration(135, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.SqlServerStatements),
                 new SchemaMigration(136, "Persist fixture battery runs", BatteryRunSchema.SqlServerStatements),
-                new SchemaMigration(137, "Persist the dispatch hold", DispatchHoldSchema.SqlServerStatements)
+                new SchemaMigration(137, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.SqlServerStatements.Concat(SignalMissionSchema.SqlServerStatements).ToArray())
             };
         }
 

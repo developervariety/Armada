@@ -44,6 +44,12 @@ namespace Armada.Core.Models
         public string? ToCaptainId { get; set; } = null;
 
         /// <summary>
+        /// Mission the signal is addressed to, or null when it is addressed to a captain. A signal that names
+        /// a mission follows the mission to whichever captain holds it.
+        /// </summary>
+        public string? MissionId { get; set; } = null;
+
+        /// <summary>
         /// Signal type.
         /// </summary>
         public SignalTypeEnum Type { get; set; } = SignalTypeEnum.Nudge;

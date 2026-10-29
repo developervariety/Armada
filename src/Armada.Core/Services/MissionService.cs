@@ -207,6 +207,12 @@ namespace Armada.Core.Services
         /// </summary>
         public IOwnerDecisionNotePoster? HandoffOwnerNotePoster { get; set; }
 
+        /// <summary>
+        /// Broadcast board-note poster for a mission that moves to a different captain. Null skips the note. Set
+        /// by the server after construction so existing construction sites and tests are unchanged.
+        /// </summary>
+        public IBoardNotePoster? ReassignmentNotePoster { get; set; }
+
         /// The D17 <c>change_substance</c> typed-decision adapter, when wired. Null keeps the
         /// ineffective-rescue check on the deterministic, extension-based classifier alone. Set by the
         /// server after construction so existing construction sites and tests are unchanged. The
@@ -1363,6 +1369,10 @@ namespace Armada.Core.Services
             captain.LastHeartbeatUtc = DateTime.UtcNow;
             captain.LastUpdateUtc = DateTime.UtcNow;
 
+            // The attempt record of the new launch does not exist yet, so the newest record names the captain
+            // the mission is moving away from.
+            string? previousCaptainId = await ReadPreviousAttemptCaptainIdAsync(mission, token).ConfigureAwait(false);
+
             // Create assignment signal
             Signal signal = new Signal(SignalTypeEnum.Assignment, mission.Title);
             signal.TenantId = mission.TenantId;
@@ -1493,6 +1503,7 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "assigned mission " + mission.Id + " to captain " + captain.Id + " at " + dock.WorktreePath);
+            await FollowMissionToCaptainAsync(mission, captain, previousCaptainId, token).ConfigureAwait(false);
             return true;
             }
             finally
@@ -12480,6 +12491,63 @@ namespace Armada.Core.Services
         /// start. A dock that names no full commit records nothing, and the stage then answers that its start is
         /// not recorded rather than a guessed commit.
         /// </summary>
+        /// <summary>
+        /// Captain of the mission's newest attempt, or null when the mission has no attempt on record.
+        /// </summary>
+        private async Task<string?> ReadPreviousAttemptCaptainIdAsync(Mission mission, CancellationToken token)
+        {
+            try
+            {
+                ProductionFactPage<MissionAttemptProvenance> attempts =
+                    await _Database.MissionAttempts.EnumerateByMissionAsync(mission.TenantId, mission.Id, 5, token).ConfigureAwait(false);
+                MissionAttemptProvenance? newest = attempts.Items.OrderByDescending(a => a.StartedUtc).FirstOrDefault();
+                return String.IsNullOrWhiteSpace(newest?.CaptainId) ? null : newest!.CaptainId;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read the previous attempt of mission " + mission.Id + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// After a mission launches on a captain: move the unread mail addressed to the mission to that captain,
+        /// and announce on the board when the mission moved away from a different captain. Neither step fails
+        /// the assignment.
+        /// </summary>
+        private async Task FollowMissionToCaptainAsync(Mission mission, Captain captain, string? previousCaptainId, CancellationToken token)
+        {
+            try
+            {
+                int moved = await MissionMailRouting.ReaddressAsync(_Database, mission.Id, captain.Id, token).ConfigureAwait(false);
+                if (moved > 0)
+                    _Logging.Info(_Header + "moved " + moved + " unread mail signal(s) of mission " + mission.Id + " to captain " + captain.Id);
+
+                if (String.IsNullOrEmpty(previousCaptainId) || String.Equals(previousCaptainId, captain.Id, StringComparison.Ordinal)) return;
+                IBoardNotePoster? poster = ReassignmentNotePoster;
+                if (poster == null) return;
+
+                Captain? previous = await _Database.Captains.ReadAsync(previousCaptainId, token).ConfigureAwait(false);
+                string previousLabel = previous != null && !String.IsNullOrWhiteSpace(previous.Name) ? previous.Name + " (" + previousCaptainId + ")" : previousCaptainId;
+                await poster.PostBroadcastAsync(
+                    "[reassigned] Mission " + mission.Id + " (" + mission.Title + ") moved from captain " + previousLabel
+                    + " to captain " + captain.Name + " (" + captain.Id + "). Mail sent to the mission follows it; mail sent to the previous captain does not.",
+                    mission.VesselId, mission.Id, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not follow mission " + mission.Id + " to captain " + captain.Id + ": " + ex.Message);
+            }
+        }
+
         private async Task RecordStageStartAsync(Mission mission, Dock dock, CancellationToken token)
         {
             DockGitAnchorSnapshot? snapshot = dock.GitAnchorsSnapshot;

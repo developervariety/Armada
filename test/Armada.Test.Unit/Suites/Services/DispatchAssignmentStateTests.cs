@@ -1322,6 +1322,113 @@ namespace Armada.Test.Unit.Suites.Services
             // in one pass must not both provision a dock for the one idle captain: the second must
             // wait for an idle captain without spending the provisioning cost. Measured live: 12
             // aborted claims in one day, each after a full dock and sibling provisioning.
+            // A mission that moves from one captain to another announces the move once on the board, and the
+            // unread mail addressed to the mission moves with it. Mail addressed to a captain, to another
+            // mission, or already read stays where it is.
+            await RunTest("TryAssign_MissionMovesToADifferentCaptain_AnnouncesOnceAndMovesItsUnreadMail", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    FakeBoardNotePoster poster = new FakeBoardNotePoster();
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    missionService.ReassignmentNotePoster = poster;
+
+                    Vessel vessel = new Vessel("reassign-note-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain previous = await testDb.Driver.Captains.CreateAsync(new Captain("previous-captain") { State = CaptainStateEnum.Stalled }).ConfigureAwait(false);
+                    Captain replacement = await testDb.Driver.Captains.CreateAsync(new Captain("replacement-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Mission moved = new Mission("Slice that outlives its captain", "Implements the slice.");
+                    moved.VesselId = vessel.Id;
+                    moved.Persona = "Worker";
+                    moved.Status = MissionStatusEnum.Pending;
+                    moved = await testDb.Driver.Missions.CreateAsync(moved).ConfigureAwait(false);
+                    Mission other = await testDb.Driver.Missions.CreateAsync(new Mission("Another slice", "Implements another slice.")).ConfigureAwait(false);
+                    await MissionAttemptProvenanceRecorder.StartAsync(testDb.Driver, moved, previous, 8812, null).ConfigureAwait(false);
+
+                    Signal missionMail = await CreateMailAsync(testDb, previous.Id, moved.Id, "fix list for the moved mission").ConfigureAwait(false);
+                    Signal waitingMail = await CreateMailAsync(testDb, null, moved.Id, "mail sent while the mission had no captain").ConfigureAwait(false);
+                    Signal readMail = await CreateMailAsync(testDb, previous.Id, moved.Id, "already read").ConfigureAwait(false);
+                    await testDb.Driver.Signals.MarkReadAsync(readMail.Id).ConfigureAwait(false);
+                    Signal otherMissionMail = await CreateMailAsync(testDb, previous.Id, other.Id, "fix list for another mission").ConfigureAwait(false);
+                    Signal captainMail = await CreateMailAsync(testDb, previous.Id, null, "addressed to the captain").ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(moved, vessel).ConfigureAwait(false);
+
+                    AssertTrue(assigned, "The mission must be assignable to the replacement captain");
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(moved.Id).ConfigureAwait(false);
+                    AssertEqual(replacement.Id, readBack!.CaptainId ?? "(null)", "The replacement captain holds the mission");
+                    AssertEqual(1, poster.Posts.Count, "The move is announced once");
+                    AssertContains(moved.Id, poster.Posts[0]);
+                    AssertContains(previous.Name, poster.Posts[0]);
+                    AssertContains(replacement.Name, poster.Posts[0]);
+                    AssertEqual(moved.Id, poster.MissionIds[0] ?? "(null)", "The note names the mission");
+
+                    AssertEqual(replacement.Id, (await testDb.Driver.Signals.ReadAsync(missionMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Unread mission mail follows the mission");
+                    AssertEqual(replacement.Id, (await testDb.Driver.Signals.ReadAsync(waitingMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Mail sent while the mission had no captain reaches its next captain");
+                    AssertEqual(previous.Id, (await testDb.Driver.Signals.ReadAsync(readMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Read mail stays where it was read");
+                    AssertEqual(previous.Id, (await testDb.Driver.Signals.ReadAsync(otherMissionMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Mail for another mission stays");
+                    AssertEqual(previous.Id, (await testDb.Driver.Signals.ReadAsync(captainMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Mail addressed to a captain stays");
+                }
+            });
+
+            // The first assignment of a mission, and a relaunch on the same captain, announce nothing.
+            await RunTest("TryAssign_FirstAssignmentOrSameCaptain_PostsNoReassignmentNote", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    FakeBoardNotePoster poster = new FakeBoardNotePoster();
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    missionService.ReassignmentNotePoster = poster;
+
+                    Vessel vessel = new Vessel("no-note-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("only-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Mission first = new Mission("Fresh slice", "Implements the slice.");
+                    first.VesselId = vessel.Id;
+                    first.Persona = "Worker";
+                    first.Status = MissionStatusEnum.Pending;
+                    first = await testDb.Driver.Missions.CreateAsync(first).ConfigureAwait(false);
+                    AssertTrue(await missionService.TryAssignAsync(first, vessel).ConfigureAwait(false), "The first assignment must succeed");
+                    AssertEqual(0, poster.Posts.Count, "A first assignment is not a reassignment");
+                    Mission? finished = await testDb.Driver.Missions.ReadAsync(first.Id).ConfigureAwait(false);
+                    finished!.Status = MissionStatusEnum.Complete;
+                    await testDb.Driver.Missions.UpdateAsync(finished).ConfigureAwait(false);
+
+                    Mission again = new Mission("Slice relaunched on its captain", "Implements the slice.");
+                    again.VesselId = vessel.Id;
+                    again.Persona = "Worker";
+                    again.Status = MissionStatusEnum.Pending;
+                    again = await testDb.Driver.Missions.CreateAsync(again).ConfigureAwait(false);
+                    await MissionAttemptProvenanceRecorder.StartAsync(testDb.Driver, again, captain, 8812, null).ConfigureAwait(false);
+                    Captain? idle = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    idle!.State = CaptainStateEnum.Idle;
+                    idle.CurrentMissionId = null;
+                    idle.CurrentDockId = null;
+                    await testDb.Driver.Captains.UpdateAsync(idle).ConfigureAwait(false);
+                    AssertTrue(await missionService.TryAssignAsync(again, vessel).ConfigureAwait(false), "The relaunch must succeed");
+                    AssertEqual(0, poster.Posts.Count, "A relaunch on the same captain is not a reassignment");
+                }
+            });
+
             await RunTest("TryAssign_StartRefThatDoesNotResolve_FailsByNameAndReleasesTheCaptain_ResolvableRefCutsTheBranch", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -2246,6 +2353,14 @@ namespace Armada.Test.Unit.Suites.Services
             logging.Settings.EnableConsole = false;
             logging.Settings.MinimumSeverity = Severity.Debug;
             return logging;
+        }
+
+        private static async Task<Signal> CreateMailAsync(TestDatabase testDb, string? toCaptainId, string? missionId, string message)
+        {
+            Signal signal = new Signal(SignalTypeEnum.Mail, message);
+            signal.ToCaptainId = toCaptainId;
+            signal.MissionId = missionId;
+            return await testDb.Driver.Signals.CreateAsync(signal).ConfigureAwait(false);
         }
 
         private LoggingModule CreateLogging()
