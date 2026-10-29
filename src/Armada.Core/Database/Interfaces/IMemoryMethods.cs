@@ -3,8 +3,9 @@ namespace Armada.Core.Database.Interfaces
     using Armada.Core.Models;
 
     /// <summary>
-    /// Database operations for durable agent memories and their tags. Enumeration returns full lists;
-    /// scope filtering, search, and paging are applied above this layer in the service.
+    /// Database operations for durable agent memories and their tags. The list overloads return full lists for
+    /// internal callers; caller-facing enumeration uses the paged, filtered, and sorted
+    /// <see cref="EnumerateAsync(MemoryEnumerateRequest, string?, string?, string?, CancellationToken)"/>.
     /// </summary>
     public interface IMemoryMethods
     {
@@ -63,6 +64,17 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerates memories for a specific tenant and user (newest first).
         /// </summary>
         Task<List<Memory>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerates one page of memories in the database, applying visibility, filters, and sort in SQL.
+        /// </summary>
+        /// <param name="query">Filters, sort column, order, and paging.</param>
+        /// <param name="tenantId">Restrict to this tenant; null for every tenant.</param>
+        /// <param name="ownerUserId">Restrict to memories owned by this user; null for every owner.</param>
+        /// <param name="viewerUserId">When set, return only tenant-wide memories and memories owned by this user.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The page and total record count.</returns>
+        Task<EnumerationResult<Memory>> EnumerateAsync(MemoryEnumerateRequest query, string? tenantId, string? ownerUserId, string? viewerUserId, CancellationToken token = default);
 
         /// <summary>
         /// Whether any memory exists.

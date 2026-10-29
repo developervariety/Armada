@@ -58,7 +58,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("merge_and_push_push_failure_sets_landing_failed", "MergeAndPush: push after merge fails, LandingFailed and branch kept", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("merge_and_push_push_failure_sets_landing_failed", "MergeAndPush: verified push failure sets LandingFailed and keeps the source branch", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -70,9 +70,9 @@ namespace Test.Shared.Suites.Services
 
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.LandingFailed, mission!.Status);
-                    AssertContains("Local merge succeeded but push failed", mission.FailureReason ?? "");
+                    AssertContains("Error publishing verified commit: Simulated push failure", mission.FailureReason ?? "");
                     AssertEqual(MissionFailureKindEnum.LandingConflict, mission.FailureKind, "failure kind is recorded where the failure happens");
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merge ran");
+                    AssertEqual(0, git.MergeBranchCalls.Count, "No checkout merge before publication");
                     AssertFalse(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), "branch kept for retry");
                 }
             }));
@@ -89,7 +89,7 @@ namespace Test.Shared.Suites.Services
 
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                    AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                     AssertEqual(0, git.PushCalls.Count, "LocalMerge never pushes");
                     AssertEqual(0, git.PrCalls.Count, "no pull request");
                     AssertTrue(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), "branch cleaned up after landing");
@@ -109,12 +109,12 @@ namespace Test.Shared.Suites.Services
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, mission!.Status, "no push is attempted, so nothing can fail it");
                     AssertNull(mission.FailureReason, "no failure reason");
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                    AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                     AssertEqual(0, git.PushCalls.Count, "LocalMerge never pushes");
                 }
             }));
 
-            cases.Add(CaseAsync("merge_and_push_merges_then_pushes", "MergeAndPush: merges into the working directory, pushes it, Complete and branch cleaned up", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("merge_and_push_merges_then_pushes", "MergeAndPush: publishes the verified dock and cleans its branch after success", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -126,30 +126,24 @@ namespace Test.Shared.Suites.Services
 
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                    AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                     AssertEqual(1, git.PushCalls.Count, "pushed once");
-                    AssertEqual(entities.Vessel.WorkingDirectory, git.PushCalls[0], "pushes the working directory, not the mission worktree");
+                    AssertEqual(entities.Dock.WorktreePath, git.PushCalls[0], "publishes from the isolated verified dock");
                     AssertEqual(0, git.PrCalls.Count, "no pull request");
                     AssertTrue(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), "branch cleaned up after the push");
                 }
             }));
 
-            cases.Add(CaseAsync("merge_and_push_merge_failure_does_not_push", "MergeAndPush: merge error sets LandingFailed, nothing pushed, branch kept", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("merge_and_push_ignores_checkout_merge_failure", "MergeAndPush publishes without merging into the developer checkout", TestTags.Positive, async () =>
             {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    StubGitService git = new StubGitService { ShouldThrowOnMergeLocal = true };
-                    MissionLandingHandler handler = CreateHandler(testDb.Driver, git, new RecordingMergeQueueService());
-                    LandingTestEntitiesResult entities = await CreateEntitiesAsync(testDb.Driver, LandingModeEnum.MergeAndPush, null, git).ConfigureAwait(false);
-
-                    await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
-
-                    Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
-                    AssertEqual(MissionStatusEnum.LandingFailed, mission!.Status);
-                    AssertContains("Error merging locally: Simulated merge failure", mission.FailureReason ?? "");
-                    AssertEqual(0, git.PushCalls.Count, "nothing pushed after a failed merge");
-                    AssertFalse(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), "branch kept for retry");
-                }
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                StubGitService git = new() { ShouldThrowOnMergeLocal = true };
+                MissionLandingHandler handler = CreateHandler(testDb.Driver, git, new RecordingMergeQueueService());
+                LandingTestEntitiesResult entities = await CreateEntitiesAsync(testDb.Driver, LandingModeEnum.MergeAndPush, null, git);
+                await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock);
+                AssertEqual(MissionStatusEnum.Complete, (await testDb.Driver.Missions.ReadAsync(entities.Mission.Id))!.Status);
+                AssertEqual(0, git.MergeBranchCalls.Count);
+                AssertEqual(entities.Dock.WorktreePath, git.PushCalls.Single());
             }));
 
             foreach (LandingModeEnum localMode in new[] { LandingModeEnum.LocalMerge, LandingModeEnum.MergeAndPush })
@@ -168,30 +162,43 @@ namespace Test.Shared.Suites.Services
                         await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
 
                         Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
-                        AssertEqual(MissionStatusEnum.WorkProduced, mission!.Status);
-                        AssertEqual(0, git.MergeBranchCalls.Count, "no merge");
-                        AssertEqual(0, git.PushCalls.Count, "no push");
+                        AssertEqual(localMode == LandingModeEnum.MergeAndPush ? MissionStatusEnum.Complete : MissionStatusEnum.WorkProduced, mission!.Status);
+                        AssertEqual(0, git.MergeBranchCalls.Count, "no checkout merge");
+                        AssertEqual(localMode == LandingModeEnum.MergeAndPush ? 1 : 0, git.PushCalls.Count, "Only LocalMerge requires a checkout");
                     }
                 }));
 
-                cases.Add(CaseAsync(mode.ToString().ToLowerInvariant() + "_no_changes_completes_without_merge_or_push", mode + ": a mission with no diff completes without a merge or a push", TestTags.Positive, async () =>
+                foreach (string missingEvidence in new[] { "missing_diff", "empty_diff", "missing_branch" })
                 {
-                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    string evidence = missingEvidence;
+                    cases.Add(CaseAsync(mode.ToString().ToLowerInvariant() + "_" + evidence + "_keeps_work_unlanded", mode + ": " + evidence + " cannot count as a successful landing", TestTags.Negative, async () =>
                     {
-                        StubGitService git = new StubGitService();
-                        MissionLandingHandler handler = CreateHandler(testDb.Driver, git, new RecordingMergeQueueService());
-                        LandingTestEntitiesResult entities = await CreateEntitiesAsync(testDb.Driver, mode, null, git).ConfigureAwait(false);
-                        entities.Mission.DiffSnapshot = null;
-                        await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+                        using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                        {
+                            StubGitService git = new StubGitService();
+                            RecordingMergeQueueService queue = new RecordingMergeQueueService();
+                            MissionLandingHandler handler = CreateHandler(testDb.Driver, git, queue);
+                            LandingTestEntitiesResult entities = await CreateEntitiesAsync(testDb.Driver, mode, null, git).ConfigureAwait(false);
+                            if (evidence == "missing_branch") git.ExistingBranches.Remove(entities.Dock.BranchName!);
+                            else entities.Mission.DiffSnapshot = evidence == "empty_diff" ? "  " : null;
+                            await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
 
-                        await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+                            await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
 
-                        Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
-                        AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                        AssertEqual(0, git.MergeBranchCalls.Count, "no merge");
-                        AssertEqual(0, git.PushCalls.Count, "no push");
-                    }
-                }));
+                            Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
+                            AssertEqual(MissionStatusEnum.WorkProduced, mission!.Status, "no confirmed landing");
+                            AssertNotEqual(MissionStatusEnum.Complete, mission.Status, "a recorded work commit is not a landing");
+                            AssertNull(mission.CompletedUtc, "not completed");
+                            AssertContains("Work remains unlanded", mission.FailureReason!);
+                            AssertEqual(0, git.MergeBranchCalls.Count, "no merge");
+                            AssertEqual(0, git.PushCalls.Count, "no push");
+                            AssertEqual(0, queue.Enqueued.Count, "not queued implicitly");
+                            AssertFalse(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), "preserve the only copy of the work");
+                            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false);
+                            AssertFalse(events.Exists(e => e.EventType == "mission.completed"), "no false completion event");
+                        }
+                    }));
+                }
             }
 
             cases.Add(CaseAsync("voyage_merge_and_push_overrides_vessel_local_merge", "Voyage MergeAndPush over vessel LocalMerge: merges and pushes", TestTags.Positive, async () =>
@@ -206,7 +213,7 @@ namespace Test.Shared.Suites.Services
 
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                    AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                     AssertEqual(1, git.PushCalls.Count, "the voyage's MergeAndPush pushes");
                 }
             }));
@@ -223,7 +230,7 @@ namespace Test.Shared.Suites.Services
 
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                    AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                     AssertEqual(0, git.PushCalls.Count, "the voyage's LocalMerge does not push");
                 }
             }));
@@ -246,7 +253,7 @@ namespace Test.Shared.Suites.Services
 
                         Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                         AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                        AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                        AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                         AssertEqual(expectedPushes, git.PushCalls.Count, "the global landing mode decides the push");
                     }
                 }));
@@ -264,7 +271,7 @@ namespace Test.Shared.Suites.Services
 
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                    AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                     AssertEqual(1, git.PushCalls.Count, "the MergeAndPush default pushes");
                 }
             }));
@@ -283,7 +290,7 @@ namespace Test.Shared.Suites.Services
 
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                    AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                     AssertEqual(1, git.PushCalls.Count, "MergeAndPush when nothing sets a landing mode");
                     AssertEqual(0, git.PrCalls.Count, "no pull request");
                 }
@@ -307,7 +314,7 @@ namespace Test.Shared.Suites.Services
 
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, mission!.Status, "the vessel's LocalMerge applies");
-                    AssertEqual(1, git.MergeBranchCalls.Count, "merged once");
+                    AssertEqual(git.PushCalls.Count > 0 ? 0 : 1, git.MergeBranchCalls.Count, "Only LocalMerge changes the developer checkout");
                     AssertEqual(0, git.PushCalls.Count, "no push");
                     AssertEqual(0, git.PrCalls.Count, "no pull request");
                 }
@@ -447,6 +454,37 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            foreach (bool cancelDuringCheck in new[] { false, true })
+            {
+                cases.Add(CaseAsync("refused_publication_" + cancelDuringCheck, cancelDuringCheck
+                    ? "Cancellation during final checks cannot publish or be overwritten by completion"
+                    : "A failing final check preserves the dock and refuses publication", TestTags.Negative, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                    StubGitService git = new();
+                    MissionLandingHandler handler = CreateHandler(testDb.Driver, git, new RecordingMergeQueueService());
+                    LandingTestEntitiesResult entities = await CreateEntitiesAsync(testDb.Driver, LandingModeEnum.MergeAndPush, null, git);
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile { Name = "final check", Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = entities.Vessel.Id, IsDefault = true, Active = true, BuildCommand = "check final integration" });
+                    handler.LocalVerificationCommands = new FakeHostCommandExecutor { Handler = _ =>
+                    {
+                        if (cancelDuringCheck)
+                        {
+                            Mission current = testDb.Driver.Missions.ReadAsync(entities.Mission.Id).GetAwaiter().GetResult()!;
+                            current.Status = MissionStatusEnum.Cancelled;
+                            current.LastUpdateUtc = DateTime.UtcNow;
+                            testDb.Driver.Missions.UpdateAsync(current).GetAwaiter().GetResult();
+                        }
+                        return new HostCommandResult { ExitCode = cancelDuringCheck ? 0 : 9, StandardError = "final check evidence" };
+                    } };
+                    await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock);
+                    AssertEqual(cancelDuringCheck ? MissionStatusEnum.Cancelled : MissionStatusEnum.LandingFailed,
+                        (await testDb.Driver.Missions.ReadAsync(entities.Mission.Id))!.Status);
+                    AssertEqual(0, git.PushCalls.Count);
+                    AssertFalse(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), "Failed or cancelled checks preserve work.");
+                }));
+            }
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Landing Paths", cases: cases);
         }
 
@@ -464,6 +502,7 @@ namespace Test.Shared.Suites.Services
 
         private static MissionLandingHandler CreateHandler(DatabaseDriver db, StubGitService git, IMergeQueueService queue, ArmadaSettings? settings = null)
         {
+            git.ResolveBranchTipResult = git.HeadCommitResult;
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             settings = settings ?? CreateSettings();

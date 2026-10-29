@@ -55,7 +55,7 @@ namespace Armada.Publisher.Build
             Directory.CreateDirectory(macOs);
             Directory.CreateDirectory(resources);
 
-            CopyPayload(published.OutputDirectory, macOs);
+            CopyPayload(published.OutputDirectory, macOs, resources);
 
             string executableName = Path.GetFileName(published.BinaryPath);
             string executablePath = Path.Combine(macOs, executableName);
@@ -117,7 +117,7 @@ namespace Armada.Publisher.Build
 
         #region Private-Methods
 
-        private static void CopyPayload(string sourceDirectory, string destinationDirectory)
+        private static void CopyPayload(string sourceDirectory, string destinationDirectory, string resourcesDirectory)
         {
             foreach (string file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
             {
@@ -125,7 +125,10 @@ namespace Armada.Publisher.Build
                 if (file.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)) continue;
 
                 string relative = Path.GetRelativePath(sourceDirectory, file);
-                string destination = Path.Combine(destinationDirectory, relative);
+                // pi loads this TypeScript extension as data. Contents/MacOS is a code-signing location:
+                // a resource directory there is interpreted as nested code, which fails strict ARM64 signing.
+                bool piResource = relative.StartsWith("Pi" + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+                string destination = Path.Combine(piResource ? resourcesDirectory : destinationDirectory, relative);
                 string? parent = Path.GetDirectoryName(destination);
                 if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
                 File.Copy(file, destination, true);

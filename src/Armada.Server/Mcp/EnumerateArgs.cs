@@ -125,6 +125,11 @@ namespace Armada.Server.Mcp
         public string? RunId { get; set; }
 
         /// <summary>
+        /// Ask thread ID filter (ath_ prefix); used by cli_permission_requests.
+        /// </summary>
+        public string? ThreadId { get; set; }
+
+        /// <summary>
         /// Include RenderedText, OutputText and ErrorText on fleet action run targets (default false). When false,
         /// OutputLength, ErrorLength and RenderedLength hints are returned instead.
         /// </summary>

@@ -7,6 +7,7 @@ import * as client from '@dashboard/api/client';
 import type { Captain, PlanningSession, PlanningSessionDetail, PlanningSessionMessage, Vessel } from '@dashboard/types/models';
 import PlanningIndexRoute from '../app/(app)/(work)/planning/index';
 import PlanningSessionRoute from '../app/(app)/(work)/planning/[id]';
+import DispatchRoute from '../app/(app)/(work)/dispatch';
 import { dispatchPrefillFromParams } from '../screens/operations/w24/dispatchLink';
 import { planningDispatchHref } from '../screens/planning/planningDispatch';
 import { prefillFromParams } from '../screens/planning/PlanningScreen';
@@ -43,7 +44,7 @@ const ROUTES = {
   '(work)/planning/index': PlanningIndexRoute,
   '(work)/planning/[id]': PlanningSessionRoute,
   '(work)/voyages/[id]': () => <Text>Voyage screen</Text>,
-  '(work)/dispatch': () => <Text>Dispatch screen</Text>,
+  '(work)/dispatch': DispatchRoute,
 };
 
 async function renderAt(initialUrl: string) {
@@ -51,7 +52,7 @@ async function renderAt(initialUrl: string) {
   await result;
   await act(async () => { buildSockets()[0]?.open(); });
   await act(async () => { await Promise.resolve(); });
-  return { getPathname: () => result.getPathname() };
+  return { getPathname: () => result.getPathname(), getSearchParams: () => result.getSearchParams() };
 }
 
 async function emit(type: string, data: unknown) {
@@ -63,7 +64,7 @@ beforeEach(async () => {
   api.listCaptains.mockResolvedValue(page([CAPTAIN, BUSY_CAPTAIN]));
   api.listFleets.mockResolvedValue(page([]));
   api.listVessels.mockResolvedValue(page([VESSEL]));
-  api.listPipelines.mockResolvedValue(page([{ id: 'ppl_1', name: 'Reviewed' } as never]));
+  api.listPipelines.mockResolvedValue(page([{ id: 'ppl_1', name: 'Reviewed', stages: [] } as never]));
   api.listPlaybooks.mockResolvedValue(page([]));
   api.listPlanningSessions.mockResolvedValue([session()]);
   api.getVesselReadiness.mockResolvedValue(null as never);
@@ -108,7 +109,7 @@ describe('Planning list', () => {
   it('starts a session with an idle captain and opens it', async () => {
     api.createPlanningSession.mockResolvedValue(detail());
     api.getPlanningSession.mockResolvedValue(detail());
-    const { getPathname } = await renderAt('/planning');
+    const { getPathname, getSearchParams } = await renderAt('/planning');
     await waitFor(() => expect(screen.getByText('Plan login fix')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('planning-new'));
     await waitFor(() => expect(screen.getByTestId('planning-start-captain')).toBeTruthy());
@@ -127,7 +128,9 @@ describe('Planning list', () => {
     await waitFor(() => expect(api.createPlanningSession).toHaveBeenCalledWith({
       title: 'Plan login fix', captainId: 'cpt_1', vesselId: 'vsl_1', fleetId: undefined, pipelineId: undefined, selectedPlaybooks: [], objectiveId: undefined,
     }));
-    await waitFor(() => expect(getPathname()).toBe('/planning/pls_1'));
+    // Phones open the session on its own screen: the Dispatch hub's Planning tab with ?session=.
+    await waitFor(() => expect(getSearchParams()).toEqual(expect.objectContaining({ tab: 'planning', session: 'pls_1' })));
+    expect(getPathname()).toBe('/dispatch');
     await waitFor(() => expect(screen.getByTestId('planning-session')).toBeTruthy());
   });
 
@@ -143,6 +146,33 @@ describe('Planning list', () => {
     await waitFor(() => expect(api.deletePlanningSession).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText('Plan login fix')).toBeNull());
     expect(screen.getByText('Second plan')).toBeTruthy();
+  });
+});
+
+describe('Planning tab and old routes', () => {
+  it('is a tab of the Dispatch hub', async () => {
+    const { getSearchParams } = await renderAt('/dispatch');
+    await fireEvent.press(await screen.findByTestId('dispatch-tab-planning'));
+    await waitFor(() => expect(getSearchParams()).toEqual(expect.objectContaining({ tab: 'planning' })));
+    await waitFor(() => expect(screen.getByText('Plan login fix')).toBeTruthy());
+    expect(screen.getByTestId('dispatch-tab-backlog')).toBeTruthy();
+  });
+
+  it('redirects /planning to the Planning tab, keeping start prefill params', async () => {
+    const { getPathname, getSearchParams } = await renderAt('/planning?new=1&vesselId=vsl_1&title=Plan%20it');
+    await waitFor(() => expect(getPathname()).toBe('/dispatch'));
+    expect(getSearchParams()).toEqual(expect.objectContaining({ tab: 'planning', new: '1', vesselId: 'vsl_1', title: 'Plan it' }));
+    await waitFor(() => expect(screen.getByTestId('planning-start-captain')).toBeTruthy());
+  });
+
+  it('redirects /planning/:id to the Planning tab with the session id and draft prompt', async () => {
+    api.getPlanningSession.mockResolvedValue(detail());
+    const { getPathname, getSearchParams } = await renderAt('/planning/pls_1?prompt=Draft%20this');
+    await waitFor(() => expect(getPathname()).toBe('/dispatch'));
+    expect(getSearchParams()).toEqual(expect.objectContaining({ tab: 'planning', session: 'pls_1', prompt: 'Draft this' }));
+    await waitFor(() => expect(screen.getByTestId('planning-session')).toBeTruthy());
+    expect(api.getPlanningSession).toHaveBeenCalledWith('pls_1');
+    expect(screen.getByTestId('planning-input').props.value).toBe('Draft this');
   });
 });
 
@@ -229,17 +259,19 @@ describe('Planning session', () => {
   it('opens a reply in Dispatch after releasing the captain', async () => {
     api.getPlanningSession.mockResolvedValue(detail({ messages: [message({}), reply] }));
     api.stopPlanningSession.mockResolvedValue(detail({ session: session({ status: 'Stopped' }), messages: [message({}), reply] }));
-    const { getPathname } = await renderAt('/planning/pls_1');
+    const { getPathname, getSearchParams } = await renderAt('/planning/pls_1');
     await waitFor(() => expect(screen.getByText('Step 1: fix the login form.')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('planning-msg-2-dispatch'));
     await waitFor(() => expect(api.stopPlanningSession).toHaveBeenCalledWith('pls_1'));
-    await waitFor(() => expect(getPathname()).toBe('/dispatch'));
+    await waitFor(() => expect(getSearchParams()).toEqual(expect.objectContaining({ from: 'planning' })));
+    expect(getPathname()).toBe('/dispatch');
+    expect(getSearchParams().tab).toBeUndefined();
   });
 
   it('ends the session after confirming, and leaves when it is deleted', async () => {
     api.getPlanningSession.mockResolvedValue(detail());
     api.stopPlanningSession.mockResolvedValue(detail({ session: session({ status: 'Stopping' }) }));
-    const { getPathname } = await renderAt('/planning/pls_1');
+    const { getPathname, getSearchParams } = await renderAt('/planning/pls_1');
     await waitFor(() => expect(screen.getByTestId('planning-session')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('planning-end'));
     expect(api.stopPlanningSession).not.toHaveBeenCalled();
@@ -248,17 +280,21 @@ describe('Planning session', () => {
     await waitFor(() => expect(screen.getByText('Ending...')).toBeTruthy());
 
     await emit('planning-session.deleted', { sessionId: 'pls_1' });
-    await waitFor(() => expect(getPathname()).toBe('/planning'));
+    await waitFor(() => expect(getSearchParams().session).toBeUndefined());
+    expect(getPathname()).toBe('/dispatch');
+    expect(getSearchParams()).toEqual(expect.objectContaining({ tab: 'planning' }));
   });
 
   it('deletes the session after confirming', async () => {
     api.getPlanningSession.mockResolvedValue(detail());
     api.deletePlanningSession.mockResolvedValue(undefined);
-    const { getPathname } = await renderAt('/planning/pls_1');
+    const { getPathname, getSearchParams } = await renderAt('/planning/pls_1');
     await waitFor(() => expect(screen.getByTestId('planning-session')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('planning-delete'));
     await fireEvent.press(screen.getByTestId('planning-delete-confirm-confirm'));
     await waitFor(() => expect(api.deletePlanningSession).toHaveBeenCalledWith('pls_1'));
-    await waitFor(() => expect(getPathname()).toBe('/planning'));
+    await waitFor(() => expect(getSearchParams().session).toBeUndefined());
+    expect(getPathname()).toBe('/dispatch');
+    expect(getSearchParams()).toEqual(expect.objectContaining({ tab: 'planning' }));
   });
 });

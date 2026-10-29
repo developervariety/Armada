@@ -205,11 +205,6 @@ export default function Credentials() {
 
   const columns: DataTableColumn<Credential>[] = [
     {
-      key: 'name', label: t('Name'), headerTitle: t('Label given to the token when it was created.'), required: true, sortKey: 'name',
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} />,
-      render: (c) => <strong>{c.name || '-'}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), headerTitle: t('Credential ID (crd_ prefix), used to edit or delete it through the API. It is not the token.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (c) => (
         <span className="id-display">
@@ -217,6 +212,11 @@ export default function Credentials() {
           <CopyButton text={c.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), headerTitle: t('Label given to the token when it was created.'), required: true, sortKey: 'name',
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} />,
+      render: (c) => <strong>{c.name || '-'}</strong>,
     },
     {
       key: 'user', label: t('User'), headerTitle: t('User the token acts as.'), sortKey: 'userId', cellClassName: 'text-dim',
