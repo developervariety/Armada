@@ -164,6 +164,16 @@ namespace Armada.Core.Database
         /// </summary>
         public IMissionAttemptProvenanceMethods MissionAttempts { get; protected set; } = null!;
 
+        /// <summary>
+        /// The incident projection: the latest state of each incident, written in the same transaction as its snapshot event.
+        /// </summary>
+        public IIncidentMethods Incidents { get; protected set; } = null!;
+
+        /// <summary>
+        /// Fixture battery runs.
+        /// </summary>
+        public IBatteryRunMethods BatteryRuns { get; protected set; } = null!;
+
         /// <summary>Atomic full Research replay and immutable prior-attempt history.</summary>
         public IResearchReplayMethods ResearchReplays { get; protected set; } = null!;
 
@@ -182,6 +192,9 @@ namespace Armada.Core.Database
 
         /// <summary>Durable Ask action proposal operations.</summary>
         public virtual IAskActionProposalMethods AskActionProposals { get; protected set; } = null!;
+
+        /// <summary>Ask native tool permission requests and remembered rules.</summary>
+        public virtual IAskToolPermissionMethods AskToolPermissions { get; protected set; } = null!;
 
         /// <summary>Derived context search vectors, keyed by tenant, source and model.</summary>
         public virtual IContextEmbeddingMethods ContextEmbeddings { get; protected set; } = null!;

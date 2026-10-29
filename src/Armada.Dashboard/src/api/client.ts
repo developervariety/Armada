@@ -136,6 +136,7 @@ import type {
   ProjectProfileResolutionResult,
   PersonaPromptPreview,
   Skill,
+  BatteryRun,
   LongRunningJob,
   LongRunningJobPage,
   HarborJobsQuery,
@@ -147,6 +148,8 @@ import type {
   CaptainChatRequest,
   CaptainChatResponse,
   AskThread,
+  AskToolPermissionRequest,
+  AskToolPermissionRule,
   AskActionProposal,
   AskProposalDecision,
   AskWorkReport,
@@ -1284,6 +1287,18 @@ export const enumerateJobs = (query?: PageParams & { status?: string }) =>
   post<LongRunningJobPage>('/api/v1/jobs/enumerate', query || {});
 export const getJob = (id: string) => get<LongRunningJob>(`/api/v1/jobs/${encodeURIComponent(id)}`);
 
+// ==================== Fixture Battery ====================
+/** Battery runs, newest first. Requires a global administrator. */
+export const listBatteryRuns = (query?: { captainId?: string; packId?: string; limit?: number }) => {
+  const params = new URLSearchParams();
+  if (query?.captainId) params.set('captainId', query.captainId);
+  if (query?.packId) params.set('packId', query.packId);
+  if (query?.limit) params.set('limit', String(query.limit));
+  const text = params.toString();
+  return get<BatteryRun[]>(`/api/v1/battery/runs${text ? `?${text}` : ''}`);
+};
+export const getBatteryRun = (id: string) => get<BatteryRun>(`/api/v1/battery/runs/${encodeURIComponent(id)}`);
+
 // ==================== Storage Inventory ====================
 /** Cached storage inventory; a read never starts a scan. Requires a global administrator. */
 export const getStorage = () => get<StorageSnapshot>('/api/v1/storage');
@@ -1331,6 +1346,12 @@ export const getAskThread = (id: string) =>
   get<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`);
 export const updateAskThread = (id: string, data: AskThreadUpdateRequest) =>
   put<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`, data);
+/** Deletes an archived conversation; a conversation that is busy or has an open proposal answers 409. */
+export const deleteAskThread = (id: string) =>
+  del<void>(`/api/v1/ask/threads/${encodeURIComponent(id)}`);
+/** Deletes up to 100 archived conversations. A conversation that cannot be deleted comes back in `skipped` with its reason. */
+export const deleteAskThreads = (ids: string[]) =>
+  post<BatchDeleteResult>('/api/v1/ask/threads/delete/multiple', { ids });
 export const markAskThreadRead = (id: string) =>
   post<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}/read`);
 export const markAskThreadUnread = (id: string) =>
@@ -1347,6 +1368,14 @@ export const getAskTurn = (threadId: string, requestId: string) =>
 export const listAskProposals = (threadId: string) => get<AskActionProposal[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/proposals`);
 export const decideAskProposal = (threadId: string, proposalId: string, decision: 'approve' | 'reject', fingerprint: string) =>
   post<AskProposalDecision>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/proposals/${encodeURIComponent(proposalId)}/${decision}`, { fingerprint });
+export const listAskToolPermissions = (threadId: string) =>
+  get<AskToolPermissionRequest[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permissions`);
+export const decideAskToolPermission = (threadId: string, requestId: string, decision: 'allow' | 'deny', remember: boolean) =>
+  post<AskToolPermissionRequest>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permissions/${encodeURIComponent(requestId)}/${decision}`, { remember });
+export const listAskToolPermissionRules = (threadId: string) =>
+  get<AskToolPermissionRule[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permission-rules`);
+export const deleteAskToolPermissionRule = (threadId: string, ruleId: string) =>
+  del<void>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permission-rules/${encodeURIComponent(ruleId)}`);
 export const listAskWorkReports = (threadId: string) => get<AskWorkReport[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/work`);
 
 /** Building a Model Context provisions a worktree and runs a captain over it; minutes, not seconds. */

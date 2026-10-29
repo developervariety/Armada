@@ -34,7 +34,7 @@ namespace Armada.Core.Database
         /// <summary>
         /// Defaults first, then active environments, then by name, newest first among equals.
         /// </summary>
-        internal const string Order = "is_default DESC, active DESC, name ASC, created_utc DESC";
+        internal const string Order = "is_default DESC, active DESC, name ASC, created_utc DESC, id DESC";
 
         #endregion
 

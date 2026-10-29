@@ -430,7 +430,7 @@ namespace Armada.Test.Unit.Suites.Services
                 throw new NotImplementedException();
             }
 
-            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)
+            public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default, string? caller = null, string? callerFile = null)
             {
                 ReclaimCalls++;
                 return Task.CompletedTask;

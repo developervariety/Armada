@@ -7,7 +7,7 @@ import {
   validateModelEndpoint,
   healthCheckModelEndpoints,
 } from '../api/client';
-import type { ModelEndpoint, ModelEndpointKind, ModelProvider, ModelEndpointProbeResult, ScopeEnum } from '../types/models';
+import type { EndpointLaunchOptions, ModelEndpoint, ModelEndpointKind, ModelProvider, ModelEndpointProbeResult, ScopeEnum } from '../types/models';
 import { canEditOwned, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
 import ScopeBadge from '../components/shared/ScopeBadge';
 import ScopeSelect from '../components/shared/ScopeSelect';
@@ -42,6 +42,11 @@ interface EndpointForm {
   dimensionality: string;
   timeoutMs: string;
   enabled: boolean;
+  toolsEnabled: boolean;
+  readOnlyTools: boolean;
+  allowedTools: string;
+  maxIterations: string;
+  maxTokens: string;
   scope: ScopeEnum;
 }
 
@@ -56,8 +61,36 @@ const EMPTY_FORM: EndpointForm = {
   dimensionality: '0',
   timeoutMs: '120000',
   enabled: true,
+  toolsEnabled: true,
+  readOnlyTools: false,
+  allowedTools: '',
+  maxIterations: '100',
+  maxTokens: '',
   scope: 'TenantWide',
 };
+
+function launchOptionsFromEndpoint(endpoint: ModelEndpoint): Pick<EndpointForm, 'toolsEnabled' | 'readOnlyTools' | 'allowedTools' | 'maxIterations' | 'maxTokens'> {
+  const options = endpoint.launchOptions;
+  return {
+    toolsEnabled: options?.toolsEnabled ?? true,
+    readOnlyTools: options?.readOnlyTools ?? false,
+    allowedTools: (options?.allowedTools ?? []).join('\n'),
+    maxIterations: String(options?.maxIterations ?? 100),
+    maxTokens: options?.maxTokens == null ? '' : String(options.maxTokens),
+  };
+}
+
+function launchOptionsFromForm(form: EndpointForm): EndpointLaunchOptions {
+  const names = form.allowedTools.split('\n').map((name) => name.trim()).filter((name) => name.length > 0);
+  const maxTokens = form.maxTokens.trim();
+  return {
+    toolsEnabled: form.toolsEnabled,
+    readOnlyTools: form.readOnlyTools,
+    allowedTools: names.length === 0 ? null : names,
+    maxIterations: Number.parseInt(form.maxIterations, 10) || 100,
+    maxTokens: maxTokens === '' ? null : Number.parseInt(maxTokens, 10),
+  };
+}
 
 /** Humanize the span between the earliest retained probe and now, for the health modal. */
 function formatSpan(firstUtc: string | null): string {
@@ -136,6 +169,7 @@ export default function Endpoints() {
       dimensionality: String(endpoint.dimensionality ?? 0),
       timeoutMs: String(endpoint.timeoutMs ?? 120000),
       enabled: endpoint.enabled,
+      ...launchOptionsFromEndpoint(endpoint),
       scope: endpoint.scope,
     });
     setShowForm(true);
@@ -157,6 +191,7 @@ export default function Endpoints() {
         timeoutMs: Number.parseInt(form.timeoutMs, 10) || 120000,
         enabled: form.enabled,
       };
+      if (form.kind === 'Inference') payload.launchOptions = launchOptionsFromForm(form);
       // Only send apiKey when the operator actually typed one, so an unchanged edit keeps the stored key.
       if (form.apiKeyTouched) payload.apiKey = form.apiKey;
 
@@ -336,6 +371,34 @@ export default function Endpoints() {
               <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
               <span>{t('Enabled')}</span>
             </label>
+            {form.kind === 'Inference' && (
+              <>
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={form.toolsEnabled} onChange={(e) => setForm({ ...form, toolsEnabled: e.target.checked })} />
+                  <span>{t('Tools enabled')}</span>
+                </label>
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={form.readOnlyTools} onChange={(e) => setForm({ ...form, readOnlyTools: e.target.checked })} />
+                  <span>{t('Read-only tools')}</span>
+                </label>
+                <label>{t('Allowed tools')}
+                  <textarea
+                    rows={3}
+                    value={form.allowedTools}
+                    onChange={(e) => setForm({ ...form, allowedTools: e.target.value })}
+                    placeholder={t('One name per line. Leave blank to allow every tool this launch may use.')}
+                  />
+                </label>
+                <div className="detail-form-grid">
+                  <label>{t('Max iterations')}
+                    <input type="number" min={1} max={1000} value={form.maxIterations} onChange={(e) => setForm({ ...form, maxIterations: e.target.value })} />
+                  </label>
+                  <label>{t('Max tokens')}
+                    <input type="number" min={1} value={form.maxTokens} onChange={(e) => setForm({ ...form, maxTokens: e.target.value })} placeholder={t('Provider default')} />
+                  </label>
+                </div>
+              </>
+            )}
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary" disabled={saving || !!formReason}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Endpoint')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>

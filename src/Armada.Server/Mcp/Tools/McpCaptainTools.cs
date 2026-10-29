@@ -242,7 +242,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_stop_captain",
-                "Stop a specific captain. A Planning or Refining captain is stopped through its active planning or objective refinement session; any other captain has its process stopped and is recalled to Idle, failing its active mission.",
+                "Stop a specific captain. A Planning or Refining captain is stopped through its active planning or objective refinement session; any other captain has its process stopped and is recalled to Idle; the mission it was running ends Cancelled with an operator_stopped: reason.",
                 new
                 {
                     type = "object",
@@ -255,7 +255,7 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     CaptainIdArgs request = JsonSerializer.Deserialize<CaptainIdArgs>(args!.Value, _JsonOptions)!;
-                    CaptainStopResult stopped = await administration.StopAsync(request.CaptainId, null).ConfigureAwait(false);
+                    CaptainStopResult stopped = await administration.StopAsync(request.CaptainId, null, stop: new OperatorStopContext(null, OperatorStopContext.McpSurface)).ConfigureAwait(false);
                     if (stopped.Outcome != CaptainAdministrationOutcomeEnum.Completed)
                         return (object)new { Error = stopped.Message, stopped.Outcome, stopped.CaptainId };
                     return (object)stopped;
@@ -353,7 +353,7 @@ namespace Armada.Server.Mcp.Tools
                 new { type = "object", properties = new { } },
                 async (args) =>
                 {
-                    CaptainStopAllResult stopAll = await administration.StopAllAsync().ConfigureAwait(false);
+                    CaptainStopAllResult stopAll = await administration.StopAllAsync(stop: new OperatorStopContext(null, OperatorStopContext.McpSurface)).ConfigureAwait(false);
                     return (object)stopAll;
                 });
 

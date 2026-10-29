@@ -339,6 +339,21 @@ namespace Armada.Server
         public async Task<VoyageDispatchResult> DispatchAsync(SharedVoyageDispatchRequest request, CancellationToken token = default)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
+            try
+            {
+                CollectionLimits.RequireDispatch(request.Missions, request.SelectedPlaybooks);
+            }
+            catch (CollectionLimitExceededException limit)
+            {
+                return VoyageDispatchResult.BadRequest(new
+                {
+                    Error = limit.Message,
+                    Code = CollectionLimitExceededException.ErrorCode,
+                    Field = limit.Field,
+                    Limit = limit.Limit,
+                    Actual = limit.Actual
+                });
+            }
 
             string title = request.Title;
             string description = request.Description ?? "";

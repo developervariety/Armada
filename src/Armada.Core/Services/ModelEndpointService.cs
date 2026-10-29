@@ -157,6 +157,7 @@ namespace Armada.Core.Services
             // Scope is an ownership boundary. It is immutable after creation, so an update request cannot
             // move a private endpoint to another visibility class or silently broaden its audience.
             if (endpoint.ApiKeySpecified) existing.ApiKey = endpoint.ApiKey;
+            if (endpoint.LaunchOptionsSpecified) existing.LaunchOptions = endpoint.LaunchOptions.Copy();
             existing.LastUpdateUtc = DateTime.UtcNow;
 
             _Logging.Info(_Header + "updating endpoint " + existing.Id);
@@ -333,6 +334,7 @@ namespace Armada.Core.Services
 
             string? reason = ModelEndpointClientFactory.UnsupportedReason(endpoint.Provider, endpoint.Kind);
             if (reason != null) throw new ArgumentException(reason);
+            EndpointLaunchOptionsRules.Validate(endpoint.LaunchOptions);
         }
 
         private async Task<ModelEndpointProbeResult> ValidateEndpointAsync(ModelEndpoint endpoint, CancellationToken token)

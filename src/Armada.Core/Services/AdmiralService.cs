@@ -65,6 +65,13 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
 
+        /// <summary>
+        /// Delegate that checks one bounded page of LandingFailed missions for work that is already on the vessel's
+        /// default branch and proposes each to the operator. Returns the number proposed. Wired to
+        /// <c>LandingReconcileSweep.SweepAsync</c> at server startup.
+        /// </summary>
+        public Func<Task<int>>? OnReconcileLandingFailures { get; set; }
+
         /// <inheritdoc />
         public Func<int, bool>? OnIsProcessExitHandled { get; set; }
 
@@ -297,6 +304,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
             _DispatchHold?.ThrowIfActive();
 
             // Verify vessel exists
@@ -414,6 +422,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
             _DispatchHold?.ThrowIfActive();
 
             // Verify vessel exists
@@ -609,6 +618,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
             _DispatchHold?.ThrowIfActive();
 
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
@@ -2590,6 +2600,14 @@ namespace Armada.Core.Services
                 {
                     if (OnReconcileMergeEntries != null)
                         await OnReconcileMergeEntries.Invoke().ConfigureAwait(false);
+                }),
+
+                // A LandingFailed mission whose work reached the default branch by another path stays LandingFailed
+                // until someone notices. The sweep proposes each such mission to the operator; it never completes one.
+                HealthLoopMaintenanceStep.EveryCycles("landing failure reconciliation", () => 1, async token =>
+                {
+                    if (OnReconcileLandingFailures != null)
+                        await OnReconcileLandingFailures.Invoke().ConfigureAwait(false);
                 }),
 
                 // Audit-queue depth notification: when the count of AuditDeepPicked entries

@@ -515,6 +515,7 @@ namespace Armada.Server.Mcp.Tools
                     DeleteMultipleArgs request = JsonSerializer.Deserialize<DeleteMultipleArgs>(args!.Value, _JsonOptions)!;
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)new { Error = "ids is required and must not be empty" };
+                    CollectionLimits.RequireRequestItems(request.Ids, "Ids");
 
                     DeleteMultipleResult result = new DeleteMultipleResult();
                     foreach (string id in request.Ids)

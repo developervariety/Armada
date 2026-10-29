@@ -265,7 +265,7 @@ LEN(COALESCE(agent_output, '')) AS agent_output_length";
                         selectCmd.CommandText =
                             "SELECT " + MissionSummarySelectColumns +
                             " FROM missions" + BuildWhereClause(selectConditions) +
-                            " ORDER BY created_utc " + orderDirection +
+                            " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                             " OFFSET " + query.Offset + " ROWS FETCH NEXT " + query.PageSize + " ROWS ONLY;";
                         List<MissionSummary> results = new List<MissionSummary>();
                         using (SqlDataReader reader = await selectCmd.ExecuteReaderAsync(token).ConfigureAwait(false))

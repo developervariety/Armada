@@ -6,6 +6,8 @@ import DataTable, { type DataTableColumn } from '../components/shared/DataTable'
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
@@ -42,6 +44,7 @@ export default function Voyages() {
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const deleteProgress = useDeleteProgress();
 
   // Selection only: rows keep the server's order. Sorting or filtering one server page here would
   // present a partial set as the whole list.
@@ -114,11 +117,11 @@ export default function Voyages() {
       message: t('Purge voyage "{{title}}"? This will permanently remove the voyage and all associated missions. This cannot be undone.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
+        await deleteProgress.run(t('Purging voyage'), async () => {
           await purgeVoyage(id);
           pushToast('warning', t('Voyage "{{title}}" purged.', { title }));
           load();
-        } catch { setError(t('Purge failed.')); }
+        });
       },
     });
   }
@@ -184,6 +187,7 @@ export default function Voyages() {
         onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/voyages/${(r as { id: string }).id}`); }}
         editLabel={t('Open Details')}
       />
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 

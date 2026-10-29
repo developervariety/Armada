@@ -86,6 +86,11 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Start of the failure reason recorded when a change touches a protected path.
+        /// </summary>
+        public const string FailureReasonPrefix = "Captain modified protected path";
+
+        /// <summary>
         /// Format the failure reason persisted on the mission and shown to the captain.
         /// The literal token <c>[CLAUDE.MD-PROPOSAL]</c> is included so captains learn
         /// the structured-proposal convention from a single failure.
@@ -95,7 +100,7 @@ namespace Armada.Core.Services
         /// <returns>Failure-reason string suitable for Mission.FailureReason.</returns>
         public static string FormatFailureReason(string matchedPath, string vesselName)
         {
-            return "Captain modified protected path '" + (matchedPath ?? "") +
+            return FailureReasonPrefix + " '" + (matchedPath ?? "") +
                 "' on vessel '" + (vesselName ?? "") +
                 "'. Use a [CLAUDE.MD-PROPOSAL] block in your final response to propose changes (target / action / text / why) -- the orchestrator decides what lands.";
         }

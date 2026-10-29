@@ -61,6 +61,7 @@ describe('Endpoints page', () => {
     await waitFor(() => expect(createModelEndpoint).toHaveBeenCalledWith({
       name: 'Local', kind: 'Inference', provider: 'Ollama', baseUrl: 'http://localhost:11434', model: null,
       dimensionality: 0, timeoutMs: 120000, enabled: true, scope: 'UserSpecific',
+      launchOptions: { toolsEnabled: true, readOnlyTools: false, allowedTools: null, maxIterations: 100, maxTokens: null },
     }));
   });
 

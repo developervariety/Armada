@@ -286,6 +286,12 @@ namespace Armada.Core.Database.Postgresql
                 }
             }
 
+            IncidentBackfillResult incidentBackfill = await Incidents.BackfillFromEventsAsync(token).ConfigureAwait(false);
+            if (incidentBackfill.Projected > 0)
+                _Logging.Info(_Header + "projected " + incidentBackfill.Projected + " incident(s) from snapshot events");
+            foreach (string unreadable in incidentBackfill.Unreadable)
+                _Logging.Warn(_Header + "incident " + unreadable + " has no readable newest snapshot and was not projected");
+
             _Logging.Info(_Header + "database initialized successfully");
 
 
@@ -426,11 +432,13 @@ namespace Armada.Core.Database.Postgresql
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MissionAttempts = new MissionAttemptProvenanceMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            BatteryRuns = new BatteryRunMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MemoryProposals = new MemoryProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            AskToolPermissions = new Armada.Core.Database.AskToolPermissionMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             FleetActions = new Armada.Core.Database.FleetActionMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             ContextEmbeddings = new Armada.Core.Database.ContextEmbeddingMethods(() => _DataSource.CreateConnection());
             FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
@@ -439,6 +447,7 @@ namespace Armada.Core.Database.Postgresql
             PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(_Stored);
+            Incidents = new IncidentMethods(_Stored);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(_Stored);

@@ -337,6 +337,14 @@ namespace Armada.Server.Routes
                 if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc)) query.FromUtc = fromUtc.ToUniversalTime();
                 if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc)) query.ToUtc = toUtc.ToUniversalTime();
                 if (int.TryParse(QueryValueReader.Read(req, "bucketMinutes"), out int bucketMinutes) && bucketMinutes > 0) query.BucketMinutes = bucketMinutes;
+                try
+                {
+                    CollectionLimits.RequireMissionHistoryBuckets(query.FromUtc, query.ToUtc, query.BucketMinutes);
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
                 string? fleetId = QueryValueReader.Read(req, "fleetId");
                 if (!String.IsNullOrEmpty(fleetId)) query.FleetId = fleetId;
                 string? vesselId = QueryValueReader.Read(req, "vesselId");
@@ -452,12 +460,13 @@ namespace Armada.Server.Routes
                 mission.DiffSnapshot = null;
                 mission.AgentOutput = null;
                 mission.PlaybookSnapshots = await _database.Playbooks.GetMissionSnapshotsAsync(mission.Id).ConfigureAwait(false);
+                await MissionReadDerivations.ApplyAsync(_database, mission, req.Http.Token).ConfigureAwait(false);
                 return (object)mission;
             },
             api => api
                 .WithTag("Missions")
                 .WithSummary("Get a mission")
-                .WithDescription("Returns a single mission by ID.")
+                .WithDescription("Returns a single mission by ID. failureKind is the reason code of the latest recorded attempt of a failed mission. assignmentHoldCaptains lists why each captain was passed over while the mission is held as no_eligible_captain.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<Mission>("Mission details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
@@ -954,6 +963,14 @@ namespace Armada.Server.Routes
                 DeleteMultipleRequest? body = JsonSerializer.Deserialize<DeleteMultipleRequest>(req.Http.Request.DataAsString, _jsonOptions);
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
                     return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" };
+                try
+                {
+                    CollectionLimits.RequireRequestItems(body.Ids, "Ids");
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
 
                 DeleteMultipleResult result = await _operations.PurgeMissionsAsync(
                     body.Ids,
@@ -1037,7 +1054,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Restart a failed or cancelled mission")
-                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields. Any other status is refused with 409; a LandingFailed mission keeps its produced work, and the refusal names retry-landing. A mission whose voyage is Complete or Cancelled is refused with 409 naming the voyage status. An eligible failed stage, or a dependent stage cancelled after it, can reopen a Failed voyage at the nearest verified upstream commit, or its own start when none exists; cancelled downstream stages also return to Pending. Other ended-voyage cases require a new voyage or a rescue.")
+                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields. Any other status is refused with 409; a LandingFailed mission keeps its produced work, and the refusal names retry-landing. A mission whose voyage is Complete or Cancelled is refused with 409 naming the voyage status. An eligible failed stage, or a dependent stage cancelled after it, can reopen a Failed voyage at the nearest verified upstream commit, or its own start when none exists; a stage an operator stopped reopens a Failed or Cancelled voyage the same way; cancelled downstream stages also return to Pending. Other ended-voyage cases require a new voyage or a rescue.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<MissionRestartRequest>("Optional updated instructions", false))
                 .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission"))
@@ -1360,6 +1377,7 @@ namespace Armada.Server.Routes
 
         private static MissionHistorySummaryResult BuildMissionHistorySummary(MissionHistoryQuery query, IEnumerable<MissionHistoryPoint> points)
         {
+            CollectionLimits.RequireMissionHistoryBuckets(query.FromUtc, query.ToUtc, query.BucketMinutes);
             DateTime fromUtc = query.FromUtc.Kind == DateTimeKind.Utc ? query.FromUtc : query.FromUtc.ToUniversalTime();
             DateTime toUtc = query.ToUtc.Kind == DateTimeKind.Utc ? query.ToUtc : query.ToUtc.ToUniversalTime();
             int bucketMinutes = query.BucketMinutes > 0 ? query.BucketMinutes : 60;

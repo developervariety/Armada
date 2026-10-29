@@ -158,11 +158,13 @@ namespace Armada.Core.Database.SqlServer
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttempts = new MissionAttemptProvenanceMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            BatteryRuns = new BatteryRunMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            AskToolPermissions = new Armada.Core.Database.AskToolPermissionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             FleetActions = new Armada.Core.Database.FleetActionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             ContextEmbeddings = new Armada.Core.Database.ContextEmbeddingMethods(() => new SqlConnection(_ConnectionString));
             FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
@@ -171,6 +173,7 @@ namespace Armada.Core.Database.SqlServer
             PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(_Stored);
+            Incidents = new IncidentMethods(_Stored);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(_Stored);
@@ -292,6 +295,12 @@ namespace Armada.Core.Database.SqlServer
                     await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                 }
             }
+
+            IncidentBackfillResult incidentBackfill = await Incidents.BackfillFromEventsAsync(token).ConfigureAwait(false);
+            if (incidentBackfill.Projected > 0)
+                _Logging.Info(_Header + "projected " + incidentBackfill.Projected + " incident(s) from snapshot events");
+            foreach (string unreadable in incidentBackfill.Unreadable)
+                _Logging.Warn(_Header + "incident " + unreadable + " has no readable newest snapshot and was not projected");
 
             _Logging.Info(_Header + "database initialized successfully");
 

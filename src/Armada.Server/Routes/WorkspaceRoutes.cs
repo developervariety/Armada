@@ -1,7 +1,6 @@
 namespace Armada.Server.Routes
 {
     using System.Text.Json;
-    using System.Text.RegularExpressions;
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
@@ -17,14 +16,6 @@ namespace Armada.Server.Routes
     /// </summary>
     public class WorkspaceRoutes
     {
-        private static readonly Regex _ScopedFilesDirectiveRegex =
-            new Regex(@"^\s*(?:Touch|Edit|Modify)\s+only\s+(?<files>.+)$",
-                RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
-        private static readonly Regex _ScopedFileTokenRegex =
-            new Regex(
-                @"(?<path>(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:cs|csproj|sln|md|json|yaml|yml|ts|tsx|js|jsx|css|html|sh|bat))",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
         /// <summary>
         /// Message returned to an authenticated caller that is not a global administrator and asks to run a workspace command.
         /// </summary>
@@ -474,7 +465,7 @@ namespace Armada.Server.Routes
                     MissionId = mission.Id,
                     Title = mission.Title ?? String.Empty,
                     Status = mission.Status.ToString(),
-                    ScopedFiles = ParseMissionScopedFiles(mission.Description ?? String.Empty).ToList()
+                    ScopedFiles = MissionScopedFiles.Parse(mission.Description).ToList()
                 })
                 .ToList();
         }
@@ -486,31 +477,6 @@ namespace Armada.Server.Routes
                 || mission.Status == MissionStatusEnum.InProgress
                 || mission.Status == MissionStatusEnum.Review
                 || mission.Status == MissionStatusEnum.Testing;
-        }
-
-        private static HashSet<string> ParseMissionScopedFiles(string description)
-        {
-            HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (String.IsNullOrWhiteSpace(description))
-                return files;
-
-            foreach (Match directiveMatch in _ScopedFilesDirectiveRegex.Matches(description))
-            {
-                string fileSegment = directiveMatch.Groups["files"].Value;
-                foreach (Match pathMatch in _ScopedFileTokenRegex.Matches(fileSegment))
-                {
-                    string normalizedPath = NormalizeMissionPath(pathMatch.Groups["path"].Value);
-                    if (!String.IsNullOrWhiteSpace(normalizedPath))
-                        files.Add(normalizedPath);
-                }
-            }
-
-            return files;
-        }
-
-        private static string NormalizeMissionPath(string path)
-        {
-            return (path ?? String.Empty).Trim().Replace('\\', '/');
         }
 
         private static bool TryMapWorkspaceException(ApiRequest req, Exception ex, out ApiErrorResponse error)

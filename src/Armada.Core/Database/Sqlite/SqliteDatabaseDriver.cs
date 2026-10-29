@@ -235,6 +235,12 @@ namespace Armada.Core.Database.Sqlite
                 }
             }
 
+            IncidentBackfillResult incidentBackfill = await Incidents.BackfillFromEventsAsync(token).ConfigureAwait(false);
+            if (incidentBackfill.Projected > 0)
+                _Logging.Info(_Header + "projected " + incidentBackfill.Projected + " incident(s) from snapshot events");
+            foreach (string unreadable in incidentBackfill.Unreadable)
+                _Logging.Warn(_Header + "incident " + unreadable + " has no readable newest snapshot and was not projected");
+
             _Logging.Info(_Header + "database initialized successfully");
 
         }
@@ -403,12 +409,14 @@ namespace Armada.Core.Database.Sqlite
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MissionAttempts = new MissionAttemptProvenanceMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            BatteryRuns = new BatteryRunMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             ContextEmbeddings = new Armada.Core.Database.ContextEmbeddingMethods(() => new SqliteConnection(_ConnectionString));
                     AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+                    AskToolPermissions = new Armada.Core.Database.AskToolPermissionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
                     FleetActions = new Armada.Core.Database.FleetActionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
                     FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
@@ -416,6 +424,7 @@ namespace Armada.Core.Database.Sqlite
             PromptTemplates = new PromptTemplateMethods(_Stored);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(_Stored);
+            Incidents = new IncidentMethods(_Stored);
             Personas = new PersonaMethods(this, _Settings, _Logging);
             Pipelines = new PipelineMethods(this, _Settings, _Logging);
             WorkflowProfiles = new WorkflowProfileMethods(_Stored);

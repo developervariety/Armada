@@ -252,6 +252,39 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertFalse(McpToolAccessPolicy.IsAllowed(otherMissionCredential, McpMissionAttemptTools.ToolName), "attempt provenance is not offered to mission callers");
             }).ConfigureAwait(false);
+
+            await RunTest("MissionRead_FailedMission_ExposesTheLatestAttemptReasonAsFailureKind", async () =>
+            {
+                using SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false);
+                Captain captain = new Captain("claude-1") { Runtime = AgentRuntimeEnum.ClaudeCode, Model = "model-x" };
+                Mission failed = await harness.Driver.Missions.CreateAsync(new Mission("Failed", "work")
+                {
+                    TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, Status = MissionStatusEnum.Failed
+                }).ConfigureAwait(false);
+                await MissionAttemptProvenanceRecorder.StartAsync(harness.Driver, failed, captain, 31, null).ConfigureAwait(false);
+                await MissionAttemptProvenanceRecorder.CloseAsync(harness.Driver, failed.Id, 31, 0).ConfigureAwait(false);
+                await MissionAttemptProvenanceRecorder.StartAsync(harness.Driver, failed, captain, 32, null).ConfigureAwait(false);
+                await MissionAttemptProvenanceRecorder.CloseAsync(harness.Driver, failed.Id, 32, 2).ConfigureAwait(false);
+                Mission complete = await harness.Driver.Missions.CreateAsync(new Mission("Complete", "work")
+                {
+                    TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await MissionAttemptProvenanceRecorder.StartAsync(harness.Driver, complete, captain, 33, null).ConfigureAwait(false);
+                await MissionAttemptProvenanceRecorder.CloseAsync(harness.Driver, complete.Id, 33, 2).ConfigureAwait(false);
+
+                AssertEqual(MissionAttemptProvenanceRecorder.ExitNonZeroReason, (await ReadMissionAsync(harness, failed.Id).ConfigureAwait(false)).FailureKind,
+                    "a failed mission reports the reason code of its latest attempt, not an earlier one");
+                AssertNull((await ReadMissionAsync(harness, complete.Id).ConfigureAwait(false)).FailureKind, "a mission that has not failed has no failure kind");
+            }).ConfigureAwait(false);
+        }
+
+        private async Task<Mission> ReadMissionAsync(SurfaceParityHarness harness, string missionId)
+        {
+            SurfaceReply reply = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + missionId).ConfigureAwait(false);
+            AssertEqual(200, reply.Status, reply.ToString());
+            JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+            return JsonSerializer.Deserialize<Mission>(reply.Body, options)!;
         }
 
         private static MissionAttemptProvenanceReport Parse(SurfaceReply reply)

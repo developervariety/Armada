@@ -52,6 +52,7 @@ namespace Armada.Core.Services
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (docks == null) throw new ArgumentNullException(nameof(docks));
             if (ids == null) throw new ArgumentNullException(nameof(ids));
+            CollectionLimits.RequireRequestItems(ids, "Ids");
 
             DeleteMultipleResult result = new DeleteMultipleResult();
             foreach (string id in ids)

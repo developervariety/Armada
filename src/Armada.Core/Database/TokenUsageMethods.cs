@@ -58,7 +58,7 @@ namespace Armada.Core.Database
         /// <summary>
         /// Newest first.
         /// </summary>
-        internal const string Order = "created_utc DESC";
+        internal const string Order = "created_utc DESC, id DESC";
 
         #endregion
 

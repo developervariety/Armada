@@ -35,6 +35,11 @@ namespace Armada.Core.Services
         private readonly LoggingModule _Logging;
         private const int _MaxPerCategory = 100;
 
+        /// <summary>
+        /// Kind of the item that asks an operator to confirm a LandingFailed mission the landing sweep proved landed.
+        /// </summary>
+        public const string LandingReconcileKind = "landing_reconcile";
+
         #endregion
 
         #region Constructors-and-Factories
@@ -240,6 +245,26 @@ namespace Armada.Core.Services
                     liveVoyageIds, missionCache, token).ConfigureAwait(false);
                 foreach (MissionSummary mission in landingFailed.Take(_MaxPerCategory))
                 {
+                    // A mission the landing sweep proved landed shows as one item that carries the proof and asks for
+                    // confirmation, in place of the plain landing failure.
+                    LandingReconcileEvidence? proposal = await LandingReconcileProposals.ReadAsync(_Database, mission.Id, token).ConfigureAwait(false);
+                    if (proposal != null)
+                    {
+                        items.Add(new InboxItem
+                        {
+                            Kind = LandingReconcileKind,
+                            Severity = InboxSeverityEnum.Warning,
+                            Title = "Landing looks complete: " + mission.Title,
+                            Detail = proposal.Describe() + " Confirm to complete the mission; the landing failed with: "
+                                + (String.IsNullOrWhiteSpace(mission.FailureReason) ? "no reason recorded." : mission.FailureReason!),
+                            EntityType = "mission",
+                            EntityId = mission.Id,
+                            VesselIds = VesselsOf(mission.VesselId),
+                            Href = "/missions/" + mission.Id
+                        });
+                        continue;
+                    }
+
                     items.Add(new InboxItem
                     {
                         Kind = "landing_failed",

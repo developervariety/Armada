@@ -4,6 +4,7 @@ namespace Armada.Server.Routes
     using System.Text.Json;
     using WatsonWebserver.Core;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     public sealed partial class AskThreadRoutes
     {
@@ -17,6 +18,11 @@ namespace Armada.Server.Routes
             if (ex is JsonException)
             {
                 error = Error(req, 400, ApiResultEnum.BadRequest, "Request body is not valid JSON.");
+                return true;
+            }
+            if (ex is CollectionLimitExceededException || ex is EndpointLaunchOptionsException)
+            {
+                error = RequestErrorResponse.BadRequest(req, ex);
                 return true;
             }
             if (ex is ArgumentException)

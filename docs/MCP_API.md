@@ -704,7 +704,10 @@ field, or an `Error` nested inside the payload, is a successful result. Over
 HTTP, an error result reaches the client with `isError: true` and its full
 payload, and the tool-call audit records it as `Failed` with the error message.
 Local stdio (`armada mcp stdio`) applies the same rule and answers an error
-result with a JSON-RPC internal error that carries the message.
+result with a JSON-RPC internal error that carries the message. A
+collection-limit refusal is the exception: both transports return it as the
+tool result, with `errorCode` `CollectionLimitExceeded`, and stdio does not
+collapse that result into a protocol error. See [Request limits](REQUEST_LIMITS.md).
 
 When a structured result includes an action hint, follow it before you retry.
 Do not repeat a dispatch call until you have checked whether it created a
@@ -734,6 +737,9 @@ same structured error with the reason `manual_transition_work_produced_pipeline_
 The gates are review approval, Judge authority, captain process release, Check
 state, and target ancestry of the mission commit when no active dock will land
 it. The same request on another surface gets the same decision.
+
+A `LandingFailed` mission moves to `Complete` only by confirming a landing
+proposal; see [Landing proposals](MERGING.md#landing-proposals).
 
 Common protocol errors:
 
@@ -1105,8 +1111,8 @@ branches, terminal-voyage reconciliation, disk lifecycle, and a process stop for
 `armada_stop_captain`. Services that exist only inside the running admiral (the
 dispatch hold, the objective scheduler, planning and refinement session
 coordinators, the coordination board, harbor jobs, the context index, saved Ask
-conversations and the captain model probe) are not built, so their tools are not
-registered on stdio or report the service as unavailable.
+conversations, the captain model probe and the fixture battery) are not built, so
+their tools are not registered on stdio or report the service as unavailable.
 
 **SSH stdio bridge.** `scripts/mcp-ssh-http-bridge.mjs` requires
 `ARMADA_MCP_AUTH_HEADER_FILE`, an absolute path on the server to a file that
@@ -1392,6 +1398,17 @@ runner. The answer carries `MissionId`, `Attempts` and `Truncated`; `Truncated` 
 The tool reads a mission through the caller's scope: an administrator reads any mission, a tenant administrator its
 tenant's, and any other user its own. A mission outside that scope answers `{"Error": "Mission not found"}`. It is
 not offered to mission callers. It is read-only and writes no record. Ask threads may call it.
+
+### armada_battery_packs, armada_battery_runs, armada_battery_run
+
+Read the fixture battery (see [Fixture Battery](BATTERY.md)). `armada_battery_packs` lists the packs with their tasks
+and toolchain. `armada_battery_runs` lists runs newest first; args: optional `captainId`, `packId` and `limit`
+(default 50, maximum 200). `armada_battery_run` reads one run by `runId`, with the grade, timings and evidence of each
+task; an unknown run answers `{"Error": "Battery run not found"}`.
+
+The tools are read-only and answer a global administrator only; any other caller, including a mission credential,
+receives a refusal. No MCP tool starts a run, because a run dispatches real missions and spends captain tokens; start
+one with `POST /api/v1/battery/runs`.
 
 ### armada_mission_change_summary
 
@@ -1689,6 +1706,16 @@ Read one conversation. Args: `threadId` (required), optional `beforeSequence`,
 first `sequence` of the previous page as `beforeSequence`. Tool-call cards are left out
 unless `includeToolCalls` is true. An unknown thread, or one the caller does not own,
 returns an `Error`.
+
+### armada_cli_permission_prompt
+
+The permission prompt tool of a saved Ask turn on Claude Code. It is not part of the
+general catalog: only the turn's own scoped credential lists or calls it, and every other
+credential is refused. Args follow Claude Code's contract: `tool_name`, `input` and
+`tool_use_id`. It waits for the conversation owner's decision and returns
+`{"behavior":"allow","updatedInput":{...}}` or `{"behavior":"deny","message":"..."}`. A request
+with no decision before `ask.toolApprovalTimeoutSeconds` is denied. See
+[Approving native tool calls](ASK_CONVERSATIONS.md#approving-native-tool-calls).
 
 ## Captain Writes
 

@@ -81,6 +81,14 @@ namespace Armada.Server.Routes
                 if (!query.ToUtc.HasValue) query.ToUtc = DateTime.UtcNow;
                 if (query.BucketMinutes <= 0) query.BucketMinutes = 15;
                 await ApplyScopeAsync(ctx, query).ConfigureAwait(false);
+                try
+                {
+                    CollectionLimits.RequireInclusiveBuckets(query.FromUtc.Value, query.ToUtc.Value, query.BucketMinutes);
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
 
                 List<RequestHistoryEntry> entries = await _database.RequestHistory.EnumerateForSummaryAsync(query).ConfigureAwait(false);
                 return RequestHistorySummaryBuilder.Build(entries, query);
@@ -160,6 +168,14 @@ namespace Armada.Server.Routes
                 {
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" };
+                try
+                {
+                    CollectionLimits.RequireRequestItems(body.Ids, "Ids");
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
                 }
 
                 RequestHistoryQuery scopeQuery = new RequestHistoryQuery();

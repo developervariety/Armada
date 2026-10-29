@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "id": "javascript",
+  "name": "JavaScript",
+  "version": 1,
+  "domain": "code",
+  "description": "A small Node.js (CommonJS) inventory library with a dependency-free test runner; nothing is installed from npm. Five tasks: add a member, a coordinated two-place edit, a bug fix, a byte-exact BOM and CRLF edit, and tests that must kill mutants.",
+  "fixture": {
+    "path": "fixture",
+    "defaultBranch": "main"
+  },
+  "toolchain": [
+    {
+      "name": "node",
+      "executable": "node",
+      "arguments": [
+        "--version"
+      ],
+      "hint": "Node.js 18 or later on the Admiral host's PATH"
+    },
+    {
+      "name": "git",
+      "executable": "git",
+      "arguments": [
+        "--version"
+      ],
+      "hint": "git on the Admiral host's PATH"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "add-member",
+      "title": "Add a member to an existing class",
+      "difficulty": "easy",
+      "prompt": "In src/item.js add a read-only getter `totalValue` to the Item class that returns unitPrice times quantity. Give it a JSDoc comment like the other members. Keep the existing tests passing (`node tests/run.js`).",
+      "grader": {
+        "type": "command",
+        "overlay": "tasks/add-member/grading",
+        "commands": [
+          {
+            "executable": "node",
+            "arguments": [
+              "tests/run.js"
+            ]
+          },
+          {
+            "executable": "node",
+            "arguments": [
+              "tests/grading/checkTotalValue.js"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "two-place-edit",
+      "title": "Coordinated two-place edit: write a test function and register it",
+      "prompt": "Add a test function `stockRemoveMoreThanAvailableThrows` to tests/stockTests.js and export it. It adds an item with 2 units and checks that removing 3 units throws InsufficientStockError (src/errors.js). A test only runs when it is registered, so also register it in tests/registry.js. `node tests/run.js` must pass.",
+      "grader": {
+        "type": "command",
+        "commands": [
+          {
+            "executable": "node",
+            "arguments": [
+              "tests/run.js",
+              "--require",
+              "stockRemoveMoreThanAvailableThrows"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "fix-bug",
+      "title": "Fix a bug from a failing test",
+      "setup": "tasks/fix-bug/setup",
+      "prompt": "The test priceCalculatorApplyDiscountTenPercent fails (`node tests/run.js`). Find and fix the bug in the library code. Do not change or remove the tests.",
+      "grader": {
+        "type": "command",
+        "commands": [
+          {
+            "executable": "node",
+            "arguments": [
+              "tests/run.js",
+              "--require",
+              "priceCalculatorApplyDiscountTenPercent",
+              "--require",
+              "priceCalculatorApplyDiscountZeroKeepsPrice"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "bom-crlf",
+      "title": "Edit a file with a UTF-8 BOM and CRLF line endings",
+      "prompt": "In src/legacyCodes.js change MAX_CODE_LENGTH from 8 to 12. Change nothing else. The file is UTF-8 with a byte order mark and CRLF line endings; keep both exactly as they are.",
+      "grader": {
+        "type": "byteComparison",
+        "files": [
+          {
+            "path": "src/legacyCodes.js",
+            "expected": "tasks/bom-crlf/expected/src/legacyCodes.js"
+          }
+        ]
+      }
+    },
+    {
+      "id": "write-tests",
+      "title": "Write tests for an untested function, including negative paths",
+      "prompt": "truncate in src/textUtil.js has no tests. Write tests for it in a new file tests/textUtilTests.js and register each one in tests/registry.js. Cover the normal cases, the boundary where the value is exactly maxLength, and the negative paths (null value, maxLength below 3), checking the error type each one throws. Do not change src/. `node tests/run.js` must pass.",
+      "grader": {
+        "type": "mutation",
+        "commands": [
+          {
+            "executable": "node",
+            "arguments": [
+              "tests/run.js"
+            ]
+          }
+        ],
+        "mutants": [
+          {
+            "id": "null-guard-returns-empty",
+            "file": "src/textUtil.js",
+            "find": "if (value === null || value === undefined) throw new TypeError('value is required');",
+            "replace": "if (value === null || value === undefined) return '';"
+          },
+          {
+            "id": "wrong-guard-error",
+            "file": "src/textUtil.js",
+            "find": "throw new RangeError('maxLength must be at least 3');",
+            "replace": "throw new TypeError('maxLength must be at least 3');"
+          },
+          {
+            "id": "boundary",
+            "file": "src/textUtil.js",
+            "find": "if (value.length <= maxLength) return value;",
+            "replace": "if (value.length < maxLength) return value;"
+          },
+          {
+            "id": "cut-length",
+            "file": "src/textUtil.js",
+            "find": "value.slice(0, maxLength - 3)",
+            "replace": "value.slice(0, maxLength - 2)"
+          }
+        ]
+      }
+    }
+  ]
+}

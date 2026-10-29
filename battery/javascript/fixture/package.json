@@ -1,0 +1,10 @@
+{
+  "name": "inventory",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small inventory library used by the Armada fixture battery. It has no package dependencies.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node tests/run.js"
+  }
+}

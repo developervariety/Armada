@@ -899,7 +899,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT " + selectColumns + " FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     AddParameters(cmd, parameters);
                     using (SqliteDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))

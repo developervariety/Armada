@@ -26,6 +26,11 @@ namespace Armada.Core.Services
         {
             List<TokenUsageRecord> safeRecords = records ?? new List<TokenUsageRecord>();
             TokenUsageQuery safeQuery = query ?? new TokenUsageQuery();
+            if (safeQuery.FromUtc.HasValue && safeQuery.ToUtc.HasValue)
+            {
+                double width = safeQuery.BucketMinutes <= 0 ? 15 : safeQuery.BucketMinutes;
+                CollectionLimits.RequireInclusiveBuckets(safeQuery.FromUtc.Value, safeQuery.ToUtc.Value, width);
+            }
 
             TokenUsageSummaryResult result = new TokenUsageSummaryResult
             {

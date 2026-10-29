@@ -124,6 +124,7 @@ using WatsonWebserver.Core.Routing;
         private ArmadaWebSocketHub _WebSocketHub = null!;
         private MissionStatusTransitionService _StatusTransitions = null!;
         private MissionOperations _MissionOperations = null!;
+        private BatteryRunService _BatteryRuns = null!;
 
         private IMergeQueueService _MergeQueue = null!;
         private IMergeRecoveryHandler _MergeRecoveryHandler = null!;
@@ -199,6 +200,7 @@ using WatsonWebserver.Core.Routing;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private AskActionService _AskActions = null!;
         private AskThreadService? _AskThreads = null;
+        private AskToolPermissionService? _AskToolPermissions = null;
         private VesselCheckoutImportService _VesselCheckoutImports = null!;
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -429,6 +431,8 @@ using WatsonWebserver.Core.Routing;
             admiralService.SetProviderProgress(_ProviderProgress);
             admiralService.SetTerminalMarkers(_TerminalMarkers);
             _Admiral = admiralService;
+            LandingReconcileSweep landingReconcileSweep = new LandingReconcileSweep(_Database, _Git, _Logging, _Settings.LogDirectory);
+            admiralService.OnReconcileLandingFailures = () => landingReconcileSweep.SweepAsync();
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
             ((MergeQueueService)_MergeQueue).SetHarborCheckouts(_HarborCheckouts);
@@ -802,7 +806,7 @@ using WatsonWebserver.Core.Routing;
             // meets the same gates on every entry point.
             _StatusTransitions = new MissionStatusTransitionService(
                 _Database, _Admiral, _MissionService, _Git, _AgentLifecycle.IsMissionProcessActiveAsync,
-                _MissionLanding.HandleMissionCompleteAsync, EmitEventAsync, _Logging);
+                _MissionLanding.HandleMissionCompleteAsync, EmitEventAsync, _Logging, _Settings.LogDirectory);
             _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _AuthenticationService, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); }, _StatusTransitions);
             _WebSocketHub.AuthenticationWindow = _WebSocketAuthenticationWindow;
             _StatusTransitions.SetWebSocketHub(_WebSocketHub);
@@ -855,6 +859,15 @@ using WatsonWebserver.Core.Routing;
                 new OperationNotifier(EmitEventAsync, _WebSocketHub.BroadcastMissionChange, _WebSocketHub.BroadcastVoyageChange),
                 _Logging);
             _WebSocketHub.SetMissionOperations(_MissionOperations);
+
+            // The fixture battery grades a captain on fixed tasks. Its fixture repositories live under the data
+            // directory; its packs ship next to the server binary.
+            _BatteryRuns = new BatteryRunService(
+                _Database,
+                _Logging,
+                new BatteryPackCatalog(() => null),
+                new BatteryFixtureService(_Database, _Logging, Path.Combine(_Settings.DataDirectory, "battery")),
+                new BatteryTaskDispatcher(_Admiral, _Database, _Logging, (voyage, token) => _MissionOperations.CancelVoyageAsync(voyage, token)));
 
             // WebSocket create_voyage dispatches through the same shared service as REST and MCP. The factory
             // reads the fields when a command runs, so services wired later in startup are included.
@@ -1060,6 +1073,11 @@ using WatsonWebserver.Core.Routing;
 
             // Record unfinished background requests as Lost before accepting new requests, so an
             // accepted background job remains discoverable after restart.
+            int interruptedBatteryRuns = await _BatteryRuns.RecoverInterruptedAsync(_TokenSource.Token).ConfigureAwait(false);
+            if (interruptedBatteryRuns > 0)
+                _Logging.Warn(_Header + interruptedBatteryRuns + " battery run" + (interruptedBatteryRuns == 1 ? " was" : "s were")
+                    + " running when the previous process stopped; recorded as Interrupted");
+
             int lostJobs = await _LongRunningJobs.RecoverInterruptedJobsAsync().ConfigureAwait(false);
             if (lostJobs > 0)
                 _Logging.Warn(_Header + lostJobs + " background job" + (lostJobs == 1 ? " was" : "s were")
@@ -1795,6 +1813,10 @@ using WatsonWebserver.Core.Routing;
             new ProductionRoutes(new VerifiedProductionSummaryService(_Database))
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Fixture battery
+            new BatteryRoutes(_BatteryRuns, _Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Merge queue
             new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -1853,7 +1875,8 @@ using WatsonWebserver.Core.Routing;
                 .Register(_App, authenticate, _AuthorizationService);
 
             _AskThreads = new AskThreadService(_Database, captainChat);
-            new AskThreadRoutes(_AskThreads)
+            _AskToolPermissions = new AskToolPermissionService(_Database, _Settings.Ask, _Logging);
+            new AskThreadRoutes(_AskThreads, _AskToolPermissions)
                 .Register(_App, authenticate, _AuthorizationService);
             new AskActionRoutes(_AskActions).Register(_App, authenticate, _AuthorizationService);
 
@@ -2271,7 +2294,9 @@ using WatsonWebserver.Core.Routing;
                 askActions: _AskActions,
                 vesselCheckoutImportService: _VesselCheckoutImports,
                 captainModelProbe: _CaptainModelProbe,
-                askThreads: _AskThreads);
+                askThreads: _AskThreads,
+                askToolPermissions: _AskToolPermissions,
+                batteryRuns: _BatteryRuns);
 
         }
 

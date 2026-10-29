@@ -15,7 +15,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Unit coverage for incident context preservation across create, update, and query flows.
     /// </summary>
-    public class IncidentServiceTests : TestSuite
+    public partial class IncidentServiceTests : TestSuite
     {
         /// <inheritdoc />
         public override string Name => "Incident Service";
@@ -283,6 +283,7 @@ namespace Armada.Test.Unit.Suites.Services
                     EntityId = legacy.Id,
                     Payload = payload
                 }).ConfigureAwait(false);
+                await testDb.Driver.Incidents.BackfillFromEventsAsync().ConfigureAwait(false);
 
                 Incident legacyRead = (await incidents.ReadAsync(McpTestCaller.Operator, legacy.Id).ConfigureAwait(false))!;
                 AssertNull(legacyRead.OpenedAutomatically, "Legacy snapshots retain unknown origin.");
@@ -295,6 +296,8 @@ namespace Armada.Test.Unit.Suites.Services
                 })).ConfigureAwait(false);
                 AssertEqual(IncidentRootCauseRule.UnchangedCode, code);
             }).ConfigureAwait(false);
+
+            await RunProjectionTestsAsync().ConfigureAwait(false);
         }
 
         private const string AutomaticReason = "DoD gate failed: classification=TestFail";

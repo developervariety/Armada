@@ -9,6 +9,7 @@ namespace Armada.Server.Routes
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -326,6 +327,14 @@ namespace Armada.Server.Routes
                 PurgeMergeEntriesRequest? body = JsonSerializer.Deserialize<PurgeMergeEntriesRequest>(req.Http.Request.DataAsString, _jsonOptions);
                 if (body == null || body.EntryIds == null || body.EntryIds.Count == 0)
                     return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "EntryIds is required and must not be empty" };
+                try
+                {
+                    CollectionLimits.RequireRequestItems(body.EntryIds, "EntryIds");
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
 
                 // A tenant administrator purges only entries its own tenant owns; an entry of another
                 // tenant is reported as not found, exactly as the single-entry purge reports it.

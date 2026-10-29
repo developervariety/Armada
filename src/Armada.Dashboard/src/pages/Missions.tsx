@@ -22,6 +22,8 @@ import LoadingIndicator from '../components/shared/LoadingIndicator';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
@@ -70,6 +72,7 @@ export default function Missions() {
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const deleteProgress = useDeleteProgress();
 
   // Diff/Log modals
   const [diffModal, setDiffModal] = useState<{ title: string; rawDiff: string } | null>(null);
@@ -227,11 +230,11 @@ export default function Missions() {
       message: t('Purge mission "{{title}}"? This will permanently remove it and clean up all associated resources. This cannot be undone.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
+        await deleteProgress.run(t('Purging mission'), async () => {
           await purgeMission(id);
           pushToast('warning', t('Mission "{{title}}" purged.', { title }));
           load();
-        } catch { setError(t('Purge failed.')); }
+        });
       },
     });
   }
@@ -245,18 +248,20 @@ export default function Missions() {
         setConfirm(c => ({ ...c, open: false }));
         const ids = [...selected];
         setSelected([]);
-        let failed = 0;
-        for (const id of ids) {
-          try { await purgeMission(id); } catch { failed++; }
-        }
-        const success = ids.length - failed;
-        if (success > 0) {
-          pushToast(failed > 0 ? 'warning' : 'success', failed > 0
-            ? t('Purged {{success}} missions. {{failed}} failed.', { success, failed })
-            : t('Purged {{success}} missions.', { success }));
-        }
-        if (failed > 0) setError(t('Deleted {{success}} missions, {{failed}} failed.', { success: ids.length - failed, failed }));
-        load();
+        await deleteProgress.run(t('Purging {{count}} missions', { count: ids.length }), async () => {
+          let failed = 0;
+          for (const id of ids) {
+            try { await purgeMission(id); } catch { failed++; }
+          }
+          const success = ids.length - failed;
+          if (success > 0) {
+            pushToast(failed > 0 ? 'warning' : 'success', failed > 0
+              ? t('Purged {{success}} missions. {{failed}} failed.', { success, failed })
+              : t('Purged {{success}} missions.', { success }));
+          }
+          if (failed > 0) setError(t('Deleted {{success}} missions, {{failed}} failed.', { success: ids.length - failed, failed }));
+          load();
+        });
       },
     });
   }
@@ -385,6 +390,7 @@ export default function Missions() {
       )}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
       <DiffViewer open={diffModal !== null} title={diffModal?.title ?? ''} rawDiff={diffModal?.rawDiff ?? ''} onClose={() => setDiffModal(null)} />

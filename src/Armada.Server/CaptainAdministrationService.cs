@@ -3,6 +3,7 @@ namespace Armada.Server
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -94,14 +95,15 @@ namespace Armada.Server
         /// Stop one captain. A Planning captain is stopped through its active planning session and a Refining captain
         /// through its active objective refinement session, so the session ends and releases the captain; a captain
         /// reserved by a session that cannot be resolved is refused with <see cref="CaptainAdministrationOutcomeEnum.Conflict"/>.
-        /// Any other captain has its agent process stopped and is recalled, which fails its active mission and
-        /// returns it to Idle.
+        /// Any other captain has its agent process stopped and is recalled and returned to Idle; the mission it
+        /// was running ends Cancelled with an <see cref="OperatorStop.FailureReasonPrefix"/> reason.
         /// </summary>
         /// <param name="captainId">Captain identifier.</param>
         /// <param name="scope">Caller scope, or null for an unscoped operator call.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="stop">Who stopped the captain and from which surface; null records an unnamed operator.</param>
         /// <returns>The stop outcome.</returns>
-        public async Task<CaptainStopResult> StopAsync(string captainId, AuthContext? scope, CancellationToken token = default)
+        public async Task<CaptainStopResult> StopAsync(string captainId, AuthContext? scope, CancellationToken token = default, OperatorStopContext? stop = null)
         {
             Captain? captain = await ReadAsync(captainId, scope, token).ConfigureAwait(false);
             if (captain == null)
@@ -155,7 +157,8 @@ namespace Armada.Server
                 }
             }
 
-            await _RecallCaptain(captain.Id, token).ConfigureAwait(false);
+            OperatorStopContext context = stop ?? new OperatorStopContext(scope?.UserId, "unknown");
+            await RecallForOperatorStopAsync(captain, context, token).ConfigureAwait(false);
             return new CaptainStopResult(CaptainAdministrationOutcomeEnum.Completed, captain.Id, "Captain stopped");
         }
 
@@ -164,9 +167,11 @@ namespace Armada.Server
         /// Each stop is attempted independently; a failure is counted and named, never hidden.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="stop">Who stopped the captains and from which surface; null records an unnamed operator.</param>
         /// <returns>Stopped and failed counts per kind, with one entry per failure.</returns>
-        public async Task<CaptainStopAllResult> StopAllAsync(CancellationToken token = default)
+        public async Task<CaptainStopAllResult> StopAllAsync(CancellationToken token = default, OperatorStopContext? stop = null)
         {
+            OperatorStopContext context = stop ?? new OperatorStopContext();
             CaptainStopAllResult result = new CaptainStopAllResult();
             _Logging?.Warn(_Header + "emergency stop of all captains and sessions requested");
 
@@ -175,7 +180,7 @@ namespace Armada.Server
             {
                 try
                 {
-                    await _RecallCaptain(captain.Id, token).ConfigureAwait(false);
+                    await RecallForOperatorStopAsync(captain, context, token).ConfigureAwait(false);
                     result.CaptainsStopped++;
                 }
                 catch (Exception ex)
@@ -335,6 +340,7 @@ namespace Armada.Server
         public async Task<DeleteMultipleResult> DeleteManyAsync(IEnumerable<string> captainIds, AuthContext? scope, CancellationToken token = default)
         {
             if (captainIds == null) throw new ArgumentNullException(nameof(captainIds));
+            CollectionLimits.RequireRequestItems(captainIds, "Ids");
 
             DeleteMultipleResult result = new DeleteMultipleResult();
             foreach (string id in captainIds)
@@ -526,6 +532,94 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Recall a captain for an operator stop. The mission the captain is running ends Cancelled through
+        /// <see cref="MissionCancellation"/> with an <see cref="OperatorStop.FailureReasonPrefix"/> reason, so
+        /// recovery and failure counts see a deliberate stop and not a fault. A captain with no active mission is
+        /// recalled as before.
+        /// </summary>
+        private async Task RecallForOperatorStopAsync(Captain captain, OperatorStopContext stop, CancellationToken token)
+        {
+            Mission? mission = !String.IsNullOrEmpty(captain.CurrentMissionId)
+                ? await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false)
+                : null;
+            if (mission == null || (mission.Status != MissionStatusEnum.Assigned && mission.Status != MissionStatusEnum.InProgress))
+            {
+                await _RecallCaptain(captain.Id, token).ConfigureAwait(false);
+                return;
+            }
+
+            DateTime stoppedUtc = DateTime.UtcNow;
+            MissionCancellationResult cancelled = await MissionCancellation.CancelAsync(
+                _Database, mission, OperatorStop.BuildReason(stop, stoppedUtc, null), _RecallCaptain, token).ConfigureAwait(false);
+            if (!cancelled.Succeeded)
+            {
+                if (String.Equals(cancelled.Code, MissionCancellation.RecallFailedCode, StringComparison.Ordinal))
+                    throw new InvalidOperationException(cancelled.Message);
+
+                // The mission moved on while the stop ran; the captain still has to be released.
+                _Logging?.Info(_Header + "operator stop of mission " + mission.Id + " not recorded (" + cancelled.Code + "): " + cancelled.Message);
+                await _RecallCaptain(captain.Id, token).ConfigureAwait(false);
+                return;
+            }
+
+            if (cancelled.RecalledCaptainId == null)
+                await _RecallCaptain(captain.Id, token).ConfigureAwait(false);
+
+            Mission stopped = cancelled.Mission;
+            string? snapshotRef = await ReadSnapshotRefAsync(stopped, stoppedUtc, token).ConfigureAwait(false);
+            if (snapshotRef != null)
+            {
+                stopped.FailureReason = OperatorStop.BuildReason(stop, stoppedUtc, snapshotRef);
+                stopped.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(stopped, token).ConfigureAwait(false);
+            }
+
+            ArmadaEvent evt = new ArmadaEvent(OperatorStop.StoppedEventType, "Mission " + stopped.Id + " " + stopped.FailureReason);
+            evt.TenantId = stopped.TenantId;
+            evt.UserId = stopped.UserId;
+            evt.EntityType = "mission";
+            evt.EntityId = stopped.Id;
+            evt.CaptainId = captain.Id;
+            evt.MissionId = stopped.Id;
+            evt.VesselId = stopped.VesselId;
+            evt.VoyageId = stopped.VoyageId;
+            evt.Payload = JsonSerializer.Serialize(new
+            {
+                Who = stop.Who,
+                Surface = stop.Surface,
+                StoppedUtc = stoppedUtc,
+                SnapshotRef = snapshotRef
+            });
+            await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+        }
+
+        // The dock reclaim during the recall records the ref that holds the dock's uncommitted work.
+        private async Task<string?> ReadSnapshotRefAsync(Mission mission, DateTime sinceUtc, CancellationToken token)
+        {
+            List<ArmadaEvent> events = await _Database.Events.EnumerateByMissionAsync(mission.Id, 200, token).ConfigureAwait(false);
+            ArmadaEvent? saved = events
+                .Where(e => String.Equals(e.EventType, OperatorStop.WorkSnapshotSavedEventType, StringComparison.Ordinal)
+                    && e.CreatedUtc >= sinceUtc)
+                .OrderByDescending(e => e.CreatedUtc)
+                .FirstOrDefault();
+            if (saved == null || String.IsNullOrEmpty(saved.Payload)) return null;
+            try
+            {
+                OperatorStopSnapshotPayload? payload = JsonSerializer.Deserialize<OperatorStopSnapshotPayload>(saved.Payload);
+                return String.IsNullOrWhiteSpace(payload?.RefName) ? null : payload!.RefName;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        private sealed class OperatorStopSnapshotPayload
+        {
+            public string? RefName { get; set; } = null;
+        }
 
         private async Task<ModelCheck> CheckModelAsync(Captain captain, Captain? existing, CancellationToken token)
         {

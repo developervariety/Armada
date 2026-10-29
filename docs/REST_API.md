@@ -46,6 +46,7 @@
   - [Inbox](#inbox)
   - [Incidents](#incidents)
   - [Background Jobs](#background-jobs)
+  - [Fixture Battery](#fixture-battery)
   - [Backup and Restore](#backup-and-restore)
 - [Data Types](#data-types)
   - [Models](#models)
@@ -191,6 +192,7 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/inbox` | GET, POST `/enumerate` | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
 | `/api/v1/jobs` | GET, POST `/enumerate` | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
+| `/api/v1/battery` | GET `/packs`, GET `/runs`, GET `/runs/{id}`, POST `/runs` | AdminOnly | Global admin only. A run dispatches real missions and spends captain tokens, and battery records carry no tenant scope |
 | `/api/v1/storage` | GET | AdminOnly | Global admin only. The inventory lists server-wide paths, sizes and database tables |
 | `/api/v1/storage/refresh` | POST | AdminOnly | Global admin only. Starts a bounded background collection |
 | `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
@@ -350,7 +352,7 @@ Query string parameters **override** body values on POST enumerate endpoints, al
 |---|---|---|---|---|
 | `pageNumber` | int | 1 | >= 1 | Page number (1-based) |
 | `pageSize` | int | 100 | 1 - 1000 | Results per page |
-| `order` | string | `CreatedDescending` | `CreatedAscending`, `CreatedDescending` | Sort order by creation date |
+| `order` | string | `CreatedDescending` | `CreatedAscending`, `CreatedDescending` | Sort order by creation date; rows that share a creation time order by id in the same direction, so a page never repeats or skips a row |
 | `createdAfter` | datetime | null | ISO 8601 | Filter: created after this timestamp |
 | `createdBefore` | datetime | null | ISO 8601 | Filter: created before this timestamp |
 
@@ -1124,7 +1126,9 @@ Returns current server settings including ports, agent configuration, system pat
   "IdleCaptainTimeoutSeconds": 0,
   "AutoCreatePr": false,
   "Ask": {
-    "NativeToolAccess": "ReadOnly"
+    "NativeToolAccess": "ReadOnly",
+    "ApproveNativeToolsInArmada": false,
+    "ToolApprovalTimeoutSeconds": 120
   },
   "DataDirectory": "C:\\Users\\joelc\\.armada",
   "DatabasePath": "C:\\Users\\joelc\\.armada\\armada.db",
@@ -1177,6 +1181,9 @@ A supplied `Ask.NativeToolAccess` (`ReadOnly` or `Unrestricted`) sets the native
 runtimes launched for Ask turns, and an omitted member leaves the current value. `ReadOnly` is the default.
 `Unrestricted` gives Ask turns the mission launch defaults. See
 [native tool access](ASK_CONVERSATIONS.md#native-tool-access).
+A supplied `Ask.ApproveNativeToolsInArmada` turns owner approval of native tool calls on or off for saved Claude Code
+turns, and `Ask.ToolApprovalTimeoutSeconds` (10 to 600) sets how long a request waits before it is denied. See
+[approving native tool calls](ASK_CONVERSATIONS.md#approving-native-tool-calls).
 
 A supplied `ModelTier.UsageRouting` is validated before anything is applied: the policy shape and ranges, each
 account's key file path against the Admiral's account folder root, and each account's runtime against the captains
@@ -2125,6 +2132,16 @@ commit the reason is `manual_completion_ancestry_unavailable`. Audit and Researc
 missions keep their report-only completion contract. A refused request leaves the
 mission unchanged.
 
+**Confirming a landing proposal:** a `LandingFailed` mission moves to `Complete` only
+when the landing sweep has proposed it (see [Landing proposals](MERGING.md#landing-proposals))
+and the request confirms it. The request reads the proof again after a fresh fetch, runs
+the review, Judge, captain-process and Check gates above, and writes `Complete` only when
+all pass. It then records `mission.landing_reconciled`, applies voyage completion and
+closes the mission's active incidents. A mission with no proposal returns `400`; a lost
+proof (`landing_reconcile_proof_unavailable`), a failed fetch
+(`landing_reconcile_fetch_failed`), or a failed gate returns `409` and leaves the mission
+unchanged.
+
 **Valid Status Transitions:**
 
 | From | Allowed Targets |
@@ -2715,8 +2732,13 @@ Stop one captain. MCP `armada_stop_captain` and WebSocket `stop_captain` run the
 same service and apply the same rule. A Planning captain is stopped through its
 active planning session and a Refining captain through its active objective
 refinement session; the response names the stopped session. Any other captain
-has its agent process stopped and is recalled to Idle, which fails its active
-mission. No shutdown request is sent: the agent process gets a 3-second grace
+has its agent process stopped and is recalled to Idle. The mission it was running
+ends Cancelled with the reason `operator_stopped: stopped by <user> via <surface>
+at <UTC time>`, plus `; uncommitted work saved to refs/heads/recover/<mission>-<n>`
+when the dock reclaim saved the dock's uncommitted work, and a
+`mission.stopped_by_operator` event is recorded. Autonomous recovery and the Needs
+You failure feed ignore such a mission. A recall by the admiral itself (stall
+handling, recovery) keeps failing the mission. No shutdown request is sent: the agent process gets a 3-second grace
 period to exit, then its process tree is killed. Only a process verified as the
 one the admiral launched is killed: a live process whose start time differs from
 the recorded launch holds a reused process ID and is left running
@@ -4562,6 +4584,14 @@ curl -X POST http://localhost:7890/api/v1/inbox/enumerate \
 list, read, create, update and delete operational incidents. This section states
 the root-cause contract that `POST` and `PUT` share with the MCP incident tools.
 
+Every change to an incident is recorded as an `incident.snapshot` event, and the
+`incidents` table holds the newest state of each incident, written in the same
+transaction as the event. Lists, counts and by-id reads filter, order and page in
+the database, newest update first with the incident id as tie-break. A caller
+sees the incidents of its scope: every incident for a global administrator, the
+tenant's incidents for a tenant administrator, and the incidents the caller owns
+otherwise. Startup projects any incident that has snapshot events and no table row.
+
 An incident keeps two root-cause texts. `OpenedReason` is the root cause it was
 opened with, kept unchanged. A system path opens an incident with an automatic
 reading, such as a mission failure reason. `RootCause` is the current cause.
@@ -4686,6 +4716,60 @@ failed or was lost.
 
 **Response:** `200 OK` — the job. **Errors:** `404` when the job is unknown or
 its journal record has expired.
+
+### Fixture Battery
+
+A battery run gives one captain a pack of small repository tasks and grades the resulting worktrees; see
+[Fixture Battery](BATTERY.md). Every route requires a global administrator: a narrower caller receives `403`.
+
+#### GET /api/v1/battery/packs
+
+List the packs in the battery directory with their tasks, toolchain and validation errors. A malformed pack is listed
+with `Valid` false and cannot run.
+
+#### GET /api/v1/battery/runs
+
+List runs, newest first. Query: `captainId`, `packId`, `limit` (1 to 200, default 50).
+
+**Response:** `200 OK` — an array of runs.
+
+#### GET /api/v1/battery/runs/{id}
+
+Read one run.
+
+```json
+{
+  "Id": "bat_example",
+  "CaptainId": "cpt_example",
+  "CaptainName": "example-captain",
+  "PackId": "csharp",
+  "PackVersion": 1,
+  "Status": "Completed",
+  "StartedUtc": "2026-01-01T00:00:00Z",
+  "CompletedUtc": "2026-01-01T00:10:00Z",
+  "Passed": 1,
+  "Failed": 0,
+  "CouldNotRun": 1,
+  "Results": [
+    { "TaskId": "add-member", "Grade": "Passed", "Score": 1.0, "VoyageId": "vyg_example", "MissionId": "msn_example", "DurationMs": 180000 },
+    { "TaskId": "fix-bug", "Grade": "CouldNotRun", "Reason": "The Admiral host lacks the pack's toolchain: dotnet" }
+  ]
+}
+```
+
+Each result also carries `Title`, `Summary`, `StartedUtc`, `CompletedUtc`, `MissionDurationMs` and `Details` (command
+exits, byte comparisons and mutant results). **Errors:** `404` when the run is unknown.
+
+#### POST /api/v1/battery/runs
+
+Start a run. The route returns before the tasks finish; read the run to follow it.
+
+**Request Body:** `PackId` and `CaptainId` (required) and `CreateFixtureVessel` (default false; create the pack's
+fixture vessel when it does not exist).
+
+**Response:** `202 Accepted` — the queued run. **Errors:** `400` for an unknown or malformed pack or captain, a
+missing fixture vessel that was not asked for, or a fixture vessel that lands work; `409` when the captain already has
+a run in progress.
 
 ### Storage
 
@@ -5168,6 +5252,8 @@ An atomic unit of work assigned to a captain.
 | `Priority` | int | 100 | Priority (lower number = higher priority) |
 | `SelectedPlaybooks` | array\<[SelectedPlaybook](#selectedplaybook)\> | `[]` | Ordered playbook selections requested for the mission |
 | `PlaybookSnapshots` | array\<[MissionPlaybookSnapshot](#missionplaybooksnapshot)\> | `[]` | Immutable playbook materialization used for execution |
+| `FailureKind` | string? | null | Reason code of the latest recorded attempt of a failed mission, computed when `GET /api/v1/missions/{id}` reads it and never stored |
+| `AssignmentHoldCaptains` | array | `[]` | While the mission is held as `no_eligible_captain`, why each captain of the tenant was passed over (`CaptainId`, `CaptainName`, `Reason`); computed on the same read |
 | `ParentMissionId` | string? | null | Parent mission ID for sub-tasks |
 | `BranchName` | string? | null | Git branch name |
 | `DockId` | string? | null | Dock identifier for the mission's worktree |
@@ -5301,6 +5387,12 @@ A recorded event representing a state change in the system.
 - `captain.stall_cleared` - The stall evaluator found a signal inside the window, so a quiet captain is not stalled
 - `mission.work_snapshot_saved` - A captain's uncommitted dock work was saved before the final stall relaunch or before a dock removal (reclaim, unstick, delete, purge, or a re-provision over a previous attempt's checkout); the message names the `recover/<missionId>-<n>` branch
 - `mission.work_snapshot_failed` - A captain's uncommitted dock work could not be saved; the message names why. The dock is kept on disk and not removed; only a stall relaunch, which keeps the dock, continues
+- `mission.stopped_by_operator` - An operator stop from REST, MCP or WebSocket ended the captain's running mission Cancelled; the message carries the `operator_stopped:` reason (who, surface, UTC time, and the `recover/<missionId>-<n>` ref when one was written) and the payload repeats them
+- `mission.branch_verified` - At completion capture, the mission branch holds the captured commit
+- `mission.branch_unverified` - At completion capture, the mission branch does not hold the captured commit, or git could not answer; the payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch
+- `mission.landing_reconcile_proposed` - The landing sweep found proof that a `LandingFailed` mission's work is on the vessel's default branch; the payload carries the evidence (kind, commit, ref, failure reason). The sweep records one per mission and never changes the mission
+- `mission.landing_reconciled` - An operator confirmed a landing proposal and the mission moved from `LandingFailed` to `Complete`; the payload repeats the evidence and the failure reason the landing had
+- `dock.reclaimed` - A dock was reclaimed. The message and payload name the caller (`<source file>.<member>`), the dock's mission and the mission's status at reclaim, so a reclaim of a dock whose mission still has unlanded work can be traced to the code path that requested it. A reclaim that is deferred or finds the dock already inactive records nothing
 - `voyage.dispatched` - A voyage was created: by a dispatch with all of its missions, by an autonomous rescue with its missions, or without missions (the message then counts 0 missions)
 - `voyage.completed` - The voyage completion rule wrote the voyage Complete: every mission done without failure, a cancelled stage only beside a `Complete` mission, and its Checks green or absent
 - `voyage.deleted` - Voyage permanently deleted
@@ -5569,7 +5661,7 @@ A single actionable item in the operator's "needs you" inbox.
 
 | Field | Type | Description |
 |---|---|---|
-| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `failed`, `stalled_captain`, `ask_proposal`) |
+| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `landing_reconcile`, `failed`, `stalled_captain`, `ask_proposal`) |
 | `Severity` | [InboxSeverityEnum](#inboxseverityenum) | Severity of the item |
 | `Title` | string | Human-readable title |
 | `Detail` | string | Additional detail |
@@ -5711,6 +5803,16 @@ All enumerations serialize as strings in JSON (e.g., `"InProgress"`, not `2`).
 | `CreatedDescending` | Sort by creation date, newest first (default) |
 
 ---
+
+### Model endpoint launch options
+
+An inference endpoint stores `launchOptions`. Omitted on create or update, the stored options stay as they are. A stored null reads as the defaults: tools on, read-only tools off, every otherwise offered tool allowed, `maxIterations` 100, and `maxTokens` unset so the provider default stands. An empty `allowedTools` list allows no tools. A null list allows every tool the launch would otherwise offer. `maxIterations` is from 1 to 1000. `maxTokens`, when set, is from 1 to 10000000. Tool names are exact, unique, trimmed, and at most 256 characters, and the list holds at most 256 names.
+
+A mission launch and an Ask turn on that endpoint apply the options. Read-only tools offer only built-in read-only tools: no shell, no file mutation, and no MCP tool. A tool the model names anyway is refused and is not executed. Create and update reject an invalid value with HTTP 400. A list past 256 names uses the [collection-limit](REQUEST_LIMITS.md) body. Any other invalid option uses `data.code` `InvalidEndpointOptions` and `data.field`.
+
+### Request size limits
+
+A request that asks for more items than its field allows is HTTP 400. The body `data` carries `code` `CollectionLimitExceeded`, `field`, `limit` and `actual`. The numbers and the fields they cover are in [Request limits](REQUEST_LIMITS.md). A successful response keeps its present shape.
 
 ### Request Types
 

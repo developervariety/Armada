@@ -434,7 +434,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_restart_mission",
-                "Restart a Failed or Cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting. A LandingFailed mission keeps its produced work and is refused: use armada_retry_landing. A mission whose voyage is Complete or Cancelled is refused. An eligible failed stage, or a dependent stage cancelled after it, can reopen a Failed voyage at the nearest verified upstream commit, or its own start when none exists; cancelled downstream stages also return to Pending. Other ended-voyage cases require a new voyage or a rescue.",
+                "Restart a Failed or Cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting. A LandingFailed mission keeps its produced work and is refused: use armada_retry_landing. A mission whose voyage is Complete or Cancelled is refused. An eligible failed stage, or a dependent stage cancelled after it, can reopen a Failed voyage at the nearest verified upstream commit, or its own start when none exists; a stage an operator stopped reopens a Failed or Cancelled voyage the same way; cancelled downstream stages also return to Pending. Other ended-voyage cases require a new voyage or a rescue.",
                 new
                 {
                     type = "object",
@@ -548,7 +548,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_transition_mission_status",
-                "Transition a mission to a new status with validation. Valid transitions: Pending->Assigned, Assigned->InProgress, InProgress->Testing/Review/Complete/Failed, Testing->Review/InProgress/Complete/Failed, Review->Complete/InProgress/Failed. Most states allow ->Cancelled.",
+                "Transition a mission to a new status with validation. Valid transitions: Pending->Assigned, Assigned->InProgress, InProgress->Testing/Review/Complete/Failed, Testing->Review/InProgress/Complete/Failed, Review->Complete/InProgress/Failed. Most states allow ->Cancelled. LandingFailed->Complete is accepted only to confirm a landing proposal.",
                 new
                 {
                     type = "object",

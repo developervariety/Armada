@@ -254,16 +254,6 @@ namespace Armada.Core.Services
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
         private const string ReviewerGuidanceMarker = "<!-- ARMADA:REVIEWER-GUIDANCE -->";
-        private static readonly System.Text.RegularExpressions.Regex _ScopedFilesDirectiveRegex =
-            new System.Text.RegularExpressions.Regex(@"^\s*(?:Touch|Edit|Modify)\s+only\s+(?<files>.+)$",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
-                System.Text.RegularExpressions.RegexOptions.Multiline |
-                System.Text.RegularExpressions.RegexOptions.Compiled);
-        private static readonly System.Text.RegularExpressions.Regex _ScopedFileTokenRegex =
-            new System.Text.RegularExpressions.Regex(
-                @"(?<path>(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:cs|csproj|sln|md|json|yaml|yml|ts|tsx|js|jsx|css|html|sh|bat))",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
-                System.Text.RegularExpressions.RegexOptions.Compiled);
         /// <summary>
         /// Reason recorded when no folder under repos/ matches a vessel name. The brief states this case
         /// as "nothing repository-specific to read"; every other reason is a fault the brief names.
@@ -848,7 +838,7 @@ namespace Armada.Core.Services
             }
 
             // A runner-capacity hold is released only after its selected runner has been checked below.
-            if (!IsHarborCapacityHold(mission)
+            if (!IsHarborCapacityHold(mission) && !IsNoEligibleCaptainHold(mission)
                 && !await ReleaseAssignmentHoldAsync(mission, token).ConfigureAwait(false)) return false;
 
             // Reserve the complete build-participating sibling lane while admission is checked and
@@ -1056,7 +1046,9 @@ namespace Armada.Core.Services
                     mission.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
                 if (IsHarborCapacityHold(mission)
                     && !await ReleaseAssignmentHoldAsync(mission, token).ConfigureAwait(false)) return false;
-                await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
+                if (!await ApplyNoEligibleCaptainHoldAsync(mission, token).ConfigureAwait(false)) return false;
+                if (!IsNoEligibleCaptainHold(mission))
+                    await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 if (!await TrackUnassignableByConstructionAsync(mission, token).ConfigureAwait(false))
                     await RecordCaptainWaitAsync(mission, token).ConfigureAwait(false);
@@ -1076,8 +1068,9 @@ namespace Armada.Core.Services
 
             HarborMissionRoute? harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
             if (await TryHoldForHarborCapacityAsync(mission, harborRoute, token).ConfigureAwait(false)) return false;
-            if (IsHarborCapacityHold(mission)
+            if ((IsHarborCapacityHold(mission) || IsNoEligibleCaptainHold(mission))
                 && !await ReleaseAssignmentHoldAsync(mission, token).ConfigureAwait(false)) return false;
+            _NoEligibleCaptainNotices.TryRemove(mission.Id, out string? _);
             if (persistedHarborAttempt == null && !closedHarborAttempt
                 && String.Equals(mission.AssignmentHoldReason, HarborProvisionAttemptUnavailableHold, StringComparison.Ordinal))
             {
@@ -1249,6 +1242,7 @@ namespace Armada.Core.Services
                 return false;
             // The Assigned row now holds the workload slot; release the reservation before provisioning.
             await workloadReservation.DisposeAsync().ConfigureAwait(false);
+            await RecordJudgeAssignmentAsync(mission, captain, token).ConfigureAwait(false);
 
             // Provision dock (worktree) and launch agent
             Dock? dock;
@@ -12420,7 +12414,7 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            HashSet<string> allowedFiles = ParseMissionScopedFiles(mission.Description);
+            HashSet<string> allowedFiles = MissionScopedFiles.Parse(mission.Description);
             if (allowedFiles.Count < 1)
             {
                 return false;
@@ -12449,8 +12443,8 @@ namespace Armada.Core.Services
             List<string> outOfScopeFiles = new List<string>();
             foreach (string changedFile in changedFiles)
             {
-                string normalizedPath = NormalizeMissionPath(changedFile);
-                if (_IgnoredMissionArtifactFiles.Contains(normalizedPath))
+                string normalizedPath = MissionScopedFiles.NormalizePath(changedFile);
+                if (normalizedPath.Length == 0 || _IgnoredMissionArtifactFiles.Contains(normalizedPath))
                 {
                     continue;
                 }
@@ -12473,30 +12467,6 @@ namespace Armada.Core.Services
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "mission " + mission.Id + " failed scope validation: " + mission.FailureReason);
             return true;
-        }
-
-        private HashSet<string> ParseMissionScopedFiles(string description)
-        {
-            HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (String.IsNullOrWhiteSpace(description))
-            {
-                return files;
-            }
-
-            foreach (System.Text.RegularExpressions.Match directiveMatch in _ScopedFilesDirectiveRegex.Matches(description))
-            {
-                string fileSegment = directiveMatch.Groups["files"].Value;
-                foreach (System.Text.RegularExpressions.Match pathMatch in _ScopedFileTokenRegex.Matches(fileSegment))
-                {
-                    string normalizedPath = NormalizeMissionPath(pathMatch.Groups["path"].Value);
-                    if (!String.IsNullOrEmpty(normalizedPath))
-                    {
-                        files.Add(normalizedPath);
-                    }
-                }
-            }
-
-            return files;
         }
 
         private string? TryReadDockStartCommit(string dockId)
@@ -12670,11 +12640,6 @@ namespace Armada.Core.Services
         private static bool? FallbackDockChanges(int fallbackDiffLineCount)
         {
             return fallbackDiffLineCount > 0 ? true : (bool?)null;
-        }
-
-        private static string NormalizeMissionPath(string path)
-        {
-            return (path ?? String.Empty).Trim().Replace('\\', '/');
         }
 
         /// <summary>
@@ -13807,11 +13772,17 @@ namespace Armada.Core.Services
             return "no captain of the tenant that allows persona " + (mission.Persona ?? "(none)") + " has tier " + String.Join(" or ", tiers);
         }
 
+        private string? ReservationHolderOf(string captainId)
+        {
+            return _CaptainReservations.TryGetValue(captainId, out string? holder) ? holder : null;
+        }
+
         private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token, string? requiredCaptainId = null)
         {
             // A stored requested captain or tier goes through RequestedCaptainAssignmentRule, so an empty
             // pool still reaches the rule and the wait is recorded with its reason.
             bool hasRequest = RequestedCaptainAssignmentRule.HasRequest(mission);
+            HashSet<string> judgeChainAuthors = await ReadJudgeChainAuthorsAsync(mission, token).ConfigureAwait(false);
 
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
@@ -13821,17 +13792,7 @@ namespace Armada.Core.Services
             List<Captain> assignableCaptains = new List<Captain>();
             foreach (Captain idleCaptain in idleCaptains)
             {
-                if (!String.IsNullOrWhiteSpace(requiredCaptainId)
-                    && !String.Equals(idleCaptain.Id, requiredCaptainId, StringComparison.Ordinal)) continue;
-                // A mission is worked only by a captain of its own tenant. The claim enforces the same
-                // rule, so a captain of another tenant is never provisioned a dock it could not claim.
-                if (!CaptainServesTenant(idleCaptain, mission.TenantId)) continue;
-                if (_CaptainQuarantine.IsQuarantined(idleCaptain)) continue;
-                if (IsExcludedForAssignment(mission, idleCaptain)) continue;
-                // Reserved by another mission's in-flight assignment: still Idle in the database,
-                // but spoken for until that pass claims or releases it.
-                if (_CaptainReservations.TryGetValue(idleCaptain.Id, out string? reservedBy)
-                    && !String.Equals(reservedBy, mission?.Id, StringComparison.Ordinal))
+                if (CaptainAssignmentEligibility.Evaluate(mission, idleCaptain, requiredCaptainId, _CaptainQuarantine.IsQuarantined, ReservationHolderOf) != null)
                     continue;
                 assignableCaptains.Add(idleCaptain);
             }
@@ -13887,7 +13848,7 @@ namespace Armada.Core.Services
                     UseCapacityCache = true
                 }, token).ConfigureAwait(false);
 
-                Captain? usageSelected = decision.Candidates.Count > 0 ? decision.Candidates[0] : null;
+                Captain? usageSelected = PreferNonAuthor(decision.Candidates, judgeChainAuthors);
                 if (usageSelected != null)
                     _Logging.Info(_Header + "smart routing selected captain " + usageSelected.Id + " for mission " + mission.Id + ": " + decision.Reason
                         + (decision.HasPersonaModels ? " (capacity " + decision.Capacity + ", " + decision.CapacitySource + ")" : String.Empty));
@@ -13911,16 +13872,93 @@ namespace Armada.Core.Services
 
             Captain? selected = idleCaptains.Count == 0
                 ? null
-                : SelectByModelAndPersona(mission, idleCaptains, request != null && request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier);
+                : SelectByModelAndPersona(mission, idleCaptains, request != null && request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier, judgeChainAuthors);
             if (request != null)
                 await RecordRequestedCaptainOutcomeAsync(mission, request, selected, token).ConfigureAwait(false);
             return selected;
         }
 
-        // Legacy Routing over a gated pool; the selector is shared with Smart Routing's ordering.
-        private Captain? SelectByModelAndPersona(Mission mission, List<Captain> idleCaptains, bool narrowToLowestTier)
+        // Legacy Routing over a gated pool; the selector is shared with Smart Routing's ordering. A Judge prefers an
+        // admitted captain that wrote no earlier stage of its chain and takes an author only when none is admitted.
+        private Captain? SelectByModelAndPersona(Mission mission, List<Captain> idleCaptains, bool narrowToLowestTier, HashSet<string>? chainAuthors = null)
         {
+            if (chainAuthors != null && chainAuthors.Count > 0)
+            {
+                Dictionary<string, string> excluded = LegacyCaptainSelector.ExplainExclusions(_Settings.ModelTier, mission, idleCaptains);
+                List<Captain> independent = idleCaptains
+                    .Where(item => !excluded.ContainsKey(item.Id) && !chainAuthors.Contains(item.Id))
+                    .ToList();
+                Captain? preferred = independent.Count == 0 ? null : LegacyCaptainSelector.Select(_Settings.ModelTier, mission, independent, narrowToLowestTier, n => Random.Shared.Next(n));
+                if (preferred != null) return preferred;
+            }
             return LegacyCaptainSelector.Select(_Settings.ModelTier, mission, idleCaptains, narrowToLowestTier, n => Random.Shared.Next(n));
+        }
+
+        // The first candidate that is not a chain author, or the first candidate when every one is an author.
+        private static Captain? PreferNonAuthor(List<Captain> candidates, HashSet<string> chainAuthors)
+        {
+            if (candidates.Count == 0) return null;
+            if (chainAuthors.Count == 0) return candidates[0];
+            return candidates.FirstOrDefault(item => !chainAuthors.Contains(item.Id)) ?? candidates[0];
+        }
+
+        /// <summary>Event recorded when a Judge stage is assigned, naming whether the captain wrote an earlier stage of its chain.</summary>
+        public const string JudgeAssignedEventType = "mission.judge_assigned";
+
+        // Captains that ran an earlier non-Judge stage of the mission's dependency chain. Empty for a mission that is not
+        // a Judge, so only a Judge stage is routed by author.
+        private async Task<HashSet<string>> ReadJudgeChainAuthorsAsync(Mission mission, CancellationToken token)
+        {
+            HashSet<string> authors = new HashSet<string>(StringComparer.Ordinal);
+            if (!String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase)) return authors;
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal) { mission.Id };
+            string? nextId = mission.DependsOnMissionId;
+            while (!String.IsNullOrWhiteSpace(nextId) && visited.Count <= 64 && visited.Add(nextId))
+            {
+                Mission? earlier = await _Database.Missions.ReadAsync(nextId, token).ConfigureAwait(false);
+                if (earlier == null) break;
+                if (!String.Equals(earlier.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!String.IsNullOrWhiteSpace(earlier.CaptainId)) authors.Add(earlier.CaptainId);
+                    ProductionFactPage<MissionAttemptProvenance> attempts =
+                        await _Database.MissionAttempts.EnumerateByMissionAsync(earlier.TenantId, earlier.Id, 100, token).ConfigureAwait(false);
+                    foreach (MissionAttemptProvenance attempt in attempts.Items)
+                        if (!String.IsNullOrWhiteSpace(attempt.CaptainId)) authors.Add(attempt.CaptainId);
+                }
+                nextId = earlier.DependsOnMissionId;
+            }
+            return authors;
+        }
+
+        // Records on the assignment whether the Judge captain wrote an earlier stage of its chain.
+        private async Task RecordJudgeAssignmentAsync(Mission mission, Captain captain, CancellationToken token)
+        {
+            if (!String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase)) return;
+            try
+            {
+                HashSet<string> authors = await ReadJudgeChainAuthorsAsync(mission, token).ConfigureAwait(false);
+                bool isAuthor = authors.Contains(captain.Id);
+                ArmadaEvent evt = new ArmadaEvent(JudgeAssignedEventType,
+                    "Judge mission " + mission.Id + " assigned to captain " + captain.Id
+                    + (isAuthor ? ", which wrote an earlier stage of its chain." : ", which wrote no earlier stage of its chain."));
+                EventOwnerScope.ApplyFromMission(evt, mission);
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.CaptainId = captain.Id;
+                evt.Payload = JsonSerializer.Serialize(new { missionId = mission.Id, captainId = captain.Id, isChainAuthor = isAuthor, chainAuthorCount = authors.Count });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record the Judge assignment of mission " + mission.Id + ": " + ex.Message);
+            }
         }
 
         private async Task<RequestedCaptainAssignmentDecision> DecideRequestedCaptainAsync(

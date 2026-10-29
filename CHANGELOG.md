@@ -7,9 +7,94 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Landing proposals
+
+- A health-loop sweep checks a bounded rotating page of `LandingFailed` missions per cycle, fetching each vessel once. When a mission's commit is an ancestor of `origin/<default branch>`, or a commit on that branch carries its exact `Armada-Mission-Id` trailer, the sweep records one `mission.landing_reconcile_proposed` event and the Needs You inbox shows one `landing_reconcile` item with the evidence. Landing refusals and a recorded commit equal to the stage start commit are never proposed. The sweep never completes a mission.
+- Confirming the item is a status transition to `Complete` on REST, MCP or WebSocket. It reads the proof again after a fresh fetch, runs the manual completion gates, then records `mission.landing_reconciled`, applies voyage completion and closes the mission's active incidents. `LandingFailed` has no other route to `Complete`.
+
+### Dock reclaim audit
+
+- Every dock reclaim that completes records a `dock.reclaimed` event naming the calling code path, the dock's mission and the mission's status. A reclaim never removes unlanded work: committed work stays on the branch and under the dock, mission and preserved-branch anchor refs, and uncommitted work is saved to a `recover/` ref, whatever the mission status. Reclaim therefore does not refuse by mission status.
+
+### Mission branch check at completion
+
+- When completion captures a mission's commit, it records `mission.branch_verified` when the mission branch holds that commit and `mission.branch_unverified` when it does not or git cannot answer. The event payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch.
+
+### Needs You landing failures
+
+- A `landing_failed` row in the Needs You inbox shows the failure reason preformatted and has a Retry Landing button. The button calls the same retry-landing API as the mission page, reports its error in place and reloads the list.
+
+### Rescue dedupe against operator recovery
+
+- Autonomous recovery dispatches no rescue for a failed mission while an active non-rescue mission on the same vessel names the failed mission id in its description. It records one `autonomous_recovery.skipped_active_recovery_mission` event naming that mission, and evaluates the rescue again once the mission ends.
+
+### Operator stop
+
+- A captain stop from REST, MCP or WebSocket (single and stop-all) ends the running mission Cancelled, not Failed. The reason starts with `operator_stopped:` and names who stopped it, the surface and the UTC time; it also names the `recover/<mission>-<n>` ref when the dock reclaim saved uncommitted work. A `mission.stopped_by_operator` event records the stop. Autonomous rescue and the Needs You failure feed no longer see these missions. Recalls made by the admiral itself (recovery, stall handling) still fail the mission. Restarting a stopped stage reopens its voyage when the voyage ended Failed or Cancelled.
+
+### Judge author preference and the no-eligible-captain hold
+
+- A Judge stage prefers an admitted captain that ran no earlier non-Judge stage of its dependency chain and falls back to an author when no other captain is admitted. A requested captain still wins. `mission.judge_assigned` records whether the Judge captain is a chain author. No setting controls it.
+- One per-captain eligibility rule (`CaptainAssignmentEligibility`) builds the assignment pool and explains an empty one. A Pending mission whose idle captains are all ineligible is held as `no_eligible_captain`; the `mission.assignment_held` payload names each captain's reason, and the mission read and the dashboard Assignment Hold line show them.
+
+### Mission failure kind
+
+- `GET /api/v1/missions/{id}` returns `failureKind` for a failed mission: the reason code of its latest recorded attempt, computed on read. Nothing is stored. The dashboard mission page shows it.
+
+### Scope check path normalization
+
+- The "Touch only" scope check drops a leading `./` and a trailing period from directive paths and skips empty paths. The mission scope check and the workspace route read one parser (`MissionScopedFiles`).
+
+### Incident projection table
+
+- Incident lists, active lists, counts and by-id reads now filter, order and page in the database instead of reading every `incident.snapshot` event and projecting it in memory. The new `incidents` table holds the newest state of each incident and is written in the same transaction as the snapshot event, so the events remain the record and the audit trail.
+- Startup projects each incident that has snapshot events and no table row from its newest snapshot, and a second run projects nothing. An incident whose newest snapshot is unreadable is named in the startup log and left unprojected.
+- The incident API shapes, filters, search and ordering are unchanged. A caller who is neither a global nor a tenant administrator sees the incidents it owns, whichever user wrote the newest snapshot. Deleting an incident removes its row and every snapshot event together.
+- Migrations: SQLite 137, PostgreSQL 141, MySQL 130, SQL Server 133.
+
+### Deterministic page order
+
+- Every paged list ordered by creation time now breaks ties by id in the same direction on SQLite, PostgreSQL, MySQL and SQL Server, so rows that share a timestamp (a voyage dispatch creates many missions in one tick) never repeat or vanish across pages. The shared token usage, request history, release, deployment and deployment environment orders carry the same tie-break.
+
+### Ask native tool approval
+
+- With `ask.approveNativeToolsInArmada` on (off by default), a saved Ask turn on a Claude Code captain no longer applies `ask.nativeToolAccess`. It launches Claude Code without a permission bypass and with `--permission-prompt-tool` set to the new MCP tool `armada_cli_permission_prompt`. Each native tool call that needs permission becomes a request that waits for the conversation owner on the Ask page. The owner allows or denies it and can remember the choice for that tool in that conversation. A request nobody decides within `ask.toolApprovalTimeoutSeconds` (default 120, 10 to 600) is denied. Missions, temporary chat and other runtimes do not use this.
+- Only the turn's own scoped credential lists or calls `armada_cli_permission_prompt`, and only while that turn is the thread's running turn. The owner reads and decides through `GET /api/v1/ask/threads/{id}/tool-permissions`, `POST .../tool-permissions/{requestId}/allow` and `.../deny`, and `GET` and `DELETE .../tool-permission-rules`. Each owner decision records an `ask_tool_permission.decided` event.
+- Requests and rules are stored in the new `ask_tool_permission_requests` and `ask_tool_permission_rules` tables (SQLite migration 138, PostgreSQL 142, MySQL 131, SQL Server 134) and are removed with their conversation. The Dashboard Server page edits both settings.
+
+### Ask conversation delete
+
+- `DELETE /api/v1/ask/threads/{id}` and `POST /api/v1/ask/threads/delete/multiple` (at most 100 ids) delete the caller's own archived Ask conversations with their turns and proposals. A conversation with an active or uncertain turn, or a proposal that is waiting for a decision or executing, is kept: the single route answers 409 with the reason and the bulk route lists the id in `skipped` with its reason. Each delete records an `ask_thread.deleted` event that keeps the thread id and title. The Dashboard shows Delete on archived conversations and a Delete selected action. No MCP tool deletes a conversation, and nothing deletes one automatically.
+
+### Delete progress dialog
+
+- The Dashboard opens a progress dialog while a slow delete runs: vessel delete, mission and voyage purge, bulk delete of vessels, missions, docks, captains and fleets, and Ask conversation delete. The dialog says the delete may take some time, cannot be dismissed while the request is pending, closes on success, and turns into the error with Retry and Dismiss on failure. A second delete started while one is pending is ignored.
+
+### Ask proposes repository changes
+
+- The built-in `ask.system` prompt tells Ask to answer a repository change request by proposing `armada_dispatch` or `armada_create_mission` with a ready brief, and to wait for the owner's decision. Ask proposes work only when the operator asks for it; read-only lookups stay in the chat. An installed copy that still holds the earlier built-in prompt takes the new text on the next start, and an edited copy is kept.
+
+### Endpoint launch options
+
+- An inference endpoint stores launch options: whether tools are enabled, whether tools are read-only, an optional allowed-tool list, a completion length and an iteration cap. Omitted on create or update, the stored options stay unchanged. The defaults keep the previous launch behavior: tools on, mutating tools allowed, every otherwise offered tool allowed, no completion-length override, and 100 iterations. A mission launch and an Ask turn on that endpoint apply the options, and a tool the model names outside them is refused rather than executed. Create and update reject an invalid value. See [Model endpoint launch options](docs/REST_API.md#model-endpoint-launch-options).
+- Migrations: SQLite 139, PostgreSQL 143, MySQL 132, SQL Server 135.
+
+### Request size limits
+
+- A bulk-delete identifier list, a dispatch mission list, a dispatch playbook selection and a captain chat history each have a fixed limit well above ordinary use. A token-usage, request-history or mission-history summary refuses a window that would fill more than 1000 buckets. REST returns HTTP 400 with `data.code` `CollectionLimitExceeded`. MCP and WebSocket return the same code. A successful response is unchanged. See [Request limits](docs/REQUEST_LIMITS.md).
+
+### Fixture battery
+
+- A battery run gives one captain a pack of small repository tasks. It resets a fixture repository, dispatches a voyage on the pack's fixture vessel with landing mode `None` and `IsEvaluation` true, and grades the mission's worktree on the Admiral host. Each task grades `Passed`, `Failed` or `CouldNotRun`; a missing tool on the Admiral host grades `CouldNotRun`, never `Failed`.
+- The pack format has a manifest, fixture files, tasks and three graders: `command`, `byteComparison` and `mutation`. The `csharp` and `javascript` packs ship in `battery/` with five tasks each. See [Fixture Battery](docs/BATTERY.md).
+- `GET /api/v1/battery/packs`, `GET /api/v1/battery/runs`, `GET /api/v1/battery/runs/{id}` and `POST /api/v1/battery/runs` require a global administrator. The MCP tools `armada_battery_packs`, `armada_battery_runs` and `armada_battery_run` read packs and runs. No MCP tool starts a run, because a run spends captain tokens. The dashboard Battery page lists runs and shows each run's tasks.
+- One `battery_runs` row holds a run's captain, pack, per-task grades and timings. The attempts behind a grade stay in the mission attempt provenance records.
+- Migrations: SQLite 140, PostgreSQL 144, MySQL 133, SQL Server 136.
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.
+
 ### Attempt provenance
 
 - Each captain process launch now records a row in the new `mission_attempt_provenance` table: the captain, persona, runtime, model, runtime version, process id, start and end times, and the outcome (`Running`, `Completed`, `Failed` or `Interrupted`) with an exit code and a reason code. A relaunch closes any row of the mission still running as `Interrupted` with reason `superseded_by_relaunch`. The attempt facts stay the record of what Armada did next; they hold none of these fields.

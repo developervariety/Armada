@@ -148,6 +148,7 @@ namespace Armada.Server
                     Armada.Core.Authorization.OwnershipPolicy.UserOf(caller)));
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (request == null) throw new ArgumentNullException(nameof(request));
+            CollectionLimits.Require(request.History, "History", CollectionLimits.MaxRequestItems);
             if (String.IsNullOrWhiteSpace(request.Message)) return Fail("A message is required.");
             if (!String.IsNullOrWhiteSpace(caller?.MissionId)) return Fail("Mission credentials cannot start captain chat.");
             if (!String.IsNullOrWhiteSpace(caller?.AskThreadId) || !String.IsNullOrWhiteSpace(caller?.AskTurnId)) return Fail("Saved-turn credentials cannot start nested captain chat.");
@@ -243,6 +244,14 @@ namespace Armada.Server
                 if (runtime is ClaudeCodeRuntime claudeRuntime)
                 {
                     claudeRuntime.StreamJsonOutput = true;
+
+                    // An attended saved turn can route native tool permission prompts to its owner. The prompt tool
+                    // is reachable only with this turn's scoped credential, and a request with no decision is denied.
+                    if (savedTurn != null && callerMcpAccess != null && _Settings.Ask.ApproveNativeToolsInArmada)
+                    {
+                        claudeRuntime.PermissionPromptTool = ClaudeCodeRuntime.ArmadaMcpAllowRule + "__" + Armada.Server.Mcp.AskToolPolicy.PermissionPromptToolName;
+                        claudeRuntime.PermissionPromptTimeoutSeconds = _Settings.Ask.ToolApprovalTimeoutSeconds;
+                    }
                 }
 
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);

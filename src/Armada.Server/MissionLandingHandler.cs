@@ -184,11 +184,81 @@ namespace Armada.Server
                     mission.CommitHash = commitHash;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Info(_Header + "captured commit hash " + commitHash + " for mission " + mission.Id);
+                    await RecordBranchVerificationAsync(mission, dock, commitHash!).ConfigureAwait(false);
                 }
             }
             catch (Exception commitEx)
             {
                 _Logging.Debug(_Header + "could not capture commit hash for mission " + mission.Id + ": " + commitEx.Message);
+            }
+        }
+
+        /// <summary>
+        /// Record whether the mission branch holds the captured commit, as <c>mission.branch_verified</c> or
+        /// <c>mission.branch_unverified</c>. The landing merges the branch, so a branch that lags the commit
+        /// lands without it. The check only reads: it never moves or pushes the branch.
+        /// </summary>
+        private async Task RecordBranchVerificationAsync(Mission mission, Dock dock, string commitHash)
+        {
+            string branchName = dock.BranchName!;
+            string worktreePath = dock.WorktreePath!;
+            try
+            {
+                bool? holdsCommit = null;
+                string? lookupFailure = null;
+                try
+                {
+                    holdsCommit = await _Git.TryIsAncestorAsync(worktreePath, commitHash, branchName).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    lookupFailure = ex.Message;
+                }
+
+                string? branchTip = null;
+                if (holdsCommit != true)
+                {
+                    try
+                    {
+                        branchTip = await _Git.GetRevisionCommitShaAsync(worktreePath, branchName).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Debug(_Header + "could not read the tip of branch " + branchName + " for mission " + mission.Id + ": " + ex.Message);
+                    }
+                }
+
+                bool verified = holdsCommit == true;
+                string shortCommit = commitHash.Length > 12 ? commitHash.Substring(0, 12) : commitHash;
+                string message = verified
+                    ? "Branch " + branchName + " holds commit " + shortCommit + " of mission " + mission.Id
+                    : holdsCommit == false
+                        ? "Branch " + branchName + " does not hold commit " + shortCommit + " of mission " + mission.Id
+                            + "; a landing of the branch leaves that commit out"
+                        : "Could not read whether branch " + branchName + " holds commit " + shortCommit + " of mission " + mission.Id
+                            + (lookupFailure == null ? "" : ": " + lookupFailure);
+
+                ArmadaEvent evt = verified
+                    ? new ArmadaEvent("mission.branch_verified", message)
+                    : new ArmadaEvent("mission.branch_unverified", message);
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.CaptainId = mission.CaptainId;
+                Armada.Core.Services.EventOwnerScope.ApplyFromMission(evt, mission);
+                evt.Payload = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    BranchName = branchName,
+                    CommitHash = commitHash,
+                    BranchTip = branchTip
+                });
+                await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record the branch check for mission " + mission.Id + ": " + ex.Message);
             }
         }
 
@@ -1165,7 +1235,7 @@ namespace Armada.Server
         {
             if (result == null || result.Findings.Count == 0)
             {
-                return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "'.";
+                return LandingRefusalReasons.DockBoundaryPrefix + " for vessel '" + (vesselName ?? "") + "'.";
             }
 
             DockBoundaryFinding first = result.Findings[0];
@@ -1174,7 +1244,7 @@ namespace Armada.Server
                 return ProtectedPathsValidator.FormatFailureReason(first.Path ?? first.FindingLabel, vesselName);
             }
 
-            return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "': " + first.Message;
+            return LandingRefusalReasons.DockBoundaryPrefix + " for vessel '" + (vesselName ?? "") + "': " + first.Message;
         }
 
         /// <summary>

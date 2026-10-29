@@ -85,6 +85,7 @@ namespace Armada.Server.Mcp.Tools
                     query.Source = String.IsNullOrWhiteSpace(request.Source) ? null : request.Source;
                     query.VesselId = String.IsNullOrWhiteSpace(request.VesselId) ? null : request.VesselId;
                     query.CaptainId = String.IsNullOrWhiteSpace(request.CaptainId) ? null : request.CaptainId;
+                    CollectionLimits.RequireInclusiveBuckets(query.FromUtc.Value, query.ToUtc.Value, query.BucketMinutes);
 
                     List<TokenUsageRecord> records = await database.TokenUsage.EnumerateForSummaryAsync(query).ConfigureAwait(false);
                     TokenUsageSummaryResult summary = TokenUsageSummaryBuilder.Build(records, query);

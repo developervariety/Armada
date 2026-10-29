@@ -74,6 +74,12 @@ namespace Armada.Core.Services
         /// <summary>A Harbor job for this mission may still be running, so it cannot be assigned again.</summary>
         public const string HarborJobUnconfirmed = "harbor_job_stop_unconfirmed";
 
+        /// <summary>
+        /// Captains of the mission's tenant are idle, but none may take the mission. The held event names the
+        /// reason each captain was passed over.
+        /// </summary>
+        public const string NoEligibleCaptain = "no_eligible_captain";
+
         #endregion
 
         #region Public-Methods

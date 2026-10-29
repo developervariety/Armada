@@ -405,3 +405,37 @@ commit SHA before an operator retires a parked ref.
 - **`MergeQueueTestTimeoutSeconds`** (in `ArmadaSettings`, default `3600`, clamped to 1-86400) -- longest time a merge-queue test command may run before the queue stops it with its process tree and fails the entry.
 - **`DocksDirectory`** -- parent directory for temporary merge worktrees. Worktrees are created under `_merge-queue/` within this directory.
 - **`ReposDirectory`** -- fallback repository path when a vessel's `LocalPath` is not set.
+
+## Landing proposals
+
+A landing can fail for a reason that later clears, and the work then reaches the
+default branch by another path. The mission stays `LandingFailed` until someone
+notices. The landing sweep notices and asks an operator to decide; it never
+completes a mission.
+
+Each health-loop cycle reads one bounded page of `LandingFailed` missions, oldest
+first, and the next cycle reads the next page, wrapping after the last. Each vessel
+is fetched once per cycle, and a vessel whose repository cannot be fetched is
+skipped. The git reads use the same routing as every other git read, so a Harbor
+vessel is read on its Harbor; the trailer search below has no Harbor operation, so
+a Harbor vessel is proven by ancestry only.
+
+A mission has proof when either holds on `origin/<default branch>`:
+
+- its recorded commit is an ancestor of the branch, or
+- a commit on the branch carries the exact `Armada-Mission-Id: <mission id>`
+  trailer, searched from one day before the mission was created.
+
+A mission has no proof, whatever the branch holds, when its failure is a landing
+refusal (`landing_evidence_unavailable`, a dock-boundary finding or a protected-path
+change), or when its recorded commit is the commit its stage started from.
+
+When a mission has proof, the sweep records one `mission.landing_reconcile_proposed`
+event and the Needs You inbox shows one `landing_reconcile` item in place of the
+plain `landing_failed` item. The item carries the evidence and the failure reason.
+Confirming it is a status transition to `Complete` on any surface (REST, MCP or
+WebSocket): the proof is read again after a fresh fetch, the manual completion
+gates run, and only then is the mission written `Complete`. The confirmation
+records `mission.landing_reconciled`, applies voyage completion, and closes the
+mission's active incidents. `LandingFailed` has no other route to `Complete`;
+`retry_landing` stays the way to land work that is not on the branch.

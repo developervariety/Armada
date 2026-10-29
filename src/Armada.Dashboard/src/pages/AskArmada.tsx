@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { chatWithCaptain, createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAllCaptains, listAskThreads, listAskTurns, markAskThreadRead, markAskThreadUnread, sendAskTurn, updateAskThread } from '../api/client';
+import { chatWithCaptain, createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAllCaptains, listAskThreads, listAskTurns, deleteAskThread, deleteAskThreads, markAskThreadRead, markAskThreadUnread, sendAskTurn, updateAskThread } from '../api/client';
 import type { AskThread, Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useWebSocket } from '../context/WebSocketContext';
@@ -11,7 +11,11 @@ import { applyToolEvent } from '../components/shared/ChatToolChips';
 import { randomThinkingMessage } from '../components/askThinkingMessages';
 import { randomGreeting } from '../components/askGreetings';
 import AskThreadShelf from '../components/ask/AskThreadShelf';
+import ConfirmDialog from '../components/shared/ConfirmDialog';
+import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import AskActionCards from '../components/ask/AskActionCards';
+import AskToolPermissionCards from '../components/ask/AskToolPermissionCards';
 import { useEarlierAskTurns } from '../components/ask/useEarlierAskTurns';
 import { replaceAskTurn, toChatTurns } from '../components/ask/askThreadUtils';
 import { usePromptHistory } from '../components/ask/usePromptHistory';
@@ -52,6 +56,9 @@ export default function AskArmada() {
   const [threads, setThreads] = useState<AskThread[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState(linkedThreadId);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [deleteSelection, setDeleteSelection] = useState<string[]>([]);
+  const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const deleteProgress = useDeleteProgress();
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [hasEarlierTurns, setHasEarlierTurns] = useState(false);
   const [turnStatusNotice, setTurnStatusNotice] = useState('');
@@ -256,6 +263,52 @@ export default function AskArmada() {
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to update the conversation.'));
     }
+  }
+
+  async function reloadAfterDelete() {
+    const listing = await listAskThreads(includeArchived);
+    setThreads(listing);
+    setDeleteSelection((current) => current.filter((id) => listing.some((item) => item.id === id)));
+    if (!listing.some((item) => item.id === selectedThreadIdRef.current)) {
+      selectedThreadIdRef.current = listing[0]?.id ?? '';
+      selectedThreadGeneration.current += 1;
+      setSelectedThreadId(listing[0]?.id ?? '');
+    }
+  }
+
+  function deleteThread(thread: AskThread) {
+    setConfirm({
+      open: true,
+      title: t('Delete Conversation'),
+      message: t('Delete conversation "{{title}}"? Its messages and proposals are removed and this cannot be undone.', { title: thread.title }),
+      onConfirm: () => {
+        setConfirm((current) => ({ ...current, open: false }));
+        void deleteProgress.run(t('Deleting conversation'), async () => {
+          await deleteAskThread(thread.id);
+          await reloadAfterDelete();
+        });
+      },
+    });
+  }
+
+  function deleteSelectedThreads() {
+    const ids = [...deleteSelection];
+    setConfirm({
+      open: true,
+      title: t('Delete Selected Conversations'),
+      message: t('Delete {{count}} selected conversation(s)? Their messages and proposals are removed and this cannot be undone.', { count: ids.length }),
+      onConfirm: () => {
+        setConfirm((current) => ({ ...current, open: false }));
+        void deleteProgress.run(t('Deleting {{count}} conversations', { count: ids.length }), async () => {
+          const result = await deleteAskThreads(ids);
+          await reloadAfterDelete();
+          if (result.skipped.length > 0) {
+            const lines = result.skipped.map((item) => `${threads.find((thread) => thread.id === item.id)?.title ?? item.id}: ${item.reason}`);
+            setError(t('Deleted {{deleted}} conversations. {{kept}} kept:', { deleted: result.deleted, kept: result.skipped.length }) + ' ' + lines.join('; '));
+          }
+        });
+      },
+    });
   }
 
   async function renameThread(thread: AskThread) {
@@ -493,6 +546,9 @@ export default function AskArmada() {
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      <DeleteProgressDialog state={deleteProgress.state} onRetry={deleteProgress.retry} onDismiss={deleteProgress.dismiss} />
+      <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message} danger confirmLabel="Delete"
+        onConfirm={confirm.onConfirm} onCancel={() => setConfirm((current) => ({ ...current, open: false }))} />
 
       <div
         ref={workspaceRef}
@@ -512,6 +568,10 @@ export default function AskArmada() {
           onPin={(thread) => { void changeThread(thread, { setPinned: true, pinned: !thread.pinned }); }}
           onArchive={(thread) => { void changeThread(thread, { setArchived: true, archived: !thread.archived }); }}
           onToggleUnread={(thread) => { void toggleUnread(thread); }}
+          deleteSelection={deleteSelection}
+          onToggleDeleteSelection={(thread) => setDeleteSelection((current) => current.includes(thread.id) ? current.filter((id) => id !== thread.id) : [...current, thread.id])}
+          onDelete={deleteThread}
+          onDeleteSelected={deleteSelectedThreads}
           onToggleArchived={() => setIncludeArchived((value) => !value)}
         />}
         {mode === 'saved' && (
@@ -531,6 +591,7 @@ export default function AskArmada() {
           {mode === 'saved' && selectedThread?.archived && <div className="text-dim" role="status">{t('This conversation is archived. Restore it to send another turn.')}</div>}
           {mode === 'saved' && turnStatusNotice && <div className="ask-turn-status" role="status">{turnStatusNotice}</div>}
           {mode === 'saved' && selectedThread && <AskActionCards key={selectedThread.id} threadId={selectedThread.id} busy={busy} t={t} />}
+          {mode === 'saved' && selectedThread && <AskToolPermissionCards key={selectedThread.id} threadId={selectedThread.id} busy={busy} t={t} />}
           {mode === 'saved' && retryRequest && (
             <div className="ask-turn-status" role="alert">
               <span>{turnStatusNotice}</span>

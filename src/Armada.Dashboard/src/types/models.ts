@@ -462,6 +462,10 @@ export interface Mission {
   assignmentHoldReason?: string | null;
   /** Record that holds the mission, such as the predecessor stage it waits on. */
   assignmentHoldEntityId?: string | null;
+  /** Why each captain of the tenant was passed over while the mission is held as no_eligible_captain. */
+  assignmentHoldCaptains?: Array<{ captainId: string; captainName: string; reason: string }>;
+  /** Reason code of the latest recorded attempt of a failed mission; computed on read. */
+  failureKind?: string | null;
   requiresReview: boolean;
   reviewDenyAction: 'RetryStage' | 'FailPipeline';
   reviewComment: string | null;
@@ -2659,6 +2663,54 @@ export interface LongRunningJobPage extends EnumerationResult<LongRunningJob> {
   unreadableJournalRecords: number;
 }
 
+export type BatteryRunStatus = 'Running' | 'Completed' | 'Failed' | 'Interrupted';
+export type BatteryTaskGrade = 'Passed' | 'Failed' | 'CouldNotRun';
+
+export interface BatteryCommandOutcome { commandLine: string; exitCode: number; timedOut: boolean; passed: boolean; outputExcerpt: string | null; }
+export interface BatteryFileComparison { path: string; matched: boolean; expectedHash: string | null; actualHash: string | null; reason: string | null; }
+export interface BatteryMutantOutcome { id: string; applied: boolean; killed: boolean; reason: string | null; }
+
+/** The evidence behind one grade: command exits, byte comparisons and mutant results. */
+export interface BatteryGradeDetails {
+  commands: BatteryCommandOutcome[];
+  files: BatteryFileComparison[];
+  mutants: BatteryMutantOutcome[];
+}
+
+/** One task of a battery run. The mission's attempts are in its attempt provenance records. */
+export interface BatteryTaskResult {
+  taskId: string;
+  title: string | null;
+  grade: BatteryTaskGrade;
+  score: number | null;
+  summary: string | null;
+  reason: string | null;
+  voyageId: string | null;
+  missionId: string | null;
+  startedUtc: string;
+  completedUtc: string;
+  durationMs: number;
+  missionDurationMs: number | null;
+  details: BatteryGradeDetails;
+}
+
+/** A fixture battery run of one pack against one captain, from GET /api/v1/battery/runs. */
+export interface BatteryRun {
+  id: string;
+  captainId: string | null;
+  captainName: string | null;
+  packId: string;
+  packVersion: number;
+  status: BatteryRunStatus;
+  error: string | null;
+  startedUtc: string;
+  completedUtc: string | null;
+  results: BatteryTaskResult[];
+  passed: number;
+  failed: number;
+  couldNotRun: number;
+}
+
 /** Measurement outcome of one storage location, scan or database. */
 export type StorageStatus = 'Pending' | 'Complete' | 'Partial' | 'Missing' | 'Unavailable';
 
@@ -2942,6 +2994,17 @@ export interface AskActionProposal {
   createdUtc: string; expiresUtc: string; decidedUtc: string | null; completedUtc: string | null;
   outcome: string | null; workReferences: AskActionWorkReference[];
 }
+export interface AskToolPermissionRequest {
+  id: string; tenantId: string; userId: string; threadId: string; requestId: string;
+  toolName: string; inputJson: string; toolUseId: string | null;
+  state: 'Pending' | 'Allowed' | 'Denied' | 'Expired';
+  decisionSource: 'Owner' | 'Rule' | 'Expiry' | null; ruleId: string | null;
+  createdUtc: string; expiresUtc: string; decidedUtc: string | null;
+}
+export interface AskToolPermissionRule {
+  id: string; tenantId: string; userId: string; threadId: string; toolName: string;
+  action: 'Allow' | 'Deny'; createdUtc: string;
+}
 export interface AskProposalDecision { statusCode: number; proposal: AskActionProposal | null; message: string | null; }
 export interface AskWorkReport {
   kind: 'Mission' | 'Voyage' | 'Job'; id: string; title: string; status: string; deliveryState: string;
@@ -3081,6 +3144,14 @@ export interface ModelEndpointHealthRecord {
   success: boolean;
 }
 
+export interface EndpointLaunchOptions {
+  toolsEnabled: boolean;
+  readOnlyTools: boolean;
+  allowedTools: string[] | null;
+  maxTokens: number | null;
+  maxIterations: number;
+}
+
 export interface ModelEndpoint {
   id: string;
   tenantId: string | null;
@@ -3094,6 +3165,7 @@ export interface ModelEndpoint {
   dimensionality: number;
   timeoutMs: number;
   enabled: boolean;
+  launchOptions?: EndpointLaunchOptions;
   hasApiKey: boolean;
   healthStatus: EndpointHealthStatus;
   lastHealthCheckUtc: string | null;

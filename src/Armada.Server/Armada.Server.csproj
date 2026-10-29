@@ -11,6 +11,17 @@
     <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="6" Trim="false" />
   </ItemGroup>
 
+  <!-- Ship the fixture battery packs (battery/, data only) next to the server binary so the Admiral finds them
+       without a source checkout. Build output of a locally built fixture is left out. -->
+  <ItemGroup Condition="Exists('..\..\battery')">
+    <None Include="..\..\battery\**\*"
+          Exclude="..\..\battery\**\bin\**;..\..\battery\**\obj\**"
+          Link="battery\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Lets the unit suite exercise internal dispatch-path guards (CodeIndexDispatchGuard)
          directly instead of only through a full dispatch integration path. -->

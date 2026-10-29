@@ -120,6 +120,26 @@ describe('MissionDetail', () => {
     expect(await screen.findByRole('link', { name: 'vyg_missing' })).toHaveAttribute('href', '/voyages/vyg_missing');
   });
 
+  it('shows why each captain was passed over for a no_eligible_captain hold, and the failure kind of a failed mission', async () => {
+    vi.mocked(getMission).mockResolvedValue(mission({
+      status: 'Pending',
+      assignmentHoldReason: 'no_eligible_captain',
+      assignmentHoldCaptains: [
+        { captainId: 'cpt_1', captainName: 'alpha', reason: 'quarantined' },
+        { captainId: 'cpt_2', captainName: 'beta', reason: 'persona_not_allowed' },
+      ],
+    }) as never);
+    const { unmount } = renderDetail();
+    expect(await screen.findByText('alpha: quarantined')).toBeInTheDocument();
+    expect(screen.getByText('beta: persona_not_allowed')).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'Failed', failureKind: 'exit_nonzero' }) as never);
+    renderDetail();
+    expect(await screen.findByText('exit_nonzero')).toBeInTheDocument();
+    expect(screen.getByText('Failure Kind')).toBeInTheDocument();
+  });
+
   it('offers Land for a WorkProduced mission and Retry Landing for a LandingFailed mission', async () => {
     vi.mocked(getMission).mockResolvedValue(mission({ status: 'WorkProduced' }) as never);
     const { unmount } = renderDetail();

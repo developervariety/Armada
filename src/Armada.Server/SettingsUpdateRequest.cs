@@ -240,6 +240,16 @@ namespace Armada.Server
         public NativeToolAccessEnum? NativeToolAccess { get; set; }
 
         /// <summary>
+        /// Whether saved Ask turns on a Claude Code captain send native tool permission requests to the thread owner.
+        /// </summary>
+        public bool? ApproveNativeToolsInArmada { get; set; }
+
+        /// <summary>
+        /// Seconds a native tool permission request waits for a decision before it is denied.
+        /// </summary>
+        public int? ToolApprovalTimeoutSeconds { get; set; }
+
+        /// <summary>
         /// Apply the supplied members to the live settings object, in place.
         /// </summary>
         /// <param name="target">Live settings object to mutate.</param>
@@ -248,6 +258,10 @@ namespace Armada.Server
             if (target == null) return;
             if (NativeToolAccess.HasValue)
                 target.NativeToolAccess = NativeToolAccess.Value;
+            if (ApproveNativeToolsInArmada.HasValue)
+                target.ApproveNativeToolsInArmada = ApproveNativeToolsInArmada.Value;
+            if (ToolApprovalTimeoutSeconds.HasValue)
+                target.ToolApprovalTimeoutSeconds = ToolApprovalTimeoutSeconds.Value;
         }
     }
 

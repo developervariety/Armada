@@ -43,9 +43,27 @@ namespace Armada.Core.Services
         /// <param name="activeLandingPipeline">True when the active dock will perform the landing.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>A passing or fail-closed proof result.</returns>
+        public Task<ManualCompletionProofResult> EvaluateAsync(
+            Mission mission,
+            bool activeLandingPipeline,
+            CancellationToken token = default)
+        {
+            return EvaluateAsync(mission, activeLandingPipeline, null, token);
+        }
+
+        /// <summary>
+        /// Evaluates manual completion when the caller has already proved the mission's work is on the target branch.
+        /// The review, Judge and Check gates run as usual; the proven commit stands in for the vessel ancestry read.
+        /// </summary>
+        /// <param name="mission">Mission proposed for manual completion.</param>
+        /// <param name="activeLandingPipeline">True when the active dock will perform the landing.</param>
+        /// <param name="targetEvidenceCommit">A commit the caller read on the target branch that proves the landing, or null to read ancestry from the vessel.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A passing or fail-closed proof result.</returns>
         public async Task<ManualCompletionProofResult> EvaluateAsync(
             Mission mission,
             bool activeLandingPipeline,
+            string? targetEvidenceCommit,
             CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
@@ -110,6 +128,11 @@ namespace Armada.Core.Services
             {
                 return ManualCompletionProofResult.Pass(
                     activeLandingPipeline ? "landing_pipeline" : "pipeline_handoff");
+            }
+
+            if (!String.IsNullOrWhiteSpace(targetEvidenceCommit))
+            {
+                return ManualCompletionProofResult.Pass("target_evidence");
             }
 
             Vessel? vessel = String.IsNullOrWhiteSpace(mission.VesselId)

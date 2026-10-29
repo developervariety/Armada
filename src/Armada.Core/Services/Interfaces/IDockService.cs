@@ -1,5 +1,6 @@
 namespace Armada.Core.Services.Interfaces
 {
+    using System.Runtime.CompilerServices;
     using Armada.Core.Models;
 
     /// <summary>
@@ -41,7 +42,10 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="dockId">Dock identifier.</param>
         /// <param name="tenantId">Optional tenant ID for tenant-scoped reads. Null for system/admin context.</param>
         /// <param name="token">Cancellation token.</param>
-        Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default);
+        /// <param name="caller">Calling member, filled in by the compiler; recorded on the <c>dock.reclaimed</c> event.</param>
+        /// <param name="callerFile">Calling source file, filled in by the compiler; only its file name is recorded.</param>
+        Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default,
+            [CallerMemberName] string? caller = null, [CallerFilePath] string? callerFile = null);
 
         /// <summary>
         /// Repair a dock's worktree.
