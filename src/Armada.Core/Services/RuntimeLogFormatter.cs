@@ -63,7 +63,8 @@ namespace Armada.Core.Services
 
         private static bool TryFormatRuntimeSpecificEvent(string json, Armada.Core.Enums.AgentRuntimeEnum runtime, FormattedLogLine result)
         {
-            // Each runtime's own typed event shape: Claude Code stream-json, Codex exec --json, OpenCode --format json.
+            // Each runtime's own typed event shape: Claude Code stream-json, Codex exec --json, OpenCode --format json,
+            // pi --mode json.
             // Other runtimes use the shared Mux eventType shape (TryFormatMuxEvent).
             switch (runtime)
             {
@@ -73,6 +74,8 @@ namespace Armada.Core.Services
                     return TryFormatCodexEvent(json, result) || TryFormatClaudeEvent(json, result);
                 case Armada.Core.Enums.AgentRuntimeEnum.OpenCode:
                     return TryFormatOpenCodeEvent(json, result);
+                case Armada.Core.Enums.AgentRuntimeEnum.Pi:
+                    return TryFormatPiEvent(json, result);
                 default:
                     return false;
             }
@@ -172,6 +175,72 @@ namespace Armada.Core.Services
                     return true;
                 default:
                     // A step marker with no display text: drop it rather than echo raw JSON.
+                    result.Dropped = true;
+                    return true;
+            }
+        }
+
+        private static bool TryFormatPiEvent(string json, FormattedLogLine result)
+        {
+            if (!PiStreamEvent.TryParse(json, out PiStreamEvent? evt) || evt == null) return false;
+
+            switch (evt.Type)
+            {
+                case PiStreamEvent.TypeMessageUpdate:
+                    {
+                        // Deltas are fragments: show each finished block once (text_end / thinking_end carry the joined
+                        // text) and drop the deltas and their cumulative usage.
+                        PiAssistantMessageEvent? delta = evt.AssistantMessageEvent;
+                        if (delta != null && delta.Type == PiAssistantMessageEvent.TypeTextEnd && !String.IsNullOrEmpty(delta.Content))
+                        {
+                            result.Text = delta.Content!;
+                            return true;
+                        }
+
+                        if (delta != null && delta.Type == "thinking_end" && !String.IsNullOrEmpty(delta.Content))
+                        {
+                            result.Text = "(thinking) " + delta.Content;
+                            return true;
+                        }
+
+                        result.Dropped = true;
+                        return true;
+                    }
+                case PiStreamEvent.TypeToolExecutionStart:
+                    if (String.IsNullOrEmpty(evt.ToolName)) return false;
+                    SetToolCall(result, evt.ToolName, "-> tool " + evt.ToolName);
+                    return true;
+                case PiStreamEvent.TypeToolExecutionEnd:
+                    if (String.IsNullOrEmpty(evt.ToolName)) return false;
+                    SetToolCall(result, evt.ToolName, "<- tool " + evt.ToolName + (evt.IsError == true ? " failed" : " ok"));
+                    return true;
+                case PiStreamEvent.TypeMessageEnd:
+                    {
+                        PiMessage? message = evt.AssistantMessageEnd;
+                        if (message != null && message.IsFailedStop)
+                        {
+                            result.Text = "(error) pi stopped: " + message.StopReason + (String.IsNullOrWhiteSpace(message.ErrorMessage) ? "" : ": " + message.ErrorMessage);
+                            return true;
+                        }
+
+                        result.Dropped = true;
+                        return true;
+                    }
+                case PiStreamEvent.TypeAutoRetryStart:
+                    result.Text = "(pi) retrying" + (evt.Attempt.HasValue ? " (attempt " + evt.Attempt.Value.ToString(CultureInfo.InvariantCulture) + (evt.MaxAttempts.HasValue ? " of " + evt.MaxAttempts.Value.ToString(CultureInfo.InvariantCulture) : "") + ")" : "")
+                        + (String.IsNullOrWhiteSpace(evt.ErrorMessage) ? "" : " after: " + evt.ErrorMessage);
+                    return true;
+                case PiStreamEvent.TypeAutoRetryEnd:
+                    if (evt.Success == false)
+                    {
+                        result.Text = "(error) pi retries failed" + (String.IsNullOrWhiteSpace(evt.FinalError) ? "" : ": " + evt.FinalError);
+                        return true;
+                    }
+
+                    result.Dropped = true;
+                    return true;
+                default:
+                    // Session header, lifecycle markers and tool progress carry no display text.
                     result.Dropped = true;
                     return true;
             }

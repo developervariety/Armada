@@ -174,7 +174,9 @@ namespace Armada.Server
 
             if (decision.HarborRequired)
             {
-                string message = "No Harbor is connected to run this captain. Harbor execution is required, so the "
+                string message = (decision.CapableHarborsAtCapacity
+                    ? "No Harbor slot is available to run this captain. "
+                    : "No Harbor is connected to run this captain. ") + "Harbor execution is required, so the "
                     + context.Purpose + " will not run on the Admiral host (" + decision.Reason + ").";
                 _Logging.Warn(_Header + message);
                 throw new HarborLaunchUnavailableException(context.PinnedHarborId, true, message);

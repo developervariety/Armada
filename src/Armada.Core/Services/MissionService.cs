@@ -108,7 +108,8 @@ namespace Armada.Core.Services
         {
             "CODEX.md",
             "CLAUDE.md",
-            "MUX.md"
+            "MUX.md",
+            "AGENTS.override.md"
         };
 
         /// <summary>
@@ -373,12 +374,12 @@ namespace Armada.Core.Services
                     + (mission.Tier.HasValue ? " (tier " + mission.Tier.Value + " or higher)" : "")
                     + ". Check the persona's captain priorities and the captains' allowed personas and tiers."
                     + (authorsIdle ? " Idle captains that ran an earlier stage of the reviewed work are excluded because ExcludeReviewAuthorsFromJudge is on." : "");
-                await DescribeCaptainsAsync(blocker, allCaptains, mission.TenantId, token).ConfigureAwait(false);
+                await DescribeCaptainsAsync(blocker, allCaptains, mission, token).ConfigureAwait(false);
                 return blocker;
             }
 
             blocker.Reason = MissionAssignmentBlockerReasonEnum.NoIdleCaptain;
-            await DescribeCaptainsAsync(blocker, allCaptains, mission.TenantId, token).ConfigureAwait(false);
+            await DescribeCaptainsAsync(blocker, allCaptains, mission, token).ConfigureAwait(false);
             List<DateTime> quarantineEnds = blocker.Captains
                 .Where(c => c.QuarantineUntilUtc.HasValue)
                 .Select(c => c.QuarantineUntilUtc!.Value)
@@ -884,6 +885,28 @@ namespace Armada.Core.Services
             try
             {
                 await HandleCompletionCoreAsync(captain, missionId, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (_CompletionsInFlight.AddOrUpdate(missionId, 0, (_, count) => count - 1) <= 0)
+                    _CompletionsInFlight.TryRemove(new KeyValuePair<string, int>(missionId, 0));
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task HandleClaimedCompletionAsync(Captain captain, string missionId, DateTime expectedVersion, CancellationToken token = default)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (String.IsNullOrEmpty(missionId)) return;
+
+            // Deduplication is not keyed by mission id here: a mission-id gate (held past the handler) also swallowed
+            // the completion of a later attempt of the same mission. Each process exit is claimed once by its caller
+            // (IMissionMethods.TryClaimProcessExitAsync), and the core's first write is a compare-and-set on the status
+            // it read, so a duplicate for the same attempt loses that write and stops.
+            _CompletionsInFlight.AddOrUpdate(missionId, 1, (_, count) => count + 1);
+            try
+            {
+                await HandleCompletionCoreAsync(captain, missionId, token, expectedVersion).ConfigureAwait(false);
             }
             finally
             {

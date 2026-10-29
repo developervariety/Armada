@@ -75,6 +75,7 @@ namespace Armada.Core.Database.Mysql
             CliPermissionRequests = new CliPermissionRequestMethods(_ConnectionString);
             CliPermissionRules = new CliPermissionRuleMethods(_ConnectionString);
             StageOutcomes = new StageOutcomeMethods(_ConnectionString);
+            HandoffArtifacts = new HandoffArtifactMethods(_ConnectionString);
             FailureCauseRules = new FailureCauseRuleMethods(_ConnectionString);
             ModelProbeRuns = new ModelProbeRunMethods(_ConnectionString);
             ModelProbeResults = new ModelProbeResultMethods(_ConnectionString);
@@ -959,7 +960,68 @@ namespace Armada.Core.Database.Mysql
                     @"CREATE INDEX idx_battery_task_results_mission ON battery_task_results(mission_id);"),
                 new SchemaMigration(96, "Add is_evaluation to voyages and missions so evaluation work (fixture battery and model evaluation) is flagged first-class instead of inferred from the vessel pipeline",
                     @"ALTER TABLE voyages ADD COLUMN is_evaluation TINYINT(1) NOT NULL DEFAULT 0;",
-                    @"ALTER TABLE missions ADD COLUMN is_evaluation TINYINT(1) NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN is_evaluation TINYINT(1) NOT NULL DEFAULT 0;"),
+                new SchemaMigration(97, "Add handoff_artifacts (one durable, versioned handoff artifact per stage attempt: findings, acceptance criteria, check results, commit references, the full stage output and diff) for budgeted delivery to the next stage",
+                    @"CREATE TABLE IF NOT EXISTS handoff_artifacts (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id VARCHAR(64),
+                        user_id VARCHAR(64),
+                        mission_id VARCHAR(64) NOT NULL,
+                        voyage_id VARCHAR(64),
+                        vessel_id VARCHAR(64),
+                        stage_outcome_id VARCHAR(64),
+                        persona VARCHAR(256),
+                        captain_id VARCHAR(64),
+                        captain_name VARCHAR(256),
+                        attempt INT NOT NULL,
+                        rework_round INT NOT NULL,
+                        schema_version INT NOT NULL,
+                        verdict VARCHAR(256),
+                        branch_name VARCHAR(256),
+                        commit_hash VARCHAR(64),
+                        findings_json LONGTEXT,
+                        acceptance_criteria_json LONGTEXT,
+                        required_actions_json LONGTEXT,
+                        check_results_json LONGTEXT,
+                        commit_references_json LONGTEXT,
+                        completion_lines_json LONGTEXT,
+                        output LONGTEXT,
+                        output_length INT NOT NULL,
+                        output_complete TINYINT(1) NOT NULL,
+                        diff LONGTEXT,
+                        diff_length INT NOT NULL,
+                        diff_complete TINYINT(1) NOT NULL,
+                        diff_pointer LONGTEXT,
+                        created_utc DATETIME(6) NOT NULL,
+                        last_update_utc DATETIME(6) NOT NULL
+                    );",
+                    @"CREATE INDEX idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
+                    @"CREATE INDEX idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);"),
+                new SchemaMigration(98, "Add contract_repair_kind to stage_outcomes so a deterministic contract repair shows on the stage outcome as well as in the mission.contract_repaired event",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN contract_repair_kind VARCHAR(64) NULL;"),
+
+                new SchemaMigration(99, "Add test_command, lint_command and audit_command to vessels so a vessel can override the ecosystem default command for the test, lint and audit intents",
+                    @"ALTER TABLE vessels ADD COLUMN test_command TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN lint_command TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN audit_command TEXT;"),
+                new SchemaMigration(100, "Add abbreviated_unit_test_command to workflow_profiles so a profile can carry a quick unit-test command next to the full one",
+                    @"ALTER TABLE workflow_profiles ADD COLUMN abbreviated_unit_test_command LONGTEXT NULL;"),
+                new SchemaMigration(101, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"ALTER TABLE fleet_actions ADD COLUMN command_windows LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN output_parser LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN scan_source_action_key LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN required_tools_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN requires_network TINYINT(1) NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN inputs_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN command_windows LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN output_parser LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN scan_source_action_key LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN required_tools_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN requires_network TINYINT(1) NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN inputs_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN input_values_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN findings_count INT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary LONGTEXT NULL;")
 
 
             };
