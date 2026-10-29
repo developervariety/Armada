@@ -76,8 +76,7 @@ namespace Armada.Helm.Commands
             List<SelectedPlaybook> results = new List<SelectedPlaybook>();
             if (selections == null || selections.Length == 0) return results;
 
-            EnumerationResult<Playbook>? playbookResult = await GetAsync<EnumerationResult<Playbook>>("/api/v1/playbooks").ConfigureAwait(false);
-            List<Playbook> playbooks = playbookResult?.Objects ?? new List<Playbook>();
+            List<Playbook> playbooks = await PlaybookPages.ReadAllAsync(path => GetAsync<EnumerationResult<Playbook>>(path)).ConfigureAwait(false);
 
             foreach (string rawSelection in selections)
             {

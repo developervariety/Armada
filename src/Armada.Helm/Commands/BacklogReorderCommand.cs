@@ -48,7 +48,7 @@ namespace Armada.Helm.Commands
                 return 1;
             }
 
-            List<Objective>? updated = await GetApiClient().ReorderBacklogAsync(new ObjectiveReorderRequest
+            ObjectiveReorderResult? updated = await GetApiClient().ReorderBacklogAsync(new ObjectiveReorderRequest
             {
                 Items = new List<ObjectiveReorderItem>
                 {
@@ -60,8 +60,9 @@ namespace Armada.Helm.Commands
                 }
             }, cancellationToken).ConfigureAwait(false);
 
-            Objective? refreshed = updated?.FirstOrDefault(item => String.Equals(item.Id, objective.Id, StringComparison.OrdinalIgnoreCase))
-                ?? await GetApiClient().GetBacklogItemAsync(objective.Id, cancellationToken).ConfigureAwait(false);
+            Objective? refreshed = updated != null && updated.Updated > 0
+                ? await GetApiClient().GetBacklogItemAsync(objective.Id, cancellationToken).ConfigureAwait(false)
+                : null;
             if (refreshed == null)
             {
                 AnsiConsole.MarkupLine("[red]Backlog reorder failed.[/]");

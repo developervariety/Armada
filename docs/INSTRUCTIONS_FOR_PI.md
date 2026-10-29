@@ -192,7 +192,7 @@ Before dispatching work, understand what exists:
 ```
 status()                                                    -> overview of captains, missions, voyages
 enumerate({ entityType: "fleets" })                         -> find available fleets
-get_fleet({ fleetId })                                      -> see vessels in a fleet
+get_fleet({ fleetId })                                      -> fleet + vesselCount (page vessels with enumerate fleetId)
 enumerate({ entityType: "vessels", fleetId: "flt_..." })    -> find vessels in a fleet
 enumerate({ entityType: "captains" })                       -> confirm captains are registered
 ```
@@ -272,10 +272,10 @@ create_mission({
 
 ```
 voyage_status({ voyageId: "vyg_..." })
-voyage_status({ voyageId: "vyg_...", summary: false, includeMissions: true })
+enumerate({ entityType: "missions", voyageId: "vyg_...", pageSize: 25 })
 ```
 
-By default this returns the voyage with mission counts by status; pass `summary: false, includeMissions: true` for the full mission objects. Mission statuses:
+`voyage_status` returns the voyage with mission counts by status (it never embeds missions); page the missions themselves with `enumerate` (`entityType: "missions"`, `voyageId`). Mission statuses:
 
 | Status | Meaning |
 |--------|---------|
@@ -359,7 +359,7 @@ Boolean include flags (all default to `false`): `includeDescription` (missions, 
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `get_fleet` | `fleetId` (required) | Get fleet with its vessels |
+| `get_fleet` | `fleetId` (required) | Get fleet and its vessel count; page its vessels with `enumerate` (`vessels`, `fleetId`) |
 | `create_fleet` | `name` (required), `description` | Create a new fleet |
 | `update_fleet` | `fleetId` (required), `name`, `description` | Update fleet |
 | `delete_fleet` | `fleetId` (required) | Delete fleet |
@@ -379,7 +379,7 @@ Boolean include flags (all default to `false`): `includeDescription` (missions, 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `dispatch` | `title` (required), `vesselId`, `missions` (array of {title, description}), `description`, `pipeline` (name) or `pipelineId`, `objectiveId`, `selectedPlaybooks`, `captainAssignments` | Dispatch a voyage with missions -- the primary way to create work. `vesselId` and `missions` are needed to create work; without either, an empty voyage is created. |
-| `voyage_status` | `voyageId` (required), `summary` (default true), `includeMissions` (default false), `includeDescription` (default false), `includeDiffs` (default false), `includeLogs` (default false) | Get voyage status. Default summary mode returns voyage metadata and mission counts by status. Set `includeMissions: true` for full mission details. |
+| `voyage_status` | `voyageId` (required), `summary` (default true) | Get voyage status: the voyage with mission counts by status. Missions are not embedded; page them with `enumerate` (`entityType: "missions"`, `voyageId`). |
 | `cancel_voyage` | `voyageId` (required) | Cancel voyage and all pending missions |
 | `purge_voyage` | `voyageId` (required) | Permanently delete voyage and all missions (cannot be undone) |
 
@@ -408,7 +408,7 @@ Valid status transitions for `transition_mission_status`:
 | WorkProduced | Complete, LandingFailed, Cancelled |
 | Testing | Review, InProgress, Complete, Failed |
 | Review | Complete, InProgress, Failed |
-| LandingFailed | WorkProduced, Failed, Cancelled |
+| LandingFailed | WorkProduced, Complete, Failed, Cancelled |
 
 Complete, Failed, and Cancelled are terminal.
 
@@ -480,7 +480,7 @@ Use `enumerate` for all collection queries. Use a small `pageSize` (10-25) to co
 
 **When to use the merge queue?** When multiple missions complete and you want their branches tested and merged in order (or set the vessel's landing mode to MergeQueue so Armada enqueues them for you). Enqueue completed mission branches; the Admiral tests and lands them on its next pass, or call `process_merge_queue` to run one now. This prevents broken merges from landing. After merges land, use `purge_merge_queue` to bulk-delete old terminal entries (Landed/Failed/Cancelled) and keep the queue clean. You can filter by `vesselId` or `status`. For selective cleanup, use `purge_merge_entries` with an array of entry IDs.
 
-**How to handle a stalled captain?** Check `enumerate({ entityType: "captains", status: "Stalled" })` -- stalled captains have stopped sending heartbeats. Read the log with `get_captain_log` to diagnose. Stop it with `stop_captain` and the mission will be marked Failed for redispatch.
+**How to handle a stalled captain?** Check `enumerate({ entityType: "captains", status: "Stalled" })` -- stalled captains have stopped sending heartbeats. Read the log with `get_captain_log` to diagnose. Stop it with `stop_captain`: the mission is marked Cancelled (failure kind OperatorAction) with the stop recorded in its failure reason, and uncommitted work in its dock is kept as a WIP commit on the mission branch. Restart it with `restart_mission` to redispatch.
 
 ## Emergency Controls
 

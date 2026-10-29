@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System.Collections.Generic;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Body for starting a fleet action run, either from a saved action or ad hoc with an inline definition.
@@ -10,6 +11,7 @@ namespace Armada.Core.Models
         #region Public-Members
 
         /// <summary>Runtime values keyed by the declared input name.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public Dictionary<string, string> InputValues { get => _InputValues; set => _InputValues = value ?? new(); }
         private Dictionary<string, string> _InputValues = new();
 
@@ -17,6 +19,7 @@ namespace Armada.Core.Models
         /// Target vessel identifiers in the caller's tenant. Required, 1 to 500 after de-duplication. A vessel from
         /// another tenant (or unknown) rejects the whole request.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxRequestItems)]
         public List<string> VesselIds
         {
             get => _VesselIds;

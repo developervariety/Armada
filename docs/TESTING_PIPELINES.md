@@ -61,7 +61,7 @@ dispatch({
 
 ```
 // Check the voyage
-voyage_status({ voyageId: "<voyage_id>", summary: false, includeMissions: true })
+enumerate({ entityType: "missions", voyageId: "<voyage_id>", pageSize: 25 })
 ```
 
 ---

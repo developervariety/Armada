@@ -10,6 +10,7 @@ import {
   deleteMission,
   restartMission,
   enumerateFleetActionRuns,
+  enumerateVoyageProgress,
 } from '../api/client';
 import { listAll } from '../api/paging';
 import { useAuth } from '../context/AuthContext';
@@ -35,11 +36,13 @@ import {
   activeFleetActionRunsLink,
   canRestartFromHome,
   dashboardAlerts,
+  HOME_VOYAGE_PAGE_SIZE,
   filterRecentMissions,
   RECENT_MISSION_STATUSES,
   totalMissionCount,
   voyagePercent,
   type DashboardStatusData,
+  type VoyageProgress,
 } from '../lib/dashboardStatus';
 
 export default function Dashboard() {
@@ -53,6 +56,8 @@ export default function Dashboard() {
   const { isTenantAdmin } = useAuth();
   const [activeRuns, setActiveRuns] = useState<{ pending: number; running: number } | null>(null);
   const [status, setStatus] = useState<DashboardStatusData | null>(null);
+  // One page of the active voyages (InProgress, then Open) with progress, and the total across every page.
+  const [activeVoyages, setActiveVoyages] = useState<{ rows: VoyageProgress[]; total: number }>({ rows: [], total: 0 });
   const [recentMissions, setRecentMissions] = useState<MissionSummary[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
@@ -91,9 +96,10 @@ export default function Dashboard() {
   );
 
   const voyageVesselNames = useCallback(
-    (vesselIds: string[] | null | undefined) => {
-      if (!vesselIds || vesselIds.length === 0) return '-';
-      return vesselIds.map(id => vesselName(id)).join(', ');
+    (vp: VoyageProgress) => {
+      if (!vp.vesselId) return '-';
+      const more = (vp.vesselCount ?? 1) - 1;
+      return more > 0 ? `${vesselName(vp.vesselId)} +${more}` : vesselName(vp.vesselId);
     },
     [vesselName],
   );
@@ -111,12 +117,14 @@ export default function Dashboard() {
     try {
       // The Recent Missions filters go to the server, so a vessel or captain filter finds that vessel's or
       // captain's ten most recent missions instead of filtering only the ten most recent overall.
-      const [statusRes, missionRes, pendingRuns, runningRuns] = await Promise.all([
+      const [statusRes, missionRes, pendingRuns, runningRuns, voyageRes] = await Promise.all([
         getStatus().catch(() => null),
         listMissionSummaries({ pageSize: 10, filters: { status: statusFilter, vesselId: vesselFilter, captainId: captainFilter } }).catch(() => null),
         enumerateFleetActionRuns({ status: 'Pending', pageSize: 1 }).catch(() => null),
         enumerateFleetActionRuns({ status: 'Running', pageSize: 1 }).catch(() => null),
+        enumerateVoyageProgress({ pageSize: HOME_VOYAGE_PAGE_SIZE }).catch(() => null),
       ]);
+      if (voyageRes) setActiveVoyages({ rows: (voyageRes.objects || []) as unknown as VoyageProgress[], total: voyageRes.totalRecords });
       setActiveRuns(pendingRuns && runningRuns ? { pending: pendingRuns.totalRecords, running: runningRuns.totalRecords } : null);
       if (statusRes) setStatus(statusRes as unknown as DashboardStatusData);
       if (missionRes) {
@@ -387,15 +395,15 @@ export default function Dashboard() {
       <MissionHistoryChart vessels={vessels} fleets={fleets} onRefresh={loadAll} />
 
       {/* Voyage Progress */}
-      {status?.voyages && status.voyages.length > 0 && (
+      {activeVoyages.rows.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>
           <h3 title={t('Open voyages and how many of their missions have finished. Click a row to open the voyage.')}>{t('Voyage Progress')}</h3>
           <DataTable
             tableKey="dashboard-voyage-progress"
             className="table"
-            rows={status.voyages}
+            rows={activeVoyages.rows}
             rowKey={(vp) => vp.voyage?.id ?? ''}
-            recordCount={null}
+            recordCount={activeVoyages.total}
             onRowClick={(vp) => navigate(`/voyages/${vp.voyage?.id}`)}
             columns={[
               {
@@ -415,7 +423,7 @@ export default function Dashboard() {
               { key: 'status', label: t('Status'), headerTitle: t('Open while missions are being set up, InProgress while any run, then Complete, Failed or Cancelled.'), cellClassName: 'cell-nowrap', render: (vp) => <StatusBadge status={vp.voyage?.status || ''} /> },
               {
                 key: 'vessel', label: t('Vessel'), headerTitle: t('Repositories this voyage\'s missions work in.'), cellClassName: 'text-dim',
-                render: (vp) => <span className="cell-one-line" title={voyageVesselNames(vp.vesselIds)}>{voyageVesselNames(vp.vesselIds)}</span>,
+                render: (vp) => <span className="cell-one-line" title={voyageVesselNames(vp)}>{voyageVesselNames(vp)}</span>,
               },
               {
                 key: 'progress', label: t('Progress'), headerTitle: t('Share of the voyage\'s missions that finished successfully.'),

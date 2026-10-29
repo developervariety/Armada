@@ -396,6 +396,7 @@ namespace Armada.Core.Services
         /// </summary>
         /// <exception cref="ArgumentNullException">Thrown when targetWorkDir, sourceRepoPath, or branchName is null or empty.</exception>
         /// <exception cref="GitDirtyCheckoutException">Thrown when the checkout has uncommitted changes to tracked files.</exception>
+        /// <exception cref="GitMergeConflictException">Thrown when git reports conflicted files merging the branch.</exception>
         /// <exception cref="InvalidOperationException">Thrown when git cannot check out the target or merge the branch.</exception>
         public async Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default)
         {
@@ -484,9 +485,10 @@ namespace Armada.Core.Services
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 string failure = "Merge conflict or merge failure: " + ex.Message;
+                IReadOnlyList<string> conflicts = Array.Empty<string>();
                 try
                 {
-                    IReadOnlyList<string> conflicts = await GetConflictedFilesAsync(targetWorkDir, CancellationToken.None).ConfigureAwait(false);
+                    conflicts = await GetConflictedFilesAsync(targetWorkDir, CancellationToken.None).ConfigureAwait(false);
                     if (conflicts.Count > 0) failure += " Conflicted files: " + String.Join(", ", conflicts) + ".";
                     if (await ChangelogLandingConflict.TryResolveAsync(_Commands ?? new LocalHostCommandExecutor(), targetWorkDir, IsWindowsHost(targetWorkDir), token).ConfigureAwait(false)) return;
                 }
@@ -499,6 +501,8 @@ namespace Armada.Core.Services
                     try { await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, CancellationToken.None).ConfigureAwait(false); }
                     catch (Exception secondary) { failure += " Merge cleanup failed: " + secondary.Message; }
                 }
+                // Only a merge git reports as conflicted is a landing conflict; any other merge failure is not.
+                if (conflicts.Count > 0) throw new GitMergeConflictException(failure, conflicts, ex as GitCommandException);
                 if (ex is GitCommandException gitFailure)
                     throw new GitCommandException(gitFailure.Executable, gitFailure.Arguments, gitFailure.ExitCode, gitFailure.StandardOutput, failure);
                 throw new InvalidOperationException(failure, ex);
@@ -1237,6 +1241,62 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<IReadOnlyList<string>> FindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(revision)) throw new ArgumentNullException(nameof(revision));
+            if (String.IsNullOrEmpty(trailerKey)) throw new ArgumentNullException(nameof(trailerKey));
+            if (String.IsNullOrEmpty(trailerValue)) throw new ArgumentNullException(nameof(trailerValue));
+
+            List<string> found = new List<string>();
+            int limit = Math.Max(1, maxCount);
+            if (!await RefResolvesAsync(repoPath, revision, token).ConfigureAwait(false)) return found;
+
+            // The grep narrows the walk to messages that mention the value; the parsed trailers then decide, so a message
+            // that only quotes the value in prose is not a match. The candidate window is wider than the result limit for
+            // that reason.
+            List<string> args = new List<string>
+            {
+                "log",
+                revision,
+                "--fixed-strings",
+                "--grep=" + trailerValue,
+                "--max-count=" + (limit * 4).ToString(CultureInfo.InvariantCulture),
+                "--format=%H%x09%(trailers:key=" + trailerKey + ",valueonly,separator=%x09)"
+            };
+            if (sinceUtc.HasValue)
+                args.Add("--since=" + sinceUtc.Value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture));
+
+            GitProcessResult result;
+            try
+            {
+                result = await ExecuteProcessAsync(repoPath, "git", token, args.ToArray()).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Debug(_Header + "trailer search failed in " + repoPath + ": " + ex.Message);
+                return found;
+            }
+
+            if (!result.Succeeded || String.IsNullOrEmpty(result.StandardOutput)) return found;
+            foreach (string rawLine in result.StandardOutput.Replace("\r", String.Empty).Split('\n'))
+            {
+                string[] fields = rawLine.Split('\t');
+                if (fields.Length < 2 || String.IsNullOrWhiteSpace(fields[0])) continue;
+                bool matches = false;
+                for (int i = 1; i < fields.Length; i++)
+                {
+                    if (String.Equals(fields[i].Trim(), trailerValue, StringComparison.Ordinal)) matches = true;
+                }
+
+                if (matches) found.Add(fields[0].Trim());
+                if (found.Count >= limit) break;
+            }
+
+            return found;
+        }
+
+        /// <inheritdoc />
         public async Task<bool> CommitAllAsync(string worktreePath, string message, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
@@ -1497,7 +1557,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(tipSha)) throw new ArgumentNullException(nameof(tipSha));
             if (!GitRevisionNames.IsFullCommitId(tipSha)) throw new ArgumentException("tipSha must be a full commit id", nameof(tipSha));
             if (skip < 0) throw new ArgumentOutOfRangeException(nameof(skip));
-            if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+            if (limit < 1 || limit > Constants.VesselHistoryMaxPageSize) throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and " + Constants.VesselHistoryMaxPageSize + ".");
 
             List<string> args = new List<string>
             {

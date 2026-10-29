@@ -4,7 +4,7 @@ import { defaultInferenceOptions, parseAllowedTools, validateInferenceOptions } 
 import type { InferenceOptions } from '../types/models';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  listModelEndpoints,
+  enumerateModelEndpoints,
   createModelEndpoint,
   createCaptain,
   updateModelEndpoint,
@@ -51,6 +51,8 @@ import {
   type EndpointHeaderRow,
   type LocalizedText,
 } from '../lib/endpointAuth';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
+import TruncationNote from '../components/shared/TruncationNote';
 
 const PROVIDERS = MODEL_PROVIDERS;
 const KINDS = MODEL_ENDPOINT_KINDS;
@@ -120,7 +122,9 @@ export default function Endpoints() {
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
+  const [endpointTotal, setEndpointTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -288,8 +292,10 @@ export default function Endpoints() {
   async function load() {
     try {
       setLoading(true);
-      const result = await listModelEndpoints();
-      setEndpoints(result || []);
+      // One bounded page of the largest size; the note above the table says when more endpoints exist.
+      const result = await enumerateModelEndpoints();
+      setEndpoints(result?.objects ?? []);
+      setEndpointTotal(result?.totalRecords ?? (result?.objects?.length ?? 0));
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load endpoints.'));
@@ -351,13 +357,9 @@ export default function Endpoints() {
       message: t('Delete "{{name}}"? This cannot be undone.', { name: endpoint.name }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteModelEndpoint(endpoint.id);
-          pushToast('warning', t('Endpoint "{{name}}" deleted.', { name: endpoint.name }));
-          await load();
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'modelEndpoint', action: () => deleteModelEndpoint(endpoint.id), errorMessage: (err) => (err instanceof Error ? err.message : t('Delete failed.')) }))) return;
+        pushToast('warning', t('Endpoint "{{name}}" deleted.', { name: endpoint.name }));
+        await load();
       },
     });
   }
@@ -480,6 +482,7 @@ export default function Endpoints() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+      {deletion.dialog}
 
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
@@ -801,7 +804,7 @@ export default function Endpoints() {
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card" title={t('All endpoints you can see, enabled and disabled.')}>
           <span>{t('Total Endpoints')}</span>
-          <strong>{endpoints.length}</strong>
+          <strong>{Math.max(endpointTotal, endpoints.length)}</strong>
         </div>
         <div className="card playbook-overview-card" title={t('Endpoints whose latest health check passed.')}>
           <span>{t('Healthy')}</span>
@@ -827,6 +830,7 @@ export default function Endpoints() {
         </div>
       </div>
 
+      <TruncationNote shown={endpoints.length} total={endpointTotal} />
       <DataTable
         tableKey="model-endpoints"
         columns={columns}

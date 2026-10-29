@@ -1,4 +1,5 @@
-import { cancelVoyage, createMission, getVoyage, listMissions, purgeVoyage } from '@dashboard/api/client';
+import { cancelVoyage, createMission, getMission, getVoyage, listMissions, purgeVoyage } from '@dashboard/api/client';
+import { listAll } from '@dashboard/api/paging';
 import { findLandingMode, getVoyageLandingModes } from '@dashboard/lib/vesselForm';
 import {
   formatDeliveryMode,
@@ -6,9 +7,10 @@ import {
   parseCaptainOverrides,
   retryMissionPayload,
   splitVoyageResponse,
-  voyageProgress,
+  voyageProgressFromDetail,
+  VOYAGE_MISSION_PAGE_SIZE,
 } from '@dashboard/lib/voyageDetail';
-import type { Mission, Voyage } from '@dashboard/types/models';
+import type { Mission, MissionPlaybookSnapshot, Voyage, VoyageProgress } from '@dashboard/types/models';
 import { Stack, useRouter, type Href } from 'expo-router';
 import { useState } from 'react';
 import { RefreshControl, StyleSheet, View } from 'react-native';
@@ -31,21 +33,34 @@ import { MissionOutputSheet, type MissionOutputRequest } from '../../components/
 
 interface VoyageData {
   voyage: Voyage;
+  /** Server counts over every mission of the voyage (null for a bare voyage reply). */
+  detail: VoyageProgress | null;
+  /** The first `pages` pages of the voyage's missions, oldest first. */
   missions: Mission[];
+  /** Missions in the voyage, from the paged read. */
+  totalMissions: number;
+  /** Playbook snapshots of the voyage's first mission (list reads carry none). */
+  snapshots: MissionPlaybookSnapshot[];
 }
 
-/** Loads a voyage and its missions (getVoyage answers either shape; missions are listed separately when absent). */
-export async function loadVoyageData(id: string): Promise<VoyageData> {
+/** Loads a voyage with its counts and the first `pages` pages of its missions (never the whole list at once). */
+export async function loadVoyageData(id: string, pages = 1): Promise<VoyageData> {
   const parts = splitVoyageResponse(await getVoyage(id));
-  if (parts.missions) return { voyage: parts.voyage, missions: parts.missions };
-  let missions: Mission[] = [];
+  const missions: Mission[] = [];
+  let totalMissions = parts.detail?.totalMissions ?? 0;
   try {
-    const result = await listMissions({ pageSize: 1000, filters: { voyageId: id } });
-    missions = result?.objects ?? [];
+    for (let pageNumber = 1; pageNumber <= pages; pageNumber++) {
+      const result = await listMissions({ pageNumber, pageSize: VOYAGE_MISSION_PAGE_SIZE, filters: { voyageId: id, order: 'CreatedAscending' } });
+      missions.push(...(result?.objects ?? []));
+      totalMissions = result?.totalRecords ?? totalMissions;
+      if (!result || pageNumber >= result.totalPages) break;
+    }
   } catch {
-    missions = [];
+    // The voyage stays readable when its missions cannot be listed.
   }
-  return { voyage: parts.voyage, missions };
+  let snapshots: MissionPlaybookSnapshot[] = [];
+  if (missions[0]) snapshots = (await getMission(missions[0].id).catch(() => null))?.playbookSnapshots ?? [];
+  return { voyage: parts.voyage, detail: parts.detail, missions, totalMissions, snapshots };
 }
 
 /** The query string a prefilled form reads (Run Check, Draft Release): empty values are left out. */
@@ -65,7 +80,8 @@ export function VoyageDetail({ id, embedded }: OperationsDetailProps) {
   const router = useRouter();
   const { pushToast } = useNotifications();
   const lookups = useNameLookups({ vessels: true, captains: true });
-  const query = useQuery(() => loadVoyageData(id), [id], t('Failed to load voyage.'));
+  const [pages, setPages] = useState(1);
+  const query = useQuery(() => loadVoyageData(id, pages), [id, pages], t('Failed to load voyage.'));
   const [confirmElement, confirm] = useConfirm('voyage-confirm');
   const [error, setError] = useState('');
   const [jsonOpen, setJsonOpen] = useState(false);
@@ -93,13 +109,13 @@ export function VoyageDetail({ id, embedded }: OperationsDetailProps) {
     );
   }
 
-  const { voyage, missions } = query.data;
-  const progress = voyageProgress(missions);
+  const { voyage, missions, detail, totalMissions } = query.data;
+  const progress = voyageProgressFromDetail(detail ?? { totalMissions, missionCountsByStatus: {} });
   const landing = findLandingMode(landingModes, voyage.landingMode);
   const overrides = parseCaptainOverrides(voyage.captainOverridesJson);
-  const snapshots = missions[0]?.playbookSnapshots ?? [];
+  const snapshots = query.data.snapshots;
   const selections = voyage.selectedPlaybooks ?? [];
-  const failed = missions.filter((m) => m.status === 'Failed');
+  const failedCount = progress.failed;
   const first = missions[0];
   const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -139,10 +155,12 @@ export function VoyageDetail({ id, embedded }: OperationsDetailProps) {
 
   const handleRetryFailed = () => confirm({
     title: t('Retry Failed Missions'),
-    message: t('Retry {{count}} failed mission(s)? New missions will be created with the same parameters.', { count: failed.length }),
+    message: t('Retry {{count}} failed mission(s)? New missions will be created with the same parameters.', { count: failedCount }),
     confirmLabel: t('Retry Failed'),
     onConfirm: async () => {
       try {
+        // Every failed mission, read explicitly in bounded pages (not only the missions loaded on screen).
+        const failed = (await listAll(listMissions, { filters: { voyageId: voyage.id, status: 'Failed' } })).objects ?? [];
         for (const m of failed) await createMission(retryMissionPayload(m));
         pushToast('success', t('Retried {{count}} failed mission(s).', { count: failed.length }));
         void query.reload();
@@ -174,26 +192,26 @@ export function VoyageDetail({ id, embedded }: OperationsDetailProps) {
           testID="voyage-run-check"
           variant="secondary"
           label={t('Run Check')}
-          onPress={() => router.push(`/checks${prefillQuery({ vesselId: first?.vesselId, voyageId: voyage.id, branchName: first?.branchName, label: voyage.title })}` as Href)}
+          onPress={() => router.push(`/checks${prefillQuery({ vesselId: detail?.vesselId ?? first?.vesselId, voyageId: voyage.id, branchName: first?.branchName, label: voyage.title })}` as Href)}
         />
         <Button
           testID="voyage-draft-release"
           variant="secondary"
           label={t('Draft Release')}
           onPress={() => router.push(`/releases/new${prefillQuery({
-            vesselId: first?.vesselId,
+            vesselId: detail?.vesselId ?? first?.vesselId,
+            // The release links the voyage; its missions follow from it.
             voyageIds: voyage.id,
-            missionIds: missions.map((m) => m.id).join(','),
             title: voyage.title ? `${voyage.title} Release` : 'Voyage Release',
           })}` as Href)}
         />
         {isVoyageActive(voyage.status) ? <Button testID="voyage-cancel" variant="danger" label={t('Cancel Voyage')} onPress={handleCancel} /> : null}
-        {failed.length > 0 ? <Button testID="voyage-retry-failed" variant="secondary" label={`${t('Retry Failed')} (${failed.length})`} onPress={handleRetryFailed} /> : null}
+        {failedCount > 0 ? <Button testID="voyage-retry-failed" variant="secondary" label={`${t('Retry Failed')} (${failedCount})`} onPress={handleRetryFailed} /> : null}
         <Button testID="voyage-json" variant="ghost" label={t('View JSON')} onPress={() => setJsonOpen(true)} />
         {!isVoyageActive(voyage.status) ? <Button testID="voyage-delete" variant="danger" label={t('Delete')} onPress={handleDelete} /> : null}
       </View>
 
-      {missions.length > 0 ? (
+      {progress.total > 0 ? (
         <View style={styles.progress}>
           <ProgressBar percent={progress.percent} color="primary" label={t('Progress')} testID="voyage-progress" />
           <AppText variant="caption" muted testID="voyage-progress-text">
@@ -263,7 +281,7 @@ export function VoyageDetail({ id, embedded }: OperationsDetailProps) {
         </Section>
       ) : null}
 
-      <Section title={t('Missions')}>
+      <Section title={totalMissions > missions.length ? `${t('Missions')} (${missions.length}/${totalMissions})` : t('Missions')}>
         {missions.length === 0 ? (
           <View style={styles.pad}><AppText muted>{t('No missions in this voyage.')}</AppText></View>
         ) : missions.map((m) => (
@@ -279,6 +297,11 @@ export function VoyageDetail({ id, embedded }: OperationsDetailProps) {
             onLongPress={() => setMissionMenu(m)}
           />
         ))}
+        {totalMissions > missions.length ? (
+          <View style={styles.pad}>
+            <Button label={t('Load more')} variant="secondary" onPress={() => setPages((n) => n + 1)} testID="voyage-missions-load-more" />
+          </View>
+        ) : null}
       </Section>
 
       <ActionSheet
@@ -294,7 +317,7 @@ export function VoyageDetail({ id, embedded }: OperationsDetailProps) {
         ] : []}
       />
       <MissionOutputSheet request={output} onClose={() => setOutput(null)} />
-      <JsonSheet open={jsonOpen} title={t('Voyage: {{title}}', { title })} data={voyage} onClose={() => setJsonOpen(false)} />
+      <JsonSheet open={jsonOpen} title={t('Voyage: {{title}}', { title })} data={detail ?? voyage} onClose={() => setJsonOpen(false)} />
     </Screen>
   );
 }
