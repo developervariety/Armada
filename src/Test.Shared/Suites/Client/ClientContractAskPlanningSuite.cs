@@ -113,7 +113,7 @@ namespace Test.Shared.Suites.Client
                 AssertTrue(await LiveServerSetup.WaitUntilAsync(async () =>
                 {
                     PlanningSessionDetail? detail = await c.GetPlanningSessionAsync(id);
-                    EnumerationResult<PlanningSessionMessage>? newest = await c.EnumeratePlanningSessionMessagesAsync(id, new EnumerationQuery { PageSize = 100 });
+                    EnumerationResult<PlanningSessionMessage>? newest = await c.ListPlanningSessionMessagesAsync(id, new EnumerationQuery { PageSize = 100 });
                     answer = newest?.Objects.FirstOrDefault(m => m.Role != "User" && m.Content.Contains("Plan:", StringComparison.Ordinal));
                     return answer != null && detail!.Session!.Status != PlanningSessionStatusEnum.Responding;
                 }, LiveTimeoutMs), "captain answered: " + String.Join("; ", _Behavior.Errors));
@@ -123,7 +123,7 @@ namespace Test.Shared.Suites.Client
                 AssertStartsWith("vyg_", voyage?.Id, "dispatched voyage");
                 await c.StopPlanningTurnAsync(id);
                 await c.StopPlanningSessionAsync(id);
-                AssertTrue((await c.EnumeratePlanningSessionsAsync(new EnumerationQuery { PageSize = 1000 }))!.Objects.Any(p => p.Id == id), "listed");
+                AssertTrue((await c.ListPlanningSessionsAsync(new EnumerationQuery { PageSize = 1000 }))!.Objects.Any(p => p.Id == id), "listed");
                 await c.DeletePlanningSessionAsync(id);
             }));
 
@@ -156,18 +156,18 @@ namespace Test.Shared.Suites.Client
                 AssertTrue(await LiveServerSetup.WaitUntilAsync(async () =>
                 {
                     ObjectiveRefinementSessionDetail? detail = await c.GetObjectiveRefinementSessionAsync(sid);
-                    EnumerationResult<ObjectiveRefinementMessage>? newest = await c.EnumerateObjectiveRefinementMessagesAsync(sid, new EnumerationQuery { PageSize = 100 });
+                    EnumerationResult<ObjectiveRefinementMessage>? newest = await c.ListObjectiveRefinementMessagesAsync(sid, new EnumerationQuery { PageSize = 100 });
                     answer = newest?.Objects.FirstOrDefault(m => m.Role != "User" && m.Content.Contains("Summary:", StringComparison.Ordinal));
                     return answer != null && detail!.Session.Status != ObjectiveRefinementSessionStatusEnum.Responding;
                 }, LiveTimeoutMs), "captain answered: " + String.Join("; ", _Behavior.Errors));
                 AssertEqual(sid, (await c.SummarizeObjectiveRefinementSessionAsync(sid, new ObjectiveRefinementSummaryRequest { MessageId = answer!.Id }))?.SessionId, "summarize");
                 AssertEqual(first.Id, (await c.ApplyObjectiveRefinementSummaryAsync(sid, new ObjectiveRefinementApplyRequest { MessageId = answer.Id }))?.Objective.Id, "apply");
-                AssertTrue((await c.EnumerateBacklogRefinementSessionsAsync(first.Id))!.Objects.Any(r => r.Id == sid), "backlog sessions");
+                AssertTrue((await c.ListBacklogRefinementSessionsAsync(first.Id))!.Objects.Any(r => r.Id == sid), "backlog sessions");
                 await c.StopObjectiveRefinementSessionAsync(sid);
                 await c.DeleteObjectiveRefinementSessionAsync(sid);
 
                 ObjectiveRefinementSessionDetail objectiveSession = (await c.CreateObjectiveRefinementSessionAsync(second.Id, refine))!;
-                AssertTrue((await c.EnumerateObjectiveRefinementSessionsAsync(second.Id))!.Objects.Any(r => r.Id == objectiveSession.Session.Id), "objective sessions");
+                AssertTrue((await c.ListObjectiveRefinementSessionsAsync(second.Id))!.Objects.Any(r => r.Id == objectiveSession.Session.Id), "objective sessions");
                 await c.StopObjectiveRefinementSessionAsync(objectiveSession.Session.Id);
                 await c.DeleteObjectiveRefinementSessionAsync(objectiveSession.Session.Id);
 

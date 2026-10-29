@@ -127,7 +127,7 @@ namespace Test.Shared.Suites.Client
                 AssertNotNull(await c.ListVoyagesAsync(), "voyages");
                 AssertNotNull(await c.ListMergeQueueAsync(), "merge queue");
                 AssertNotNull(await c.ListDocksAsync(), "docks");
-                AssertNotNull(await c.EnumeratePlanningSessionsAsync(), "planning");
+                AssertNotNull(await c.ListPlanningSessionsAsync(), "planning");
                 AssertNotNull(await c.ListEventsAsync(new ArmadaPageQuery(1, 10)), "events");
                 AssertNotNull(await c.ListSignalsAsync(), "signals");
                 AssertNotNull(await c.GetInboxAsync(), "inbox");

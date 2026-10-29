@@ -25,7 +25,7 @@ namespace Armada.Client
         /// <param name="token">Cancellation token.</param>
         /// <returns>One page with exact totals.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<EnumerationResult<PlanningSession>?> EnumeratePlanningSessionsAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        public Task<EnumerationResult<PlanningSession>?> ListPlanningSessionsAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return PostAsync<EnumerationResult<PlanningSession>>("/api/v1/planning-sessions/enumerate", query ?? new EnumerationQuery(), null, token);
         }
@@ -39,7 +39,7 @@ namespace Armada.Client
         /// <param name="token">Cancellation token.</param>
         /// <returns>One page with exact totals.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<EnumerationResult<PlanningSessionMessage>?> EnumeratePlanningSessionMessagesAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
+        public Task<EnumerationResult<PlanningSessionMessage>?> ListPlanningSessionMessagesAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
         {
             return PostAsync<EnumerationResult<PlanningSessionMessage>>($"/api/v1/planning-sessions/{E(id)}/messages/enumerate", query ?? new EnumerationQuery(), null, token);
         }

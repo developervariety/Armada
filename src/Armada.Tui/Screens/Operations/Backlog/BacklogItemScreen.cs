@@ -1019,7 +1019,7 @@ namespace Armada.Tui.Screens.Operations
             EnumerationQuery query = new EnumerationQuery();
             query.PageNumber = grid.PageNumber;
             query.PageSize = grid.PageSize;
-            EnumerationResult<ObjectiveRefinementSession>? page = await Context.Client.EnumerateBacklogRefinementSessionsAsync(o.Id, query, token).ConfigureAwait(false);
+            EnumerationResult<ObjectiveRefinementSession>? page = await Context.Client.ListBacklogRefinementSessionsAsync(o.Id, query, token).ConfigureAwait(false);
             List<ObjectiveRefinementSession> rows = page?.Objects ?? new List<ObjectiveRefinementSession>();
             long total = page?.TotalRecords ?? rows.Count;
             Post(() =>
@@ -1057,7 +1057,7 @@ namespace Armada.Tui.Screens.Operations
             query.PageNumber = 1;
             query.PageSize = MessagePageSize;
             query.Order = EnumerationOrderEnum.CreatedDescending;
-            Call((c, t) => c.EnumerateObjectiveRefinementMessagesAsync(sessionId, query, t), page =>
+            Call((c, t) => c.ListObjectiveRefinementMessagesAsync(sessionId, query, t), page =>
             {
                 if (page == null || Detail == null || Detail.Session.Id != sessionId) return;
                 MergeMessages(page.Objects);
@@ -1076,7 +1076,7 @@ namespace Armada.Tui.Screens.Operations
             query.PageSize = MessagePageSize;
             query.Order = EnumerationOrderEnum.CreatedDescending;
             _LoadingOlder = true;
-            Call((c, t) => c.EnumerateObjectiveRefinementMessagesAsync(sessionId, query, t), page =>
+            Call((c, t) => c.ListObjectiveRefinementMessagesAsync(sessionId, query, t), page =>
             {
                 _LoadingOlder = false;
                 if (page == null || Detail == null || Detail.Session.Id != sessionId) return;

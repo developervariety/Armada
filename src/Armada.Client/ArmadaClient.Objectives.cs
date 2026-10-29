@@ -206,7 +206,7 @@ namespace Armada.Client
         /// <param name="token">Cancellation token.</param>
         /// <returns>One page with exact totals.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<EnumerationResult<ObjectiveRefinementSession>?> EnumerateObjectiveRefinementSessionsAsync(string objectiveId, EnumerationQuery? query = null, CancellationToken token = default)
+        public Task<EnumerationResult<ObjectiveRefinementSession>?> ListObjectiveRefinementSessionsAsync(string objectiveId, EnumerationQuery? query = null, CancellationToken token = default)
         {
             return PostAsync<EnumerationResult<ObjectiveRefinementSession>>($"/api/v1/objectives/{E(objectiveId)}/refinement-sessions/enumerate", query ?? new EnumerationQuery(), null, token);
         }
@@ -220,7 +220,7 @@ namespace Armada.Client
         /// <param name="token">Cancellation token.</param>
         /// <returns>One page with exact totals.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<EnumerationResult<ObjectiveRefinementSession>?> EnumerateBacklogRefinementSessionsAsync(string objectiveId, EnumerationQuery? query = null, CancellationToken token = default)
+        public Task<EnumerationResult<ObjectiveRefinementSession>?> ListBacklogRefinementSessionsAsync(string objectiveId, EnumerationQuery? query = null, CancellationToken token = default)
         {
             return PostAsync<EnumerationResult<ObjectiveRefinementSession>>($"/api/v1/backlog/{E(objectiveId)}/refinement-sessions/enumerate", query ?? new EnumerationQuery(), null, token);
         }
@@ -234,7 +234,7 @@ namespace Armada.Client
         /// <param name="token">Cancellation token.</param>
         /// <returns>One page with exact totals.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<EnumerationResult<ObjectiveRefinementMessage>?> EnumerateObjectiveRefinementMessagesAsync(string sessionId, EnumerationQuery? query = null, CancellationToken token = default)
+        public Task<EnumerationResult<ObjectiveRefinementMessage>?> ListObjectiveRefinementMessagesAsync(string sessionId, EnumerationQuery? query = null, CancellationToken token = default)
         {
             return PostAsync<EnumerationResult<ObjectiveRefinementMessage>>($"/api/v1/objective-refinement-sessions/{E(sessionId)}/messages/enumerate", query ?? new EnumerationQuery(), null, token);
         }

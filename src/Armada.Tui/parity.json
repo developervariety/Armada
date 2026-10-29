@@ -1921,9 +1921,57 @@
     },
     {
       "kind": "api",
+      "key": "enumerateAskProposals",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateAskProposalsAsync",
+      "workstream": "W0.2",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
+    },
+    {
+      "kind": "api",
       "key": "enumerateAskThreads",
       "status": "implemented",
       "tui": "ArmadaClient.EnumerateAskThreadsAsync",
+      "workstream": "W0.2",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateAskToolCalls",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateAskToolCallsAsync",
+      "workstream": "W0.2",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateAskTurnToolCalls",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateAskTurnToolCallsAsync",
+      "workstream": "W0.2",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateAskWork",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateAskWorkAsync",
+      "workstream": "W0.2",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateAskWorkMissions",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateAskWorkMissionsAsync",
+      "workstream": "W0.2",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateAskWorkTargets",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateAskWorkTargetsAsync",
       "workstream": "W0.2",
       "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
     },
@@ -2993,6 +3041,14 @@
     },
     {
       "kind": "api",
+      "key": "listObjectiveRefinementMessages",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListObjectiveRefinementMessagesAsync",
+      "workstream": "W0.2",
+      "notes": "Objectives"
+    },
+    {
+      "kind": "api",
       "key": "listObjectiveRefinementSessions",
       "status": "implemented",
       "tui": "ArmadaClient.ListObjectiveRefinementSessionsAsync",
@@ -3022,6 +3078,14 @@
       "tui": "ArmadaClient.ListPipelinesAsync",
       "workstream": "W0.2",
       "notes": "Pipelines"
+    },
+    {
+      "kind": "api",
+      "key": "listPlanningSessionMessages",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListPlanningSessionMessagesAsync",
+      "workstream": "W0.2",
+      "notes": "Planning Sessions"
     },
     {
       "kind": "api",

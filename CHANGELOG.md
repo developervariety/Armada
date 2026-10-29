@@ -44,13 +44,14 @@ Request lists over their limit are a typed `CollectionLimitExceeded` error (REST
 - `POST /api/v1/objectives/reorder`, `POST /api/v1/backlog/reorder`, `reorder_objectives`, and `reorder_backlog_items`
   return `ObjectiveReorderResult { Updated, Items: [{ ObjectiveId, Rank }] }` instead of the reordered objectives.
 - `list_backlog_refinement_sessions` accepts `pageSize` up to 1000 (it was 100).
-- .NET clients: `ListPlanningSessionsAsync`, `ListObjectiveRefinementSessionsAsync`, and
-  `ListBacklogRefinementSessionsAsync` are replaced by the paged `EnumeratePlanningSessionsAsync`,
-  `EnumerateObjectiveRefinementSessionsAsync`, and `EnumerateBacklogRefinementSessionsAsync`. New:
-  `EnumeratePlanningSessionMessagesAsync`, `EnumerateObjectiveRefinementMessagesAsync`, `EnumerateAskWorkAsync`,
-  `EnumerateAskWorkMissionsAsync`, `EnumerateAskWorkTargetsAsync`, `EnumerateAskProposalsAsync`,
-  `EnumerateAskToolCallsAsync`, and `EnumerateAskTurnToolCallsAsync`. The reorder methods return
-  `ObjectiveReorderResult`. `Armada.Client.Models.PlanningSessionDetail` moved to `Armada.Core.Models`.
+- .NET clients: `ArmadaClient.ListPlanningSessionsAsync`, `ListObjectiveRefinementSessionsAsync`, and
+  `ListBacklogRefinementSessionsAsync` keep their names (the dashboard parity manifest) but take an `EnumerationQuery`
+  and return one page (`EnumerationResult<T>`) instead of a whole list. In `ArmadaApiClient` the refinement
+  readers are `EnumerateObjectiveRefinementSessionsAsync`, `EnumerateBacklogRefinementSessionsAsync`, and
+  `EnumerateObjectiveRefinementMessagesAsync`. New: `ListPlanningSessionMessagesAsync`, `ListObjectiveRefinementMessagesAsync`,
+  `EnumerateAskWorkAsync`, `EnumerateAskWorkMissionsAsync`, `EnumerateAskWorkTargetsAsync`,
+  `EnumerateAskProposalsAsync`, `EnumerateAskToolCallsAsync`, and `EnumerateAskTurnToolCallsAsync`. The reorder methods
+  return `ObjectiveReorderResult`. `Armada.Client.Models.PlanningSessionDetail` moved to `Armada.Core.Models`.
 
 #### Limits
 

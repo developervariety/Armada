@@ -949,7 +949,7 @@ namespace Armada.Tui.Screens.Operations
                         EnumerationQuery query = new EnumerationQuery();
                         query.PageNumber = pageNumber;
                         query.PageSize = 100;
-                        EnumerationResult<PlanningSession>? page = await c.EnumeratePlanningSessionsAsync(query, t).ConfigureAwait(false);
+                        EnumerationResult<PlanningSession>? page = await c.ListPlanningSessionsAsync(query, t).ConfigureAwait(false);
                         if (page == null || page.Objects.Count == 0) break;
                         bool progressed = false;
                         foreach (PlanningSession s in page.Objects)
@@ -1040,7 +1040,7 @@ namespace Armada.Tui.Screens.Operations
             query.PageNumber = 1;
             query.PageSize = MessagePageSize;
             query.Order = EnumerationOrderEnum.CreatedDescending;
-            Call((c, t) => c.EnumeratePlanningSessionMessagesAsync(sessionId, query, t), page =>
+            Call((c, t) => c.ListPlanningSessionMessagesAsync(sessionId, query, t), page =>
             {
                 if (page == null || Detail?.Session == null || Detail.Session.Id != sessionId) return;
                 foreach (PlanningSessionMessage m in page.Objects) _Messages = PlanningLogic.UpsertMessage(_Messages, m);
@@ -1059,7 +1059,7 @@ namespace Armada.Tui.Screens.Operations
             query.PageSize = MessagePageSize;
             query.Order = EnumerationOrderEnum.CreatedDescending;
             _LoadingOlder = true;
-            Call((c, t) => c.EnumeratePlanningSessionMessagesAsync(sessionId, query, t), page =>
+            Call((c, t) => c.ListPlanningSessionMessagesAsync(sessionId, query, t), page =>
             {
                 _LoadingOlder = false;
                 if (page == null || Detail?.Session == null || Detail.Session.Id != sessionId) return;
@@ -1081,7 +1081,7 @@ namespace Armada.Tui.Screens.Operations
             query.Order = EnumerationOrderEnum.CreatedDescending;
             try
             {
-                EnumerationResult<PlanningSession>? page = await Context.Client.EnumeratePlanningSessionsAsync(query, token).ConfigureAwait(false);
+                EnumerationResult<PlanningSession>? page = await Context.Client.ListPlanningSessionsAsync(query, token).ConfigureAwait(false);
                 List<PlanningSession> rows = page?.Objects ?? new List<PlanningSession>();
                 long total = page?.TotalRecords ?? rows.Count;
                 Post(() =>
