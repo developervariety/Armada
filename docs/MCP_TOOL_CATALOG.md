@@ -208,7 +208,8 @@ repeat it.
 One ended voyage is reopened instead: a `Failed` voyage whose mission is the
 stage that failed on its own (`Failed`, with no terminal-voyage reconciliation
 marker), or a downstream stage `Cancelled` with `Blocked by failed dependency`.
-A stage with a dependency must reach, through `Failed` or `Cancelled` stages, a
+A stage an operator stopped (`Cancelled` with `operator_stopped:`) reopens a
+`Failed` or `Cancelled` voyage the same way as a failed stage. A stage with a dependency must reach, through `Failed` or `Cancelled` stages, a
 stage of the same voyage that handed off work with a commit: one that is
 `WorkProduced`, `Complete` or `PullRequestOpen`, or one the terminal-voyage
 rule moved to `Failed` or `Cancelled` with `terminal_voyage_work_unlanded`. No
@@ -221,8 +222,8 @@ returns to `WorkProduced`. Each skipped stage is recorded `Cancelled` with
 later stage `Cancelled` with `Blocked by failed dependency` behind the
 restarted stage returns to `Pending`, so the rest of the chain runs again; the
 voyage returns to `InProgress`; its Checks are armed again; and a
-`voyage.reopened` event is written. A `Complete` voyage, a `Cancelled` voyage,
-a stage an operator cancelled, a stage the terminal-voyage rule failed, and a
+`voyage.reopened` event is written. A `Complete` voyage, any other stage of a
+`Cancelled` voyage, a stage an operator cancelled, a stage the terminal-voyage rule failed, and a
 skipped stage that moved the branch stay refused with `voyage_ended`.
 
 `armada_replay_research_voyage` is a separate global-operator operation for an
