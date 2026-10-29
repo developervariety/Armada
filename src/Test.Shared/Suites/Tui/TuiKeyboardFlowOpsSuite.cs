@@ -108,7 +108,7 @@ namespace Test.Shared.Suites.Tui
             credentials.ExtraRoutes.Add(new[] { "GET", "/api/v1/users", "{\"Objects\":[{\"Id\":\"usr_admin\",\"TenantId\":\"ten_default\",\"Email\":\"admin@armada\",\"Active\":true}],\"TotalRecords\":1}" });
             specs.Add(credentials);
 
-            TuiFlowSpec jobs = TuiFlowSpec.Create("jobs", "/jobs", "/api/v1/jobs", "job_1", "Alpha job", null,
+            TuiFlowSpec jobs = TuiFlowSpec.Create("jobs", "/activity?source=jobs", "/api/v1/jobs", "job_1", "Alpha job", null,
                 "{\"Id\":\"job_1\",\"Name\":\"Alpha job\",\"Kind\":\"Generic\",\"Status\":\"Succeeded\",\"Progress\":100," + Stamp + "}");
             jobs.NewKey = null;
             jobs.OpenKey = "j";

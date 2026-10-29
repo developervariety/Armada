@@ -381,7 +381,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "restart_mission",
-                "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. Optionally update title and description (instructions) before restarting.",
+                "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch, or start a Pending mission as it is. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. The mission is then dispatched at once when a captain is available; otherwise it stays Pending for the regular dispatcher. Optionally update title and description (instructions) before restarting.",
                 new
                 {
                     type = "object",
@@ -440,7 +440,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)McpToolError.NotFound("Mission not found");
                     bool success = await landingService.RetryLandingAsync(request.MissionId).ConfigureAwait(false);
                     Mission? mission = await database.Missions.ReadAsync(request.MissionId).ConfigureAwait(false);
-                    return (object)new { Success = success, Mission = mission };
+                    return (object)new { Success = success, Reason = success ? null : (String.IsNullOrWhiteSpace(mission?.FailureReason) ? "Landing retry did not complete; mission status: " + mission?.Status : mission.FailureReason), Mission = mission };
                 });
 
             register(
@@ -476,6 +476,15 @@ namespace Armada.Server.Mcp.Tools
                     // branch, diff, and output to the next stage. Writing the status directly would skip that.
                     if (mission.Status == MissionStatusEnum.Review && newStatus != MissionStatusEnum.Cancelled)
                         return (object)McpToolError.Conflict("Mission " + missionId + " is waiting at a review gate; use approve_mission_review or deny_mission_review.");
+
+                    string? handoffRefusal = ManualMissionHandoff.Refusal(mission, newStatus);
+                    if (handoffRefusal != null) return (object)McpToolError.Conflict(handoffRefusal);
+                    if ((newStatus == MissionStatusEnum.WorkProduced || newStatus == MissionStatusEnum.Complete)
+                        && !MissionModeContract.IsReadOnly(mission.Mode))
+                    {
+                        try { return (object)await ManualMissionHandoff.LandAsync(database, admiral, mission, newStatus, git, settings).ConfigureAwait(false); }
+                        catch (InvalidOperationException ex) { return (object)McpToolError.Conflict(ex.Message); }
+                    }
 
                     mission.Status = newStatus;
                     mission.LastUpdateUtc = DateTime.UtcNow;

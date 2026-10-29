@@ -11,6 +11,9 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Safe parser result summary.</summary>
+        public string? ScanSummary { get; set; }
+
         /// <summary>
         /// Target identifier (fat_ prefix).
         /// </summary>
@@ -129,6 +132,7 @@ namespace Armada.Core.Models
                 VesselName = target.VesselName,
                 Status = target.Status,
                 SkipReason = target.SkipReason,
+                ScanSummary = target.ScanSummary,
                 FailureReason = target.FailureReason,
                 ExitCode = target.ExitCode,
                 OutputTruncated = target.OutputTruncated,

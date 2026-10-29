@@ -26,6 +26,7 @@ import UserScopeFilter from '../components/shared/UserScopeFilter';
 import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 import { MISSION_LIST_STATUSES, canRetryLanding, matchesMissionColumnFilters } from '../lib/missionActions';
+import { canRestartFromHome } from '../lib/dashboardStatus';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 type SortDir = 'asc' | 'desc';
@@ -95,6 +96,8 @@ export default function Missions() {
     captains.forEach(c => m.set(c.id, c.name));
     return m;
   }, [captains]);
+
+  const voyageMap = useMemo(() => new Map(voyages.map(v => [v.id, v])), [voyages]);
 
   const vesselName = useCallback((id: string | null) => (id ? vesselMap.get(id) || id.substring(0, 8) : '-'), [vesselMap]);
   const captainName = useCallback((id: string | null) => (id ? captainMap.get(id) || id.substring(0, 8) : '-'), [captainMap]);
@@ -257,7 +260,9 @@ export default function Missions() {
   async function handleRestart(m: MissionSummary) {
     try {
       await restartMission(m.id);
-      pushToast('success', t('Mission "{{title}}" restarted.', { title: m.title }));
+      pushToast('success', m.status === 'Pending'
+        ? t('Mission "{{title}}" started.', { title: m.title })
+        : t('Mission "{{title}}" restarted.', { title: m.title }));
       load();
     } catch { setError(t('Restart failed.')); }
   }
@@ -305,12 +310,6 @@ export default function Missions() {
 
   const columns: DataTableColumn<MissionSummary>[] = [
     {
-      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Short name of the mission, written by whoever created it. Click to sort.'),
-      cellClassName: 'cell-title', cellTitle: (m) => m.title,
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only missions on this page whose title contains this text. Not case sensitive.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} />,
-      render: (m) => <><strong className="line-clamp-2">{m.title}</strong>{m.isEvaluation && <EvaluationBadge isEvaluation />}</>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix). Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',
       render: (m) => (
         <span className="id-display">
@@ -318,6 +317,12 @@ export default function Missions() {
           <CopyButton text={m.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Short name of the mission, written by whoever created it. Click to sort.'),
+      cellClassName: 'cell-title', cellTitle: (m) => m.title,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only missions on this page whose title contains this text. Not case sensitive.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} />,
+      render: (m) => <><strong className="line-clamp-2">{m.title}</strong>{m.isEvaluation && <EvaluationBadge isEvaluation />}</>,
     },
     {
       key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Lifecycle state: Pending waits for a captain, InProgress is running, WorkProduced awaits landing, then Complete, Failed or Cancelled. Click to sort.'), cellClassName: 'cell-nowrap',
@@ -341,7 +346,7 @@ export default function Missions() {
     {
       key: 'voyage', label: t('Voyage'), headerTitle: t('Voyage (batch of related missions) this mission belongs to. Shows - for a standalone mission.'), interactive: true,
       render: (m) => m.voyageId ? (
-        <span className="cell-clip mono"><a href="#" title={m.voyageId} onClick={e => { e.preventDefault(); navigate(`/voyages/${m.voyageId}`); }}>{m.voyageId}</a></span>
+        <span className="cell-clip mono"><a href="#" title={m.voyageId} onClick={e => { e.preventDefault(); navigate(`/voyages/${m.voyageId}`); }}>{voyageMap.get(m.voyageId)?.title || m.voyageId}</a></span>
       ) : '-',
     },
     {
@@ -362,7 +367,8 @@ export default function Missions() {
           { label: 'Duplicate', title: 'Edit a fresh standalone mission with the same instructions. Execution state and dependencies are reset.', onClick: () => void openDuplicate(m) },
           { label: 'View Detail', title: 'Open the mission page with its description, captain activity, diff and log.', onClick: () => navigate(`/missions/${m.id}`) },
           { label: 'Edit', title: 'Open the mission page, where Edit changes its title, description and priority.', onClick: () => navigate(`/missions/${m.id}`) },
-          { label: 'Restart', title: 'Reset a Failed or Cancelled mission to Pending so it is dispatched again. Clears its captain, branch, pull request and timing.', onClick: () => handleRestart(m) },
+          ...(m.status === 'Pending' ? [{ label: 'Start', title: 'Start this Pending mission now. A free captain takes it at once; if none is free it stays Pending until one is.', onClick: () => handleRestart(m) }]
+            : canRestartFromHome(m.status) ? [{ label: 'Restart', title: 'Reset a Failed or Cancelled mission to Pending so it is dispatched again. Clears its captain, branch, pull request and timing.', onClick: () => handleRestart(m) }] : []),
           ...(canRetryLanding(m.status) ? [{ label: 'Retry Landing', title: 'Rebase the mission branch onto the current target branch and try to merge, push or open the pull request again.', onClick: () => handleRetryLanding(m) }] : []),
           { label: 'View Diff', title: 'Show the code changes the mission made, from its live worktree or the snapshot saved at completion.', onClick: () => handleViewDiff(m.id) },
           { label: 'View Log', title: 'Show the last lines of the captain\'s output for this mission.', onClick: () => handleViewLog(m.id, `${t('Log')}: ${m.title}`) },

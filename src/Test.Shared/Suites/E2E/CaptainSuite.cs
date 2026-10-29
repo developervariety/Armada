@@ -1249,7 +1249,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient authClient = fx.AuthClient;
                 List<string> createdCaptainIds = new List<string>();
 
-                string[] runtimes = new[] { "ClaudeCode", "Codex", "Gemini", "Cursor", "Custom" };
+                string[] runtimes = new[] { "ClaudeCode", "Codex", "Gemini", "Cursor", "Pi", "Custom" };
 
                 foreach (string runtime in runtimes)
                 {

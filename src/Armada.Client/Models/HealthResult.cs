@@ -44,6 +44,12 @@ namespace Armada.Client.Models
         /// </summary>
         public Armada.Core.Models.RemoteTunnelStatus? RemoteTunnel { get; set; } = null;
 
+        /// <summary>Informational version embedded in the running server.</summary>
+        public string? BuildVersion { get; set; }
+
+        /// <summary>Git source revision embedded in the running server.</summary>
+        public string? CommitHash { get; set; }
+
         #endregion
 
         #region Constructors-and-Factories

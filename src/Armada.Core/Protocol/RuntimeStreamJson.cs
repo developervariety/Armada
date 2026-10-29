@@ -5,7 +5,7 @@ namespace Armada.Core.Protocol
 
     /// <summary>
     /// Shared deserialization for newline-delimited JSON runtime streams (Claude Code stream-json, Codex exec --json,
-    /// Mux, OpenCode). A line is considered only when it is a single JSON object; malformed JSON or a value of the wrong
+    /// Mux, OpenCode, pi --mode json). A line is considered only when it is a single JSON object; malformed JSON or a value of the wrong
     /// shape yields false rather than an exception.
     /// </summary>
     public static class RuntimeStreamJson
