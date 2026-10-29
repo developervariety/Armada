@@ -1918,7 +1918,8 @@ Dry-run the vessel's auto-land predicate against a mission's captured diff witho
 
 ### get_fleet
 
-Get details of a specific fleet including all its vessels.
+Get one fleet and the number of vessels it holds in the caller's scope (`VesselCount`). The vessels are not embedded:
+page them with [`enumerate`](#enumerate) (`entityType` `vessels`, `fleetId`).
 
 **Input Schema:**
 
@@ -1948,14 +1949,7 @@ Get details of a specific fleet including all its vessels.
     "Name": "Backend Services",
     "...": "..."
   },
-  "Vessels": [
-    {
-      "Id": "vsl_abc123def456ghi789jk",
-      "Name": "auth-service",
-      "RepoUrl": "git@github.com:org/auth-service.git",
-      "...": "..."
-    }
-  ]
+  "VesselCount": 12
 }
 ```
 
@@ -1964,7 +1958,7 @@ Returns `{ "Error": "Fleet not found", "ErrorCode": "NotFound" }` if the ID does
 | Field | Type | Description |
 |---|---|---|
 | `fleet` | object | [Fleet](#fleet) object |
-| `vessels` | array | List of [Vessel](#vessel) objects in this fleet |
+| `vesselCount` | number | Vessels in this fleet visible to the caller |
 
 ---
 
@@ -2095,7 +2089,7 @@ Requires a tenant admin caller. Every path must lie inside `import.allowedRoots`
 { "roots": ["/Users/alex/Code"], "maxDepth": 3 }
 ```
 
-**Response:** `VesselImportDiscoverResponse`: `BatchId`, `Batch` (a [VesselImportBatch](#vesselimportbatch)), `Candidates` (array of [VesselImportItem](#vesselimportitem)), `Truncated` (true when the 5,000-candidate cap was reached), and `Hints` (`{Code, Message}`; codes `PathNotVisibleToAdmiral`, `CandidateLimitReached`).
+**Response:** `VesselImportDiscoverResponse`: `BatchId`, `Batch` (a [VesselImportBatch](#vesselimportbatch)), `Candidates` (array of [VesselImportItem](#vesselimportitem)), `Truncated` (true when the 1,000-candidate cap was reached; `directories` and `roots` together hold at most 1,000 paths, more is `InvalidArgument` with `Code` `CollectionLimitExceeded`), and `Hints` (`{Code, Message}`; codes `PathNotVisibleToAdmiral`, `CandidateLimitReached`).
 
 On failure returns `{ "Error": "...", "ErrorCode": "...", "Code": "..." }` with `Code` one of `InvalidRequest` (no paths, too many paths, or a relative path), `PathNotAllowed` (`ErrorCode` `Forbidden`), or `HarborNotSupported`, or `{ "Error": "discover_vessels requires a tenant admin", "ErrorCode": "Forbidden" }`.
 
@@ -2769,7 +2763,7 @@ Permanently delete multiple fleets from the database by ID. Returns a summary of
 }
 ```
 
-Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided.
+Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided. `ids` holds at most 1000 entries; a longer list returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing. `Skipped` is bounded by the request.
 
 ---
 
@@ -2890,8 +2884,11 @@ Delete a vessel by ID.
 **Response:**
 
 ```json
-{ "Status": "deleted", "VesselId": "vsl_..." }
+{ "Status": "deleted", "VesselId": "vsl_...", "WarningCount": 0, "Warnings": null }
 ```
+
+When a cleanup step could not complete (a mission that could not be stopped or deleted, a dock that could not be purged,
+a directory left in place), `WarningCount` counts them and `Warnings` lists the first 50.
 
 ---
 
@@ -2927,13 +2924,13 @@ Permanently delete multiple vessels from the database by ID. Returns a summary o
 }
 ```
 
-Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided.
+Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided. `ids` holds at most 1000 entries; a longer list returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing. `Skipped` is bounded by the request.
 
 ---
 
 ### vessel_health
 
-Get one vessel's health: the row with effective (override-aware) statuses, the raw findings, and the manual overrides. Dependency rows are excluded by default to conserve context; `DependencyCount` is always returned. The row and finding fields, enum spellings, and detail codes match `GET /api/v1/vessels/{id}/health` in [REST_API.md](REST_API.md#vessel-health). To list vessels by health, use [`enumerate`](#enumerate) with `entityType` `vessel_health`.
+Get one vessel's health: the row with effective (override-aware) statuses, the raw findings, the manual overrides, and `DependencyCount`. Dependency rows are not embedded; page them with [`list_vessel_dependencies`](#list_vessel_dependencies). The former `includeDependencies` argument was removed. The row and finding fields, enum spellings, and detail codes match `GET /api/v1/vessels/{id}/health` in [REST_API.md](REST_API.md#vessel-health). To list vessels by health, use [`enumerate`](#enumerate) with `entityType` `vessel_health`.
 
 **Input Schema:**
 
@@ -2941,8 +2938,7 @@ Get one vessel's health: the row with effective (override-aware) statuses, the r
 {
   "type": "object",
   "properties": {
-    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" },
-    "includeDependencies": { "type": "boolean", "description": "Include outdated/vulnerable dependency rows (default false)" }
+    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" }
   },
   "required": ["vesselId"]
 }
@@ -2951,7 +2947,6 @@ Get one vessel's health: the row with effective (override-aware) statuses, the r
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `vesselId` | string | Yes | Vessel ID (prefix `vsl_`) |
-| `includeDependencies` | boolean | No | Include the `Dependencies` list (default `false`) |
 
 **Response:**
 
@@ -2961,6 +2956,41 @@ Get one vessel's health: the row with effective (override-aware) statuses, the r
   "Findings": [ { "Criterion": "Dependencies", "Status": "Fail", "DetailCode": "OutdatedPackages", "ValueA": 23, "ValueB": 5, "...": "..." } ],
   "Overrides": [],
   "DependencyCount": 30
+}
+```
+
+Returns `{ "Error": "Vessel not found", "ErrorCode": "NotFound" }` when the vessel is not in the caller's tenant.
+
+---
+
+### list_vessel_dependencies
+
+List one page of a vessel's outdated or vulnerable dependency rows from its last health evaluation, cut in the database
+and ordered by ecosystem, package name, then project path. Same rows as `GET /api/v1/vessels/{id}/health/dependencies`.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" },
+    "pageNumber": { "type": "integer", "description": "Page number (default 1)" },
+    "pageSize": { "type": "integer", "description": "Page size, 1 to 1000 (default 10)" }
+  },
+  "required": ["vesselId"]
+}
+```
+
+**Response:** the standard page shape.
+
+```json
+{
+  "PageNumber": 1,
+  "PageSize": 10,
+  "TotalPages": 3,
+  "TotalRecords": 30,
+  "Objects": [ { "Ecosystem": "NuGet", "PackageName": "Newtonsoft.Json", "CurrentVersion": "12.0.1", "LatestVersion": "13.0.4", "Drift": "Major", "IsVulnerable": true, "Severity": "High", "...": "..." } ]
 }
 ```
 
@@ -3738,7 +3768,7 @@ Permanently delete multiple docks and their git worktrees from the database by I
 }
 ```
 
-Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided.
+Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided. `ids` holds at most 1000 entries; a longer list returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing. `Skipped` is bounded by the request.
 
 ---
 

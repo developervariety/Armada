@@ -37,6 +37,7 @@ namespace Armada.Core.Services.Ask
             "mission_status",
             "fleet_action_run_status",
             "vessel_health",
+            "list_vessel_dependencies",
             "papercut_summary",
             "token_usage_summary",
             "search_memory",

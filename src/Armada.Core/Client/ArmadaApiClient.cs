@@ -115,11 +115,14 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
-        /// Get a fleet by ID.
+        /// Get a fleet by ID. The server answers with a <see cref="FleetDetailResponse"/> (the fleet and its vessel
+        /// count); this returns the fleet. Page the fleet's vessels with <see cref="EnumerateVesselsAsync"/> and a
+        /// FleetId filter.
         /// </summary>
         public async Task<Fleet?> GetFleetAsync(string id, CancellationToken token = default)
         {
-            return await GetAsync<Fleet>("/api/v1/fleets/" + id, token).ConfigureAwait(false);
+            FleetDetailResponse? detail = await GetAsync<FleetDetailResponse>("/api/v1/fleets/" + id, token).ConfigureAwait(false);
+            return detail?.Fleet;
         }
 
         /// <summary>

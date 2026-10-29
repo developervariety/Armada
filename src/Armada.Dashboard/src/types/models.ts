@@ -148,6 +148,12 @@ export interface Fleet {
   lastUpdateUtc: string;
 }
 
+/** GET /api/v1/fleets/{id}: the fleet and its vessel count (vessels are paged with listVessels and fleetId). */
+export interface FleetDetailResponse {
+  fleet: Fleet;
+  vesselCount: number;
+}
+
 export interface Vessel {
   id: string;
   tenantId: string | null;
@@ -1275,7 +1281,8 @@ export interface VesselHealthOverride {
 export interface VesselHealthDetail {
   health: VesselHealth;
   findings: VesselHealthFinding[];
-  dependencies: VesselDependency[];
+  /** Number of stored dependency rows; page them with listVesselDependencies (they are not embedded). */
+  dependencyCount: number;
   overrides: VesselHealthOverride[];
 }
 
@@ -2053,7 +2060,9 @@ export interface VesselReadinessResult {
   deploymentEnvironments: string[];
   deploymentMetadata: VesselDeploymentMetadata | null;
   setupChecklist: VesselSetupChecklistItem[];
+  /** At most 200 issues (most severe first when capped); issueCount is the full count. */
   issues: VesselReadinessIssue[];
+  issueCount?: number;
   setupChecklistSatisfiedCount: number;
   setupChecklistTotalCount: number;
   errorCount: number;
@@ -2267,7 +2276,12 @@ export interface WorkspaceTreeResult {
   rootPath: string;
   currentPath: string;
   parentPath: string | null;
+  /** One page of the directory's entries; the paging fields describe the whole directory. */
   entries: WorkspaceTreeEntry[];
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+  totalRecords: number;
 }
 
 export interface WorkspaceFileResponse {
@@ -2338,7 +2352,12 @@ export interface WorkspaceChangesResult {
   isDirty: boolean;
   commitsAhead: number;
   commitsBehind: number;
+  /** One page of changed files; totalRecords counts every changed file. */
   changes: WorkspaceChangeEntry[];
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+  totalRecords: number;
   error?: string | null;
 }
 
@@ -2346,7 +2365,9 @@ export interface WorkspaceActiveMission {
   missionId: string;
   title: string;
   status: string;
+  /** At most 256 paths; scopedFileCount is the full count. */
   scopedFiles: string[];
+  scopedFileCount: number;
 }
 
 export interface WorkspaceStatusResult {
@@ -2357,8 +2378,8 @@ export interface WorkspaceStatusResult {
   isDirty: boolean;
   commitsAhead?: number | null;
   commitsBehind?: number | null;
+  /** The missions themselves are paged with listWorkspaceActiveMissions. */
   activeMissionCount: number;
-  activeMissions: WorkspaceActiveMission[];
   error?: string | null;
 }
 
@@ -3031,7 +3052,14 @@ export interface VesselBrowseEntry {
 export interface VesselBrowseResult {
   path: string | null;
   parent: string | null;
+  /** One page of subdirectories by name; the paging fields describe the whole directory. */
   entries: VesselBrowseEntry[];
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+  totalRecords: number;
+  /** True when the directory has more entries than the server examines; narrow the path to see the rest. */
+  truncated: boolean;
 }
 
 export interface VesselImportBatch {
@@ -3837,7 +3865,9 @@ export interface VesselCommit {
   committerEmail: string;
   /** Commit date; history is ordered and filtered by it. */
   committedUtc: string;
+  /** At most 64 entries; parentCount is the full count. */
   parentShas: string[];
+  parentCount?: number;
   isMerge: boolean;
   /** All changed files, even when `files` is truncated. */
   filesChanged: number;

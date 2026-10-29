@@ -106,6 +106,8 @@ namespace Armada.Core.Authorization
 
             Add("GET", "/api/v1/storage", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
             Add("POST", "/api/v1/storage/refresh", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
+            Add("GET", "/api/v1/storage/hosts", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
+            Add("POST", "/api/v1/storage/hosts/enumerate", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
 
             // BackupRoutes
             Add("GET", "/api/v1/backup", "Backup", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
@@ -470,6 +472,8 @@ namespace Armada.Core.Authorization
             Add("GET", "/api/v1/vessel-health/summary", "VesselHealth", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/vessel-health/evaluate", "VesselHealth", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("GET", "/api/v1/vessels/{id}/health", "VesselHealth", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/vessels/{id}/health/dependencies", "VesselHealth", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/vessels/{id}/health/dependencies/enumerate", "VesselHealth", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/vessels/{id}/health/overrides/{criterion}", "VesselHealth", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
             Add("DELETE", "/api/v1/vessels/{id}/health/overrides/{criterion}", "VesselHealth", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
 
@@ -499,6 +503,8 @@ namespace Armada.Core.Authorization
             Add("GET", "/api/v1/vessels/{id}/readiness", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/vessels/{id}/landing-preview", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/vessels/{id}/cleanup", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/vessels/{id}/cleanup/resources", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/vessels/{id}/cleanup/resources/enumerate", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/vessels/{id}/cleanup", "Vessel", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
             Add("POST", "/api/v1/vessels/{id}/build-context", "Vessel", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("DELETE", "/api/v1/vessels/{id}", "Vessel", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
@@ -538,6 +544,8 @@ namespace Armada.Core.Authorization
             Add("GET", "/api/v1/workspace/vessels/{vesselId}/search", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/workspace/vessels/{vesselId}/changes", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/workspace/vessels/{vesselId}/status", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/workspace/vessels/{vesselId}/active-missions", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/workspace/vessels/{vesselId}/active-missions/enumerate", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
         }
 
         #endregion

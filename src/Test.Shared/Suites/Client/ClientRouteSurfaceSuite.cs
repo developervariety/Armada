@@ -51,7 +51,13 @@ namespace Test.Shared.Suites.Client
             ["restartCaptain"] = "Composes deleteCaptain and createCaptain, which are checked themselves",
             ["listAllMuxEndpoints"] = "Reads pages through enumerateMuxEndpoints, which is checked itself",
             ["listMuxEndpoints"] = "Calls listAllMuxEndpoints (pages of enumerateMuxEndpoints, which is checked itself)",
-            ["getEntity"] = "Generic lookup: the path's entity segment comes from a type map, so it has no single literal route"
+            ["getEntity"] = "Generic lookup: the path's entity segment comes from a type map, so it has no single literal route",
+            ["getFleet"] = "Unwraps getFleetDetail, which is checked itself",
+            ["listWorkspaceDirectory"] = "Walks getWorkspaceTree pages, which is checked itself",
+            ["listAllWorkspaceChanges"] = "Walks getWorkspaceChanges pages, which is checked itself",
+            ["listAllWorkspaceActiveMissions"] = "Walks listWorkspaceActiveMissions pages, which is checked itself",
+            ["browseAllVesselImport"] = "Walks browseVesselImport pages, which is checked itself",
+            ["listAllStorageHosts"] = "Walks listStorageHosts pages, which is checked itself"
         };
 
         /// <summary>
@@ -60,6 +66,10 @@ namespace Test.Shared.Suites.Client
         private static readonly Dictionary<string, string> _RoutesWithoutClientMethod = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["DELETE /api/v1/docks/{id}/purge"] = "Operator recovery, also the MCP tool purge_dock; no dashboard function",
+            ["GET /api/v1/storage/hosts"] = "GET twin of the enumerate route; the dashboard and the client use POST /api/v1/storage/hosts/enumerate (ListStorageHostsAsync)",
+            ["GET /api/v1/vessels/{id}/cleanup/resources"] = "GET twin of the enumerate route; the dashboard and the client use POST .../cleanup/resources/enumerate (ListVesselCleanupResourcesAsync)",
+            ["GET /api/v1/vessels/{id}/health/dependencies"] = "GET twin of the enumerate route; the dashboard and the client use POST .../health/dependencies/enumerate (ListVesselDependenciesAsync)",
+            ["GET /api/v1/workspace/vessels/{vesselId}/active-missions"] = "GET twin of the enumerate route; the dashboard and the client use POST .../active-missions/enumerate (ListWorkspaceActiveMissionsAsync)",
             ["DELETE /api/v1/events/{id}"] = "Single delete; the dashboard deletes through POST /api/v1/events/delete/multiple (DeleteEventsBatchAsync)",
             ["DELETE /api/v1/merge-queue/{id}/purge"] = "Operator recovery, also the MCP tool purge_merge_entry; no dashboard function",
             ["DELETE /api/v1/signals/{id}"] = "Single delete; the dashboard deletes through POST /api/v1/signals/delete/multiple (DeleteSignalsBatchAsync)",

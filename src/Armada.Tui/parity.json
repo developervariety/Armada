@@ -1113,6 +1113,14 @@
     },
     {
       "kind": "api",
+      "key": "browseAllVesselImport",
+      "status": "implemented",
+      "tui": "ArmadaClient.BrowseAllVesselImportAsync",
+      "workstream": "W0.2",
+      "notes": "Vessel Import"
+    },
+    {
+      "kind": "api",
       "key": "browseVesselImport",
       "status": "implemented",
       "tui": "ArmadaClient.BrowseVesselImportAsync",
@@ -2297,6 +2305,14 @@
     },
     {
       "kind": "api",
+      "key": "getFleetDetail",
+      "status": "implemented",
+      "tui": "ArmadaClient.GetFleetDetailAsync",
+      "workstream": "W0.2",
+      "notes": "Fleets"
+    },
+    {
+      "kind": "api",
       "key": "getHarbor",
       "status": "implemented",
       "tui": "ArmadaClient.GetHarborAsync",
@@ -2833,6 +2849,30 @@
     },
     {
       "kind": "api",
+      "key": "listAllStorageHosts",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListAllStorageHostsAsync",
+      "workstream": "W0.2",
+      "notes": "Fleet Actions"
+    },
+    {
+      "kind": "api",
+      "key": "listAllWorkspaceActiveMissions",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListAllWorkspaceActiveMissionsAsync",
+      "workstream": "W0.2",
+      "notes": "Workspace"
+    },
+    {
+      "kind": "api",
+      "key": "listAllWorkspaceChanges",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListAllWorkspaceChangesAsync",
+      "workstream": "W0.2",
+      "notes": "Workspace"
+    },
+    {
+      "kind": "api",
       "key": "listBacklog",
       "status": "implemented",
       "tui": "ArmadaClient.ListBacklogAsync",
@@ -3153,6 +3193,14 @@
     },
     {
       "kind": "api",
+      "key": "listStorageHosts",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListStorageHostsAsync",
+      "workstream": "W0.2",
+      "notes": "Fleet Actions"
+    },
+    {
+      "kind": "api",
       "key": "listTenants",
       "status": "implemented",
       "tui": "ArmadaClient.ListTenantsAsync",
@@ -3166,6 +3214,22 @@
       "tui": "ArmadaClient.ListUsersAsync",
       "workstream": "W0.2",
       "notes": "Users (admin) | used by CredentialsScreen, UsersScreen"
+    },
+    {
+      "kind": "api",
+      "key": "listVesselCleanupResources",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListVesselCleanupResourcesAsync",
+      "workstream": "W0.2",
+      "notes": "Vessels"
+    },
+    {
+      "kind": "api",
+      "key": "listVesselDependencies",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListVesselDependenciesAsync",
+      "workstream": "W0.2",
+      "notes": "Vessel Health"
     },
     {
       "kind": "api",
@@ -3190,6 +3254,22 @@
       "tui": "ArmadaClient.ListWorkflowProfilesAsync",
       "workstream": "W0.2",
       "notes": "Workflow Profiles | used by SetupWizardScreen"
+    },
+    {
+      "kind": "api",
+      "key": "listWorkspaceActiveMissions",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListWorkspaceActiveMissionsAsync",
+      "workstream": "W0.2",
+      "notes": "Workspace"
+    },
+    {
+      "kind": "api",
+      "key": "listWorkspaceDirectory",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListWorkspaceDirectoryAsync",
+      "workstream": "W0.2",
+      "notes": "Workspace"
     },
     {
       "kind": "api",

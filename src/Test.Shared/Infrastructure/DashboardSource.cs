@@ -18,7 +18,7 @@ namespace Test.Shared.Infrastructure
         public static readonly HashSet<string> NonServerExports = new HashSet<string>(StringComparer.Ordinal)
         {
             "ApiError", "apiErrorCode", "apiErrorMessage", "isApiStatus", "setAuthToken", "setOnUnauthorized", "camelizeKeys", "encodeBrowsePath",
-            "configureClient", "getClientBaseUrl"
+            "configureClient", "getClientBaseUrl", "BULK_DELETE_CHUNK", "CLEANUP_KEY_CHUNK", "MAX_WORKSPACE_PAGES", "deleteInChunks"
         };
 
         /// <summary>

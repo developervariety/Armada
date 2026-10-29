@@ -1497,7 +1497,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(tipSha)) throw new ArgumentNullException(nameof(tipSha));
             if (!GitRevisionNames.IsFullCommitId(tipSha)) throw new ArgumentException("tipSha must be a full commit id", nameof(tipSha));
             if (skip < 0) throw new ArgumentOutOfRangeException(nameof(skip));
-            if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+            if (limit < 1 || limit > Constants.VesselHistoryMaxPageSize) throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and " + Constants.VesselHistoryMaxPageSize + ".");
 
             List<string> args = new List<string>
             {

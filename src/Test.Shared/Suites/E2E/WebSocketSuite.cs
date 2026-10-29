@@ -353,7 +353,7 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 FleetDetailResponse data = DeserializeData<FleetDetailResponse>(resp);
                 AssertEqual(fleetId, data.Fleet!.Id);
-                AssertNotNull(data.Vessels);
+                AssertEqual(0L, data.VesselCount, "vessel count; vessels are not embedded");
             }));
 
             cases.Add(CaseAsync("get_fleet_non_existent_returns_error", "GetFleet_NonExistent_ReturnsError", TestTags.Negative, async () =>
@@ -481,6 +481,23 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Vessel data = DeserializeData<Vessel>(resp);
                 AssertStartsWith("vsl_", data.Id);
+            }));
+
+            cases.Add(CaseAsync("create_vessel_over_config_limit_returns_invalid_argument", "CreateVessel_ConfigListOverLimit_ReturnsInvalidArgumentAndCreatesNothing", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                int restPort = fx.RestPort;
+                string name = "ws-vessel-limit-" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                List<string> patterns = Enumerable.Range(0, Armada.Core.Services.CollectionLimits.MaxConfigItems + 1).Select(i => "release/" + i).ToList();
+
+                JsonElement resp = await WsCommandAsync(restPort, "create_vessel", new { data = new { Name = name, RepoUrl = TestRepoHelper.GetLocalBareRepoUrl(), ProtectedBranchPatterns = patterns } }).ConfigureAwait(false);
+                E2eWebSocketFrame frame = E2eWebSocketFrame.Parse(resp.GetRawText())!;
+                AssertEqual("command.error", frame.Type);
+                AssertEqual(WebSocketCommandErrorCodeEnum.InvalidArgument, frame.Code);
+                AssertContains("ProtectedBranchPatterns", resp.GetRawText(), "the error names the list");
+
+                EnumerationResult<Vessel> page = await GetViaRestAsync<EnumerationResult<Vessel>>(fx.AuthClient, "/api/v1/vessels?pageSize=1000").ConfigureAwait(false);
+                AssertFalse(page.Objects.Any(v => v.Name == name), "nothing was created");
             }));
 
             cases.Add(CaseAsync("create_vessel_git_hub_token_override_does_not_leak", "CreateVessel_GitHubTokenOverrideDoesNotLeak", TestTags.Positive, async () =>

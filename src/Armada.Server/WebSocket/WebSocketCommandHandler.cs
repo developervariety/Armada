@@ -207,8 +207,9 @@ namespace Armada.Server.WebSocket
                         return WebSocketCommandError.Create("get_fleet", WebSocketCommandErrorCodeEnum.NotFound, "Fleet not found");
                     else
                     {
-                        List<Vessel> fleetVessels = await _Database.Vessels.EnumerateByFleetAsync(getFleetId).ConfigureAwait(false);
-                        return new { type = "command.result", action = "get_fleet", data = (object)new { Fleet = foundFleet, Vessels = fleetVessels } };
+                        // Vessels are not embedded: page them with list_vessels and query.fleetId.
+                        EnumerationResult<Vessel> fleetVesselPage = await _Database.Vessels.EnumerateAsync(new EnumerationQuery { FleetId = getFleetId, PageSize = 1 }).ConfigureAwait(false);
+                        return new { type = "command.result", action = "get_fleet", data = (object)new FleetDetailResponse { Fleet = foundFleet, VesselCount = fleetVesselPage.TotalRecords } };
                     }
 
                 case "create_fleet":
