@@ -136,6 +136,19 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>listAllMuxEndpoints</c>: every saved Mux endpoint for a picker, read page by page (see
+        /// <see cref="ListMuxEndpointsAsync"/>).
+        /// </summary>
+        /// <param name="configDirectory">Mux config directory, or null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Every endpoint, or the failing page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<MuxEndpointPage?> ListAllMuxEndpointsAsync(string? configDirectory = null, CancellationToken token = default)
+        {
+            return ListMuxEndpointsAsync(configDirectory, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>getMuxEndpoint</c>: GET /api/v1/runtimes/mux/endpoints/{name}.
         /// </summary>
         /// <param name="name">Endpoint name.</param>

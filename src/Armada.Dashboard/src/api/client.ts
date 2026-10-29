@@ -16,6 +16,7 @@ import type {
   Vessel,
   Captain,
   CaptainToolAccessResult,
+  CaptainToolsQuery,
   Mission,
   MissionSummary,
   MissionHistorySummaryResult,
@@ -110,7 +111,7 @@ import type {
   VesselCommitPage,
   VesselCommitQuery,
   LandingPreviewResult,
-  MuxEndpointListResult,
+  MuxEndpointPage,
   MuxEndpointShowResult,
   WorkspaceChangesResult,
   WorkspaceCreateDirectoryRequest,
@@ -193,7 +194,7 @@ import type {
   ModelProbeRun,
   ModelProbeRunQuery,
 } from '../types/models';
-import { MAX_PAGE_SIZE } from './paging';
+import { MAX_PAGE_SIZE, MAX_PAGES } from './paging';
 
 /**
  * Host services the client cannot implement portably. The dashboard registers a browser adapter (anchor
@@ -548,6 +549,11 @@ function buildQuery(params?: { pageNumber?: number; pageSize?: number; filters?:
  * Every row of a paged enumerate route, collected page by page. Each request returns at most one page; use this where a
  * screen needs the whole set (pickers, maps), and the route itself for one page.
  */
+/** One page (default the first, of the largest size) of a POST .../enumerate route, with its true totals. */
+async function enumeratePage<T>(path: string, params: { pageNumber?: number; pageSize?: number } = {}, body: Record<string, unknown> = {}): Promise<EnumerationResult<T>> {
+  return post<EnumerationResult<T>>(path, { ...body, PageNumber: params.pageNumber ?? 1, PageSize: params.pageSize ?? MAX_PAGE_SIZE });
+}
+
 /**
  * One bounded page (the first MAX_PAGE_SIZE rows) of an enumerate route, for the array-returning list helpers below.
  * It never loops over pages: a caller that needs more pages the route itself, explicitly (see api/paging.ts).
@@ -1057,7 +1063,17 @@ export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; 
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
 // The runtime tool probe (e.g. Mux) launches the CLI and can take tens of seconds; allow well
 // beyond the default 30s so slow probes resolve instead of aborting and reading as "unknown".
-export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`, { timeout: 120000 });
+// Tools come back one page at a time (Tools is an EnumerationResult); the server reuses its probe snapshot for 60
+// seconds unless refresh is set, so paging does not probe again.
+export const getCaptainTools = (id: string, query: CaptainToolsQuery = {}) => {
+  const search = new URLSearchParams();
+  if (query.pageNumber) search.set('pageNumber', String(query.pageNumber));
+  if (query.pageSize) search.set('pageSize', String(query.pageSize));
+  if (query.sourceKind) search.set('sourceKind', query.sourceKind);
+  if (query.refresh) search.set('refresh', 'true');
+  const qs = search.toString();
+  return get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools${qs ? `?${qs}` : ''}`, { timeout: 120000 });
+};
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);
@@ -1098,8 +1114,32 @@ export const setVesselHealthOverride = (vesselId: string, criterion: VesselHealt
   put<VesselHealthDetail>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/health/overrides/${encodeURIComponent(criterion)}`, { Status: status, Note: note ?? null });
 export const deleteVesselHealthOverride = (vesselId: string, criterion: VesselHealthCriterion) =>
   del<VesselHealthDetail>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/health/overrides/${encodeURIComponent(criterion)}`);
-export const listMuxEndpoints = (configDirectory?: string | null) =>
-  get<MuxEndpointListResult>(`/api/v1/runtimes/mux/endpoints${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
+/** One page of the saved Mux endpoints, ordered by name. */
+export const enumerateMuxEndpoints = (params: { configDirectory?: string | null; pageNumber?: number; pageSize?: number } = {}) => {
+  const search = new URLSearchParams();
+  search.set('pageNumber', String(params.pageNumber ?? 1));
+  search.set('pageSize', String(params.pageSize ?? 10));
+  if (params.configDirectory) search.set('configDirectory', params.configDirectory);
+  return get<MuxEndpointPage>(`/api/v1/runtimes/mux/endpoints?${search.toString()}`);
+};
+/**
+ * Every saved Mux endpoint for a picker: an explicit, bounded iteration over pages of 1000 until the server's
+ * totalPages (or the MAX_PAGES safety stop) is reached. Returns the first page's metadata with every endpoint in objects (totalRecords is the
+ * server's count); a failed page is returned as is.
+ */
+export const listAllMuxEndpoints = async (configDirectory?: string | null): Promise<MuxEndpointPage> => {
+  const first = await enumerateMuxEndpoints({ configDirectory, pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  if (!first || !first.success) return first;
+  const objects = [...(first.objects ?? [])];
+  for (let page = 2; page <= Math.min(first.totalPages ?? 1, MAX_PAGES); page++) {
+    const next = await enumerateMuxEndpoints({ configDirectory, pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    if (!next || !next.success) return next;
+    objects.push(...(next.objects ?? []));
+  }
+  return { ...first, objects };
+};
+/** Picker helper used by the captain forms: every saved Mux endpoint, read page by page (see listAllMuxEndpoints). */
+export const listMuxEndpoints = (configDirectory?: string | null) => listAllMuxEndpoints(configDirectory);
 export const getMuxEndpoint = (name: string, configDirectory?: string | null) =>
   get<MuxEndpointShowResult>(`/api/v1/runtimes/mux/endpoints/${encodeURIComponent(name)}${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
 
@@ -1255,6 +1295,9 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 
 // Harbors (host runners)
 export const listHarbors = () => enumerateFirstPage<Harbor>('/api/v1/harbors/enumerate');
+/** One page of Harbors with true totals (default: the first page of 1000). */
+export const enumerateHarbors = (params: { pageNumber?: number; pageSize?: number } = {}) =>
+  enumeratePage<Harbor>('/api/v1/harbors/enumerate', params);
 export const getHarbor = (id: string) => get<Harbor>(`/api/v1/harbors/${encodeURIComponent(id)}`);
 export const createHarbor = (data: Partial<Harbor>) => post<Harbor>('/api/v1/harbors', data);
 export const updateHarbor = (id: string, data: Partial<Harbor>) =>
@@ -1274,6 +1317,9 @@ export const stopHarborJob = (id: string, jobId: string) =>
 
 // Model endpoints (embedding/inference)
 export const listModelEndpoints = () => enumerateFirstPage<ModelEndpoint>('/api/v1/model-endpoints/enumerate');
+/** One page of model endpoints with true totals (default: the first page of 1000). */
+export const enumerateModelEndpoints = (params: { pageNumber?: number; pageSize?: number } = {}) =>
+  enumeratePage<ModelEndpoint>('/api/v1/model-endpoints/enumerate', params);
 export const duplicateModelEndpoint = (sourceId: string, data: Partial<ModelEndpoint> & { apiKey?: string | null }) =>
   post<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(sourceId)}/duplicate`, data);
 export const getModelEndpoint = (id: string) => get<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(id)}`);
@@ -1430,6 +1476,9 @@ export const decideCliPermissionRequest = (id: string, body: CliPermissionDecisi
 /** Rules visible to the caller (own tenant plus all-tenant rules). */
 export const listCliPermissionRules = (query?: { scope?: CliPermissionRuleScope | null; vesselId?: string | null; captainId?: string | null }) =>
   enumerateFirstPage<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/enumerate${cliQuery({ scope: query?.scope, vesselId: query?.vesselId, captainId: query?.captainId })}`);
+/** One page of the rules visible to the caller with true totals (default: the first page of 1000). */
+export const enumerateCliPermissionRules = (query?: { scope?: CliPermissionRuleScope | null; vesselId?: string | null; captainId?: string | null }, params: { pageNumber?: number; pageSize?: number } = {}) =>
+  enumeratePage<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/enumerate${cliQuery({ scope: query?.scope, vesselId: query?.vesselId, captainId: query?.captainId })}`, params);
 
 export const getCliPermissionRule = (id: string) =>
   get<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/${encodeURIComponent(id)}`);

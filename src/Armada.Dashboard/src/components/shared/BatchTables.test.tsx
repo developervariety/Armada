@@ -42,7 +42,8 @@ describe('CaptainToolViewer tables', () => {
       command: null, target: null, reachable: true, enabled: true, status: 'Reachable', toolCount: 3, workingDirectory: null,
       startupTimeoutSeconds: 0, toolTimeoutSeconds: 0, headerCount: 0, environmentVariableCount: 0, enabledToolFilterCount: 0, disabledToolFilterCount: 0, errorMessage: null,
     }],
-    tools: [{ name: 'search', sourceKind: 'McpServer', registrationSource: 'docs', description: 'Search the docs' }],
+    toolCount: 1, mcpToolCount: 1, runtimeBuiltInToolCount: 0,
+    tools: { success: true, pageNumber: 1, pageSize: 10, totalPages: 1, totalRecords: 1, totalMs: 0, objects: [{ name: 'search', sourceKind: 'McpServer', registrationSource: 'docs', description: 'Search the docs' }] },
   } as unknown as CaptainToolAccessResult;
 
   it('shows the endpoint on one line with the full value in its title, and locks Source and Tool', async () => {

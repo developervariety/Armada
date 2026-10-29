@@ -292,8 +292,24 @@ export interface CaptainToolAccessResult {
   reachableServerCount: number;
   /** True when Ask thread turns of this captain hold mutating Armada tool calls as approval cards. */
   askApprovalGated?: boolean;
+  /** Tool sources (at most 256). */
   servers: CaptainToolServerSummary[];
-  tools: CaptainToolSummary[];
+  /** Named tools of every kind in the snapshot. */
+  toolCount: number;
+  mcpToolCount: number;
+  runtimeBuiltInToolCount: number;
+  /** When the runtime was probed; paging within 60 seconds reuses this snapshot unless refresh is requested. */
+  snapshotUtc: string;
+  /** One page of the named tools (filtered by sourceKind when the request named one). */
+  tools: EnumerationResult<CaptainToolSummary>;
+}
+
+/** Paging and filter for GET /api/v1/captains/{id}/tools. */
+export interface CaptainToolsQuery {
+  pageNumber?: number;
+  pageSize?: number;
+  sourceKind?: 'McpServer' | 'RuntimeBuiltIn' | 'Internal';
+  refresh?: boolean;
 }
 
 /** Execution mode of a mission. Audit and Research are read-only modes that produce a report, not a commit. */
@@ -2189,13 +2205,12 @@ export interface MuxEndpointInfo {
   headers: Record<string, string>;
 }
 
-export interface MuxEndpointListResult {
+/** One page of the saved Mux endpoints, ordered by name (GET /api/v1/runtimes/mux/endpoints). */
+export interface MuxEndpointPage extends EnumerationResult<MuxEndpointInfo> {
   contractVersion: number;
-  success: boolean;
   configDirectory: string;
   errorCode: string;
   errorMessage: string;
-  endpoints: MuxEndpointInfo[];
   /** Harbor whose mux answered, or null when the Admiral ran mux itself. */
   harborId?: string | null;
 }
@@ -2716,6 +2731,10 @@ export interface HarborSlotMetrics {
 export interface HarborLaunchSpeed {
   runtime: string;
   jobCount: number;
+  /** True for the aggregate of the runtimes past the first 15 (runtime is "Other"). */
+  isOther?: boolean;
+  /** Runtimes this entry combines (1, or more for the Other aggregate). */
+  runtimeCount?: number;
   firstOutputCount: number;
   firstOutputMedianMs: number | null;
   firstOutputP95Ms: number | null;
@@ -2740,7 +2759,10 @@ export interface HarborRoundTripBucket {
 }
 
 export interface HarborLinkMetrics {
+  /** At most 1000; above that the timeline is shown at bucket resolution and segmentsCoalesced is true. */
   segments: HarborLinkSegment[];
+  segmentsCoalesced?: boolean;
+  rawSegmentCount?: number;
   roundTrip: HarborRoundTripBucket[];
   connectedPercent: number | null;
   disconnects: number;
@@ -2756,6 +2778,10 @@ export interface HarborTokenSeries {
   outputTokens: number;
   cachedTokens: number;
   totalTokens: number;
+  /** True for the aggregate of the series past the top 19 (runtime and model are "other"). */
+  isOther?: boolean;
+  /** Series this entry combines (1, or more for the other aggregate). */
+  seriesCount?: number;
 }
 
 export interface HarborTokenBucket {
