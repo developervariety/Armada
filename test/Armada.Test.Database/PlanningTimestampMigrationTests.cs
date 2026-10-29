@@ -113,8 +113,6 @@ namespace Armada.Test.Database
                             await restore.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         }
                     }
-
-
                 }
             }
 
