@@ -2533,6 +2533,75 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
+            {
+                foreach (string scenario in new[] { "pending-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle" })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        BlockedStageRig rig = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Research, withJudgeStage: true).ConfigureAwait(false);
+                        string parentId = rig.Mission.Id;
+                        List<Mission> futureStages = new List<Mission>();
+                        foreach (string persona in new[] { "PortingReferenceAnalyst", "TestEngineer", "Linter", "Worker" })
+                        {
+                            Mission stage = new Mission("Review report", "Independently review the report.")
+                            {
+                                TenantId = rig.Mission.TenantId,
+                                UserId = rig.Mission.UserId,
+                                VesselId = rig.Vessel.Id,
+                                VoyageId = rig.Voyage.Id,
+                                Mode = MissionModeEnum.Research,
+                                Persona = persona,
+                                Status = MissionStatusEnum.Pending,
+                                DependsOnMissionId = parentId
+                            };
+                            stage = await testDb.Driver.Missions.CreateAsync(stage).ConfigureAwait(false);
+                            futureStages.Add(stage);
+                            parentId = stage.Id;
+                        }
+                        rig.JudgeStage!.DependsOnMissionId = parentId;
+                        await testDb.Driver.Missions.UpdateAsync(rig.JudgeStage).ConfigureAwait(false);
+                        if (scenario == "cancelled-middle")
+                        {
+                            futureStages[1].Status = MissionStatusEnum.Cancelled;
+                            await testDb.Driver.Missions.UpdateAsync(futureStages[1]).ConfigureAwait(false);
+                        }
+                        if (scenario == "foreign-middle")
+                        {
+                            UserMaster reviewer = new UserMaster(rig.Mission.TenantId!, "other-report-owner@armada.test", "password");
+                            await testDb.Driver.Users.CreateAsync(reviewer).ConfigureAwait(false);
+                            futureStages[1].UserId = reviewer.Id;
+                            await testDb.Driver.Missions.UpdateAsync(futureStages[1]).ConfigureAwait(false);
+                        }
+                        await rig.RunCaptainAsync(
+                            "## Research report",
+                            scenario == "unfinished-current" ? "Acceptance criterion 2 is NOT MET because the source study is unfinished." : "The current source study and matrix are complete.",
+                            scenario == "unfinished-earlier" ? "Acceptance criterion 2 is NOT MET because the earlier analyst omitted required source pages." : "Current-stage criteria 1 and 2 are MET.",
+                            "Acceptance criterion 3 is honestly NOT MET at this Worker precursor stage because the " + (scenario == "wrong-count" ? "three" : "four") + " later role reviews do not yet exist.",
+                            "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
+                        Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
+                        Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
+                        if (scenario == "pending-reviews")
+                        {
+                            AssertTrue(worker.Status is MissionStatusEnum.WorkProduced or MissionStatusEnum.Complete, "Complete current work reaches its configured review chain: " + worker.FailureReason);
+                            foreach (Mission stage in futureStages)
+                            {
+                                Mission actual = (await testDb.Driver.Missions.ReadAsync(stage.Id).ConfigureAwait(false))!;
+                                AssertTrue(actual.Status is MissionStatusEnum.Pending or MissionStatusEnum.Assigned, "Each independent future duty remains eligible");
+                            }
+                            Mission judge = (await testDb.Driver.Missions.ReadAsync(rig.JudgeStage.Id).ConfigureAwait(false))!;
+                            AssertEqual(MissionStatusEnum.Pending, judge.Status, "Final acceptance still belongs to the actual Judge");
+                            AssertTrue(voyage.Status != VoyageStatusEnum.Failed && voyage.Status != VoyageStatusEnum.Complete, "Future reviews neither fail nor accept the voyage prematurely");
+                        }
+                        else
+                        {
+                            AssertEqual(MissionStatusEnum.Failed, worker.Status, "Unfinished work or unverified future reviews remain blocking: " + scenario);
+                            AssertTrue(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "The failure retains the incomplete-report reason");
+                        }
+                    }
+                }
+            });
+
             await RunTest("A report that meets its criteria, or an Implementation Worker that says criteria are not met, still completes and hands off", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
