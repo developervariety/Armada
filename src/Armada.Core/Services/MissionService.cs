@@ -6243,6 +6243,23 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Returns true when a sibling holds the barrier for the dependency's group: it is a parallel
+        /// stage sibling and, when both missions carry a stage chain identity, the identities match.
+        /// Independent root chains of one voyage share voyage, upstream dependency and stage order,
+        /// so the identity is what keeps one chain's cancelled root from holding another chain's
+        /// reviewer. A mission without an identity keeps the conservative grouping of
+        /// <see cref="IsParallelStageSibling"/>.
+        /// </summary>
+        /// <param name="sibling">Candidate sibling mission.</param>
+        /// <param name="dependency">The mission named by the dependent's DependsOnMissionId.</param>
+        internal static bool IsBarrierSibling(Mission sibling, Mission dependency)
+        {
+            if (!IsParallelStageSibling(sibling, dependency)) return false;
+            if (String.IsNullOrEmpty(sibling.StageChainId) || String.IsNullOrEmpty(dependency.StageChainId)) return true;
+            return String.Equals(sibling.StageChainId, dependency.StageChainId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Returns true when every sibling in the dependency's parallel stage group has reached a
         /// satisfying status. The dependency itself is checked by the caller. Sequential pipelines put
         /// one stage per order, so their groups have a single member and this is always true.
@@ -6262,7 +6279,7 @@ namespace Armada.Core.Services
                 if (sibling == null) continue;
                 if (String.Equals(sibling.Id, dependency.Id, StringComparison.Ordinal)) continue;
                 if (String.Equals(sibling.Id, mission.Id, StringComparison.Ordinal)) continue;
-                if (!IsParallelStageSibling(sibling, dependency)) continue;
+                if (!IsBarrierSibling(sibling, dependency)) continue;
 
                 if (!IsDependencySatisfyingStatus(sibling.Status))
                 {

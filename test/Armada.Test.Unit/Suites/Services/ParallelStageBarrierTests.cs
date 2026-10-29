@@ -61,6 +61,29 @@ namespace Armada.Test.Unit.Suites.Services
                     "a different voyage is unrelated");
             });
 
+            await RunTest("BarrierMembership_ComparesChainIdentityWhenBothSidesCarryOne", () =>
+            {
+                Mission dependency = Fixture("v1", null, 1);
+                dependency.StageChainId = "chain-a";
+
+                Mission sameChain = Fixture("v1", null, 1);
+                sameChain.StageChainId = "chain-a";
+                Mission otherChain = Fixture("v1", null, 1);
+                otherChain.StageChainId = "chain-b";
+                Mission legacy = Fixture("v1", null, 1);
+
+                AssertTrue(MissionService.IsBarrierSibling(sameChain, dependency),
+                    "a sibling of the same chain holds the barrier");
+                AssertTrue(!MissionService.IsBarrierSibling(otherChain, dependency),
+                    "an independent root chain does not hold the barrier");
+                AssertTrue(MissionService.IsBarrierSibling(legacy, dependency),
+                    "a row without a chain identity keeps the conservative grouping");
+                AssertTrue(MissionService.IsBarrierSibling(sameChain, legacy),
+                    "a dependency without a chain identity keeps the conservative grouping");
+                AssertTrue(MissionService.IsParallelStageSibling(otherChain, dependency),
+                    "reporting groups ignore the chain identity");
+            });
+
             await RunTest("FanOutMissionsWithoutStageOrder_AreNeverGrouped", () =>
             {
                 // Architect fan-out creates workers and clones chains without a StageOrder. That is
@@ -130,6 +153,51 @@ namespace Armada.Test.Unit.Suites.Services
                         "downstream must clear the barrier once every sibling is satisfied; was " + after.AssignmentState);
                 }
             });
+
+            await RunTest("DownstreamProceeds_WhenACancelledSiblingBelongsToAnotherChain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Harness h = await Harness.CreateAsync(testDb);
+
+                    Mission rootA = await h.CreateMissionAsync("Worker", "[Worker] impl A", null, 1, MissionStatusEnum.Complete, "chain-a");
+                    await h.CreateMissionAsync("Worker", "[Worker] impl B", null, 1, MissionStatusEnum.Cancelled, "chain-b");
+                    Mission judgeA = await h.CreateMissionAsync("Judge", "[Judge] review A", rootA.Id, 2, MissionStatusEnum.Pending, "chain-a");
+
+                    await h.Missions.TryAssignAsync(judgeA, h.Vessel).ConfigureAwait(false);
+
+                    Mission? reread = await testDb.Driver.Missions.ReadAsync(judgeA.Id).ConfigureAwait(false);
+                    AssertTrue(reread!.AssignmentState != MissionAssignmentStateEnum.WaitingForDependency,
+                        "a cancelled independent root must not hold the surviving Judge; was " + reread.AssignmentState);
+                }
+            });
+
+            foreach (MissionStatusEnum unfinished in new[] { MissionStatusEnum.Cancelled, MissionStatusEnum.Failed, MissionStatusEnum.LandingFailed, MissionStatusEnum.Assigned })
+            {
+                foreach (bool withChain in new[] { true, false })
+                {
+                    await RunTest("DownstreamWaits_WhenASameChainSiblingIs" + unfinished + (withChain ? "_WithChainIdentity" : "_OnLegacyRows"), async () =>
+                    {
+                        using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                        {
+                            Harness h = await Harness.CreateAsync(testDb);
+                            string? chain = withChain ? "chain-a" : null;
+
+                            Mission upstream = await h.CreateMissionAsync("Worker", "[Worker] impl", null, 1, MissionStatusEnum.Complete, chain);
+                            Mission siblingA = await h.CreateMissionAsync("Judge", "[Judge] review A", upstream.Id, 2, MissionStatusEnum.Complete, chain);
+                            await h.CreateMissionAsync("Judge", "[Judge] review B", upstream.Id, 2, unfinished, chain);
+                            Mission downstream = await h.CreateMissionAsync("TestEngineer", "[TestEngineer] validate", siblingA.Id, 3, MissionStatusEnum.Pending, chain);
+
+                            bool assigned = await h.Missions.TryAssignAsync(downstream, h.Vessel).ConfigureAwait(false);
+                            AssertTrue(!assigned, "a " + unfinished + " same-chain sibling must keep holding the barrier");
+
+                            Mission? reread = await testDb.Driver.Missions.ReadAsync(downstream.Id).ConfigureAwait(false);
+                            AssertTrue(reread!.AssignmentState == MissionAssignmentStateEnum.WaitingForDependency,
+                                "downstream must report WaitingForDependency; was " + reread.AssignmentState);
+                        }
+                    });
+                }
+            }
 
             await RunTest("SequentialPipeline_IsUnaffectedByTheBarrier", async () =>
             {
@@ -206,6 +274,15 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(updated!.StageOrder == 7,
                         "stage order must survive an update; was " + (updated.StageOrder?.ToString() ?? "null"));
 
+                    Mission chained = await h.CreateMissionAsync("Judge", "[Judge] chained", null, 4, MissionStatusEnum.Pending, "chain-a");
+                    Mission? rereadChained = await testDb.Driver.Missions.ReadAsync(chained.Id).ConfigureAwait(false);
+                    AssertEqual("chain-a", rereadChained!.StageChainId, "the stage chain identity must persist");
+                    rereadChained.StageChainId = "chain-b";
+                    await testDb.Driver.Missions.UpdateAsync(rereadChained).ConfigureAwait(false);
+                    Mission? updatedChained = await testDb.Driver.Missions.ReadAsync(chained.Id).ConfigureAwait(false);
+                    AssertEqual("chain-b", updatedChained!.StageChainId, "the stage chain identity must survive an update");
+                    AssertNull(updated.StageChainId, "a mission without a chain identity persists null");
+
                     Mission unstaged = await h.CreateMissionAsync("Worker", "[Worker] fan-out", null, null, MissionStatusEnum.Pending);
                     Mission? rereadUnstaged = await testDb.Driver.Missions.ReadAsync(unstaged.Id).ConfigureAwait(false);
                     AssertTrue(!rereadUnstaged!.StageOrder.HasValue,
@@ -263,7 +340,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return h;
             }
 
-            public async Task<Mission> CreateMissionAsync(string persona, string title, string? dependsOn, int? stageOrder, MissionStatusEnum status)
+            public async Task<Mission> CreateMissionAsync(string persona, string title, string? dependsOn, int? stageOrder, MissionStatusEnum status, string? stageChainId = null)
             {
                 Mission mission = new Mission(title, "barrier fixture");
                 mission.VoyageId = _Voyage.Id;
@@ -271,6 +348,7 @@ namespace Armada.Test.Unit.Suites.Services
                 mission.Persona = persona;
                 mission.DependsOnMissionId = dependsOn;
                 mission.StageOrder = stageOrder;
+                mission.StageChainId = stageChainId;
                 mission.Status = status;
                 mission.AssignmentState = MissionAssignmentStateEnum.Pending;
                 return await _Db.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);

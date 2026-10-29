@@ -1697,7 +1697,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(139, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.SqliteStatements),
                 new SchemaMigration(140, "Persist fixture battery runs", BatteryRunSchema.SqliteStatements),
                 new SchemaMigration(141, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.SqliteStatements.Concat(SignalMissionSchema.SqliteStatements).ToArray()),
-                new SchemaMigration(142, "Persist the delivery proof of a failed merge entry", MergeDeliveryPersistence.SqliteStatements)
+                new SchemaMigration(142, "Persist the delivery proof of a failed merge entry", MergeDeliveryPersistence.SqliteStatements),
+                new SchemaMigration(143, "Persist the stage chain identity that scopes the parallel-stage barrier", MissionStageChainSchema.SqliteStatements)
             };
         }
 

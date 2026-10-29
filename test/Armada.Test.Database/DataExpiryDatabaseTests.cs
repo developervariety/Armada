@@ -5,6 +5,7 @@ namespace Armada.Test.Database
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Database.Interfaces;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -206,6 +207,108 @@ namespace Armada.Test.Database
                     foreach (string id in created)
                         await _Driver.Events.DeleteAsync(id, token).ConfigureAwait(false);
                 }
+            }
+        }
+
+        internal async Task VerifyRowChangedAfterExportSurvivesRetentionAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                DateTime old = DateTime.UtcNow.AddDays(-3);
+                TenantMetadata tenant = await fixture.CreateTenantAsync("expiry-race", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "expiry-race", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "expiry-race", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "expiry-race", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "expiry-race", token).ConfigureAwait(false);
+
+                Voyage racing = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-race-voyage", token, v => { v.Status = VoyageStatusEnum.Complete; v.CompletedUtc = old; }).ConfigureAwait(false);
+                Mission edited = await fixture.CreateMissionAsync(tenant.Id, user.Id, racing.Id, vessel.Id, captain.Id, "expiry-race-edited", token, configure: m => m.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
+                Mission quiet = await fixture.CreateMissionAsync(tenant.Id, user.Id, racing.Id, vessel.Id, captain.Id, "expiry-race-quiet", token, configure: m => m.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
+                Voyage reopening = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-race-reopening", token, v => { v.Status = VoyageStatusEnum.InProgress; v.CompletedUtc = old; }).ConfigureAwait(false);
+
+                DataExpiryCutoffs cutoffs = DataExpiryCutoffs.FromRetention(DateTime.UtcNow, 1, 0);
+                string editedTitle = edited.Title + "-edited";
+                bool missionEdited = false;
+                bool voyageReopened = false;
+                RecordingRowExporter racing1 = new RecordingRowExporter(async table =>
+                {
+                    // The writer acts once, in the window between a table's export and its delete.
+                    if (table == "missions" && !missionEdited)
+                    {
+                        missionEdited = true;
+                        Mission current = DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(edited.Id, token).ConfigureAwait(false), "The mission is readable between export and delete");
+                        current.Title = editedTitle;
+                        await _Driver.Missions.UpdateAsync(current, token).ConfigureAwait(false);
+                    }
+                    else if (table == "voyages" && !voyageReopened)
+                    {
+                        voyageReopened = true;
+                        Voyage current = DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(reopening.Id, token).ConfigureAwait(false), "The voyage is readable between export and delete");
+                        current.Status = VoyageStatusEnum.Complete;
+                        await _Driver.Voyages.UpdateAsync(current, token).ConfigureAwait(false);
+                    }
+                });
+                await _Driver.DataExpiry.PurgeExpiredAsync(cutoffs, racing1, token).ConfigureAwait(false);
+
+                DatabaseAssert.True(racing1.Ids("missions").Contains(edited.Id) && racing1.Ids("missions").Contains(quiet.Id), "Both missions were exported");
+                DatabaseAssert.True(await _Driver.Missions.ReadAsync(quiet.Id, token).ConfigureAwait(false) == null, "An unchanged exported mission is deleted");
+                Mission kept = DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(edited.Id, token).ConfigureAwait(false), "A mission changed after its export is kept");
+                DatabaseAssert.Equal(editedTitle, kept.Title, "The kept mission holds the change made after the export");
+                DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(racing.Id, token).ConfigureAwait(false), "A voyage that still has a mission waits for the next pass");
+                DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(reopening.Id, token).ConfigureAwait(false), "A voyage that started matching after the snapshot is kept");
+
+                RecordingRowExporter next = new RecordingRowExporter(null);
+                await _Driver.DataExpiry.PurgeExpiredAsync(cutoffs, next, token).ConfigureAwait(false);
+
+                DatabaseAssert.Equal(editedTitle, next.Titles("missions")[edited.Id], "The next pass exports the changed mission state");
+                DatabaseAssert.True(await _Driver.Missions.ReadAsync(edited.Id, token).ConfigureAwait(false) == null, "The changed mission is deleted on the next pass");
+                DatabaseAssert.True(await _Driver.Voyages.ReadAsync(racing.Id, token).ConfigureAwait(false) == null, "The voyage is deleted once its missions are gone");
+                DatabaseAssert.True(await _Driver.Voyages.ReadAsync(reopening.Id, token).ConfigureAwait(false) == null, "The voyage that started matching expires on the next pass");
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private sealed class RecordingRowExporter : IDataExpiryRowExporter
+        {
+            private readonly Func<string, Task>? _AfterExport;
+            private readonly Dictionary<string, List<string>> _Exported = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            private readonly Dictionary<string, Dictionary<string, string>> _ExportedTitles = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+
+            internal RecordingRowExporter(Func<string, Task>? afterExport)
+            {
+                _AfterExport = afterExport;
+            }
+
+            internal List<string> Ids(string table) => _Exported.TryGetValue(table, out List<string>? ids) ? ids : new List<string>();
+
+            internal Dictionary<string, string> Titles(string table) => _ExportedTitles.TryGetValue(table, out Dictionary<string, string>? titles) ? titles : new Dictionary<string, string>();
+
+            public async Task<int> ExportAsync(string table, System.Data.Common.DbDataReader rows, CancellationToken token)
+            {
+                int count = 0;
+                List<string> ids = new List<string>();
+                Dictionary<string, string> titles = new Dictionary<string, string>();
+                int titleOrdinal = -1;
+                for (int i = 0; i < rows.FieldCount; i++)
+                    if (String.Equals(rows.GetName(i), "title", StringComparison.OrdinalIgnoreCase)) titleOrdinal = i;
+                while (await rows.ReadAsync(token).ConfigureAwait(false))
+                {
+                    string id = Convert.ToString(rows.GetValue(rows.GetOrdinal("id")))!;
+                    ids.Add(id);
+                    if (titleOrdinal >= 0) titles[id] = Convert.ToString(rows.GetValue(titleOrdinal))!;
+                    count++;
+                }
+                await rows.DisposeAsync().ConfigureAwait(false);
+                if (!_Exported.ContainsKey(table)) _Exported[table] = new List<string>();
+                _Exported[table].AddRange(ids);
+                if (!_ExportedTitles.ContainsKey(table)) _ExportedTitles[table] = new Dictionary<string, string>();
+                foreach (KeyValuePair<string, string> title in titles) _ExportedTitles[table][title.Key] = title.Value;
+                if (_AfterExport != null) await _AfterExport(table).ConfigureAwait(false);
+                return count;
             }
         }
 

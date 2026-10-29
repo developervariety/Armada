@@ -757,7 +757,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(132, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.MysqlStatements),
                 new SchemaMigration(133, "Persist fixture battery runs", BatteryRunSchema.MysqlStatements),
                 new SchemaMigration(134, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.MysqlStatements.Concat(SignalMissionSchema.MysqlStatements).ToArray()),
-                new SchemaMigration(135, "Persist the delivery proof of a failed merge entry", MergeDeliveryPersistence.MysqlStatements)
+                new SchemaMigration(135, "Persist the delivery proof of a failed merge entry", MergeDeliveryPersistence.MysqlStatements),
+                new SchemaMigration(136, "Persist the stage chain identity that scopes the parallel-stage barrier", MissionStageChainSchema.MysqlStatements)
             };
         }
 

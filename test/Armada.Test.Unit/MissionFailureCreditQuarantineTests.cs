@@ -301,6 +301,78 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("HandleProcessExit_ProviderCredentialRejection_RequeuesWithRetainedDockAndWorktree", async () =>
+            {
+                using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver database = testDatabase.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    try
+                    {
+                        CaptainQuarantineService quarantine = new CaptainQuarantineService(database, settings, logging);
+                        AdmiralService admiral = CreateAdmiralService(database, settings, quarantine);
+
+                        Mission mission = new Mission("Credential rejection mission");
+                        mission.Status = MissionStatusEnum.InProgress;
+                        mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                        mission.ProcessId = 8103;
+                        mission.StartedUtc = DateTime.UtcNow.AddMinutes(-2);
+                        mission = await database.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        Captain captain = new Captain("credential-rejection-captain");
+                        captain.State = CaptainStateEnum.Working;
+                        captain.CurrentMissionId = mission.Id;
+                        captain.ProcessId = 8103;
+                        captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                        Vessel vessel = await database.Vessels.CreateAsync(new Vessel("credential-vessel", "https://example.invalid/repo.git")).ConfigureAwait(false);
+                        string worktree = Path.Combine(settings.DocksDirectory, vessel.Name, mission.Id, vessel.Name);
+                        Directory.CreateDirectory(worktree);
+                        await File.WriteAllTextAsync(Path.Combine(worktree, "retained.txt"), "saved branch work").ConfigureAwait(false);
+                        Dock dock = await database.Docks.CreateAsync(new Dock(vessel.Id)
+                        {
+                            TenantId = vessel.TenantId, UserId = vessel.UserId, CaptainId = captain.Id,
+                            BranchName = "armada/credential-continuation", WorktreePath = worktree, Active = true
+                        }).ConfigureAwait(false);
+                        mission.VesselId = vessel.Id;
+                        mission.CaptainId = captain.Id;
+                        mission.DockId = dock.Id;
+                        mission.BranchName = dock.BranchName;
+                        await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        captain.CurrentDockId = dock.Id;
+                        await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                        await WriteMissionLogAsync(
+                            settings,
+                            mission.Id,
+                            "[stderr] API Error: 401 {\"error\":{\"message\":\"Invalid credential\"}}").ConfigureAwait(false);
+
+                        await admiral.HandleProcessExitAsync(8103, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                        Mission? missionAfter = await database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status,
+                            "A provider credential rejection requeues the mission");
+                        AssertTrue(missionAfter.FailureReason!.Contains("401", StringComparison.Ordinal),
+                            "The provider rejection stays visible on the requeued mission");
+                        AssertEqual(dock.Id, missionAfter.DockId, "The requeued mission keeps the dock its retry resumes in");
+                        AssertEqual(dock.BranchName, missionAfter.BranchName, "The requeued mission keeps its saved branch");
+
+                        Dock? retained = await database.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
+                        AssertTrue(retained!.Active, "The retry dock stays active");
+                        AssertNull(retained.CaptainId, "The failed captain releases the retained dock");
+                        AssertEqual("saved branch work", await File.ReadAllTextAsync(Path.Combine(worktree, "retained.txt")).ConfigureAwait(false),
+                            "The requeue does not remove the continuation worktree");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(settings.DocksDirectory)) Directory.Delete(settings.DocksDirectory, true);
+                        if (Directory.Exists(settings.ReposDirectory)) Directory.Delete(settings.ReposDirectory, true);
+                        if (Directory.Exists(settings.LogDirectory)) Directory.Delete(settings.LogDirectory, true);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("HandleProcessExit_OrdinaryBuildFailure_ReleasesCaptainToIdle", async () =>
             {
                 using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -227,6 +227,23 @@ namespace Armada.Core.Models
         public int? StageOrder { get; set; } = null;
 
         /// <summary>
+        /// Identity shared by every stage one mission description expands into, or null for a mission
+        /// that did not come from a pipeline expansion. The parallel-stage barrier waits only on
+        /// siblings that carry the same identity, so independent root chains of one voyage never
+        /// hold each other's reviewers. A row without an identity keeps the grouping on voyage,
+        /// upstream dependency and stage order alone.
+        /// </summary>
+        public string? StageChainId { get; set; } = null;
+
+        /// <summary>
+        /// Creates a new stage chain identity for one mission description's pipeline expansion.
+        /// </summary>
+        public static string NewStageChainId()
+        {
+            return "stc_" + Guid.NewGuid().ToString("N");
+        }
+
+        /// <summary>
         /// Optional captain Model filter for mission assignment. When set, dispatch
         /// considers only idle captains whose <see cref="Captain.Model"/> matches this
         /// value (case-insensitive) before applying persona-preference logic.

@@ -163,6 +163,59 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("SafeguardBlock_Continuation_KeepsTheActiveDockOfTheSavedBranch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    try
+                    {
+                        CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
+                        AdmiralService admiral = CreateAdmiralService(db, settings, quarantine);
+
+                        Captain blocked = await CreateCaptainAsync(db, "blocked-captain", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                        await CreateCaptainAsync(db, "alternate-captain", AgentRuntimeEnum.Codex).ConfigureAwait(false);
+                        (Voyage voyage, Mission mission) = await SeedMissionAsync(db).ConfigureAwait(false);
+
+                        string worktree = Path.Combine(settings.DocksDirectory, "safeguard-vessel", mission.Id, "safeguard-vessel");
+                        Directory.CreateDirectory(worktree);
+                        await File.WriteAllTextAsync(Path.Combine(worktree, "retained.txt"), "saved branch work").ConfigureAwait(false);
+                        Mission running = await RunOnAsync(db, mission, blocked, 9211).ConfigureAwait(false);
+                        Dock dock = await db.Docks.CreateAsync(new Dock(running.VesselId!)
+                        {
+                            TenantId = running.TenantId, UserId = running.UserId, CaptainId = blocked.Id,
+                            BranchName = "armada/safeguard-continuation", WorktreePath = worktree, Active = true
+                        }).ConfigureAwait(false);
+                        running.DockId = dock.Id;
+                        running.BranchName = dock.BranchName;
+                        await db.Missions.UpdateAsync(running).ConfigureAwait(false);
+                        blocked.CurrentDockId = dock.Id;
+                        await db.Captains.UpdateAsync(blocked).ConfigureAwait(false);
+                        await WriteMissionLogAsync(settings, mission.Id, SafeguardLine).ConfigureAwait(false);
+
+                        admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(9400);
+                        await admiral.HandleProcessExitAsync(9211, 1, blocked.Id, mission.Id).ConfigureAwait(false);
+                        await admiral.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
+
+                        Mission? after = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertTrue(PolicyRefusalContinuationService.IsContinuation(after!), "the mission is marked as a refusal continuation");
+                        AssertEqual(dock.BranchName, after!.BranchName, "the continuation keeps the saved branch");
+
+                        Dock? retained = await db.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
+                        AssertTrue(retained!.Active, "the dock that authorizes the saved branch stays active for the continuation");
+                        AssertEqual("saved branch work", await File.ReadAllTextAsync(Path.Combine(worktree, "retained.txt")).ConfigureAwait(false),
+                            "the continuation does not remove the saved worktree");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(settings.DocksDirectory)) Directory.Delete(settings.DocksDirectory, true);
+                        if (Directory.Exists(settings.ReposDirectory)) Directory.Delete(settings.ReposDirectory, true);
+                        if (Directory.Exists(settings.LogDirectory)) Directory.Delete(settings.LogDirectory, true);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("SafeguardBlock_AgainAfterTheContinuation_FailsWithTheReasonInsteadOfRetrying", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

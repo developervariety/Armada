@@ -481,6 +481,7 @@ namespace Armada.Core.Services
             {
                 // Use a short base title (first 60 chars of the mission title)
                 string baseTitle = md.Title.Length > 60 ? md.Title.Substring(0, 60).TrimEnd() + "..." : md.Title;
+                string stageChainId = Mission.NewStageChainId();
 
                 // Group stages by Order so that same-Order stages dispatch as parallel siblings
                 // that all depend on the last mission of the previous order group rather than
@@ -510,6 +511,7 @@ namespace Armada.Core.Services
                         mission.Persona = stage.PersonaName;
                         mission.DependsOnMissionId = groupDependencyId;
                         mission.StageOrder = stage.Order;
+                        mission.StageChainId = stageChainId;
                         mission.RequiresReview = stage.RequiresReview;
                         mission.ReviewDenyAction = stage.ReviewDenyAction;
                         mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
@@ -693,6 +695,7 @@ namespace Armada.Core.Services
                 foreach (MissionDescription md in missionDescriptions)
                 {
                     string baseTitle = md.Title.Length > 60 ? md.Title.Substring(0, 60).TrimEnd() + "..." : md.Title;
+                    string stageChainId = Mission.NewStageChainId();
                     IOrderedEnumerable<IGrouping<int, PipelineStage>> stageGroups =
                         pipeline!.Stages.GroupBy(s => s.Order).OrderBy(g => g.Key);
 
@@ -716,6 +719,7 @@ namespace Armada.Core.Services
                             mission.Persona = stage.PersonaName;
                             mission.DependsOnMissionId = groupDependencyId;
                             mission.StageOrder = stage.Order;
+                            mission.StageChainId = stageChainId;
                             mission.RequiresReview = stage.RequiresReview;
                             mission.ReviewDenyAction = stage.ReviewDenyAction;
                             mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
@@ -3656,7 +3660,8 @@ namespace Armada.Core.Services
                     .HandleAsync(mission, captain, refusal, policyPresent: false, token).ConfigureAwait(false);
                 if (decision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue)
                 {
-                    await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+                    // The continuation resumes the saved branch, so the dock that authorizes it stays active.
+                    await RetainRetryDockAsync(captain, mission, token).ConfigureAwait(false);
                     await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                     if (!String.IsNullOrEmpty(mission.VesselId))
                     {
