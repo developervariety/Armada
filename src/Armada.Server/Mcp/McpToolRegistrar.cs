@@ -80,6 +80,7 @@ namespace Armada.Server.Mcp
         /// <param name="cliPermissionService">Optional CLI permission service; without it the CLI permission tools are
         /// registered and answer a typed Unavailable error.</param>
         /// <param name="statusCallbacks">Optional event and broadcast callbacks for transition_mission_status.</param>
+        /// <param name="statusMissionService">Optional mission service that transition_mission_status uses to hand a Complete to an existing dependent stage. It does not enable restart_mission or the review gate tools; <paramref name="missionService"/> does.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -119,7 +120,8 @@ namespace Armada.Server.Mcp
             StageOutcomeAccessService? stageOutcomes = null,
             ModelProbeAccessService? modelProbes = null,
             BatteryAccessService? battery = null,
-            MissionStatusTransitionCallbacks? statusCallbacks = null)
+            MissionStatusTransitionCallbacks? statusCallbacks = null,
+            IMissionService? statusMissionService = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             register = MapToolExceptions(MarkExperimental(register));
@@ -129,7 +131,7 @@ namespace Armada.Server.Mcp
             McpVesselTools.Register(register, database, dockService, vesselService, settings, admiral);
             if (vesselImportService != null) McpVesselImportTools.Register(register, vesselImportService, fleetCategorizationService);
             McpVoyageTools.Register(register, database, admiral, settings);
-            McpMissionTools.Register(register, database, admiral, settings, git, landingService, missionService, statusCallbacks);
+            McpMissionTools.Register(register, database, admiral, settings, git, landingService, missionService, statusCallbacks, statusMissionService);
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, captainToolService);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);

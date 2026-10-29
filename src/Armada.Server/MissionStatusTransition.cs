@@ -13,8 +13,9 @@ namespace Armada.Server
     /// <summary>
     /// Manual mission status change shared by REST, MCP, and WebSocket.
     /// WorkProduced and Complete of a mission that is not read-only land through <see cref="ManualMissionHandoff"/>.
-    /// Complete of a claimable mission that still has a dependent voyage stage uses
+    /// Complete of a claimable mission that still has a dependent voyage stage and no review to pass uses
     /// <see cref="IMissionService.HandleCompletionAsync(Captain, string, CancellationToken)"/> before any WorkProduced write.
+    /// A mission that requires review lands instead, because the completion handler would return it to Review.
     /// </summary>
     public static class MissionStatusTransition
     {
@@ -71,7 +72,8 @@ namespace Armada.Server
 
             if (newStatus == MissionStatusEnum.Complete
                 && request.MissionService != null
-                && !MissionStateMachine.IsTerminalOrPostWork(mission.Status))
+                && !MissionStateMachine.IsTerminalOrPostWork(mission.Status)
+                && !(mission.Status == MissionStatusEnum.Review && mission.RequiresReview))
             {
                 bool hasDependent = await HasDependentPipelineStageAsync(database, mission, token).ConfigureAwait(false);
                 Captain? captain = null;
@@ -84,6 +86,15 @@ namespace Armada.Server
                     Mission? afterHandoff = await database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
                     if (afterHandoff == null)
                         return Refuse(MissionStatusTransitionErrorEnum.NotFound, "Mission not found after completion");
+
+                    // The completion handler returns without a status change when the stage check is unverified, the mission was
+                    // already processed, or a concurrent writer won. None of those is a completed request.
+                    if (afterHandoff.Status == previousStatus)
+                    {
+                        return Refuse(
+                            MissionStatusTransitionErrorEnum.Conflict,
+                            "Mission " + missionId + " stayed in " + previousStatus + ": the completion handler made no transition because its stage check is unverified, it was already processed, or it changed concurrently.");
+                    }
 
                     string handoffText = "Mission " + missionId + " transitioned to " + afterHandoff.Status;
                     await RecordProgressAsync(
@@ -113,7 +124,9 @@ namespace Armada.Server
                     return Refuse(MissionStatusTransitionErrorEnum.Conflict, ex.Message);
                 }
 
-                string landedText = "Mission " + missionId + " manually completed - landed as " + landed.Status;
+                string landedText = "Mission " + missionId
+                    + (newStatus == MissionStatusEnum.Complete ? " manually completed" : " manually marked " + newStatus)
+                    + " - landed as " + landed.Status;
                 await RecordProgressAsync(
                     database,
                     callbacks,

@@ -273,7 +273,27 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("rest_dependent_stage_hands_off_without_landing", "REST Complete of a dependent stage hands off without landing", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("rest_review_dependent_stage_that_requires_review_lands_the_mission", "REST Complete of a Review stage that requires review lands it instead of returning it to Review", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
+                    DependentPair pair = await fx.CreateDependentPairAsync(MissionStatusEnum.Review, true, true).ConfigureAwait(false);
+                    LandingProbe probe = new LandingProbe(testDb.Driver);
+                    Mission returned = await fx.TransitionRestAsync(pair.Parent.Id, "Complete", probe).ConfigureAwait(false);
+                    AssertEqual(1, probe.Calls, "landing callback count");
+                    AssertEqual(MissionStatusEnum.WorkProduced, probe.StatusSeen, "status when landing starts");
+                    AssertEqual(MissionStatusEnum.PullRequestOpen, returned.Status, "returned row");
+                    Mission parent = await ReadMissionAsync(testDb.Driver, pair.Parent.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.PullRequestOpen, parent.Status, "parent status");
+                    AssertEqual(pair.Parent.ReviewRequestedUtc, parent.ReviewRequestedUtc, "ReviewRequestedUtc");
+                    AssertEqual(pair.Parent.ReviewComment, parent.ReviewComment, "ReviewComment");
+                    Mission child = await ReadMissionAsync(testDb.Driver, pair.Child.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, child.Status, "dependent status");
+                }
+            }));
+
+            cases.Add(CaseAsync("rest_review_dependent_stage_without_review_requirement_hands_off", "REST Complete of a Review stage that needs no review hands off without landing", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -282,6 +302,31 @@ namespace Test.Shared.Suites.Services
                     LandingProbe probe = new LandingProbe(testDb.Driver);
                     await fx.TransitionRestAsync(pair.Parent.Id, "Complete", probe).ConfigureAwait(false);
                     await AssertHandoffAsync(testDb.Driver, pair, probe).ConfigureAwait(false);
+                }
+            }));
+
+            cases.Add(CaseAsync("rest_dependent_stage_handoff_without_transition_is_a_conflict", "REST reports a conflict and records nothing when the completion handler leaves the mission in place", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
+                    DependentPair pair = await fx.CreateDependentPairAsync(MissionStatusEnum.Review).ConfigureAwait(false);
+                    ArmadaEvent unverified = new ArmadaEvent(StageCheckEvents.EventType, "stage check");
+                    unverified.MissionId = pair.Parent.Id;
+                    unverified.Payload = "{not json";
+                    await testDb.Driver.Events.CreateAsync(unverified).ConfigureAwait(false);
+
+                    LandingProbe probe = new LandingProbe(testDb.Driver);
+                    string message = await fx.TransitionRestErrorAsync(pair.Parent.Id, "Complete", probe, 409).ConfigureAwait(false);
+                    AssertTrue(message.IndexOf("Review", StringComparison.Ordinal) >= 0, message);
+                    AssertEqual(0, probe.Calls, "landing callback count");
+                    Mission parent = await ReadMissionAsync(testDb.Driver, pair.Parent.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Review, parent.Status, "parent status");
+                    Mission child = await ReadMissionAsync(testDb.Driver, pair.Child.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, child.Status, "dependent status");
+                    List<ArmadaEvent> changes = await testDb.Driver.Events.EnumerateByTypeAsync("mission.status_changed", 50).ConfigureAwait(false);
+                    foreach (ArmadaEvent change in changes)
+                        AssertTrue(change.MissionId != pair.Parent.Id, "mission.status_changed was recorded for a mission that did not change");
                 }
             }));
 
@@ -308,6 +353,48 @@ namespace Test.Shared.Suites.Services
                     WebSocketCommandError error = await fx.TransitionWebSocketErrorAsync(pair.Parent.Id, "Complete").ConfigureAwait(false);
                     AssertTrue(error.Error.IndexOf("still owns this mission", StringComparison.Ordinal) >= 0, error.Error);
                     await AssertRefusedAsync(testDb.Driver, pair, probe).ConfigureAwait(false);
+                }
+            }));
+
+            cases.Add(CaseAsync("websocket_complete_without_dock_takes_the_no_change_path", "WebSocket Complete of a dockless WorkProduced mission already in the target branch completes without landing", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
+                    fx.StubGit.IsAncestorResult = true;
+                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.WorkProduced, false).ConfigureAwait(false);
+                    mission.CommitHash = "0123456789abcdef0123456789abcdef01234567";
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    LandingProbe probe = fx.AttachLandingProbe(testDb.Driver);
+                    Mission returned = await fx.TransitionWebSocketAsync(mission.Id, "Complete").ConfigureAwait(false);
+                    AssertEqual(0, probe.Calls, "landing callback count");
+                    AssertEqual(MissionStatusEnum.Complete, returned.Status, "returned row");
+                    Mission stored = await ReadMissionAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Complete, stored.Status, "stored row");
+                    AssertTrue(stored.CompletedUtc != null, "CompletedUtc");
+                }
+            }));
+
+            cases.Add(CaseAsync("mcp_work_produced_request_event_names_the_requested_status", "MCP WorkProduced request records a status event that names WorkProduced, not completion", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
+                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.LandingFailed, true).ConfigureAwait(false);
+                    LandingProbe probe = fx.AttachLandingProbe(testDb.Driver);
+                    await fx.TransitionMcpAsync(mission.Id, "WorkProduced").ConfigureAwait(false);
+                    AssertEqual(1, probe.Calls, "landing callback count");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.status_changed", 50).ConfigureAwait(false);
+                    bool found = false;
+                    foreach (ArmadaEvent evt in events)
+                    {
+                        string text = evt.Message ?? "";
+                        if (evt.MissionId != mission.Id || text.IndexOf("landed as", StringComparison.Ordinal) < 0) continue;
+                        found = true;
+                        AssertTrue(text.IndexOf("WorkProduced", StringComparison.Ordinal) >= 0, text);
+                        AssertTrue(text.IndexOf("completed", StringComparison.Ordinal) < 0, text);
+                    }
+                    AssertTrue(found, "landing status event");
                 }
             }));
 
@@ -637,6 +724,11 @@ namespace Test.Shared.Suites.Services
 
             public AdmiralService Admiral { get; }
 
+            public StubGitService StubGit
+            {
+                get { return (StubGitService)_Git; }
+            }
+
             public static Task<ChannelFixture> OpenAsync(DatabaseDriver database)
             {
                 string root = TestTemp.NewDirectory("manual_status");
@@ -681,7 +773,8 @@ namespace Test.Shared.Suites.Services
                     settings,
                     git,
                     landing,
-                    missions);
+                    missions,
+                    statusMissionService: missions);
 
                 JsonSerializerOptions jsonOptions = new JsonSerializerOptions();
                 jsonOptions.PropertyNameCaseInsensitive = true;
@@ -738,7 +831,7 @@ namespace Test.Shared.Suites.Services
                 return mission;
             }
 
-            public async Task<DependentPair> CreateDependentPairAsync(MissionStatusEnum parentStatus)
+            public async Task<DependentPair> CreateDependentPairAsync(MissionStatusEnum parentStatus, bool requiresReview = false, bool landable = false)
             {
                 Voyage voyage = new Voyage("stage-voyage-" + _Token);
                 voyage.TenantId = Constants.DefaultTenantId;
@@ -747,7 +840,7 @@ namespace Test.Shared.Suites.Services
 
                 Vessel vessel = await CreateVesselAsync().ConfigureAwait(false);
                 Captain captain = await CreateCaptainAsync().ConfigureAwait(false);
-                Dock dock = await CreateDockAsync(vessel.Id, captain.Id, "").ConfigureAwait(false);
+                Dock dock = await CreateDockAsync(vessel.Id, captain.Id, landable ? System.IO.Path.Combine(_Settings.DocksDirectory, "stage-" + _Token) : "").ConfigureAwait(false);
 
                 Mission parent = new Mission("parent-stage-" + _Token);
                 parent.TenantId = Constants.DefaultTenantId;
@@ -760,7 +853,12 @@ namespace Test.Shared.Suites.Services
                 parent.Persona = "Worker";
                 parent.BranchName = "armada/stage-" + _Token;
                 parent.DiffSnapshot = SampleDiff;
-                parent.RequiresReview = false;
+                parent.RequiresReview = requiresReview;
+                if (parentStatus == MissionStatusEnum.Review)
+                {
+                    parent.ReviewRequestedUtc = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+                    parent.ReviewComment = "awaiting approval";
+                }
                 await _Database.Missions.CreateAsync(parent).ConfigureAwait(false);
 
                 captain.CurrentMissionId = parent.Id;
@@ -817,6 +915,20 @@ namespace Test.Shared.Suites.Services
 
             public async Task<Mission> TransitionRestAsync(string missionId, string status, LandingProbe probe)
             {
+                (int code, string body) = await SendRestAsync(missionId, status, probe).ConfigureAwait(false);
+                AssertEqual(200, code, body);
+                return JsonHelper.Deserialize<Mission>(body);
+            }
+
+            public async Task<string> TransitionRestErrorAsync(string missionId, string status, LandingProbe probe, int expectedCode)
+            {
+                (int code, string body) = await SendRestAsync(missionId, status, probe).ConfigureAwait(false);
+                AssertEqual(expectedCode, code, body);
+                return body;
+            }
+
+            private async Task<(int Code, string Body)> SendRestAsync(string missionId, string status, LandingProbe probe)
+            {
                 Admiral.OnMissionComplete = probe.Callback;
                 int port;
                 using (TcpListener listener = new TcpListener(IPAddress.Loopback, 0))
@@ -861,8 +973,7 @@ namespace Test.Shared.Suites.Services
                         using (HttpResponseMessage response = await client.PutAsync("/api/v1/missions/" + missionId + "/status", JsonHelper.ToJsonContent(new { status = status })).ConfigureAwait(false))
                         {
                             string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                            AssertEqual(200, (int)response.StatusCode, body);
-                            return JsonHelper.Deserialize<Mission>(body);
+                            return ((int)response.StatusCode, body);
                         }
                     }
                 }
@@ -894,6 +1005,7 @@ namespace Test.Shared.Suites.Services
                 vessel.TenantId = Constants.DefaultTenantId;
                 vessel.UserId = Constants.DefaultUserId;
                 vessel.LocalPath = System.IO.Path.Combine(_Settings.ReposDirectory, "repo");
+                System.IO.Directory.CreateDirectory(vessel.LocalPath);
                 vessel.SecretScanEnabled = false;
                 vessel.AutoLandEnabled = false;
                 vessel.DefinitionOfDoneEnabled = false;

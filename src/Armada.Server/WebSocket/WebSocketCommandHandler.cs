@@ -581,6 +581,8 @@ namespace Armada.Server.WebSocket
                     statusRequest.MissionId = command.Id ?? "";
                     statusRequest.StatusText = command.Status ?? "";
                     statusRequest.RefuseReviewExitExceptCancel = true;
+                    statusRequest.Git = _Git;
+                    statusRequest.Settings = _Settings;
                     statusRequest.Callbacks = callbacks;
 
                     MissionStatusTransitionResult result = await MissionStatusTransition.ApplyAsync(statusRequest).ConfigureAwait(false);

@@ -38,7 +38,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="landingService">Optional landing service for mission landing operations.</param>
         /// <param name="missionService">Optional mission service for pipeline-aware restart_mission; without it restart answers Unavailable.</param>
         /// <param name="statusCallbacks">Optional event and broadcast callbacks for transition_mission_status. Null writes the audit event row and skips broadcasts.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, IGitService? git, ILandingService? landingService = null, IMissionService? missionService = null, MissionStatusTransitionCallbacks? statusCallbacks = null)
+        /// <param name="statusMissionService">Optional mission service for the dependent-stage handoff of transition_mission_status. It does not enable restart_mission.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings, IGitService? git, ILandingService? landingService = null, IMissionService? missionService = null, MissionStatusTransitionCallbacks? statusCallbacks = null, IMissionService? statusMissionService = null)
         {
             register(
                 "mission_status",
@@ -468,7 +469,7 @@ namespace Armada.Server.Mcp.Tools
                     MissionStatusTransitionRequest statusRequest = new MissionStatusTransitionRequest();
                     statusRequest.Database = database;
                     statusRequest.Admiral = admiral;
-                    statusRequest.MissionService = missionService;
+                    statusRequest.MissionService = statusMissionService;
                     statusRequest.Caller = caller;
                     statusRequest.MissionId = missionId;
                     statusRequest.StatusText = statusStr;

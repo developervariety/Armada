@@ -2002,7 +2002,8 @@ namespace Armada.Server
                 _StageOutcomeAccess,
                 _ModelProbeAccess,
                 _BatteryAccess,
-                MissionStatusCallbacks());
+                MissionStatusCallbacks(),
+                _MissionService);
         }
 
         /// <summary>

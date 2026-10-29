@@ -172,7 +172,7 @@ namespace Armada.Helm.Commands
                 vesselHealthService: _VesselHealthService,
                 fleetCategorizationService: _FleetCategorization,
                 stopServerUnavailableMessage: StopServerUnavailableMessage,
-                missionService: _Missions,
+                statusMissionService: _Missions,
                 statusCallbacks: new MissionStatusTransitionCallbacks { Logging = _Logging });
         }
 
