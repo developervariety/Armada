@@ -500,6 +500,10 @@ namespace Test.Shared.Suites.Runtimes
                     ModelEndpoint endpoint = new ModelEndpoint { Name = "test-endpoint", Provider = ModelProviderEnum.OpenAICompatible, Kind = ModelEndpointKindEnum.Inference, Model = "test-model", BaseUrl = "http://localhost:1" };
                     ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new ScriptedClient(script, log), (url, token, log) => new McpToolClient(url, stub));
 
+                    Armada.Core.Services.RuntimeToolWaitTracker waits = new Armada.Core.Services.RuntimeToolWaitTracker();
+                    List<bool> outstanding = new List<bool>();
+                    runtime.OnOutputReceived += (pid, line) => waits.Observe(AgentRuntimeEnum.ApiEndpoint, line, DateTime.UtcNow);
+                    runtime.OnToolEvent += (pid, evt) => outstanding.Add(waits.StartedUtc.HasValue);
                     List<string> stdout = new List<string>();
                     List<ApiRuntimeToolEvent> toolEvents = new List<ApiRuntimeToolEvent>();
                     List<ApiRuntimeDiagnostic> diagnostics = new List<ApiRuntimeDiagnostic>();
@@ -515,6 +519,10 @@ namespace Test.Shared.Suites.Runtimes
                     AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "Expected the loop to complete.");
                     AssertEqual(0, exitCode ?? -1);
 
+                    AssertEqual(2, outstanding.Count);
+                    AssertTrue(outstanding[0], "general output carries the tool start before execution");
+                    AssertFalse(outstanding[1], "error completion clears the wait over general output too");
+                    AssertNull(waits.StartedUtc);
                     AssertEqual(2, toolEvents.Count, "exactly one started and one completed event; model text cannot add tool events");
                     AssertEqual(ApiRuntimeToolPhaseEnum.Started, toolEvents[0].Phase);
                     AssertEqual(ApiRuntimeToolPhaseEnum.Completed, toolEvents[1].Phase);

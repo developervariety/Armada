@@ -108,6 +108,125 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("tool_wait_is_bounded", "Outstanding tools protect quiet work only until the hard limit", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.ToolWaitHardLimitMinutes = 45;
+                    StallTestFixture fixture = await StallTestFixture.CreateAsync(testDb.Driver, settings, DateTime.UtcNow.AddMinutes(-20)).ConfigureAwait(false);
+                    fixture.Admiral.OnGetToolWaitStartedUtc = _ => DateTime.UtcNow.AddMinutes(-20);
+                    await fixture.Admiral.HealthCheckAsync().ConfigureAwait(false);
+                    AssertEqual(0, fixture.Stopped.Count, "busy child/tool must survive output silence");
+                    fixture.Admiral.OnGetToolWaitStartedUtc = _ => DateTime.UtcNow.AddMinutes(-46);
+                    await fixture.Admiral.HealthCheckAsync().ConfigureAwait(false);
+                    AssertEqual(1, fixture.Stopped.Count, "hung tool must not hold the captain forever");
+                }
+            }));
+
+            cases.Add(CaseAsync("tool_wait_protocols", "All four runtime protocols match starts and results without extending deadlines", TestTags.Reliability, () =>
+            {
+                DateTime now = DateTime.UtcNow;
+                foreach (var sample in new[]
+                {
+                    (AgentRuntimeEnum.ClaudeCode, "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"a\",\"name\":\"Bash\"}]}}", "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"a\",\"is_error\":true}]}}"),
+                    (AgentRuntimeEnum.Codex, "{\"type\":\"item.started\",\"item\":{\"type\":\"command_execution\",\"id\":\"a\"}}", "{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\",\"id\":\"a\",\"exit_code\":1}}"),
+                    (AgentRuntimeEnum.Mux, "{\"eventType\":\"tool_call_proposed\",\"toolCall\":{\"id\":\"a\",\"name\":\"bash\"}}", "{\"eventType\":\"tool_call_completed\",\"toolCallId\":\"a\",\"success\":false}"),
+                    (AgentRuntimeEnum.ApiEndpoint, "[tool-lifecycle] {\"id\":\"a\",\"started\":true}", "[tool-lifecycle] {\"id\":\"a\",\"started\":false}")
+                })
+                {
+                    RuntimeToolWaitTracker tracker = new RuntimeToolWaitTracker();
+                    tracker.Observe(sample.Item1, "{}", now);
+                    tracker.Observe(sample.Item1, "{bad json}", now);
+                    tracker.Observe(sample.Item1, "[tool-lifecycle] []", now);
+                    AssertNull(tracker.StartedUtc, "minimal or malformed events must not invent work");
+                    tracker.Observe(sample.Item1, sample.Item2, now);
+                    tracker.Observe(sample.Item1, sample.Item2, now.AddMinutes(5));
+                    AssertEqual<DateTime?>(now, tracker.StartedUtc, "duplicate starts cannot renew a hung call");
+                    tracker.Observe(sample.Item1, sample.Item2.Replace("\"a\"", "\"b\""), now.AddMinutes(1));
+                    tracker.Observe(sample.Item1, sample.Item3, now.AddMinutes(2));
+                    AssertEqual<DateTime?>(now.AddMinutes(1), tracker.StartedUtc, "parallel call remains outstanding");
+                    tracker.Observe(sample.Item1, sample.Item3.Replace("\"a\"", "\"b\""), now.AddMinutes(3));
+                    AssertNull(tracker.StartedUtc, "error results complete tools too");
+                }
+                AssertTrue(RuntimeToolWaitTracker.IsStalled(now, now.AddMinutes(-11), null, 10, 60));
+                AssertFalse(RuntimeToolWaitTracker.IsStalled(now, now.AddMinutes(-10), null, 10, 60));
+                AssertFalse(RuntimeToolWaitTracker.IsStalled(now, now.AddMinutes(-20), now.AddMinutes(-59), 10, 60));
+                AssertTrue(RuntimeToolWaitTracker.IsStalled(now, now.AddMinutes(-20), now.AddMinutes(-60), 10, 60), "EOF/missing result cannot extend a call beyond the hard limit");
+                ArmadaSettings defaults = System.Text.Json.JsonSerializer.Deserialize<ArmadaSettings>("{}")!;
+                AssertEqual(60, defaults.ToolWaitHardLimitMinutes);
+                defaults.ToolWaitHardLimitMinutes = 90;
+                AssertFalse(RuntimeToolWaitTracker.IsStalled(now, now.AddMinutes(-20), now.AddMinutes(-60), 10, defaults.ToolWaitHardLimitMinutes), "explicit configuration takes effect");
+                bool rejected = false;
+                try { defaults.ToolWaitHardLimitMinutes = 0; } catch (ArgumentOutOfRangeException) { rejected = true; }
+                AssertTrue(rejected, "zero hard limit is rejected");
+                return Task.CompletedTask;
+            }));
+
+            cases.Add(CaseAsync("stalled_dock_retains_edits", "Exhausted stall recovery preserves tracked and untracked work across orphan sweeps", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxRecoveryAttempts = 0;
+                    StallTestFixture fixture = await StallTestFixture.CreateAsync(testDb.Driver, settings, DateTime.UtcNow.AddMinutes(-20)).ConfigureAwait(false);
+                    Dock dock = (await testDb.Driver.Docks.ReadAsync(fixture.Mission.DockId!).ConfigureAwait(false))!;
+                    AssertTrue(dock.CreatedUtc < DateTime.UtcNow.AddMinutes(-5), "fixture is old enough to exercise orphan reclamation");
+                    Directory.CreateDirectory(dock.WorktreePath!);
+                    string file = Path.Combine(dock.WorktreePath!, "uncommitted.txt");
+                    await HarborDockGitFixture.GitAsync(dock.WorktreePath!, "init", "-b", dock.BranchName!).ConfigureAwait(false);
+                    string tracked = Path.Combine(dock.WorktreePath!, "tracked.txt");
+                    File.WriteAllText(tracked, "original");
+                    await HarborDockGitFixture.GitAsync(dock.WorktreePath!, "add", "tracked.txt").ConfigureAwait(false);
+                    await HarborDockGitFixture.GitAsync(dock.WorktreePath!, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "Seed preservation fixture").ConfigureAwait(false);
+                    File.WriteAllText(tracked, "uncommitted tracked edits");
+                    File.WriteAllText(file, "valuable edits");
+                    try
+                    {
+                        await fixture.Admiral.HealthCheckAsync().ConfigureAwait(false);
+                        await fixture.Admiral.HealthCheckAsync().ConfigureAwait(false);
+                        Mission mission = (await testDb.Driver.Missions.ReadAsync(fixture.Mission.Id).ConfigureAwait(false))!;
+                        Dock retained = (await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionFailureKindEnum.StallRecoveryExhausted, mission.FailureKind);
+                        AssertEqual(dock.Id, mission.DockId, "mission retains recovery location");
+                        AssertTrue(retained.Active, "orphan sweep must not reclaim preserved dock");
+                        AssertEqual("valuable edits", File.ReadAllText(file), "untracked work remains byte-for-byte available");
+                        AssertEqual("uncommitted tracked edits", File.ReadAllText(tracked));
+                        AssertContains("tracked.txt", await HarborDockGitFixture.GitAsync(dock.WorktreePath!, "diff", "--name-only").ConfigureAwait(false));
+                    }
+                    finally { if (Directory.Exists(dock.WorktreePath!)) Directory.Delete(dock.WorktreePath!, true); }
+                }
+            }));
+
+            foreach (MissionStatusEnum status in new[] { MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed })
+            {
+                cases.Add(CaseAsync("unlanded_dock_survives_orphans_" + status, "Orphan sweeps retain an idle captain's unlanded dock in " + status, TestTags.Reliability, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                    ArmadaSettings settings = CreateSettings();
+                    StallTestFixture fixture = await StallTestFixture.CreateAsync(testDb.Driver, settings, DateTime.UtcNow.AddMinutes(-20));
+                    Mission mission = (await testDb.Driver.Missions.ReadAsync(fixture.Mission.Id))!;
+                    mission.Status = status;
+                    mission.FailureKind = MissionFailureKindEnum.Infra;
+                    await testDb.Driver.Missions.UpdateAsync(mission);
+                    Captain captain = (await testDb.Driver.Captains.ReadAsync(mission.CaptainId!))!;
+                    captain.State = CaptainStateEnum.Idle;
+                    captain.CurrentMissionId = null;
+                    captain.CurrentDockId = null;
+                    captain.ProcessId = null;
+                    await testDb.Driver.Captains.UpdateAsync(captain);
+                    Dock dock = (await testDb.Driver.Docks.ReadAsync(mission.DockId!))!;
+                    Directory.CreateDirectory(dock.WorktreePath!);
+                    string sentinel = Path.Combine(dock.WorktreePath!, "unlanded.txt");
+                    await File.WriteAllTextAsync(sentinel, "preserve this work");
+                    await fixture.Admiral.HealthCheckAsync();
+                    await fixture.Admiral.HealthCheckAsync();
+                    AssertTrue(File.Exists(sentinel));
+                    AssertTrue((await testDb.Driver.Docks.ReadAsync(dock.Id))!.Active);
+                    AssertEqual(status, (await testDb.Driver.Missions.ReadAsync(mission.Id))!.Status);
+                }));
+            }
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Stalled Captain Recovery", cases: cases);
         }
 

@@ -100,7 +100,7 @@ namespace Armada.Server
                 endpoint = await _Database.ModelEndpoints.ReadAsync(captain.ModelEndpointId!, token).ConfigureAwait(false);
 
             BatteryRun run = await _Service.StartAsync(captain, endpoint, request.Packs, request.RunCount, request.Seed,
-                request.CreateFixtureVessel, caller.TenantId, caller.UserId, token).ConfigureAwait(false);
+                request.CreateFixtureVessel, caller.TenantId, caller.UserId, request.PromptVariant, token).ConfigureAwait(false);
             _Logging.Info(_Header + "battery run " + run.Id + " of captain " + captain.Id + " started by " + caller.UserId);
             return run;
         }
