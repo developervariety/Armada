@@ -25,8 +25,20 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<EnumerationResult<Job>?> ListJobsAsync(CancellationToken token = default)
         {
-            // One page: without paging parameters the route returns every job (deprecated).
+            // One page of 100 (the route always pages).
             return GetAsync<EnumerationResult<Job>>("/api/v1/jobs?pageNumber=1&pageSize=100", null, token);
+        }
+
+        /// <summary>
+        /// POST /api/v1/jobs/enumerate: one page of the background jobs visible to the caller, newest first, with the total.
+        /// </summary>
+        /// <param name="query">Paging and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<Job>?> EnumerateJobsAsync(JobQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<Job>>("/api/v1/jobs/enumerate", query ?? new JobQuery(), null, token);
         }
 
         /// <summary>

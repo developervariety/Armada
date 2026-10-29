@@ -103,15 +103,6 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
 
   const columns: DataTableColumn<FleetAction>[] = [
     {
-      key: 'name', label: t('Name'), headerTitle: t('Name of the saved action. Click a row to edit it.'), required: true, cellClassName: 'cell-nowrap',
-      render: (a) => (
-        <>
-          <strong>{a.name}</strong>
-          {!a.active && <span className="tag cancelled" style={{ marginLeft: '0.4rem' }} title={t('This action is inactive: it was deleted (built-ins are hidden rather than removed) and is not offered when starting a run.')}>{t('Hidden')}</span>}
-        </>
-      ),
-    },
-    {
       // ID and description used to be stacked under the name; each is a one-line column now.
       key: 'id', label: t('ID'), headerTitle: t('Action ID (fac_ prefix), used by the API, CLI, and MCP tools to run it.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (a) => (
@@ -119,6 +110,15 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
           <span className="id-value" title={a.id}>{a.id}</span>
           <CopyButton text={a.id} onClick={(e) => e.stopPropagation()} />
         </span>
+      ),
+    },
+    {
+      key: 'name', label: t('Name'), headerTitle: t('Name of the saved action. Click a row to edit it.'), required: true, cellClassName: 'cell-nowrap',
+      render: (a) => (
+        <>
+          <strong>{a.name}</strong>
+          {!a.active && <span className="tag cancelled" style={{ marginLeft: '0.4rem' }} title={t('This action is inactive: it was deleted (built-ins are hidden rather than removed) and is not offered when starting a run.')}>{t('Hidden')}</span>}
+        </>
       ),
     },
     {

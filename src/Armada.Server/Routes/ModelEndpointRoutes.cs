@@ -60,20 +60,6 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<ModelEndpoint>>("One page"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/model-endpoints", async (ApiRequest req) =>
-            {
-                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
-                if (ctx == null) return BuildAuthError(req);
-
-                return await _Endpoints.EnumerateAsync(ctx).ConfigureAwait(false);
-            },
-            api => api
-                .WithTag("Model Endpoints")
-                .WithSummary("List model endpoints")
-                .WithDescription("Returns all managed embedding/inference endpoints visible to the caller. API keys are never returned.")
-                .WithResponse(200, OpenApiJson.For<List<ModelEndpoint>>("Model endpoints"))
-                .WithSecurity("ApiKey"));
-
             app.Post("/api/v1/model-endpoints", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

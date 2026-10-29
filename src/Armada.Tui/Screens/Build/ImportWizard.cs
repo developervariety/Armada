@@ -431,7 +431,7 @@ namespace Armada.Tui.Screens.Build
             Act("stop-captain", "Stop the captain", StopCaptain, "x", () => FleetPanel() && Batch != null && Batch.CategorizationStatus == VesselImportCategorizationStatusEnum.Running && !String.IsNullOrEmpty(Batch.CategorizationJobId) && !_FleetBusy);
             Act("retry-categorization", "Retry categorization", RetryCategorization, "R", () => FleetPanel() && Batch != null && Batch.CategorizationStatus == VesselImportCategorizationStatusEnum.Failed && !_FleetBusy);
             Act("edit-again", "Edit and apply again", () => Fleets.Editing = true, "E", () => FleetPanel() && Batch != null && Batch.CategorizationStatus == VesselImportCategorizationStatusEnum.Applied && !Fleets.Editing);
-            Act("jobs", "Open the Jobs page", () => Context.Navigate("/jobs"), "J", () => (Step == "results" || Step == "batch") && (_JobId != null || !String.IsNullOrEmpty(Batch?.CategorizationJobId)));
+            Act("jobs", "Open the Jobs page", () => Context.Navigate(TabLinks.JobsPath), "J", () => (Step == "results" || Step == "batch") && (_JobId != null || !String.IsNullOrEmpty(Batch?.CategorizationJobId)));
             Act("close", "Close", RequestClose, "esc");
 
             Track(new OpsCallbackDisposable(StopPolling));

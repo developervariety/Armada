@@ -29,6 +29,18 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// POST /api/v1/credentials/enumerate: one page of the credentials visible to the caller, bearer tokens redacted, with the total.
+        /// </summary>
+        /// <param name="query">Paging and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<Credential>?> EnumerateCredentialsAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<Credential>>("/api/v1/credentials/enumerate", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>createCredential</c>: POST '/api/v1/credentials'.
         /// </summary>
         /// <param name="data">data.</param>

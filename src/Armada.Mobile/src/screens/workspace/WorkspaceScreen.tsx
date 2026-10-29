@@ -36,6 +36,7 @@ import { AppText, Banner, BottomSheet, Button, ConfirmDialog, EmptyState, Icon, 
 import { Disclosure } from '../../components/ui/Disclosure';
 import { SelectField } from '../../components/ui/SelectSheet';
 import { useLocale } from '../../i18n/LocaleContext';
+import { planningHref } from '../../navigation/legacyRedirects';
 import { useLayout } from '../../navigation/useLayout';
 import { useNotifications } from '../../notifications/NotificationContext';
 import { useTheme } from '../../theme/ThemeContext';
@@ -254,7 +255,7 @@ export function WorkspaceScreen({ vesselId, initialPanel = 'files' }: { vesselId
   function plan() {
     if (!vessel || actionable.length === 0) return;
     const draft = buildWorkspacePlanningDraft(vessel, actionable);
-    router.push({ pathname: '/planning', params: { from: 'workspace', vesselId: vessel.id, fleetId: vessel.fleetId ?? '', title: draft.title, prompt: draft.prompt } } as unknown as Href);
+    router.push(planningHref(null, { from: 'workspace', vesselId: vessel.id, fleetId: vessel.fleetId ?? '', title: draft.title, prompt: draft.prompt }) as Href);
   }
   function dispatch() {
     if (!vessel || actionable.length === 0) return;

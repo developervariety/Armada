@@ -76,7 +76,7 @@ namespace Armada.Harbor
         /// <summary>
         /// Maximum concurrent jobs this Harbor will accept.
         /// </summary>
-        public int MaxConcurrentJobs { get; set; } = 4;
+        public int MaxConcurrentJobs { get; set; } = 16;
 
         /// <summary>
         /// Credential access key presented on the link, or empty for an unauthenticated local link.

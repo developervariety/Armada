@@ -65,5 +65,20 @@ namespace Armada.Server.Mcp
         /// Optional per-vessel GitHub token override.
         /// </summary>
         public string? GitHubTokenOverride { get; set; }
+
+        /// <summary>
+        /// Per-vessel override for the Test intent (beats a repo script and the ecosystem default).
+        /// </summary>
+        public string? TestCommand { get; set; }
+
+        /// <summary>
+        /// Per-vessel override for the Lint intent (beats a repo script and the ecosystem default).
+        /// </summary>
+        public string? LintCommand { get; set; }
+
+        /// <summary>
+        /// Per-vessel override for the Audit intent (beats a repo script and the ecosystem default).
+        /// </summary>
+        public string? AuditCommand { get; set; }
     }
 }

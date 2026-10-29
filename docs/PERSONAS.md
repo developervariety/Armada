@@ -516,6 +516,10 @@ CREATE INDEX idx_missions_depends_on ON missions(depends_on_mission_id);
 ### 5.4 Test Engineer Persona Template (`persona.test_engineer`)
 
 - [x] Test Engineer persona template embedded in PromptTemplateService
+- [x] Unit-test scope: a line `[ARMADA:UNIT-TESTS] abbreviated` (or `full`) in a persona's prompt template chooses
+  which workflow-profile unit-test command the post-stage check runs for that persona's stages
+  (`AbbreviatedUnitTestCommand` or `UnitTestCommand`). The same line in a mission description overrides it; with
+  neither, the full command runs. The built-in Test Engineer template has no directive, so it runs the full suite.
 
 ---
 
