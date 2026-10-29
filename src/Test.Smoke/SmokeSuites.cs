@@ -264,6 +264,7 @@ namespace Test.Smoke
             "Services.LandingPaths",
             "Services.LandingPipeline",
             "Services.LandingPreviewMission",
+            "Services.LandingReconciler",
             "Services.LocalAdmiralFiles",
             "Services.LocalHostCommandExecutor",
             "Services.LogRotationService",

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import MissionDetail from './MissionDetail';
-import { getHarbor, getMission, getMissionLandingPreview, listCaptains, listCheckRuns, listDeployments, listVessels } from '../api/client';
+import { getHarbor, getMission, getMissionLandingPreview, listCaptains, listCheckRuns, listDeployments, listVessels, purgeMission, retryMissionLanding } from '../api/client';
 import { translateTemplate } from '../i18n/runtime';
 import type { Captain, Harbor, LandingPreviewResult, Mission } from '../types/models';
 
@@ -227,6 +227,49 @@ describe('MissionDetail Harbor and captain runtime', () => {
 
     expect(await screen.findByText('Admiral host')).toBeInTheDocument();
     expect(screen.queryByTestId('mission-harbor')).not.toBeInTheDocument();
+  });
+  it('shows an infra landing failure in full with Retry Landing next to it (A4)', async () => {
+    const reason = 'Landing was blocked: the checkout at /Users/dev/Code/app has uncommitted changes.\n M src/app.ts\n?? notes.txt';
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'LandingFailed', failureKind: 'Infra', failureReason: reason }));
+    vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ missionStatus: 'LandingFailed' }));
+    vi.mocked(retryMissionLanding).mockResolvedValue({} as never);
+    renderPage();
+    await screen.findByText('Failure Reason');
+    const block = document.querySelector('pre.mission-failure-reason') as HTMLElement;
+    expect(block).not.toBeNull();
+    expect(block.textContent).toBe(reason);
+    expect(block).toHaveAttribute('data-failure-kind', 'Infra');
+    const field = block.closest('.detail-field') as HTMLElement;
+    fireEvent.click(within(field).getByRole('button', { name: 'Retry Landing' }));
+    await waitFor(() => expect(retryMissionLanding).toHaveBeenCalledWith('msn_1'));
+  });
+
+  it('does not repeat Retry Landing beside the reason for other landing failures', async () => {
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'LandingFailed', failureKind: 'LandingConflict', failureReason: 'Merge conflict in src/app.ts' }));
+    vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ missionStatus: 'LandingFailed' }));
+    renderPage();
+    await screen.findByText('Failure Reason');
+    const field = (document.querySelector('pre.mission-failure-reason') as HTMLElement).closest('.detail-field') as HTMLElement;
+    expect(within(field).queryByRole('button', { name: 'Retry Landing' })).not.toBeInTheDocument();
+  });
+
+  it('shows the delete progress modal while a purge runs', async () => {
+    let finish!: () => void;
+    vi.mocked(purgeMission).mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'Failed', failureReason: 'x' }));
+    vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ missionStatus: 'Failed' }));
+    renderPage();
+    await screen.findByText('Failure Reason');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Actions' })[0]);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Purge' }));
+    const confirm = screen.getByText('Purge Mission').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Yes' }));
+    const progress = await screen.findByRole('alertdialog', { name: 'Purging mission' });
+    expect(progress).toHaveTextContent('This may take some time while related records are cleaned up.');
+    expect(progress).toHaveAttribute('aria-busy', 'true');
+    await act(async () => { finish(); });
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: 'Purging mission' })).not.toBeInTheDocument());
+    expect(purgeMission).toHaveBeenCalledTimes(1);
   });
 });
 

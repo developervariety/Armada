@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
+  apiErrorMessage,
   getEvent,
   deleteEventsBatch,
   listCaptains,
@@ -16,10 +17,12 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { entityRoute } from '../lib/routing';
 import { formatEventPayload } from '../lib/eventPayload';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 export default function EventDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -69,15 +72,10 @@ export default function EventDetail() {
     setConfirmAction({
       message: t('Delete {{entity}} {{name}}?', { entity: t('Event').toLowerCase(), name: id ?? '' }),
       action: async () => {
-        try {
-          await deleteEventsBatch([id!]);
-          setConfirmAction(null);
-          pushToast('warning', t('Event {{id}} deleted.', { id: id ?? '' }));
-          navigate('/events');
-        } catch {
-          setError(t('Delete failed.'));
-          setConfirmAction(null);
-        }
+        setConfirmAction(null);
+        if (!(await deletion.run({ kind: 'event', action: () => deleteEventsBatch([id!]), errorMessage: (err) => apiErrorMessage(err, t('Delete failed.')) }))) return;
+        pushToast('warning', t('Event {{id}} deleted.', { id: id ?? '' }));
+        navigate('/events');
       }
     });
   }
@@ -209,6 +207,7 @@ export default function EventDetail() {
 
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirmAction !== null} message={confirmAction?.message ?? ''} onConfirm={() => confirmAction?.action()} onCancel={() => setConfirmAction(null)} />
+      {deletion.dialog}
     </div>
   );
 }

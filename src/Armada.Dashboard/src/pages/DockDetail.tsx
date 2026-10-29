@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
+  apiErrorMessage,
   getDock,
   deleteDock,
   listCaptains,
@@ -15,10 +16,12 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { parseDockGitAnchors } from '../lib/dockAnchors';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 export default function DockDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -68,15 +71,10 @@ export default function DockDetail() {
     setConfirmAction({
       message: t('Delete dock {{name}}? This will clean up the git worktree and cannot be undone.', { name: id ?? '' }),
       action: async () => {
-        try {
-          await deleteDock(id!);
-          setConfirmAction(null);
-          pushToast('warning', t('Dock {{id}} deleted.', { id: id ?? '' }));
-          navigate('/docks');
-        } catch {
-          setError(t('Delete failed.'));
-          setConfirmAction(null);
-        }
+        setConfirmAction(null);
+        if (!(await deletion.run({ kind: 'dock', action: () => deleteDock(id!), errorMessage: (err) => apiErrorMessage(err, t('Delete failed.')) }))) return;
+        pushToast('warning', t('Dock {{id}} deleted.', { id: id ?? '' }));
+        navigate('/docks');
       }
     });
   }
@@ -206,6 +204,7 @@ export default function DockDetail() {
 
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirmAction !== null} message={confirmAction?.message ?? ''} onConfirm={() => confirmAction?.action()} onCancel={() => setConfirmAction(null)} />
+      {deletion.dialog}
     </div>
   );
 }

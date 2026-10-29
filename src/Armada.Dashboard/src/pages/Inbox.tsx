@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getInbox } from '../api/client';
+import { apiErrorMessage, getInbox, retryMissionLanding } from '../api/client';
 import type { InboxItem, InboxSeverity } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -15,7 +15,7 @@ import { useLiveRefresh } from '../lib/useLiveRefresh';
 import { CLI_PERMISSION_EVENT_PREFIX, isPendingRequest } from '../lib/cliPermissions';
 import CliPermissionDecisionControls from '../components/cliPermissions/CliPermissionDecisionControls';
 import CliPermissionCountdown from '../components/cliPermissions/CliPermissionCountdown';
-import { APPROVAL_KINDS, CLI_PERMISSION_KIND, inboxActionLabel, inboxItemKey, splitInbox } from '../lib/inboxKinds';
+import { APPROVAL_KINDS, CLI_PERMISSION_KIND, INBOX_KINDS, inboxActionLabel, inboxItemKey, splitInbox } from '../lib/inboxKinds';
 
 
 function severityColor(severity: InboxSeverity): string {
@@ -30,7 +30,7 @@ const RECENT_ALERT_LIMIT = 8;
 export default function Inbox() {
   const navigate = useNavigate();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, pushToast } = useNotifications();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,6 +61,18 @@ export default function Inbox() {
 
   const { approvals, interventions } = useMemo(() => splitInbox(items), [items]);
 
+  // A failed landing (often the host blocking it: a dirty checkout, a held lock) is fixed outside Armada and then
+  // retried, so the inbox offers the retry directly.
+  async function retryLanding(missionId: string) {
+    try {
+      await retryMissionLanding(missionId);
+      pushToast('success', t('Landing succeeded! Mission status updated.'));
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, t('Landing failed.')));
+    }
+    void load();
+  }
+
   function renderItem(item: InboxItem, i: number) {
     const cli = item.kind === CLI_PERMISSION_KIND ? item.cliPermission ?? null : null;
     const decidable = !!cli && !!cli.canDecide && isPendingRequest(cli);
@@ -75,7 +87,11 @@ export default function Inbox() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0, flex: '1 1 240px' }}>
             <strong>{inboxItemTitle(t, item)}</strong>
-            <div className="text-dim" style={{ marginTop: '0.2rem' }}>{item.detail}</div>
+            {item.kind === INBOX_KINDS.landingFailed ? (
+              <pre className="text-dim inbox-failure-reason" style={{ margin: '0.2rem 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: '0.85em' }}>{item.detail}</pre>
+            ) : (
+              <div className="text-dim" style={{ marginTop: '0.2rem' }}>{item.detail}</div>
+            )}
             {cli && cli.summaryText && <code className="inbox-cli-command">{cli.summaryText}</code>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -91,6 +107,16 @@ export default function Inbox() {
             )}
             {decidable && cli && (
               <CliPermissionDecisionControls request={cli} onDecided={() => { void load(); }} />
+            )}
+            {item.kind === INBOX_KINDS.landingFailed && item.entityId && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={(e) => { e.stopPropagation(); void retryLanding(item.entityId as string); }}
+                title={t('Rebase the mission branch onto its target branch and land it using the vessel\'s landing mode (merge, pull request or merge queue).')}
+              >
+                {t('Retry Landing')}
+              </button>
             )}
             {APPROVAL_KINDS.has(item.kind) && !decidable && (
               <button

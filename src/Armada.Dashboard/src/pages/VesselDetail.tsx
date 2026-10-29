@@ -19,9 +19,11 @@ import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 import { useNotifications } from '../context/NotificationContext';
 import { buildVesselDuplicatePayload } from '../lib/duplicates';
 import VesselFormModal from '../components/vessels/VesselFormModal';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 export default function VesselDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -153,11 +155,9 @@ export default function VesselDetail() {
       message: t('Delete vessel "{{name}}"? This cannot be undone.', { name: vessel.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await deleteVessel(vessel.id);
-          pushToast('warning', t('Vessel "{{name}}" deleted.', { name: vessel.name }));
-          navigate('/vessels');
-        } catch { setError(t('Delete failed.')); }
+        if (!(await deletion.run({ kind: 'vessel', action: () => deleteVessel(vessel.id) }))) return;
+        pushToast('warning', t('Vessel "{{name}}" deleted.', { name: vessel.name }));
+        navigate('/vessels');
       },
     });
   }
@@ -270,6 +270,7 @@ export default function VesselDetail() {
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <VesselCleanupModal vesselId={vessel.id} vesselName={vessel.name} open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
+      {deletion.dialog}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
