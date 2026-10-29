@@ -117,17 +117,19 @@ namespace Armada.Core.Services
         private static async Task<int> _DeleteEventsAsync(DatabaseDriver database, Func<int, Task<List<ArmadaEvent>>> fetch, CancellationToken token)
         {
             int removed = 0;
+            int limit = _BatchSize;
 
             while (true)
             {
                 token.ThrowIfCancellationRequested();
 
-                List<ArmadaEvent> batch = await fetch(_BatchSize).ConfigureAwait(false);
+                List<ArmadaEvent> batch = await fetch(limit).ConfigureAwait(false);
                 if (batch == null || batch.Count == 0) break;
 
                 int removedThisPass = 0;
                 foreach (ArmadaEvent evt in batch)
                 {
+                    if (evt.EventType == "mission.archive" || evt.EventType == "mission.landing_verification") continue;
                     try
                     {
                         await database.Events.DeleteAsync(evt.Id, token).ConfigureAwait(false);
@@ -141,7 +143,11 @@ namespace Armada.Core.Services
                 }
 
                 // If nothing in this pass could be deleted, stop to avoid re-fetching the same rows forever.
-                if (removedThisPass == 0) break;
+                if (removedThisPass == 0)
+                {
+                    if (batch.Count >= limit && batch.Any(e => e.EventType == "mission.archive" || e.EventType == "mission.landing_verification")) { limit += _BatchSize; continue; }
+                    break;
+                }
             }
 
             return removed;

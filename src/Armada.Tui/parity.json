@@ -721,6 +721,14 @@
     },
     {
       "kind": "tab",
+      "key": "Activity:jobs",
+      "status": "implemented",
+      "tui": "JobsScreen",
+      "workstream": "W3.11",
+      "notes": "Jobs"
+    },
+    {
+      "kind": "tab",
       "key": "Activity:requests",
       "status": "implemented",
       "tui": "RequestHistoryScreen",
@@ -921,6 +929,14 @@
     },
     {
       "kind": "tab",
+      "key": "DispatchHub:planning",
+      "status": "implemented",
+      "tui": "PlanningScreen",
+      "workstream": "W3.4",
+      "notes": "Planning"
+    },
+    {
+      "kind": "tab",
       "key": "FleetActions:actions",
       "status": "implemented",
       "tui": "FleetActionsScreen",
@@ -958,6 +974,14 @@
       "tui": "VoyagesScreen",
       "workstream": "W3.9",
       "notes": "Voyages"
+    },
+    {
+      "kind": "tab",
+      "key": "ServerHub:cli-permissions",
+      "status": "implemented",
+      "tui": "CliPermissionsScreen",
+      "workstream": "W3.3",
+      "notes": "CLI Tool Permissions"
     },
     {
       "kind": "tab",
@@ -1785,6 +1809,14 @@
     },
     {
       "kind": "api",
+      "key": "deleteWorkflowProfilesBatch",
+      "status": "implemented",
+      "tui": "ArmadaClient.DeleteWorkflowProfilesBatchAsync",
+      "workstream": "W0.2",
+      "notes": "Workflow Profiles"
+    },
+    {
+      "kind": "api",
       "key": "deleteWorkspaceEntry",
       "status": "implemented",
       "tui": "ArmadaClient.DeleteWorkspaceEntryAsync",
@@ -1961,6 +1993,14 @@
     },
     {
       "kind": "api",
+      "key": "enumerateMemories",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMemoriesAsync",
+      "workstream": "W0.2",
+      "notes": "Memories"
+    },
+    {
+      "kind": "api",
       "key": "enumerateObjectives",
       "status": "implemented",
       "tui": "ArmadaClient.EnumerateObjectivesAsync",
@@ -2006,6 +2046,14 @@
       "tui": "ArmadaClient.EnumerateVesselImportBatchesAsync",
       "workstream": "W0.2",
       "notes": "Vessel Import"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateWorkflowProfiles",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateWorkflowProfilesAsync",
+      "workstream": "W0.2",
+      "notes": "Workflow Profiles"
     },
     {
       "kind": "api",
@@ -2566,6 +2614,14 @@
       "tui": "ArmadaClient.GetVesselBranchesAsync",
       "workstream": "W0.2",
       "notes": "Vessels | used by ServerSettingsScreen"
+    },
+    {
+      "kind": "api",
+      "key": "getVesselCleanupInventory",
+      "status": "implemented",
+      "tui": "ArmadaClient.GetVesselCleanupInventoryAsync",
+      "workstream": "W0.2",
+      "notes": "Vessels"
     },
     {
       "kind": "api",
@@ -3406,6 +3462,14 @@
       "tui": "ArmadaClient.RunFleetActionAsync",
       "workstream": "W0.2",
       "notes": "Fleet Actions"
+    },
+    {
+      "kind": "api",
+      "key": "runVesselCleanup",
+      "status": "implemented",
+      "tui": "ArmadaClient.RunVesselCleanupAsync",
+      "workstream": "W0.2",
+      "notes": "Vessels"
     },
     {
       "kind": "api",

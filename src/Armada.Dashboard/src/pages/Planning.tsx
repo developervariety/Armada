@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { PLANNING_PATH, planningHref } from '../lib/navTargets';
 import PageHeader from '../components/shared/PageHeader';
 import {
   createPlanningSession,
@@ -80,7 +81,9 @@ interface PlanningPrefillState {
 }
 
 export default function Planning() {
-  const { id } = useParams<{ id?: string }>();
+  // Planning is a tab of Dispatch: the open session lives in ?session= (/planning/:id redirects here).
+  const [searchParams] = useSearchParams();
+  const id = searchParams.get('session') ?? undefined;
   const navigate = useNavigate();
   const location = useLocation();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
@@ -292,7 +295,7 @@ export default function Planning() {
           setDispatchTitle('');
           setDispatchDescription('');
           dispatchSeedRef.current = null;
-          navigate('/planning');
+          navigate(PLANNING_PATH);
           if (!deleting) {
             pushToast('warning', t('Planning session deleted.'));
           }
@@ -478,7 +481,7 @@ export default function Planning() {
       setSessions((current) => upsertSession(current, result.session));
       pushToast('success', t('Planning session started.'));
       scrollToSessionRef.current = true;
-      navigate(`/planning/${result.session.id}`, {
+      navigate(planningHref(result.session.id), {
         state: composer.trim() ? { fromWorkspace: true, initialPrompt: composer.trim() } : undefined,
       });
     } catch (err: unknown) {
@@ -662,7 +665,7 @@ export default function Planning() {
       setDispatchTitle('');
       setDispatchDescription('');
       dispatchSeedRef.current = null;
-      navigate('/planning');
+      navigate(PLANNING_PATH);
       pushToast('warning', t('Planning session deleted.'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to delete planning session.'));
@@ -679,7 +682,7 @@ export default function Planning() {
       if (currentSession?.id === session.id) {
         setDetail(null);
         setSelectedMessageId('');
-        navigate('/planning');
+        navigate(PLANNING_PATH);
       }
       pushToast('warning', t('Planning session deleted.'));
     } catch (err: unknown) {
@@ -713,7 +716,7 @@ export default function Planning() {
       setDispatchTitle('');
       setDispatchDescription('');
       dispatchSeedRef.current = null;
-      navigate('/planning');
+      navigate(PLANNING_PATH);
 
       if (failures > 0) {
         pushToast('warning', t('{{count}} planning session(s) could not be deleted (they may still be running).', { count: failures }));
@@ -807,7 +810,7 @@ export default function Planning() {
           resolveCaptainName={resolveCaptainName}
           resolveVesselName={resolveVesselName}
           resolvePipelineName={resolvePipelineName}
-          onSelect={(sessionId) => navigate(`/planning/${sessionId}`)}
+          onSelect={(sessionId) => navigate(planningHref(sessionId))}
           onEndSession={requestEndSession}
           onDeleteSession={handleDeleteSessionById}
           onDeleteAll={() => setConfirmDeleteAllOpen(true)}

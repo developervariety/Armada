@@ -12,7 +12,7 @@ namespace Armada.Helm.Commands
     /// <summary>
     /// Configure MCP integration for supported clients.
     /// </summary>
-    [Description("Configure MCP integration for Claude Code, Codex, Gemini, Cursor, and Mux (when detected)")]
+    [Description("Configure MCP integration for Claude Code, Codex, Gemini, Cursor, and (when detected) Mux, OpenCode, and pi")]
     public class McpInstallCommand : BaseCommand<McpInstallSettings>
     {
         /// <inheritdoc />
@@ -64,7 +64,7 @@ namespace Armada.Helm.Commands
                 else
                 {
                     McpConfigHelper.McpInstallPaths paths = McpConfigHelper.McpInstallPaths.Default();
-                    targets = McpConfigHelper.BuildRemoteTargets(mcpUrl, token, paths, McpConfigHelper.IsMuxAvailable(), McpConfigHelper.IsOpenCodeAvailable());
+                    targets = McpConfigHelper.BuildRemoteTargets(mcpUrl, token, paths, McpConfigHelper.IsMuxAvailable(), McpConfigHelper.IsOpenCodeAvailable(), McpConfigHelper.IsPiAvailable());
                 }
             }
             else
@@ -80,7 +80,7 @@ namespace Armada.Helm.Commands
             {
                 AnsiConsole.MarkupLine("[dim]Admiral:[/] " + Markup.Escape(admiral.Describe()) + (String.IsNullOrWhiteSpace(settings.McpUrl) && !admiral.IsLocal ? " [dim](MCP URL derived from it; pass --mcp-url if your MCP endpoint differs)[/]" : ""));
                 if (!String.IsNullOrEmpty(admiral.Token))
-                    AnsiConsole.MarkupLine("[gold1]Note:[/] the Claude Code, Gemini, Cursor, Mux, and OpenCode configs will contain the bearer token in plain text; keep those files private. Codex reads it from " + AdmiralTargetResolver.TokenEnvironmentVariable + " at run time.");
+                    AnsiConsole.MarkupLine("[gold1]Note:[/] the Claude Code, Gemini, Cursor, Mux, OpenCode, and pi configs will contain the bearer token in plain text; keep those files private. Codex reads it from " + AdmiralTargetResolver.TokenEnvironmentVariable + " at run time.");
                 if (mcpUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !AdmiralTarget.IsLoopbackHost(new Uri(mcpUrl).Host))
                     AnsiConsole.MarkupLine("[gold1]Warning:[/] the MCP endpoint is plain HTTP, so the token crosses the network unencrypted; use https:// through a TLS-terminating proxy.");
             }

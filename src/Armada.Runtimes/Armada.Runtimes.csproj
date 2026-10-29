@@ -12,4 +12,9 @@
     <ProjectReference Include="..\Armada.Core\Armada.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- pi extension that Approve in Armada loads into pi launches (PiRuntime.PermissionGateExtensionPath). -->
+    <None Update="Pi\armada-permission-gate.ts" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
