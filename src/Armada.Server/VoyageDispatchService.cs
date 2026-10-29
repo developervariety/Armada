@@ -186,7 +186,8 @@ namespace Armada.Server
                         }
                         return gate;
                     }
-                    request.ResolvedSourceCommit = preview.ResolvedStartCommit;
+                    request.ResolvedSourceCommit = preview.MissionStartRefs.Count == 1
+                        ? preview.MissionStartRefs[0].ResolvedCommit : preview.ResolvedStartCommit;
                     request.PreparationAnchorMoves = preview.PreparationAnchorMoves ?? new List<ObjectivePreparationAnchorMove>();
                     request.PreflightModelFlaggedQuestions = request.ForcePreflight
                         ? ObjectivePreflightGate.ModelFlaggedQuestions(preview)

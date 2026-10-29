@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Text.Json;
     using Armada.Core.Models;
 
@@ -56,6 +57,17 @@ namespace Armada.Server
         #endregion
 
         #region Public-Methods
+
+        /// <summary>Return unsupported fields in a stable order; none may silently succeed.</summary>
+        public List<string> UnsupportedFields()
+        {
+            HashSet<string> allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "title", "description", "priority", "branchName", "prUrl", "parentMissionId",
+                "dependsOnMissionId", "persona", "vesselId", "voyageId"
+            };
+            return Named.Where(name => !allowed.Contains(name)).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
 
         /// <summary>Whether the request named a field.</summary>
         /// <param name="field">Field name.</param>

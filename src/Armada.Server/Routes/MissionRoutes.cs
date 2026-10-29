@@ -709,7 +709,7 @@ namespace Armada.Server.Routes
                 MissionUpdateResult update = await _operations.UpdateMissionMetadataAsync(existing, patch, ctx).ConfigureAwait(false);
                 if (!update.Succeeded)
                 {
-                    req.Http.Response.StatusCode = update.LinkNotFound ? 404 : 409;
+                    req.Http.Response.StatusCode = update.LinkNotFound ? 404 : update.Code == "mission_field_not_patchable" ? 400 : 409;
                     return new ApiErrorResponse { Error = update.LinkNotFound ? ApiResultEnum.NotFound : ApiResultEnum.Conflict, Message = update.Message };
                 }
                 return (object)update.Mission;

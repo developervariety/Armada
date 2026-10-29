@@ -343,6 +343,10 @@ namespace Armada.Server.Mcp.Tools
                         HasVoyageId = request.VoyageId != null,
                         VoyageId = request.VoyageId
                     };
+                    foreach (string field in MissionMetadataPatch.ReadFieldNames(JsonSerializer.Serialize(args.Value)))
+                    {
+                        if (!String.Equals(field, "missionId", StringComparison.OrdinalIgnoreCase)) patch.Named.Add(field);
+                    }
                     if (request.Title != null) patch.Named.Add("title");
                     if (request.Description != null) patch.Named.Add("description");
                     if (request.Priority.HasValue) patch.Named.Add("priority");

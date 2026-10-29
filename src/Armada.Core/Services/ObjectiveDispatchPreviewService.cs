@@ -240,12 +240,14 @@ namespace Armada.Core.Services
 
             await EvaluateRepositoryContextAsync(vessel, result, token).ConfigureAwait(false);
             await EvaluateStartRefAsync(vessel, result, token).ConfigureAwait(false);
-            ObjectiveDispatchPreviewIssue? repeatStop = await ObjectiveReviewRepeatGuard.EvaluateAsync(
-                _Database, objective, result.ResolvedStartCommit, token).ConfigureAwait(false);
-            if (repeatStop != null) result.Issues.Add(repeatStop);
             await EvaluatePreflightFactsAsync(auth, objective, vessel, result, token).ConfigureAwait(false);
             List<string> effectiveMissionModes = await EvaluateMissionDescriptionsAsync(
                 vessel, objective, missionDescriptions, result, token).ConfigureAwait(false);
+            string? reviewSource = result.MissionStartRefs.Count == 1
+                ? result.MissionStartRefs[0].ResolvedCommit : result.ResolvedStartCommit;
+            ObjectiveDispatchPreviewIssue? repeatStop = await ObjectiveReviewRepeatGuard.EvaluateAsync(
+                _Database, objective, reviewSource, token).ConfigureAwait(false);
+            if (repeatStop != null) result.Issues.Add(repeatStop);
             await EvaluatePreparationAnchorsAsync(auth, objective, result, token).ConfigureAwait(false);
             await EvaluateSiblingProvisioningAsync(auth, objective, vessel, result, token).ConfigureAwait(false);
             result.Issues.AddRange(ObjectiveExecutionRequirementsValidator.Evaluate(

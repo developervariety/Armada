@@ -338,6 +338,10 @@ namespace Armada.Server
             if (patch == null) throw new ArgumentNullException(nameof(patch));
             if (caller == null) throw new ArgumentNullException(nameof(caller));
 
+            List<string> unsupported = patch.UnsupportedFields();
+            if (unsupported.Count > 0)
+                return MissionUpdateResult.Refused(existing, "mission_field_not_patchable",
+                    "Mission metadata field(s) cannot be updated: " + String.Join(", ", unsupported) + ".");
             string? bindingError = MissionMetadataUpdate.CheckBindings(existing, patch.HasVesselId, patch.VesselId, patch.HasVoyageId, patch.VoyageId);
             if (bindingError != null) return MissionUpdateResult.Refused(existing, MissionUpdateResult.BindingImmutableCode, bindingError);
 

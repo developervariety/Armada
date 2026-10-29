@@ -1,5 +1,7 @@
 # Armada Operator Guide
 
+Mission metadata updates reject unknown or non-patchable fields by name; a refused patch saves nothing.
+
 Objective dispatch records its participant and resolved source on the voyage event stream.
 Blocked-stage questions go to that participant for triage; an unknown participant
 leaves the question on the shared board. Explicit owner approval gates keep their

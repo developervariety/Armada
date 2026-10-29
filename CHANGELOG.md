@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Mission metadata validation
+
+- REST, MCP and WebSocket mission metadata updates refuse unknown or non-patchable fields by name before saving any field. Sending a preference, status or recovery counter cannot silently succeed without changing it.
+
 ### Terminal failure facts and bounded review retries
 
 - Terminal failure facts preserve typed reason codes, including post-test failures. Failure-cause events link derivative unlanded work to original failed stages; ambiguous endings remain unknown and do not imply a model error.
