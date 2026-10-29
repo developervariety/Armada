@@ -77,6 +77,18 @@ namespace Armada.Client
             return GetAsync<TokenUsageSummaryResult>("/api/v1/token-usage/summary" + ArmadaQueryString.FromObject(query), null, token);
         }
 
+        /// <summary>
+        /// POST /api/v1/token-usage/enumerate: one page of token-usage records visible to the caller.
+        /// </summary>
+        /// <param name="query">Paging (1-500, default 25) and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<TokenUsageRecord>?> EnumerateTokenUsageAsync(TokenUsageQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<TokenUsageRecord>>("/api/v1/token-usage/enumerate", query ?? new TokenUsageQuery(), null, token);
+        }
+
         /// <summary>Import tagged synthetic historical usage; requires global admin privileges and never calls a model.</summary>
         /// <param name="request">Bounded ordered batch.</param>
         /// <param name="token">Cancellation.</param>

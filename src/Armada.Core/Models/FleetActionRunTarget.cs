@@ -14,6 +14,9 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Parsed, safe plain-text result summary.</summary>
+        public string? ScanSummary { get; set; }
+
         /// <summary>
         /// Unique identifier (fat_ prefix). Defaults to a new identifier; a create backfills an empty value.
         /// </summary>

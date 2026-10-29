@@ -117,6 +117,9 @@ namespace Test.Shared.Suites.Services
                 HarborRoutingDecision decision = router.Select(harbors, All, _ => 2, request);
                 AssertTrue(!decision.Success, "Expected capacity-full to fail selection.");
                 AssertTrue(decision.Reason != null && decision.Reason.Contains("capacity"), "Expected a capacity reason.");
+                AssertTrue(decision.Reason!.Contains("A (hbr_a): 2/2 slots in use"), "Name the full Harbor and its slot usage.");
+                AssertTrue(decision.Reason.Contains("MaxConcurrentJobs"), "Explain how to increase capacity.");
+                AssertTrue(decision.Reason.Contains("retry interactive requests"), "Interactive requests are not automatically queued.");
                 AssertTrue(decision.CapableHarborsAtCapacity, "capacity, not capability, is what blocks it, so the work should wait");
 
                 HarborRoutingDecision incapable = router.Select(new List<Harbor> { Cap("hbr_b", "B", 2, "codex") }, All, _ => 0, request);

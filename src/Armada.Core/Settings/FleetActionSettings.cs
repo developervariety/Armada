@@ -7,6 +7,13 @@ namespace Armada.Core.Settings
     {
         #region Public-Members
 
+        /// <summary>Skip actions declaring RequiresNetwork while the execution host is offline.</summary>
+        public bool Offline { get; set; }
+
+        /// <summary>Harbor IDs explicitly configured without network access. Applies live to network actions.</summary>
+        public System.Collections.Generic.List<string> OfflineHarborIds { get => _OfflineHarborIds; set => _OfflineHarborIds = value ?? new(); }
+        private System.Collections.Generic.List<string> _OfflineHarborIds = new();
+
         /// <summary>
         /// Upper bound on any run's concurrency. Default 8, minimum 1, maximum 32; out-of-range values are clamped.
         /// </summary>

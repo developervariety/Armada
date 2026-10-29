@@ -26,6 +26,9 @@ vi.mock('../context/LocaleContext', () => ({ useLocale: () => localeValue }));
 vi.mock('../context/NotificationContext', () => ({ useNotifications: () => ({ pushToast: vi.fn() }) }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ isTenantAdmin: true, isAdmin: true, user: { id: 'usr_1' } }) }));
 vi.mock('../components/vessels/BranchesModal', () => ({ default: () => null }));
+vi.mock('../components/vessels/VesselCleanupModal', () => ({
+  default: (p: { vesselId: string; vesselName: string; open: boolean }) => (p.open ? <div role="dialog">cleanup {p.vesselId} {p.vesselName}</div> : null),
+}));
 vi.mock('../components/vessels/BuildContextModal', () => ({ default: () => null }));
 vi.mock('../components/vessels/import/ImportWizard', () => ({ default: () => null }));
 vi.mock('../components/fleetActions/RunActionModal', () => ({ default: () => null }));
@@ -68,6 +71,17 @@ describe('Vessels row actions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'View History' }));
     expect(await screen.findByText('history at /vessels/vsl_1/history')).toBeInTheDocument();
+  });
+
+  it('Cleanup in the vessel action menu opens the cleanup inventory for that vessel', async () => {
+    render(<MemoryRouter initialEntries={['/vessels']}><Vessels /></MemoryRouter>);
+    await screen.findByText('gateway');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    const item = await screen.findByRole('menuitem', { name: 'Cleanup' });
+    expect(item).toHaveAttribute('title', expect.stringContaining('Opening it deletes nothing'));
+    fireEvent.click(item);
+    expect(await screen.findByRole('dialog')).toHaveTextContent('cleanup vsl_1 gateway');
   });
 });
 

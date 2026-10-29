@@ -251,6 +251,7 @@ export default function FleetActionRunDetail() {
         <RunProgress run={run} />
         <div className="fleet-run-stats">
           <div className="fleet-run-stat" title={t('Vessels included in this run.')}><span className="fleet-run-stat-label">{t('Targets')}</span><span className="fleet-run-stat-value">{run.targetCount.toLocaleString()}</span></div>
+          <div className="fleet-run-stat"><span className="fleet-run-stat-label">{t('Findings')}</span><span className="fleet-run-stat-value">{(run.findingsCount ?? 0).toLocaleString()}</span></div>
           <div className="fleet-run-stat" title={t('Vessels where the command exited 0 or the voyage completed.')}><span className="fleet-run-stat-label">{t('Succeeded')}</span><span className="fleet-run-stat-value">{run.succeededCount.toLocaleString()}</span></div>
           <div className="fleet-run-stat" title={t('Vessels where the command failed or timed out, or the voyage failed.')}><span className="fleet-run-stat-label">{t('Failed')}</span><span className="fleet-run-stat-value">{run.failedCount.toLocaleString()}</span></div>
           <div className="fleet-run-stat" title={t('Vessels Armada declined to act on, for example a dirty tree or no working directory. Not counted as failures.')}><span className="fleet-run-stat-label">{t('Skipped')}</span><span className="fleet-run-stat-value">{run.skippedCount.toLocaleString()}</span></div>

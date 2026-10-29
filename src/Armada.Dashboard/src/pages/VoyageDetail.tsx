@@ -398,11 +398,6 @@ export default function VoyageDetail() {
           onRowClick={(m) => nav(`/missions/${m.id}`)}
           columns={[
             {
-              key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'), cellClassName: 'cell-title',
-              cellTitle: (m) => m.title,
-              render: (m) => <><strong className="line-clamp-2">{m.title}</strong>{m.isEvaluation && <EvaluationBadge isEvaluation />}</>,
-            },
-            {
               key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix).'), cellClassName: 'mono text-dim table-id-cell',
               render: (m) => (
                 <span className="id-display">
@@ -410,6 +405,11 @@ export default function VoyageDetail() {
                   <CopyButton text={m.id} onClick={e => e.stopPropagation()} />
                 </span>
               ),
+            },
+            {
+              key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'), cellClassName: 'cell-title',
+              cellTitle: (m) => m.title,
+              render: (m) => <><strong className="line-clamp-2">{m.title}</strong>{m.isEvaluation && <EvaluationBadge isEvaluation />}</>,
             },
             { key: 'status', label: t('Status'), headerTitle: t('Lifecycle state: Pending waits for a captain, InProgress is running, WorkProduced awaits landing, then Complete, Failed or Cancelled.'), cellClassName: 'cell-nowrap', render: (m) => <StatusBadge status={m.status} /> },
             {

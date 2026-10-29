@@ -44,6 +44,13 @@ namespace Armada.Core.Models
         /// <summary>When a captain is selected, wait for it instead of using fallback or automatic escalation. Defaults false.</summary>
         public bool StrictCaptain { get; set; } = false;
 
+        /// <summary>
+        /// Persona prompt variant for the persona's missions in this voyage, or null to use the assigned captain's
+        /// setting (<see cref="CaptainPromptOptions.PromptVariant"/>, default <see cref="PromptVariantEnum.Current"/>).
+        /// Fixture battery runs set it per run to compare variants.
+        /// </summary>
+        public PromptVariantEnum? PromptVariant { get; set; } = null;
+
         #endregion
 
         #region Private-Members

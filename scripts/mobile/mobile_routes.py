@@ -43,10 +43,12 @@ WORKSTREAMS = {
 # Workstream that ships the redirects and the navigation shell.
 NAV_WORKSTREAM = "W0.5"
 
-# Nav section key (lib/navModel.ts) -> bottom tab.
+# Nav section key (lib/navModel.ts) -> bottom tab. Since the v1.2.0 nav consolidation Activity (and its /history,
+# /requests, /events, /signals, /jobs family) sits in OPERATIONS and Delivery in BUILD, so those screens live in the
+# Work tab's stack; the More tab keeps CONFIGURATION and SYSTEM.
 SECTION_TABS = {
-    "operations": "work", "delivery": "work", "fleet": "work",
-    "configuration": "more", "activity": "more", "system": "more",
+    "operations": "work", "fleet": "work",
+    "configuration": "more", "system": "more",
 }
 
 # Checked before the nav sections (Needs You lives in OPERATIONS on the dashboard, but in Approvals on mobile).
@@ -55,7 +57,7 @@ TAB_OVERRIDES = {"/ask": "ask", "/inbox": "approvals", "/notifications": "approv
 # Mobile-only routes (status "extension" in the manifest): pattern -> (tab, file, note).
 EXTENSION_ROUTES = {
     "/approvals": ("approvals", "approvals.tsx", "Approvals tab root: the Needs You count and approvals center entry (TUI has the same route)"),
-    "/more": ("more", "more.tsx", "More tab root: CONFIGURATION, ACTIVITY, SYSTEM, and app settings (phone navigation)"),
+    "/more": ("more", "more.tsx", "More tab root: CONFIGURATION, SYSTEM, and app settings (phone navigation)"),
     "/preferences": ("more", "preferences.tsx", "App preferences: theme, language, push notifications for the connected server (device settings, not server settings)"),
     "/profiles": ("more", "profiles.tsx", "Server profiles: saved Admirals, one active (TUI-style connections)"),
     "/setup": ("more", "setup.tsx", "Setup wizard (the dashboard shows it as a modal over every page; mobile opens it from Settings > Server)"),
@@ -81,6 +83,8 @@ def tab_for(pattern, sections):
     for key, matchers in sections:
         for prefix in matchers:
             if pattern == prefix or pattern.startswith(prefix + "/"):
+                if key not in SECTION_TABS:
+                    raise SystemExit("mobile_routes: no bottom tab for nav section %s; add it to SECTION_TABS" % key)
                 return SECTION_TABS[key]
     raise SystemExit("mobile_routes: no tab for dashboard route %s; add it to a nav section or TAB_OVERRIDES" % pattern)
 
@@ -107,7 +111,7 @@ def app_patterns(pattern):
 
 
 TITLE_OVERRIDES = {
-    "/ask/:threadId": "Ask Armada", "/api-explorer/:operationId": "API Explorer", "/planning/:id": "Planning Session",
+    "/ask/:threadId": "Ask Armada", "/cli-permissions": "CLI Tool Permissions", "/api-explorer/:operationId": "API Explorer", "/planning/:id": "Planning Session",
     "/voyages/create": "Create Voyage", "/releases/new": "New Release", "/prompt-templates/create": "New Prompt Template",
     "/vessels/import": "Import Vessels", "/vessels/health": "Vessel Health", "/vessels/:id/onboarding": "Vessel Onboarding",
     "/vessels/:id/history": "View History", "/merge-queue/:id": "Merge Queue Entry", "/fleet-actions/runs/:id": "Fleet Action Run",
