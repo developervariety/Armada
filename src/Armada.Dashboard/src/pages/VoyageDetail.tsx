@@ -29,11 +29,13 @@ import { useNotifications } from '../context/NotificationContext';
 import { useLiveRefresh } from '../lib/useLiveRefresh';
 import { findLandingMode, getVoyageLandingModes } from '../lib/vesselForm';
 import { formatDeliveryMode, isVoyageActive, parseCaptainOverrides, retryMissionPayload, splitVoyageResponse, voyageProgress } from '../lib/voyageDetail';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 // ── Main component ──
 
 export default function VoyageDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
@@ -143,13 +145,9 @@ export default function VoyageDetail() {
       danger: true,
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await purgeVoyage(voyage.id);
-          pushToast('warning', t('Voyage "{{title}}" deleted.', { title: voyage.title || voyage.id }));
-          nav('/voyages');
-        } catch (e: unknown) {
-          setError(t('Delete failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
-        }
+        if (!(await deletion.run({ kind: 'voyagePurge', action: () => purgeVoyage(voyage.id), errorMessage: (err) => t('Delete failed: {{message}}', { message: err instanceof Error ? err.message : String(err) }) }))) return;
+        pushToast('warning', t('Voyage "{{title}}" deleted.', { title: voyage.title || voyage.id }));
+        nav('/voyages');
       },
     });
   }
@@ -443,6 +441,7 @@ export default function VoyageDetail() {
       )}
 
       {/* Shared modals */}
+      {deletion.dialog}
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}

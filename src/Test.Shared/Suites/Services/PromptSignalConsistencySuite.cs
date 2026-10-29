@@ -68,6 +68,8 @@ namespace Test.Shared.Suites.Services
                     AssertNotContains("`[ARMADA:RESULT] NEEDS_REVISION`", embeddedSignals, "embedded runtime signals");
                     AssertNotContains("`[ARMADA:VERDICT] COMPLETE`", embeddedSignals, "embedded runtime signals");
 
+                    AssertContains("`" + VerifierContract.BlockedMarker + "` -- any persona", embeddedSignals, "embedded runtime signals should document the blocked outcome for every persona");
+                    AssertContains("`" + VerifierContract.BlockedMarker + "` -- any persona", fallbackSignals, "fallback runtime signals should document the blocked outcome for every persona");
                     AssertContains("`[ARMADA:RESULT] COMPLETE`", fallbackSignals, "fallback runtime signals should include RESULT COMPLETE");
                     AssertContains("`[ARMADA:VERDICT] PASS`", fallbackSignals, "fallback runtime signals should include VERDICT PASS");
                     AssertContains("`[ARMADA:VERDICT] FAIL`", fallbackSignals, "fallback runtime signals should include VERDICT FAIL");

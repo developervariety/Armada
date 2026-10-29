@@ -55,6 +55,7 @@ import {
   upsertSession,
 } from './planning/planningUtils';
 import { sortByName } from '../lib/sortByName';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 interface PlanningSummaryEventPayload {
   sessionId?: string;
@@ -87,6 +88,7 @@ export default function Planning() {
   const navigate = useNavigate();
   const location = useLocation();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
   const { subscribe } = useWebSocket();
 
@@ -655,11 +657,17 @@ export default function Planning() {
   async function handleDeleteSession() {
     if (!currentSession) return;
 
+    const target = currentSession;
     try {
       setDeleting(true);
       setError('');
-      await deletePlanningSession(currentSession.id);
-      setSessions((current) => removeSession(current, currentSession.id));
+      const done = await deletion.run({
+        kind: 'planningSession',
+        action: () => deletePlanningSession(target.id),
+        errorMessage: (err) => (err instanceof Error ? err.message : t('Failed to delete planning session.')),
+      });
+      if (!done) return;
+      setSessions((current) => removeSession(current, target.id));
       setDetail(null);
       setSelectedMessageId('');
       setDispatchTitle('');
@@ -667,27 +675,26 @@ export default function Planning() {
       dispatchSeedRef.current = null;
       navigate(PLANNING_PATH);
       pushToast('warning', t('Planning session deleted.'));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to delete planning session.'));
     } finally {
       setDeleting(false);
     }
   }
 
   async function handleDeleteSessionById(session: PlanningSession) {
-    try {
-      setError('');
-      await deletePlanningSession(session.id);
-      setSessions((current) => removeSession(current, session.id));
-      if (currentSession?.id === session.id) {
-        setDetail(null);
-        setSelectedMessageId('');
-        navigate(PLANNING_PATH);
-      }
-      pushToast('warning', t('Planning session deleted.'));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to delete planning session.'));
+    setError('');
+    const done = await deletion.run({
+      kind: 'planningSession',
+      action: () => deletePlanningSession(session.id),
+      errorMessage: (err) => (err instanceof Error ? err.message : t('Failed to delete planning session.')),
+    });
+    if (!done) return;
+    setSessions((current) => removeSession(current, session.id));
+    if (currentSession?.id === session.id) {
+      setDetail(null);
+      setSelectedMessageId('');
+      navigate(PLANNING_PATH);
     }
+    pushToast('warning', t('Planning session deleted.'));
   }
 
   async function handleDeleteAllSessions() {
@@ -701,14 +708,21 @@ export default function Planning() {
       // Delete each session independently so one failure (e.g. a session that cannot be deleted while
       // running) does not abort the rest; count failures and report them.
       let failures = 0;
-      for (const session of targets) {
-        try {
-          await deletePlanningSession(session.id);
-          setSessions((current) => removeSession(current, session.id));
-        } catch {
-          failures += 1;
-        }
-      }
+      await deletion.run({
+        kind: 'planningSession',
+        count: targets.length,
+        action: async () => {
+          failures = 0;
+          for (const session of targets) {
+            try {
+              await deletePlanningSession(session.id);
+              setSessions((current) => removeSession(current, session.id));
+            } catch {
+              failures += 1;
+            }
+          }
+        },
+      });
 
       // Delete-all removes the open session too; reset the workspace back to the empty state.
       setDetail(null);
@@ -891,6 +905,7 @@ export default function Planning() {
         )}
       </div>
 
+      {deletion.dialog}
       <ConfirmDialog
         open={confirmEndOpen}
         title={t('End Planning Session')}
