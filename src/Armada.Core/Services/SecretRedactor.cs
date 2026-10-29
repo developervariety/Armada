@@ -23,7 +23,7 @@ namespace Armada.Core.Services
             new RedactionRule(new Regex(@"\bxox[abposr]-[A-Za-z0-9\-]{10,}", RegexOptions.Compiled), "xox-[REDACTED]"),
             new RedactionRule(new Regex(@"\bglpat-[A-Za-z0-9_\-]{16,}", RegexOptions.Compiled), "glpat-[REDACTED]"),
             new RedactionRule(new Regex(@"\bAKIA[0-9A-Z]{16}\b", RegexOptions.Compiled), "AKIA[REDACTED]"),
-            new RedactionRule(new Regex(@"(?i)(api[_\-]?key|apikey|secret|token|password)(\s*[=:]\s*)([""']?)[^\s""']{6,}", RegexOptions.Compiled), "$1$2$3[REDACTED]"),
+            new RedactionRule(new Regex(@"(?i)(api[_\-]?key|apikey|secret|token|password)(\s*[=:]\s*)([""']?)[^\s""'`,;\]\}\)]{6,}", RegexOptions.Compiled), "$1$2$3[REDACTED]"),
         };
 
         private static readonly Regex _JsonStringProperty = new Regex(

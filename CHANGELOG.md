@@ -49,6 +49,27 @@ upstream integrations and excludes changes already present at that baseline.
 - A report-only Worker that names its pending reviews in one natural sentence is no longer failed as `report_incomplete`. The sentence can name the current pending roles, give the pending Revising Worker stage its own pending verb, and end with a semicolon and positive process statements (an artifact-only report, no tracked change in the checkouts, no copied body or restricted value). Every named role must still be an owned, Pending stage on the dependency path to the Judge. Unfinished current or earlier work, unowned, cancelled or missing roles and malformed clauses still fail the report.
 - A report-only Worker whose output is cut off no longer reaches `WorkProduced`. A captured stream that kept only its tail, or an output with no closing `[ARMADA:RESULT]` or `[ARMADA:VERDICT]` marker, fails as `report_incomplete` with the reason `stream_capture_limit` or `closing_marker_missing` and the last 200 characters of the output.
 
+### Secret redaction
+
+- An unquoted labelled secret value (`token = ...`) stops at a comma, semicolon, closing bracket, brace or paren, so the delimiter and the text after it stay.
+
+### Objective completion time
+
+- Setting an objective to Completed stamps `CompletedUtc` on that transition. Leaving Completed clears it, so a later re-completion records the new time.
+
+### Captain credential rejection
+
+- A captain whose own runtime fails with HTTP 401 or an invalid credential is quarantined instead of remaining Idle.
+
+### Dispatch preflight
+
+- Question 2 matches deliverable phrasing, not a bare `report-only` token that names the code under change.
+- A high Q1 model reading is not raised when the Q1 citation fact passes and the model names no disputed claim.
+
+### SQL Server captain delete
+
+- Captain delete retries SQL Server deadlock error 1205 up to two more times, then surfaces the error.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

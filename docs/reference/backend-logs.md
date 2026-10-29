@@ -27,7 +27,9 @@ remains its public compatibility entry point for stored artifacts and other
 callers. Display text and tool names both pass through it. REST and MCP raw log
 responses also apply redaction, so old log files do not bypass this protection.
 Quoted credentials, JSON escapes, nested encoded strings, arrays, root strings
-and hyphenated provider keys have regression cases. Redaction preserves ordinary
+and hyphenated provider keys have regression cases. An unquoted labelled value
+(`token = ...`) stops at a comma, semicolon, closing bracket, brace or paren, so
+the delimiter and the text after it stay. Redaction preserves ordinary
 text and is tested for repeated application. Deeply nested or malformed escaped
 strings can be conservatively replaced.
 

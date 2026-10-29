@@ -2932,7 +2932,8 @@ curl http://localhost:7890/api/v1/captains/cpt_abc123/log?lines=200 \
 Delete a captain, then remove the events, planning sessions and objective
 refinement sessions that reference it. The rule and cleanup are shared with the
 batch route, MCP `armada_delete_captain` / `armada_delete_captains` and WebSocket
-`delete_captain`.
+`delete_captain`. On SQL Server the delete transaction retries deadlock error
+1205 up to two more times, then surfaces the error.
 
 **Path Parameters:**
 | Parameter | Description |

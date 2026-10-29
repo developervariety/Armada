@@ -828,6 +828,7 @@ namespace Armada.Core.Services
                 .GroupBy(claim => claim.Id, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First().VerifiedUtc, StringComparer.OrdinalIgnoreCase);
             PreparationClaimSnapshot priorClaims = PreparationClaimObservationRecorder.Capture(objective);
+            ObjectiveStatusEnum priorStatus = objective.Status;
 
             objective.Title = Normalize(request.Title) ?? objective.Title;
             objective.Description = request.Description != null ? Normalize(request.Description) : objective.Description;
@@ -915,7 +916,7 @@ namespace Armada.Core.Services
                 await ValidateUpdatedLinksAsync(auth, objective, request, token).ConfigureAwait(false);
                 if (request.BlockedByObjectiveIds != null)
                     await ValidateDependencyCycleAsync(auth, objective, token).ConfigureAwait(false);
-                ApplyLifecycleTimestamps(objective);
+                ApplyLifecycleTimestamps(objective, priorStatus);
                 await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
                 if (request.Preparation != null || request.StartFromRef != null || request.VesselIds != null)
                     await PreparationClaimObservationRecorder.RecordChangesAsync(_Database, priorClaims, objective, _Logging, token).ConfigureAwait(false);
@@ -2297,15 +2298,21 @@ namespace Armada.Core.Services
             return DeserializeObjective(latest);
         }
 
-        private static void ApplyLifecycleTimestamps(Objective objective)
+        private static void ApplyLifecycleTimestamps(Objective objective, ObjectiveStatusEnum? priorStatus = null)
         {
             if (objective.Status == ObjectiveStatusEnum.Completed)
             {
-                objective.CompletedUtc ??= DateTime.UtcNow;
+                if (priorStatus.HasValue && priorStatus.Value != ObjectiveStatusEnum.Completed)
+                    objective.CompletedUtc = DateTime.UtcNow;
+                else
+                    objective.CompletedUtc ??= DateTime.UtcNow;
             }
-            else if (objective.Status == ObjectiveStatusEnum.Cancelled)
+            else
             {
-                objective.CompletedUtc = objective.CompletedUtc ?? DateTime.UtcNow;
+                if (priorStatus == ObjectiveStatusEnum.Completed)
+                    objective.CompletedUtc = null;
+                if (objective.Status == ObjectiveStatusEnum.Cancelled)
+                    objective.CompletedUtc ??= DateTime.UtcNow;
             }
         }
 

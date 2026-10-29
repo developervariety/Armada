@@ -598,8 +598,10 @@ Two signals set the refusal:
   `account_login_rejected`. Armada records a `usage_account.login_rejected` event
   for the account and an error signal, both saying the account needs sign-in.
   The mission is re-routed to a compatible captain on another account
-  (`mission.auth_rerouted`). The failing captain is benched for the default
-  backoff; sibling captains are not quarantined.
+  (`mission.auth_rerouted`).   The failing captain is benched for the default
+  backoff; sibling captains are not quarantined. A captain on no usage account
+  is still quarantined when its own runtime returns HTTP 401 or an invalid
+  credential.
 
 A refused account is `Exhausted` with that reason and `holdKind` `auth`. It has
 no `exhaustedUntilUtc`: waiting does not restore a login. Its status drops the

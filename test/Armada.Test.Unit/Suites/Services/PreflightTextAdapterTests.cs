@@ -132,7 +132,7 @@ namespace Armada.Test.Unit.Suites.Services
                 },
                 new PreflightCase
                 {
-                    Name = "GateQ1WithPassingCitationFact_AddsWarning_NoBlock_AdvisoryEvent",
+                    Name = "GateQ1WithPassingCitationFact_RaisesNoFlag_AdvisoryEvent",
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.95 }, "none", 0.05),
@@ -141,7 +141,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectGateOutcome = "advisory_only",
                     ExpectModelErrorIssues = 0,
-                    ExpectModelWarningIssues = 1
+                    ExpectModelWarningIssues = 0
                 },
                 new PreflightCase
                 {
@@ -154,7 +154,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ExpectTypedEvent = TypedDecisionRecorder.EventTypeGated,
                     ExpectGateOutcome = "applied",
                     ExpectModelErrorIssues = 1,
-                    ExpectModelWarningIssues = 1
+                    ExpectModelWarningIssues = 0
                 },
                 new PreflightCase
                 {

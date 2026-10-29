@@ -80,7 +80,8 @@ namespace Armada.Test.Database
                     await AssertSignalReferencesAsync(referencedTo.Id, referencedFrom.Id, null, "completed delete", token).ConfigureAwait(false);
                 }
 
-                // An ordinary delete clears both references on every provider.
+                // An ordinary delete clears both references on every provider. On SQL Server the delete
+                // retries deadlock error 1205 up to two more times before surfacing it.
                 Captain plain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "captain-delete-plain", token).ConfigureAwait(false);
                 Signal plainTo = await fixture.CreateSignalAsync(tenant.Id, user.Id, plain.Id, token).ConfigureAwait(false);
                 Signal plainFrom = await CreateSignalFromAsync(tenant.Id, user.Id, plain.Id, token).ConfigureAwait(false);

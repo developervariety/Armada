@@ -68,6 +68,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("UpdateAsync reopen then re-complete stamps a new CompletedUtc", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    string tenantId = "ten_objective_recomplete";
+                    string userId = "usr_objective_recomplete";
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                    Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Recomplete timestamp",
+                        Status = ObjectiveStatusEnum.Scoped
+                    }).ConfigureAwait(false);
+
+                    Objective firstComplete = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                    {
+                        Status = ObjectiveStatusEnum.Completed
+                    }).ConfigureAwait(false);
+                    AssertTrue(firstComplete.CompletedUtc.HasValue, "the first completion stamps CompletedUtc");
+                    DateTime firstCompletedUtc = firstComplete.CompletedUtc!.Value;
+
+                    await Task.Delay(20).ConfigureAwait(false);
+
+                    Objective reopened = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                    {
+                        Status = ObjectiveStatusEnum.Scoped
+                    }).ConfigureAwait(false);
+                    AssertNull(reopened.CompletedUtc, "leaving Completed clears CompletedUtc");
+
+                    Objective secondComplete = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                    {
+                        Status = ObjectiveStatusEnum.Completed
+                    }).ConfigureAwait(false);
+                    AssertTrue(secondComplete.CompletedUtc.HasValue, "re-completion stamps CompletedUtc");
+                    AssertTrue(secondComplete.CompletedUtc!.Value > firstCompletedUtc,
+                        "re-completion replaces the original CompletedUtc rather than keeping it");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("LinkIncidentAsync is an annotation: a never-dispatched objective stays auto-dispatch eligible", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
