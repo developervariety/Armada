@@ -313,6 +313,12 @@ namespace Armada.Core
         /// <summary>Ask action proposal identifier prefix.</summary>
         public static readonly string AskActionProposalIdPrefix = "aap_";
 
+        /// <summary>Ask native tool permission request identifier prefix.</summary>
+        public static readonly string AskToolPermissionRequestIdPrefix = "atp_";
+
+        /// <summary>Ask native tool permission rule identifier prefix.</summary>
+        public static readonly string AskToolPermissionRuleIdPrefix = "atr_";
+
         /// <summary>
         /// Default data retention period in days for completed records.
         /// </summary>

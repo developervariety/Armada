@@ -162,6 +162,45 @@ A CLI runtime that cannot express read-only native tools is refused for Ask with
 a message that names the runtime. It never launches with its permissive defaults.
 A new CLI runtime refuses Ask until it declares a read-only mapping.
 
+## Approving native tool calls
+
+With `ask.approveNativeToolsInArmada` on, a saved Ask turn on a Claude Code captain
+sends each native tool call that needs permission to the conversation owner instead
+of applying `ask.nativeToolAccess`. Other runtimes and temporary chat keep
+`ask.nativeToolAccess`, and a mission launch never uses this. The setting is off by
+default, hot-reloads, and is edited on the Dashboard Server page (Ask Settings) and in
+`PUT /api/v1/settings`.
+
+Claude Code is launched without a permission bypass and with
+`--permission-prompt-tool mcp__armada__armada_cli_permission_prompt`. The prompt tool
+is an Armada MCP tool that only the turn's own scoped credential can see or call. A
+human, mission or other Ask credential does not list it and cannot call it, and it
+answers only while the credential's turn is still the thread's running turn.
+
+Each call becomes a request that waits for the owner on the Ask page, under Tool
+permissions. The owner allows or denies it, and can remember the choice for that tool
+in that conversation. A request nobody decides within `ask.toolApprovalTimeoutSeconds`
+(default 120, from 10 to 600) is denied, and it cannot be allowed afterward. Cancelling
+the turn also expires its waiting requests. Claude Code's MCP tool timeout is raised
+above the approval timeout so that Armada denies the call before Claude Code gives up.
+
+A remembered rule applies to one tool name in one conversation. A rule decides later
+requests for that tool without a prompt, and the request is recorded with the rule as
+its decision source. The owner forgets a rule on the Ask page. Rules and requests are
+removed with the conversation.
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/v1/ask/threads/{id}/tool-permissions` | The newest requests, pending ones included |
+| `POST /api/v1/ask/threads/{id}/tool-permissions/{requestId}/allow` | Allow a pending request; optional body `{"remember": true}` |
+| `POST /api/v1/ask/threads/{id}/tool-permissions/{requestId}/deny` | Deny a pending request; optional body `{"remember": true}` |
+| `GET /api/v1/ask/threads/{id}/tool-permission-rules` | The remembered rules |
+| `DELETE /api/v1/ask/threads/{id}/tool-permission-rules/{ruleId}` | Forget a rule |
+
+Only the thread owner reads or decides. A decision on a request that is already
+decided or expired answers 409. Each owner decision records an
+`ask_tool_permission.decided` audit event.
+
 ## Proposed actions and work
 
 A saved turn uses an authenticated, encrypted credential bound to its owner,

@@ -2942,6 +2942,17 @@ export interface AskActionProposal {
   createdUtc: string; expiresUtc: string; decidedUtc: string | null; completedUtc: string | null;
   outcome: string | null; workReferences: AskActionWorkReference[];
 }
+export interface AskToolPermissionRequest {
+  id: string; tenantId: string; userId: string; threadId: string; requestId: string;
+  toolName: string; inputJson: string; toolUseId: string | null;
+  state: 'Pending' | 'Allowed' | 'Denied' | 'Expired';
+  decisionSource: 'Owner' | 'Rule' | 'Expiry' | null; ruleId: string | null;
+  createdUtc: string; expiresUtc: string; decidedUtc: string | null;
+}
+export interface AskToolPermissionRule {
+  id: string; tenantId: string; userId: string; threadId: string; toolName: string;
+  action: 'Allow' | 'Deny'; createdUtc: string;
+}
 export interface AskProposalDecision { statusCode: number; proposal: AskActionProposal | null; message: string | null; }
 export interface AskWorkReport {
   kind: 'Mission' | 'Voyage' | 'Job'; id: string; title: string; status: string; deliveryState: string;

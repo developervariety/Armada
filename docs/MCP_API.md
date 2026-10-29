@@ -1690,6 +1690,16 @@ first `sequence` of the previous page as `beforeSequence`. Tool-call cards are l
 unless `includeToolCalls` is true. An unknown thread, or one the caller does not own,
 returns an `Error`.
 
+### armada_cli_permission_prompt
+
+The permission prompt tool of a saved Ask turn on Claude Code. It is not part of the
+general catalog: only the turn's own scoped credential lists or calls it, and every other
+credential is refused. Args follow Claude Code's contract: `tool_name`, `input` and
+`tool_use_id`. It waits for the conversation owner's decision and returns
+`{"behavior":"allow","updatedInput":{...}}` or `{"behavior":"deny","message":"..."}`. A request
+with no decision before `ask.toolApprovalTimeoutSeconds` is denied. See
+[Approving native tool calls](ASK_CONVERSATIONS.md#approving-native-tool-calls).
+
 ## Captain Writes
 
 `armada_create_captain` accepts `name` (required), `runtime`, `model`, `apiKey`,

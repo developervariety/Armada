@@ -7,6 +7,9 @@ namespace Armada.Server.Mcp
     /// <summary>The explicit saved-chat catalog; mutations always require a human proposal decision.</summary>
     public static class AskToolPolicy
     {
+        /// <summary>MCP tool that answers a Claude Code saved turn's native tool permission prompts.</summary>
+        public const string PermissionPromptToolName = "armada_cli_permission_prompt";
+
         private static readonly HashSet<string> _Reads = new HashSet<string>(StringComparer.Ordinal)
         {
             "armada_status", "armada_enumerate", "armada_get_fleet", "armada_get_vessel", "armada_suggest_vessel_toolchain",
@@ -29,6 +32,9 @@ namespace Armada.Server.Mcp
         /// <summary>Whether a tool can run without changing Armada records or starting work.</summary>
         public static bool IsRead(string toolName) => _Reads.Contains(toolName);
 
+        /// <summary>Whether a tool is the permission prompt tool, which only a saved turn's own credential can reach.</summary>
+        public static bool IsPermissionPrompt(string toolName) => String.Equals(toolName, PermissionPromptToolName, StringComparison.Ordinal);
+
         /// <summary>Whether a tool can become a saved, manually approved action.</summary>
         public static bool CanPropose(string toolName) => _Proposals.Contains(toolName);
 
@@ -41,7 +47,7 @@ namespace Armada.Server.Mcp
         {
             return caller.IsAuthenticated && caller.IsAdmin && String.IsNullOrWhiteSpace(caller.MissionId)
                 && !String.IsNullOrWhiteSpace(caller.AskThreadId) && !String.IsNullOrWhiteSpace(caller.AskTurnId)
-                && (_Reads.Contains(toolName) || _Proposals.Contains(toolName));
+                && (_Reads.Contains(toolName) || _Proposals.Contains(toolName) || IsPermissionPrompt(toolName));
         }
     }
 }

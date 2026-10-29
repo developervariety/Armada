@@ -44,9 +44,9 @@ namespace Armada.Server
         {
             AuthContext caller = McpCallerContext.Require();
             if (!AskToolPolicy.HasScope(caller)) return await handler(arguments).ConfigureAwait(false);
-            if (!AskToolPolicy.IsAllowed(caller, toolName) || !await IsBoundTurnAsync(caller).ConfigureAwait(false))
+            if (!AskToolPolicy.IsAllowed(caller, toolName) || !await AskTurnBinding.IsBoundRunningTurnAsync(_Database, caller).ConfigureAwait(false))
                 return new { Error = "This saved turn cannot use the requested tool.", Code = "ask_turn_unavailable" };
-            if (AskToolPolicy.IsRead(toolName)) return await handler(arguments).ConfigureAwait(false);
+            if (AskToolPolicy.IsRead(toolName) || AskToolPolicy.IsPermissionPrompt(toolName)) return await handler(arguments).ConfigureAwait(false);
             try
             {
                 AskActionProposal proposal = new AskActionProposal
@@ -63,18 +63,6 @@ namespace Armada.Server
             }
             catch (ArgumentException) { return new { Error = "Protected or unsupported values cannot be saved as a chat action.", Code = "ask_action_not_supported" }; }
             catch (JsonException) { return new { Error = "Action arguments must be a bounded JSON object.", Code = "ask_action_not_supported" }; }
-        }
-
-        private async Task<bool> IsBoundTurnAsync(AuthContext caller)
-        {
-            if (String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId)) return false;
-            UserMaster? user = await _Database.Users.ReadByIdAsync(caller.UserId).ConfigureAwait(false);
-            TenantMetadata? tenant = await _Database.Tenants.ReadAsync(caller.TenantId).ConfigureAwait(false);
-            if (user == null || !user.Active || !user.IsAdmin || user.TenantId != caller.TenantId || tenant == null || !tenant.Active) return false;
-            AskThread? thread = await _Database.AskThreads.ReadAsync(caller.TenantId, caller.UserId, caller.AskThreadId!).ConfigureAwait(false);
-            AskTurn? turn = await _Database.AskThreads.ReadTurnAsync(caller.TenantId, caller.UserId, caller.AskThreadId!, caller.AskTurnId!).ConfigureAwait(false);
-            return thread != null && !thread.Archived && thread.ActiveTurnId == caller.AskTurnId
-                && turn != null && turn.State == AskTurnStateEnum.Running;
         }
     }
 }

@@ -15,6 +15,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import DeleteProgressDialog from '../components/shared/DeleteProgressDialog';
 import { useDeleteProgress } from '../lib/useDeleteProgress';
 import AskActionCards from '../components/ask/AskActionCards';
+import AskToolPermissionCards from '../components/ask/AskToolPermissionCards';
 import { useEarlierAskTurns } from '../components/ask/useEarlierAskTurns';
 import { replaceAskTurn, toChatTurns } from '../components/ask/askThreadUtils';
 import { usePromptHistory } from '../components/ask/usePromptHistory';
@@ -590,6 +591,7 @@ export default function AskArmada() {
           {mode === 'saved' && selectedThread?.archived && <div className="text-dim" role="status">{t('This conversation is archived. Restore it to send another turn.')}</div>}
           {mode === 'saved' && turnStatusNotice && <div className="ask-turn-status" role="status">{turnStatusNotice}</div>}
           {mode === 'saved' && selectedThread && <AskActionCards key={selectedThread.id} threadId={selectedThread.id} busy={busy} t={t} />}
+          {mode === 'saved' && selectedThread && <AskToolPermissionCards key={selectedThread.id} threadId={selectedThread.id} busy={busy} t={t} />}
           {mode === 'saved' && retryRequest && (
             <div className="ask-turn-status" role="alert">
               <span>{turnStatusNotice}</span>

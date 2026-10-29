@@ -199,6 +199,7 @@ using WatsonWebserver.Core.Routing;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private AskActionService _AskActions = null!;
         private AskThreadService? _AskThreads = null;
+        private AskToolPermissionService? _AskToolPermissions = null;
         private VesselCheckoutImportService _VesselCheckoutImports = null!;
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -1853,7 +1854,8 @@ using WatsonWebserver.Core.Routing;
                 .Register(_App, authenticate, _AuthorizationService);
 
             _AskThreads = new AskThreadService(_Database, captainChat);
-            new AskThreadRoutes(_AskThreads)
+            _AskToolPermissions = new AskToolPermissionService(_Database, _Settings.Ask, _Logging);
+            new AskThreadRoutes(_AskThreads, _AskToolPermissions)
                 .Register(_App, authenticate, _AuthorizationService);
             new AskActionRoutes(_AskActions).Register(_App, authenticate, _AuthorizationService);
 
@@ -2271,7 +2273,8 @@ using WatsonWebserver.Core.Routing;
                 askActions: _AskActions,
                 vesselCheckoutImportService: _VesselCheckoutImports,
                 captainModelProbe: _CaptainModelProbe,
-                askThreads: _AskThreads);
+                askThreads: _AskThreads,
+                askToolPermissions: _AskToolPermissions);
 
         }
 

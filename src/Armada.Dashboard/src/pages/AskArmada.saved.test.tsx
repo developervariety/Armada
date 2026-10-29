@@ -9,6 +9,9 @@ import type { ChatTurn } from '../components/shared/CaptainChatPanel';
 vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
   createAskThread: vi.fn(), deleteAskThread: vi.fn(), deleteAskThreads: vi.fn(), getAskThread: vi.fn(), getAskTurn: vi.fn(), getCaptainAskTools: vi.fn(),
   listAskThreads: vi.fn(), listAskTurns: vi.fn(), listCaptains: vi.fn(), markAskThreadRead: vi.fn(), markAskThreadUnread: vi.fn(), sendAskTurn: vi.fn(), updateAskThread: vi.fn(),
+  listAskProposals: vi.fn().mockResolvedValue([]), listAskWorkReports: vi.fn().mockResolvedValue([]), decideAskProposal: vi.fn(),
+  listAskToolPermissions: vi.fn().mockResolvedValue([]), listAskToolPermissionRules: vi.fn().mockResolvedValue([]),
+  decideAskToolPermission: vi.fn(), deleteAskToolPermissionRule: vi.fn(),
 }));
 vi.mock('../context/LocaleContext', () => {
   const context = { t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v };
@@ -272,7 +275,7 @@ describe('Ask Armada saved conversations', () => {
     renderPage();
     fireEvent.click(await screen.findByRole('tab', { name: 'Saved conversations' }));
     await waitFor(() => expect(getAskThread).toHaveBeenLastCalledWith(secondThread.id));
-    expect(await screen.findByLabelText('Message')).toHaveValue('draft for the second');
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('draft for the second'));
   });
 
   it('reads a conversation when it opens, and a conversation marked unread stays unread while it is open', async () => {

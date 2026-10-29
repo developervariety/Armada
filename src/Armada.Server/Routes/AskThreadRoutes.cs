@@ -14,6 +14,7 @@ namespace Armada.Server.Routes
     public sealed partial class AskThreadRoutes
     {
         private readonly AskThreadService _Threads;
+        private readonly AskToolPermissionService? _ToolPermissions;
         private static readonly JsonSerializerOptions _BodyOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -22,9 +23,11 @@ namespace Armada.Server.Routes
 
         /// <summary>Creates the route group.</summary>
         /// <param name="threads">Saved thread service.</param>
-        public AskThreadRoutes(AskThreadService threads)
+        /// <param name="toolPermissions">Native tool permission service, or null to leave the permission routes unregistered.</param>
+        public AskThreadRoutes(AskThreadService threads, AskToolPermissionService? toolPermissions = null)
         {
             _Threads = threads ?? throw new ArgumentNullException(nameof(threads));
+            _ToolPermissions = toolPermissions;
         }
 
         /// <summary>Registers authenticated saved-thread routes.</summary>
@@ -37,6 +40,7 @@ namespace Armada.Server.Routes
             RegisterUnreadRoutes(app, authenticate, authz);
             RegisterDeleteRoutes(app, authenticate, authz);
             RegisterTurnRoutes(app, authenticate, authz);
+            RegisterToolPermissionRoutes(app, authenticate, authz);
         }
 
         private void RegisterThreadRoutes(Webserver app, Func<HttpContextBase, Task<AuthContext>> authenticate, IAuthorizationService authz)

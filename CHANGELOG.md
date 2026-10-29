@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Ask native tool approval
+
+- With `ask.approveNativeToolsInArmada` on (off by default), a saved Ask turn on a Claude Code captain no longer applies `ask.nativeToolAccess`. It launches Claude Code without a permission bypass and with `--permission-prompt-tool` set to the new MCP tool `armada_cli_permission_prompt`. Each native tool call that needs permission becomes a request that waits for the conversation owner on the Ask page. The owner allows or denies it and can remember the choice for that tool in that conversation. A request nobody decides within `ask.toolApprovalTimeoutSeconds` (default 120, 10 to 600) is denied. Missions, temporary chat and other runtimes do not use this.
+- Only the turn's own scoped credential lists or calls `armada_cli_permission_prompt`, and only while that turn is the thread's running turn. The owner reads and decides through `GET /api/v1/ask/threads/{id}/tool-permissions`, `POST .../tool-permissions/{requestId}/allow` and `.../deny`, and `GET` and `DELETE .../tool-permission-rules`. Each owner decision records an `ask_tool_permission.decided` event.
+- Requests and rules are stored in the new `ask_tool_permission_requests` and `ask_tool_permission_rules` tables (SQLite migration 138, PostgreSQL 142, MySQL 131, SQL Server 134) and are removed with their conversation. The Dashboard Server page edits both settings.
+
 ### Ask conversation delete
 
 - `DELETE /api/v1/ask/threads/{id}` and `POST /api/v1/ask/threads/delete/multiple` (at most 100 ids) delete the caller's own archived Ask conversations with their turns and proposals. A conversation with an active or uncertain turn, or a proposal that is waiting for a decision or executing, is kept: the single route answers 409 with the reason and the bulk route lists the id in `skipped` with its reason. Each delete records an `ask_thread.deleted` event that keeps the thread id and title. The Dashboard shows Delete on archived conversations and a Delete selected action. No MCP tool deletes a conversation, and nothing deletes one automatically.

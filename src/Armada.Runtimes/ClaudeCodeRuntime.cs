@@ -104,9 +104,30 @@ namespace Armada.Runtimes
         public const string ArmadaMcpAllowRule = "mcp__armada";
 
         /// <summary>
+        /// Seconds Claude Code waits for a tool call beyond Armada's own permission prompt timeout, so Armada
+        /// expires (and denies) a request before Claude Code abandons the waiting call.
+        /// </summary>
+        public const int PermissionPromptTimeoutMarginSeconds = 120;
+
+        /// <summary>
         /// Whether to use --dangerously-skip-permissions flag.
         /// </summary>
         public bool SkipPermissions { get; set; } = true;
+
+        /// <summary>
+        /// Fully qualified MCP tool that answers Claude Code's permission prompts (<c>--permission-prompt-tool</c>), for
+        /// example <c>mcp__armada__armada_cli_permission_prompt</c>, or null. When set, the launch neither bypasses
+        /// permissions nor narrows the native tools: a tool that needs permission is sent to that tool, which holds
+        /// the call until a person decides or it expires. The tool's MCP server must be in the launch's MCP
+        /// configuration, and the launch must carry the scoped credential that can reach it.
+        /// </summary>
+        public string? PermissionPromptTool { get; set; } = null;
+
+        /// <summary>
+        /// Seconds the permission prompt tool may wait for a decision, or null. When set with
+        /// <see cref="PermissionPromptTool"/>, <c>MCP_TOOL_TIMEOUT</c> is raised above it.
+        /// </summary>
+        public int? PermissionPromptTimeoutSeconds { get; set; } = null;
 
         /// <summary>
         /// Whether to pass --exclude-dynamic-system-prompt-sections, which keeps the system prompt
@@ -225,7 +246,8 @@ namespace Armada.Runtimes
 
             // The launch already removes admiral secrets from the captain environment; refusing the bare
             // environment-listing commands keeps whatever else the environment holds out of the transcript.
-            bool readOnly = NativeToolAccess == NativeToolAccessEnum.ReadOnly;
+            bool promptForPermission = !String.IsNullOrEmpty(PermissionPromptTool);
+            bool readOnly = NativeToolAccess == NativeToolAccessEnum.ReadOnly && !promptForPermission;
             args.Add("--disallowedTools");
             args.AddRange(EnvironmentListingDenyRules);
             if (readOnly) args.AddRange(ReadOnlyDeniedTools);
@@ -255,7 +277,20 @@ namespace Armada.Runtimes
                 args.Add(effectiveModel);
             }
 
-            if (readOnly)
+            if (promptForPermission)
+            {
+                // No permission bypass and no narrowed tool list: reads run, edits are accepted by the permission mode
+                // only when the person allows them, and every other tool that needs permission goes to the prompt
+                // tool, which waits for the thread owner. The scoped Armada MCP server stays callable, since the
+                // endpoint authorizes each of its tools.
+                args.Add("--permission-mode");
+                args.Add("default");
+                args.Add("--allowedTools");
+                args.Add(ArmadaMcpAllowRule);
+                args.Add("--permission-prompt-tool");
+                args.Add(PermissionPromptTool!);
+            }
+            else if (readOnly)
             {
                 // No permission bypass: the model is offered only the read-only native tools, and a headless run
                 // answers every other permission request with a denial. The scoped Armada MCP server stays
@@ -271,6 +306,17 @@ namespace Armada.Runtimes
             }
 
             return args;
+        }
+
+        /// <summary>
+        /// A launch that sends permission prompts to Armada raises Claude Code's MCP tool timeout above the
+        /// prompt timeout, so a waiting prompt is not abandoned before Armada denies it.
+        /// </summary>
+        protected override void AddLaunchVariables(Dictionary<string, string> variables, string? model, Captain? captain)
+        {
+            if (String.IsNullOrEmpty(PermissionPromptTool) || !PermissionPromptTimeoutSeconds.HasValue) return;
+            long milliseconds = ((long)PermissionPromptTimeoutSeconds.Value + PermissionPromptTimeoutMarginSeconds) * 1000L;
+            variables["MCP_TOOL_TIMEOUT"] = milliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>

@@ -147,6 +147,8 @@ import type {
   CaptainChatRequest,
   CaptainChatResponse,
   AskThread,
+  AskToolPermissionRequest,
+  AskToolPermissionRule,
   AskActionProposal,
   AskProposalDecision,
   AskWorkReport,
@@ -1353,6 +1355,14 @@ export const getAskTurn = (threadId: string, requestId: string) =>
 export const listAskProposals = (threadId: string) => get<AskActionProposal[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/proposals`);
 export const decideAskProposal = (threadId: string, proposalId: string, decision: 'approve' | 'reject', fingerprint: string) =>
   post<AskProposalDecision>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/proposals/${encodeURIComponent(proposalId)}/${decision}`, { fingerprint });
+export const listAskToolPermissions = (threadId: string) =>
+  get<AskToolPermissionRequest[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permissions`);
+export const decideAskToolPermission = (threadId: string, requestId: string, decision: 'allow' | 'deny', remember: boolean) =>
+  post<AskToolPermissionRequest>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permissions/${encodeURIComponent(requestId)}/${decision}`, { remember });
+export const listAskToolPermissionRules = (threadId: string) =>
+  get<AskToolPermissionRule[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permission-rules`);
+export const deleteAskToolPermissionRule = (threadId: string, ruleId: string) =>
+  del<void>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/tool-permission-rules/${encodeURIComponent(ruleId)}`);
 export const listAskWorkReports = (threadId: string) => get<AskWorkReport[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/work`);
 
 /** Building a Model Context provisions a worktree and runs a captain over it; minutes, not seconds. */
