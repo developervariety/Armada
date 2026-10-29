@@ -205,10 +205,12 @@ is `git merge-base origin/main upstream/main`. The README's job is to say what t
 fork DOES that upstream does not, in prose a maintainer can act on.
 
 So: group the fork's additions by subsystem, one to three sentences each, in terms
-of behaviour. Where upstream ships a feature we keep in-tree but do not wire in
-(for example the Mux runtime), say so with a one-line reason. Say which features
+of behaviour. Where upstream ships a feature we keep in-tree but do not wire in,
+say so with a one-line reason. Say which features
 have since landed upstream too, so they are not mistaken for fork-only differences.
-The section sits immediately after `## Why Armada`'s "Who It's For" subsection.
+The section sits immediately after the README's introduction. It lists the
+fork's differences, the upstream changes imported, and the upstream changes not
+imported with a one-line reason each.
 
 Without this, anyone comparing forks loses the feature delta, and the README is
 the most-likely-read entry point. Future maintainers need it to know what to
