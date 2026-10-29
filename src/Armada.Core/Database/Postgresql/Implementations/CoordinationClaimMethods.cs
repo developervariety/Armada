@@ -163,6 +163,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         WHERE coordination_room_id = @coordination_room_id
                           AND participant_key = @participant_key
                           AND status = 'Active'
+                          AND subject_type IN ('Vessel', 'Objective')
                           AND expires_utc > @now;";
                     StoredValueBinder.Value(cmd, "@coordination_room_id", coordinationRoomId);
                     StoredValueBinder.Value(cmd, "@participant_key", participantKey);

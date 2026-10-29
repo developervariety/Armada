@@ -198,6 +198,8 @@ namespace Armada.Server.Mcp.Tools
                             ActiveParticipants = participants,
                             SharedParticipantKeys = coordination.EnumerateSharedParticipantKeys(activeWithinMinutes),
                             ActiveClaims = claims,
+                            HostExecution = HostWideCommandLock.Snapshot(),
+                            ResourceWindowRule = "Host/suite claims are advisory fixed windows. Reconcile native holders/waiters and manual commands; expiry never stops active work.",
                             UnreadWakes = unreadWakes
                         };
                     }
@@ -258,21 +260,21 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_claim",
-                "Reserve work so other operator sessions do not dispatch the same thing. Claims are visible to everyone, expire after a few hours unless your heartbeats keep them alive, and dispatches against a claimed vessel or objective announce the overlap on the board. Actions: claim (subjectType + subjectId required), release (claimId), list (optional subjectType + subjectId). action is required: a missing or unknown action returns an error (missing_action for a blank one), never a silent empty claim list.",
+                "Reserve work so other operator sessions do not dispatch the same thing. Work claims renew with presence; fixed-expiry host/suite windows do not. Claims are advisory: compare windows with native holders/waiters and manual commands. Expiry never stops active execution. Dispatches against claimed vessels/objectives announce overlap on the board. Actions: claim (subjectType + subjectId required), release (claimId), list (optional subjectType + subjectId). action is required: a missing or unknown action returns an error (missing_action for a blank one), never a silent empty claim list.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
                         action = new { type = "string", description = "claim | release | list. Required: a missing or unknown value returns an error, never a silent empty claim list." },
-                        subjectType = new { type = "string", description = "vessel | objective. Required for claim." },
-                        subjectId = new { type = "string", description = "The vsl_ or obj_ identifier to reserve. Required for claim." },
+                        subjectType = new { type = "string", description = "vessel | objective | host | suite. Host/suite windows have fixed expiry and do not grant execution slots." },
+                        subjectId = new { type = "string", description = "Vessel/objective id, or the host/suite resource key. Required for claim." },
                         note = new { type = "string", description = "What you intend to do with the subject." },
                         participantKey = new { type = "string", description = "Stable key for your session. Required for claim when the session sends no X-Armada-Participant header; the header key is used when it does." },
                         displayName = new { type="string", description = "Display name for the board. Omit it to use your participant's last board name, else the name of the credential you authenticated with, else the participant key." },
-                        ttlHours = new { type = "number", description = "Hours until expiry without heartbeat. Default 4, clamped 0.5-72." },
+                        ttlHours = new { type = "number", description = "Work claims default to 4 hours (0.5-72), renewed by presence. Host/suite windows default to 15 minutes (1 minute-2 hours), with fixed expiry." },
                         claimId = new { type = "string", description = "Claim ID (ccl_ prefix). Required for release." },
-                        roomKey = new { type = "string", description = "Usually omit this. A claim on an objective in a campaign (an ancestor tagged campaign:<name>) lands in that campaign's room by itself; every other claim lands in the fleet room. Heartbeats in any room keep every claim you hold alive." }
+                        roomKey = new { type = "string", description = "Usually omit this. A claim on an objective in a campaign (an ancestor tagged campaign:<name>) lands in that campaign's room by itself; every other claim lands in the fleet room. Heartbeats in any room renew work claims, not fixed host/suite windows." }
                     },
                     required = new[] { "action" }
                 },
@@ -295,7 +297,7 @@ namespace Armada.Server.Mcp.Tools
                                 return (object)new { Error = "subjectType and subjectId are required for action=claim" };
                             CoordinationClaimSubjectEnum subjectType;
                             if (!Enum.TryParse(request.SubjectType!, true, out subjectType))
-                                return (object)new { Error = "subjectType must be vessel or objective" };
+                                return (object)new { Error = "subjectType must be vessel, objective, host or suite" };
                             if (String.IsNullOrWhiteSpace(participantKey))
                                 return (object)new { Error = "participantKey is required for action=claim when the session sends no " + ArmadaMcpHttpServer.ParticipantHeaderName + " header - name your session" };
                             if (coordination == null)
@@ -305,7 +307,7 @@ namespace Armada.Server.Mcp.Tools
 
                             CoordinationClaim claim = await coordination.ClaimAsync(
                                 participantKey!, claimDisplayName!, subjectType, request.SubjectId!,
-                                request.Note, request.TtlHours ?? 4, request.RoomKey).ConfigureAwait(false);
+                                request.Note, request.TtlHours, request.RoomKey).ConfigureAwait(false);
                             return (object)claim;
                         }
 
@@ -332,7 +334,7 @@ namespace Armada.Server.Mcp.Tools
                             CoordinationClaimSubjectEnum subjectTypeParsed = CoordinationClaimSubjectEnum.Vessel;
                             bool hasSubjectType = !String.IsNullOrWhiteSpace(request.SubjectType);
                             if (hasSubjectType && !Enum.TryParse(request.SubjectType!, true, out subjectTypeParsed))
-                                return (object)new { Error = "subjectType must be vessel or objective" };
+                                return (object)new { Error = "subjectType must be vessel, objective, host or suite" };
                             if (coordination == null)
                                 return McpToolUnavailable.Create("coordination board");
                             CoordinationClaimSubjectEnum? subjectType = hasSubjectType ? subjectTypeParsed : null;

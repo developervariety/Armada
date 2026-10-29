@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.IO;
     using System.Linq;
     using System.Text.Json;
+    using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
     using Microsoft.Extensions.Time.Testing;
@@ -624,6 +625,38 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, campaignRead.GetProperty("Messages").GetArrayLength());
                     AssertEqual("lane note", campaignRead.GetProperty("Messages")[0].GetProperty("Content").GetString());
                 }
+            });
+
+            await RunTest("Host and suite windows keep fixed expiry while actual holders remain authoritative", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                CoordinationService service = CreateService(testDb);
+                using IDisposable holder = await HostWideCommandLock.AcquireAsync(
+                    "window-live-suite", "actual running suite", CancellationToken.None).ConfigureAwait(false);
+                List<CoordinationClaim> windows = new List<CoordinationClaim>();
+                foreach (CoordinationClaimSubjectEnum kind in new[] { CoordinationClaimSubjectEnum.Host, CoordinationClaimSubjectEnum.Suite })
+                    windows.Add(await service.ClaimAsync("window-owner", "Window owner", kind,
+                        "shared-test-resource", ttlHours: 0.1, roomKey: "fleet").ConfigureAwait(false));
+                CoordinationClaim work = await service.ClaimAsync("window-owner", "Window owner", CoordinationClaimSubjectEnum.Objective,
+                    "obj_example", ttlHours: 0.5, roomKey: "fleet").ConfigureAwait(false);
+                Dictionary<string, DateTime> expires = new Dictionary<string, DateTime>();
+                foreach (CoordinationClaim window in windows)
+                    expires[window.Id] = (await testDb.Driver.CoordinationClaims.ReadAsync(window.Id).ConfigureAwait(false))!.ExpiresUtc;
+                await service.HeartbeatAsync("fleet", "window-owner", "Window owner").ConfigureAwait(false);
+                foreach (CoordinationClaim window in windows)
+                {
+                    CoordinationClaim stored = (await testDb.Driver.CoordinationClaims.ReadAsync(window.Id).ConfigureAwait(false))!;
+                    AssertEqual(expires[window.Id], stored.ExpiresUtc, "presence must not extend a bounded execution window");
+                    AssertTrue(stored.ExpiresUtc < DateTime.UtcNow.AddMinutes(7), "resource TTL can be shorter than a work claim");
+                    stored.ExpiresUtc = DateTime.UtcNow.AddSeconds(-1);
+                    await testDb.Driver.CoordinationClaims.UpdateAsync(stored).ConfigureAwait(false);
+                }
+                AssertTrue((await testDb.Driver.CoordinationClaims.ReadAsync(work.Id).ConfigureAwait(false))!.ExpiresUtc > DateTime.UtcNow.AddHours(3),
+                    "ordinary work claims still renew with presence");
+                List<CoordinationClaim> active = await service.EnumerateActiveClaimsAsync().ConfigureAwait(false);
+                AssertFalse(active.Any(claim => windows.Any(window => window.Id == claim.Id)), "expired window metadata is no longer a reservation");
+                AssertTrue(HostWideCommandLock.Snapshot().Holders.Any(actual => actual.Key == "window-live-suite"),
+                    "window expiry never revokes or kills a live execution holder");
             });
 
             await RunTest("A heartbeat in the fleet room keeps the participant's campaign-room claims alive", async () =>

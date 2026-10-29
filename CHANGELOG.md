@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Bounded coordination windows
+
+- Host and suite claims have a fixed owner and expiry (15 minutes by default, at most two hours). Presence renews work claims only. The board shows native host holders and waiters beside advisory windows; expiry never stops a running suite.
+
 ### Campaign closeout and objective readiness
 
 - Campaign status reports unresolved scope and missing completion evidence across the full descendant tree. Objective updates refuse premature parent completion and retain the acceptance criteria for evidence review.

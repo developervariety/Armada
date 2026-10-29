@@ -493,7 +493,7 @@ namespace Armada.Server
                 await RecordSharedParticipantKeyEventAsync(newlyShared, tenantId, token).ConfigureAwait(false);
 
             // A live session keeps its own reservations alive by heartbeating, in whichever room
-            // each claim was made: a claim routed to a campaign room must not lapse while its holder
+            // each work claim was made: a claim routed to a campaign room must not lapse while its holder
             // heartbeats in the fleet room.
             DateTime extendedExpiry = DateTime.UtcNow.AddHours(4);
             List<CoordinationRoom> rooms = await _Database.CoordinationRooms.EnumerateAsync(token).ConfigureAwait(false);
@@ -720,7 +720,7 @@ namespace Armada.Server
             CoordinationClaimSubjectEnum subjectType,
             string subjectId,
             string? note = null,
-            double ttlHours = 4,
+            double? ttlHours = null,
             string? roomKey = null,
             string? tenantId = null,
             CancellationToken token = default)
@@ -728,8 +728,10 @@ namespace Armada.Server
             if (String.IsNullOrWhiteSpace(participantKey)) throw new ArgumentException("Participant key must not be empty.", nameof(participantKey));
             if (String.IsNullOrWhiteSpace(displayName)) throw new ArgumentException("Display name must not be empty.", nameof(displayName));
             if (String.IsNullOrWhiteSpace(subjectId)) throw new ArgumentException("Subject id must not be empty.", nameof(subjectId));
-            if (ttlHours < 0.5) ttlHours = 0.5;
-            if (ttlHours > 72) ttlHours = 72;
+            bool resourceWindow = subjectType == CoordinationClaimSubjectEnum.Host || subjectType == CoordinationClaimSubjectEnum.Suite;
+            double lifetimeHours = resourceWindow
+                ? Math.Clamp(ttlHours ?? 0.25, 1.0 / 60, 2)
+                : Math.Clamp(ttlHours ?? 4, 0.5, 72);
 
             string key = await ResolveRoomKeyAsync(
                 roomKey,
@@ -747,7 +749,7 @@ namespace Armada.Server
                 SubjectId = subjectId,
                 Note = note,
                 Status = CoordinationClaimStatusEnum.Active,
-                ExpiresUtc = DateTime.UtcNow.AddHours(ttlHours)
+                ExpiresUtc = DateTime.UtcNow.AddHours(lifetimeHours)
             };
             claim = await _Database.CoordinationClaims.CreateAsync(claim, token).ConfigureAwait(false);
 
@@ -759,7 +761,9 @@ namespace Armada.Server
                 "armada",
                 "[claim] " + displayName + " claimed " + subjectLabel +
                 (String.IsNullOrWhiteSpace(note) ? String.Empty : ": " + note) +
-                " (expires in " + ttlHours.ToString("0.#") + "h unless refreshed)",
+                (resourceWindow
+                    ? " (fixed window expires " + claim.ExpiresUtc.ToString("O") + "; presence does not renew it; reconcile real holders and waiters)"
+                    : " (expires in " + lifetimeHours.ToString("0.#") + "h unless refreshed)"),
                 null, null,
                 subjectType == CoordinationClaimSubjectEnum.Vessel ? subjectId : null,
                 null,

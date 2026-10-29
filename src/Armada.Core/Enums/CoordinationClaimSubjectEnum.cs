@@ -19,6 +19,14 @@ namespace Armada.Core.Enums
         /// An objective or backlog item - the claim covers work on its scope.
         /// </summary>
         [EnumMember(Value = "Objective")]
-        Objective
+        Objective,
+
+        /// <summary>A fixed-expiry advisory host window; it does not grant an execution slot.</summary>
+        [EnumMember(Value = "Host")]
+        Host,
+
+        /// <summary>A fixed-expiry advisory suite window; running holders remain authoritative.</summary>
+        [EnumMember(Value = "Suite")]
+        Suite
     }
 }
