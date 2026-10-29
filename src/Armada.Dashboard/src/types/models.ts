@@ -105,8 +105,13 @@ export interface PasswordChangeRequest {
   NewPassword: string;
 }
 
+/** POST /api/v1/tenants/lookup: one page of the tenants where the email exists, ordered by name then id. */
 export interface TenantLookupResult {
   tenants: TenantListEntry[];
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+  totalRecords: number;
 }
 
 export interface TenantListEntry {

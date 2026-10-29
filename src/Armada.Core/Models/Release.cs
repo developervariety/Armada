@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System;
     using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// First-class release record aggregating linked work, checks, notes, and artifacts.
@@ -83,21 +84,25 @@ namespace Armada.Core.Models
         /// <summary>
         /// Linked voyage identifiers.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxLinkedIds)]
         public List<string> VoyageIds { get; set; } = new List<string>();
 
         /// <summary>
         /// Linked mission identifiers.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxLinkedIds)]
         public List<string> MissionIds { get; set; } = new List<string>();
 
         /// <summary>
         /// Linked check-run identifiers.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxLinkedIds)]
         public List<string> CheckRunIds { get; set; } = new List<string>();
 
         /// <summary>
         /// Linked release artifacts.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxLinkedIds)]
         public List<ReleaseArtifact> Artifacts { get; set; } = new List<ReleaseArtifact>();
 
         /// <summary>

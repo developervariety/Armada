@@ -779,8 +779,9 @@ export async function logoutProxy(): Promise<void> {
   }
 }
 
-export const lookupTenants = (email: string) =>
-  post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email });
+/** One page of the tenants where the email exists (pageSize 1 to 1000, default 10); see lib/tenantLookup for every page. */
+export const lookupTenants = (email: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email, PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
 
 // ==================== Tenants (admin) ====================
 export const listTenants = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) => get<EnumerationResult<TenantMetadata>>(`/api/v1/tenants${buildQuery(params)}`);

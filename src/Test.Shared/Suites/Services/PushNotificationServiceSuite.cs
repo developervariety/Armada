@@ -86,7 +86,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("usr_b", moved.Device.UserId);
                 AssertNull(moved.Device.DeviceName, "the previous owner's name is not carried over");
                 AssertEqual(PushSettings.AllCategories().Count, moved.Device.Categories.Count, "categories reset to the defaults");
-                List<PushDevice> oldOwner = await service.ListAsync(Auth("ten_a", "usr_a", false, false), null, null).ConfigureAwait(false);
+                List<PushDevice> oldOwner = (await service.EnumerateAsync(Auth("ten_a", "usr_a", false, false), null, null, new EnumerationQuery { PageSize = 1000 }).ConfigureAwait(false)).Objects;
                 AssertEqual(0, oldOwner.Count, "the previous owner no longer has the device");
             }));
 
@@ -121,12 +121,12 @@ namespace Test.Shared.Suites.Services
                 PushDevice aliceDevice = (await service.RegisterAsync(alice, Register(NewToken(), "alice")).ConfigureAwait(false)).Device;
                 await service.RegisterAsync(bob, Register(NewToken(), "bob")).ConfigureAwait(false);
 
-                AssertEqual("alice", String.Join(",", (await service.ListAsync(alice, null, null).ConfigureAwait(false)).Select(d => d.DeviceName)), "own devices only");
-                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.ListAsync(bob, "usr_alice", null), "a user cannot list another user").ConfigureAwait(false);
-                AssertEqual("alice", String.Join(",", (await service.ListAsync(admin, "usr_alice", null).ConfigureAwait(false)).Select(d => d.DeviceName)), "tenant admin lists a user");
-                AssertEqual(0, (await service.ListAsync(foreignAdmin, "usr_alice", null).ConfigureAwait(false)).Count, "other tenant's admin sees nothing");
-                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.ListAsync(foreignAdmin, "usr_alice", "ten_s1"), "tenant admin cannot name another tenant").ConfigureAwait(false);
-                AssertEqual("alice", String.Join(",", (await service.ListAsync(global, "usr_alice", null).ConfigureAwait(false)).Select(d => d.DeviceName)), "global admin lists any user");
+                AssertEqual("alice", String.Join(",", (await service.EnumerateAsync(alice, null, null, new EnumerationQuery { PageSize = 1000 }).ConfigureAwait(false)).Objects.Select(d => d.DeviceName)), "own devices only");
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.EnumerateAsync(bob, "usr_alice", null, new EnumerationQuery()), "a user cannot list another user").ConfigureAwait(false);
+                AssertEqual("alice", String.Join(",", (await service.EnumerateAsync(admin, "usr_alice", null, new EnumerationQuery { PageSize = 1000 }).ConfigureAwait(false)).Objects.Select(d => d.DeviceName)), "tenant admin lists a user");
+                AssertEqual(0, (await service.EnumerateAsync(foreignAdmin, "usr_alice", null, new EnumerationQuery { PageSize = 1000 }).ConfigureAwait(false)).Objects.Count, "other tenant's admin sees nothing");
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.EnumerateAsync(foreignAdmin, "usr_alice", "ten_s1", new EnumerationQuery()), "tenant admin cannot name another tenant").ConfigureAwait(false);
+                AssertEqual("alice", String.Join(",", (await service.EnumerateAsync(global, "usr_alice", null, new EnumerationQuery { PageSize = 1000 }).ConfigureAwait(false)).Objects.Select(d => d.DeviceName)), "global admin lists any user");
 
                 await AssertThrowsAsync<KeyNotFoundException>(() => service.UpdateAsync(bob, aliceDevice.Id, new PushDeviceUpdateRequest { DeviceName = "x" }), "other user cannot update").ConfigureAwait(false);
                 await AssertThrowsAsync<KeyNotFoundException>(() => service.DeleteAsync(foreignAdmin, aliceDevice.Id), "other tenant cannot delete").ConfigureAwait(false);

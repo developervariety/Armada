@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System;
     using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Playbook-backed executable operational runbook.
@@ -90,11 +91,13 @@ namespace Armada.Core.Models
         /// <summary>
         /// Runbook parameters.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<RunbookParameter> Parameters { get; set; } = new List<RunbookParameter>();
 
         /// <summary>
         /// Explicit or derived runbook steps.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<RunbookStep> Steps { get; set; } = new List<RunbookStep>();
 
         /// <summary>
