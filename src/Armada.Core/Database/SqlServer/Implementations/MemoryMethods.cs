@@ -234,6 +234,29 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<EnumerationResult<Memory>> EnumerateAsync(MemoryEnumerateRequest query, string? tenantId, string? ownerUserId, string? viewerUserId, CancellationToken token = default)
+        {
+            if (query == null) query = new MemoryEnumerateRequest();
+
+            MemoryEnumerateQuery sql = MemoryEnumerateQueryBuilder.Build(query, tenantId, ownerUserId, viewerUserId);
+            Action<SqlCommand> bind = cmd => BindParameters(cmd, sql.Parameters);
+
+            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                long total = await SqlServerCommandHelper.CountAsync(conn, "SELECT COUNT(*)" + sql.FromClause + sql.WhereClause + ";", bind, token).ConfigureAwait(false);
+                List<Memory> rows = await SqlServerCommandHelper.QueryAsync(conn,
+                    "SELECT " + MemoryEnumerateQueryBuilder.SelectColumns + sql.FromClause + sql.WhereClause + sql.OrderByClause + SqlServerCommandHelper.Page(query.Offset, query.PageSize) + ";",
+                    bind, MemoryFromReader, token).ConfigureAwait(false);
+
+                foreach (Memory memory in rows)
+                    memory.Tags = await LoadTagsAsync(conn, memory.Id, token).ConfigureAwait(false);
+
+                return EnumerationResult<Memory>.Create(query, rows, total);
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<bool> ExistsAnyAsync(CancellationToken token = default)
         {
             using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
@@ -410,6 +433,17 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)memory.VesselId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(memory.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(memory.LastUpdateUtc));
+        }
+
+
+        private static void BindParameters(SqlCommand cmd, List<QueryParameter> parameters)
+        {
+            foreach (QueryParameter parameter in parameters)
+            {
+                // created_utc is stored as an ISO 8601 string, so dates compare as strings.
+                if (parameter.Value is DateTime dt) SqlServerCommandHelper.Add(cmd, parameter.Name, SqlServerDatabaseDriver.ToIso8601(dt.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(dt, DateTimeKind.Utc) : dt));
+                else SqlServerCommandHelper.Add(cmd, parameter.Name, parameter.Value);
+            }
         }
 
         private static Memory MemoryFromReader(SqlDataReader reader)

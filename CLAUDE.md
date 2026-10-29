@@ -29,7 +29,7 @@ release workflow, and deploy scripts build it from source.
 
 ## Architecture
 - `Armada.Core` - Domain models, database interfaces and providers, service interfaces, settings
-- `Armada.Runtimes` - Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint; extensible via IAgentRuntime)
+- `Armada.Runtimes` - Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, Pi, ApiEndpoint; extensible via IAgentRuntime)
 - `Armada.Server` - Admiral process: REST API (Watson), MCP server (Voltaic), WebSocket, Harbor link, serves the dashboard
 - `Armada.Helm` - CLI (Spectre.Console), thin HTTP client to Admiral; hosts `armada tui`
 - `Armada.Tui` - Terminal UI (TUIKit), the dashboard in a terminal

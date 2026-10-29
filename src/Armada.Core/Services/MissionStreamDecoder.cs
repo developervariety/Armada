@@ -4,23 +4,23 @@ namespace Armada.Core.Services
     using Armada.Core.Enums;
 
     /// <summary>
-    /// Decodes a mission captain's structured stdout (Claude Code stream-json, Codex exec --json, Mux jsonl) line by line
+    /// Decodes a mission captain's structured stdout (Claude Code stream-json, Codex exec --json, Mux jsonl, pi --mode json) line by line
     /// into the readable output the CLI prints in text mode, so a mission's final message, AgentOutput, and protocol lines
     /// read as they always have, plus the captain's live activity. One instance per launch: a decoder may hold state
-    /// across lines (Codex's last agent message is printed when the turn ends; Mux's reply deltas are joined into lines).
+    /// across lines (Codex's last agent message is printed when the turn ends; Mux's and pi's reply deltas are joined into lines).
     /// </summary>
     public abstract class MissionStreamDecoder
     {
         #region Public-Methods
 
         /// <summary>
-        /// Whether a runtime has structured output a mission can stream (Claude Code, Codex, and Mux).
+        /// Whether a runtime has structured output a mission can stream (Claude Code, Codex, Mux, and pi).
         /// </summary>
         /// <param name="runtime">Runtime.</param>
         /// <returns>True when <see cref="For"/> returns a decoder for it.</returns>
         public static bool Supports(AgentRuntimeEnum runtime)
         {
-            return runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.Codex || runtime == AgentRuntimeEnum.Mux;
+            return runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.Codex || runtime == AgentRuntimeEnum.Mux || runtime == AgentRuntimeEnum.Pi;
         }
 
         /// <summary>
@@ -35,6 +35,7 @@ namespace Armada.Core.Services
                 case AgentRuntimeEnum.ClaudeCode: return new ClaudeMissionStreamDecoder();
                 case AgentRuntimeEnum.Codex: return new CodexMissionStreamDecoder();
                 case AgentRuntimeEnum.Mux: return new MuxMissionStreamDecoder();
+                case AgentRuntimeEnum.Pi: return new PiMissionStreamDecoder();
                 default: return null;
             }
         }

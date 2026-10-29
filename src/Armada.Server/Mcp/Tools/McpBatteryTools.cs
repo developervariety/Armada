@@ -5,6 +5,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Registers the fixture battery MCP tools: list_battery_packs, run_battery and get_battery_run. Every tool enforces
@@ -69,7 +70,8 @@ namespace Armada.Server.Mcp.Tools
                         captainId = new { type = "string", description = "Captain to run the tasks (cpt_ prefix)" },
                         runCount = new { type = "integer", description = "Runs of each task (1-10, default 3)" },
                         seed = new { type = "integer", description = "Seed to record with the run (default: picked at random)" },
-                        createFixtureVessel = new { type = "boolean", description = "Create a pack's fixture vessel when it does not exist yet (default false)" }
+                        createFixtureVessel = new { type = "boolean", description = "Create a pack's fixture vessel when it does not exist yet (default false)" },
+                        promptVariant = new { type = "string", @enum = new[] { "Current", "Lean", "Compact" }, description = "Persona prompt variant every task renders with (default: the captain's own setting, else Current). Runs that differ only in this compare the variants." }
                     },
                     required = new[] { "packs", "captainId" }
                 },
@@ -84,7 +86,8 @@ namespace Armada.Server.Mcp.Tools
                         CaptainId = request.CaptainId,
                         RunCount = request.RunCount,
                         Seed = request.Seed,
-                        CreateFixtureVessel = request.CreateFixtureVessel ?? false
+                        CreateFixtureVessel = request.CreateFixtureVessel ?? false,
+                        PromptVariant = PromptVariantResolver.Parse(request.PromptVariant)
                     };
                     return (object)await service.RunAsync(caller, body).ConfigureAwait(false);
                 });

@@ -27,7 +27,7 @@ By the end of the guide:
 ## Step 1: Connect Armada via MCP
 
 Wire Armada into whichever agent you're driving. The quickest way is `armada mcp install`, which registers Armada with
-Claude Code, Codex, Gemini, and Cursor (and Mux and OpenCode when they are installed); `armada mcp remove` undoes it.
+Claude Code, Codex, Gemini, and Cursor (and Mux, OpenCode, and pi when they are installed); `armada mcp remove` undoes it.
 To wire it by hand, prefer the HTTP transport: it talks to the running Admiral, so a single Armada server can serve
 every agent on the box.
 
@@ -156,7 +156,7 @@ The agent uses your global git config when available and trusts your local `.git
 
 A **captain** in Armada is a registered AI agent that can be dispatched to vessels to execute missions. The captain record tells Armada which runtime, model, and system instructions to use when work is routed to that agent. You can register one captain per agent harness you actually run, or several variants (different models, different system instructions) of the same harness.
 
-The supported runtimes are `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, `ApiEndpoint` (a registered
+The supported runtimes are `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, `Pi`, `ApiEndpoint` (a registered
 inference endpoint instead of a CLI; it needs a `modelEndpointId`), and `Custom`. Mux captains also need a named Mux
 endpoint. Tell the agent which ones to add. Example prompt:
 
@@ -167,7 +167,7 @@ Under the hood the agent calls `create_captain` once per captain. The fields tha
 | Field | Notes |
 |-------|-------|
 | `name` | Display name. Pick something operators will recognize: "Claude Code (Opus)", "Codex", "Gemini", "Cursor". |
-| `runtime` | One of `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, `ApiEndpoint`, `Custom`. Required for dispatch routing. |
+| `runtime` | One of `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, `Pi`, `ApiEndpoint`, `Custom`. Required for dispatch routing. |
 | `model` | Specific model identifier your runtime CLI accepts. Optional - runtime defaults if omitted. Armada validates it before saving. |
 | `systemInstructions` | Text injected into every mission prompt for this captain. The right place to enforce playbook usage and compile-clean discipline. |
 | `preferredPersona` | Optional; routing prefers this captain when missions match the persona (e.g. `Worker`, `Architect`, `Judge`). |

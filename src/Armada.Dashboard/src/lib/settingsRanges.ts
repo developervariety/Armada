@@ -28,7 +28,7 @@ export const IMPORT_RANGES: Record<'maxDepth' | 'inlineBatchLimit' | 'categoriza
   categorizationTimeoutMinutes: { key: 'categorizationTimeoutMinutes', min: 1, max: 240 },
 };
 
-export const FLEET_ACTION_RANGES: Record<keyof FleetActionSettingsData, NumberField> = {
+export const FLEET_ACTION_RANGES: Record<Exclude<keyof FleetActionSettingsData, 'offline' | 'offlineHarborIds'>, NumberField> = {
   maxConcurrency: { key: 'maxConcurrency', min: 1, max: 32 },
   defaultTimeoutSeconds: { key: 'defaultTimeoutSeconds', min: 5, max: 7200 },
   maxOutputBytes: { key: 'maxOutputBytes', min: 1024, max: 1048576 },

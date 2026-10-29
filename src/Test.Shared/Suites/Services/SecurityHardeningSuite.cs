@@ -106,6 +106,33 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(runtime.Args(Off()).Contains("--auto"));
             }));
 
+            cases.Add(Case("pi_without_auto_approve", "pi removes the bash and powershell tools when auto-approve is off", TestTags.Positive, () =>
+            {
+                InspectablePi runtime = new InspectablePi(Logging());
+                AssertFalse(runtime.Args(new Captain("on")).Contains("--exclude-tools"));
+                List<string> off = runtime.Args(Off());
+                AssertTrue(off.Contains("--exclude-tools") && off.Contains("bash,powershell"), String.Join(" ", off));
+            }));
+
+            cases.Add(Case("pi_token_never_in_argv_or_file", "A pi launch plan carries the session token only in the environment: not in argv, not in .pi/mcp.json", TestTags.Positive, () =>
+            {
+                string token = "ses_secret_" + Guid.NewGuid().ToString("N");
+                CaptainLaunchIsolationPlan plan = CaptainThreadMcpPlanner.Plan(new CaptainThreadMcpPlanRequest
+                {
+                    Runtime = AgentRuntimeEnum.Pi,
+                    McpPort = 7891,
+                    ScopedConfigDirectory = Path.Combine(Path.GetTempPath(), "armada-pi-sec"),
+                    WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada-pi-sec", "work"),
+                    SessionToken = token
+                });
+                InspectablePi runtime = new InspectablePi(Logging());
+                List<string> argv = runtime.Args(new Captain("on"));
+                argv.AddRange(plan.ExtraArguments);
+                AssertFalse(argv.Exists(a => a.Contains(token, StringComparison.Ordinal)), "token in argv");
+                AssertFalse(plan.FilesToWrite.Exists(f => f.Contents.Contains(token, StringComparison.Ordinal)), "token on disk");
+                AssertEqual(token, plan.EnvironmentOverrides[CaptainThreadMcpPlanner.TokenEnvironmentVariable], "token only in the environment");
+            }));
+
             cases.Add(Case("mux_without_auto_approve", "Mux uses --approval-policy deny when auto-approve is off and no policy is set", TestTags.Positive, () =>
             {
                 List<string> on = MuxCommandBuilder.BuildPrintArguments(Path.GetTempPath(), "p", null, null, new MuxCaptainOptions { Endpoint = "local" }, null, false);
@@ -227,6 +254,12 @@ namespace Test.Shared.Suites.Services
         private sealed class InspectableCursor : CursorRuntime
         {
             public InspectableCursor(LoggingModule logging) : base(logging) { }
+            public List<string> Args(Captain captain) => BuildArguments(Path.GetTempPath(), "p", null, null, captain);
+        }
+
+        private sealed class InspectablePi : PiRuntime
+        {
+            public InspectablePi(LoggingModule logging) : base(logging) { }
             public List<string> Args(Captain captain) => BuildArguments(Path.GetTempPath(), "p", null, null, captain);
         }
 

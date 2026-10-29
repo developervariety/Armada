@@ -59,7 +59,7 @@ export default function CliPermissionPolicySelect({
       >
         {allowInherit && <option value="" title={t('Use the policy set at the next level up (captain, then the server default).')}>{inheritLabel ?? t('Inherit')}</option>}
         <option value="Refuse" title={t('The CLI declines any call that needs permission; the captain is told it was refused.')}>{policyLabel(t, 'Refuse')}</option>
-        <option value="ApproveInArmada" title={t('Each call that needs permission waits for an approver to allow or deny it in Armada. Claude Code, Mux 1.5 or later, and API endpoints; other runtimes fall back to Refuse.')}>{policyLabel(t, 'ApproveInArmada')}</option>
+        <option value="ApproveInArmada" title={t('Each call that needs permission waits for an approver to allow or deny it in Armada. Claude Code, Mux 1.5 or later, pi, and API endpoints; other runtimes fall back to Refuse.')}>{policyLabel(t, 'ApproveInArmada')}</option>
         {showBypass && <option value="Bypass" disabled={!allowBypass} title={allowBypass ? t('Every call runs immediately with no approval and no rules applied. Use only for fully trusted work.') : t('Only admins can choose Bypass.')}>{policyLabel(t, 'Bypass')}</option>}
       </select>
       <ConfirmDialog

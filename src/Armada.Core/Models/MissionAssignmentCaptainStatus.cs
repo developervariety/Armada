@@ -61,6 +61,12 @@ namespace Armada.Core.Models
         /// </summary>
         public string? QuarantineReason { get; set; } = null;
 
+        /// <summary>
+        /// When Idle, whether the captain may take this mission under its routing rules (persona fence, tier floor,
+        /// persona captain priorities, captain overrides). Null for captains that are not idle.
+        /// </summary>
+        public bool? EligibleForMission { get; set; } = null;
+
         #endregion
     }
 }

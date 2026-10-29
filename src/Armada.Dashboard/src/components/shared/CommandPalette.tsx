@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useNavigate } from 'react-router-dom';
 import { useLocale } from '../../context/LocaleContext';
 import { askArmadaItem, dashboardItem, flattenNavCommands, navSections } from '../navConfig';
+import { navShortcuts } from '../../lib/navModel';
 
 /** The sidebar tooltip of each destination, so the palette explains a page the same way the sidebar does. */
 const DESTINATION_TOOLTIPS: Record<string, string> = Object.fromEntries(
-  [dashboardItem, askArmadaItem, ...navSections.flatMap((section) => section.items)]
+  [dashboardItem, askArmadaItem, ...navSections.flatMap((section) => section.items), ...navShortcuts]
     .filter((item) => item.tooltip)
     .map((item) => [item.to, item.tooltip as string]),
 );
