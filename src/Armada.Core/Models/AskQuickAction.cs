@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System;
     using System.Collections.Generic;
     using System.Text.Json.Nodes;
+    using Armada.Core.Services;
 
     /// <summary>
     /// A built-in quick action offered by the Ask Armada composer, with its argument schema.
@@ -69,6 +70,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Form fields, in display order.
         /// </summary>
+        [CollectionBound(16, Reason = "Arguments of the code-defined quick action catalog (AskQuickActionCatalog); no action declares more than a handful.")]
         public List<AskQuickActionArgument> Arguments
         {
             get => _Arguments;

@@ -276,6 +276,7 @@ namespace Armada.Tui.Ask
         private string? _ToolsRequestedFor = null;
         private readonly HashSet<string> _BusyProposals = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _BusyCliPermissions = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _ToolCallFetches = new HashSet<string>(StringComparer.Ordinal);
         private bool _Stopping = false;
         private int _ForceEndMs = 8000;
         private int _SearchDebounceMs = 300;
@@ -583,20 +584,22 @@ namespace Armada.Tui.Ask
                 {
                     AskMessageEnumerateQuery q = new AskMessageEnumerateQuery();
                     q.PageSize = MessagePageSize;
-                    Task<AskThreadDetail?> detailTask = client.GetAskThreadAsync(threadId);
+                    Task<AskThreadState> detailTask = AskThreadState.ReadAsync(client, threadId);
                     Task<AskMessagePage?> pageTask = client.EnumerateAskMessagesAsync(threadId, q);
                     await Task.WhenAll(detailTask, pageTask).ConfigureAwait(false);
-                    AskThreadDetail? detail = detailTask.Result;
+                    AskThreadState state = detailTask.Result;
+                    AskThreadDetail? detail = state.Detail;
                     AskMessagePage? page = pageTask.Result;
                     Context.Dispatcher.Post(() =>
                     {
                         if (Conversation.ThreadId != threadId) return;
                         ConvLoading = false;
-                        Conversation.Loaded(threadId, detail, page?.Messages ?? new List<AskMessage>(), page?.HasMore ?? false, Context.Clock.UtcNow);
+                        Conversation.Loaded(threadId, state, page?.Messages ?? new List<AskMessage>(), page?.HasMore ?? false, Context.Clock.UtcNow);
+                        FetchToolCalls(threadId);
                         if (detail?.Thread != null) Threads = AskThreadListLogic.ApplyUpdate(Threads, detail.Thread, Query, IncludeArchived, threadId);
                         foreach (AskActionProposal p in Conversation.PendingProposals()) TrackProposal(p, false);
                         MarkRead(threadId);
-                        FetchSnapshots(threadId, detail?.TrackedWork ?? new List<AskTrackedWork>());
+                        FetchSnapshots(threadId, state.TrackedWork);
                         EnsureTools();
                     });
                 }
@@ -629,7 +632,10 @@ namespace Armada.Tui.Ask
                     AskMessageEnumerateQuery q = new AskMessageEnumerateQuery();
                     q.PageSize = MessagePageSize;
                     AskMessagePage? page = await client.EnumerateAskMessagesAsync(threadId, q).ConfigureAwait(false);
-                    await OnUiAsync(() => Conversation.Latest(threadId, page?.Messages ?? new List<AskMessage>())).ConfigureAwait(false);
+                    await OnUiAsync(() =>
+                    {
+                        if (Conversation.Latest(threadId, page?.Messages ?? new List<AskMessage>())) FetchToolCalls(threadId);
+                    }).ConfigureAwait(false);
                 }
                 catch (ArmadaApiException)
                 {
@@ -650,12 +656,12 @@ namespace Armada.Tui.Ask
             {
                 try
                 {
-                    AskThreadDetail? detail = await client.GetAskThreadAsync(threadId).ConfigureAwait(false);
+                    AskThreadState state = await AskThreadState.ReadAsync(client, threadId).ConfigureAwait(false);
                     await OnUiAsync(() =>
                     {
-                        if (!Conversation.Detail(threadId, detail)) return;
+                        if (!Conversation.Detail(threadId, state)) return;
                         foreach (AskActionProposal p in Conversation.PendingProposals()) TrackProposal(p, false);
-                        FetchSnapshots(threadId, detail?.TrackedWork ?? new List<AskTrackedWork>());
+                        FetchSnapshots(threadId, state.TrackedWork);
                     }).ConfigureAwait(false);
                 }
                 catch (ArmadaApiException)
@@ -1213,6 +1219,7 @@ namespace Armada.Tui.Ask
                     {
                         LoadingOlder = false;
                         Conversation.Older(id, page?.Messages ?? new List<AskMessage>(), page?.HasMore ?? false);
+                        FetchToolCalls(id);
                     });
                 }
                 catch (ArmadaApiException ex)
@@ -1375,6 +1382,7 @@ namespace Armada.Tui.Ask
             if (e.ThreadId != openId) return;
             AskTrackedWork? prior = e.Type == "ask.work" ? Conversation.Work(e.TrackedWorkId) : null;
             Conversation.Apply(e, Context.Clock.UtcNow);
+            if (e.Type == "ask.message") FetchToolCalls(e.ThreadId);
             if (e.Type == "ask.turn" && e.State != AskTurnStateEnum.Started)
             {
                 _Stopping = false;
@@ -1455,6 +1463,48 @@ namespace Armada.Tui.Ask
             {
                 string route = item.Route;
                 Context.Notifications.Toast(NotificationSeverityEnum.Warning, item.Title + (String.IsNullOrEmpty(item.Detail) ? "" : " - " + item.Detail), "Open", () => Context.Navigate(route), route);
+            }
+        }
+
+        private void FetchToolCalls(string threadId)
+        {
+            ArmadaClient client = Context.Client;
+            foreach (string messageId in Conversation.MessagesNeedingToolCalls())
+            {
+                string key = threadId + "/" + messageId;
+                if (!_ToolCallFetches.Add(key)) continue;
+                _ = Task.Run(async () =>
+                {
+                    List<AskMessageToolCall> calls = new List<AskMessageToolCall>();
+                    try
+                    {
+                        // Every page of the message's tool calls, in the order they were made.
+                        int pageNumber = 1;
+                        while (true)
+                        {
+                            EnumerationQuery q = new EnumerationQuery();
+                            q.PageNumber = pageNumber;
+                            q.PageSize = 100;
+                            q.Order = EnumerationOrderEnum.CreatedAscending;
+                            EnumerationResult<AskMessageToolCall>? page = await client.EnumerateAskToolCallsAsync(threadId, messageId, q).ConfigureAwait(false);
+                            if (page == null || page.Objects.Count == 0) break;
+                            calls.AddRange(page.Objects);
+                            if (pageNumber >= page.TotalPages) break;
+                            pageNumber++;
+                        }
+
+                        Context.Dispatcher.Post(() =>
+                        {
+                            _ToolCallFetches.Remove(key);
+                            Conversation.ApplyToolCalls(threadId, messageId, calls);
+                        });
+                    }
+                    catch (ArmadaApiException)
+                    {
+                        // The message shows no tool chips until the next reconciliation.
+                        Context.Dispatcher.Post(() => _ToolCallFetches.Remove(key));
+                    }
+                });
             }
         }
 

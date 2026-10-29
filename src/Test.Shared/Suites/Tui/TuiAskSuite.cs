@@ -169,7 +169,7 @@ namespace Test.Shared.Suites.Tui
                 call.ResultText = "{\"count\":2}";
                 call.Ok = true;
                 call.ElapsedMs = 120;
-                reply.ToolCalls.Add(call);
+                fx.SetToolCalls(reply, call);
                 AskMessage empty = AskFixtures.Message("amg_3", "ath_1", 3, AskMessageRoleEnum.Assistant, AskMessageKindEnum.Text, "");
                 AskMessage proposal = AskFixtures.Message("amg_4", "ath_1", 4, AskMessageRoleEnum.Assistant, AskMessageKindEnum.ActionProposal, "");
                 proposal.ProposalId = "aap_1";
@@ -185,7 +185,7 @@ namespace Test.Shared.Suites.Tui
                 using (TuiTestHost host = TuiCase.SignedIn(140, 80, "/ask/ath_1", fx.Stub))
                 {
                     AskScreen screen = (AskScreen)host.Tui.Shell.Screen!;
-                    AssertTrue(host.PumpUntil(() => host.Tui.Ask.Conversation.Messages.Count == 9), "loaded");
+                    AssertTrue(host.PumpUntil(() => host.Tui.Ask.Conversation.Messages.Count == 9 && host.Tui.Ask.Conversation.ToolCalls.ContainsKey("amg_2")), "loaded with the paged tool calls");
                     screen.Transcript.Layout(110);
                     string text = String.Join("\n", screen.Transcript.PlainLines());
                     TuiCase.Contains(text, "You", "user label");
@@ -265,11 +265,11 @@ namespace Test.Shared.Suites.Tui
                 AskMessage older = AskFixtures.Message("amg_2", "ath_1", 2, AskMessageRoleEnum.Assistant, AskMessageKindEnum.Text, "Older reply.");
                 older.CaptainId = "cpt_1";
                 older.DurationMs = 900;
-                older.ToolCalls = new List<AskMessageToolCall> { new AskMessageToolCall { CallId = "c9", ToolName = "armada_status", Ok = true, ResultText = "{}", ElapsedMs = 120 } };
+                fx.SetToolCalls(older, new AskMessageToolCall { CallId = "c9", ToolName = "armada_status", Ok = true, ResultText = "{}", ElapsedMs = 120 });
                 AskMessage reply = AskFixtures.Message("amg_3", "ath_1", 3, AskMessageRoleEnum.Assistant, AskMessageKindEnum.Text, "All quiet.");
                 reply.CaptainId = "cpt_1";
                 reply.DurationMs = 2500;
-                reply.ToolCalls = new List<AskMessageToolCall> { new AskMessageToolCall { CallId = "c1", ToolName = "armada_status", Ok = true, ResultText = "{}", ElapsedMs = 250 } };
+                fx.SetToolCalls(reply, new AskMessageToolCall { CallId = "c1", ToolName = "armada_status", Ok = true, ResultText = "{}", ElapsedMs = 250 });
                 reply.Metrics = new CaptainChatMetrics
                 {
                     TimeToFirstTokenMs = 400,
@@ -291,7 +291,7 @@ namespace Test.Shared.Suites.Tui
                 {
                     AskController ask = host.Tui.Ask;
                     AskScreen screen = (AskScreen)host.Tui.Shell.Screen!;
-                    AssertTrue(host.PumpUntil(() => ask.Conversation.Messages.Count == 3), "loaded");
+                    AssertTrue(host.PumpUntil(() => ask.Conversation.Messages.Count == 3 && ask.Conversation.ToolCalls.Count == 2), "loaded with the paged tool calls");
                     host.Press("esc");
                     AssertTrue(ReferenceEquals(screen.Scope.Focused, screen.Transcript), "Esc moves to the transcript");
                     TuiCase.NotContains(StatusLine(host), "Statistics", "nothing selected yet");
@@ -314,7 +314,7 @@ namespace Test.Shared.Suites.Tui
                     AssertEqual("amg_2", screen.Transcript.SelectedKey, "the older reply");
                     TuiCase.Contains(StatusLine(host), "i Statistics", "an older reply has statistics too");
                     host.Press("i");
-                    List<AskTurnStatistic> fallback = AskTurnStatistics.Rows(older);
+                    List<AskTurnStatistic> fallback = AskTurnStatistics.Rows(older, ask.Conversation.ToolCallsFor(older));
                     AssertEqual("total,toolCalls,toolTime", String.Join(",", fallback.Select(r => r.Key)), "older reply: total and its tool calls");
                     frame = host.Screen();
                     TuiCase.Contains(frame, "900ms", "older reply total");
@@ -750,11 +750,12 @@ namespace Test.Shared.Suites.Tui
                 AskThreadDetail detail = new AskThreadDetail();
                 detail.Thread = AskFixtures.Thread("ath_1", "TUIKit fixes");
                 detail.Thread.ActiveTurnId = "atn_1";
-                conv.Loaded("ath_1", detail, new List<AskMessage>(), false, DateTime.UtcNow);
+                AskThreadState state = new AskThreadState { Detail = detail };
+                conv.Loaded("ath_1", state, new List<AskMessage>(), false, DateTime.UtcNow);
                 AssertFalse(conv.TurnActive, "stale snapshot ignored for a finished turn");
                 AssertNull(conv.Streaming, "no stream");
                 detail.Thread.ActiveTurnId = "atn_2";
-                conv.Loaded("ath_1", detail, new List<AskMessage>(), false, DateTime.UtcNow);
+                conv.Loaded("ath_1", state, new List<AskMessage>(), false, DateTime.UtcNow);
                 AssertTrue(conv.TurnActive, "a different running turn is still followed");
             }));
 

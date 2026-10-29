@@ -50,6 +50,12 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/ask/threads/{id}/proposals/{pid}/approve", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/proposals/{pid}/reject", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/ask/threads/{id}/work/{workId}", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/ask/threads/{id}/work/enumerate", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/ask/threads/{id}/work/{workId}/missions/enumerate", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/ask/threads/{id}/work/{workId}/targets/enumerate", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/ask/threads/{id}/proposals/enumerate", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/ask/threads/{id}/messages/{messageId}/tool-calls/enumerate", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/ask/threads/{id}/turn/tool-calls/enumerate", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/ask/quick-actions", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/ask/threads/{id}/cli-permission-policy", "AskThread", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
 
@@ -288,6 +294,7 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/backlog/{id}/refinement-sessions/enumerate", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/backlog/{id}/refinement-sessions", "ObjectiveRefinementSession", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("GET", "/api/v1/objective-refinement-sessions/{id}", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/objective-refinement-sessions/{id}/messages/enumerate", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/objective-refinement-sessions/{id}/messages", "ObjectiveRefinementSession", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("POST", "/api/v1/objective-refinement-sessions/{id}/summarize", "ObjectiveRefinementSession", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("POST", "/api/v1/objective-refinement-sessions/{id}/apply", "ObjectiveRefinementSession", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
@@ -331,6 +338,7 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/planning-sessions/enumerate", "PlanningSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/planning-sessions", "PlanningSession", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("GET", "/api/v1/planning-sessions/{id}", "PlanningSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/planning-sessions/{id}/messages/enumerate", "PlanningSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/planning-sessions/{id}/messages", "PlanningSession", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("POST", "/api/v1/planning-sessions/{id}/dispatch", "PlanningSession", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("POST", "/api/v1/planning-sessions/{id}/summarize", "PlanningSession", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);

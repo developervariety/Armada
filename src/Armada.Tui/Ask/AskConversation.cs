@@ -55,6 +55,12 @@ namespace Armada.Tui.Ask
         public Dictionary<string, AskWorkSnapshot> Snapshots { get; } = new Dictionary<string, AskWorkSnapshot>(StringComparer.Ordinal);
 
         /// <summary>
+        /// Tool calls by message id, read from the paged tool call enumeration for messages whose ToolCallCount is not
+        /// zero (every page of each message).
+        /// </summary>
+        public Dictionary<string, List<AskMessageToolCall>> ToolCalls { get; } = new Dictionary<string, List<AskMessageToolCall>>(StringComparer.Ordinal);
+
+        /// <summary>
         /// Latest known state of every proposal by id. Never null.
         /// </summary>
         public Dictionary<string, AskActionProposal> Proposals { get; } = new Dictionary<string, AskActionProposal>(StringComparer.Ordinal);
@@ -260,6 +266,44 @@ namespace Armada.Tui.Ask
         }
 
         /// <summary>
+        /// The loaded tool calls of a message, in the order they were made; empty until they are read.
+        /// </summary>
+        /// <param name="message">Message.</param>
+        /// <returns>Tool calls. Never null.</returns>
+        public List<AskMessageToolCall> ToolCallsFor(AskMessage? message)
+        {
+            if (message == null || String.IsNullOrEmpty(message.Id)) return new List<AskMessageToolCall>();
+            return ToolCalls.TryGetValue(message.Id, out List<AskMessageToolCall>? calls) ? calls : new List<AskMessageToolCall>();
+        }
+
+        /// <summary>
+        /// Persisted messages whose tool calls have not been read yet (or have changed count since).
+        /// </summary>
+        /// <returns>Message ids.</returns>
+        public List<string> MessagesNeedingToolCalls()
+        {
+            return Messages
+                .Where(m => !IsLocal(m) && m.ToolCallCount > 0 && (!ToolCalls.TryGetValue(m.Id, out List<AskMessageToolCall>? have) || have.Count != m.ToolCallCount))
+                .Select(m => m.Id)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Store the tool calls read for a message.
+        /// </summary>
+        /// <param name="threadId">Thread the calls were read for.</param>
+        /// <param name="messageId">Message id.</param>
+        /// <param name="calls">Every tool call of the message, in the order they were made.</param>
+        /// <returns>False when for another thread.</returns>
+        public bool ApplyToolCalls(string threadId, string messageId, List<AskMessageToolCall> calls)
+        {
+            if (threadId != ThreadId || String.IsNullOrEmpty(messageId)) return false;
+            ToolCalls[messageId] = calls ?? new List<AskMessageToolCall>();
+            Changed();
+            return true;
+        }
+
+        /// <summary>
         /// Pending proposals in the conversation, oldest first.
         /// </summary>
         /// <returns>Proposals.</returns>
@@ -358,6 +402,7 @@ namespace Armada.Tui.Ask
             TurnActive = false;
             TurnError = null;
             Metrics.Clear();
+            ToolCalls.Clear();
             _ClosedTurns.Clear();
             Changed();
         }
@@ -367,18 +412,19 @@ namespace Armada.Tui.Ask
         /// persisted yet. The thread's active turn is authoritative for whether a turn is running.
         /// </summary>
         /// <param name="threadId">Thread id the load was for.</param>
-        /// <param name="detail">Detail.</param>
+        /// <param name="state">Detail with its paged collections.</param>
         /// <param name="messages">Newest page.</param>
         /// <param name="hasMore">Older pages exist.</param>
         /// <param name="nowUtc">Now.</param>
         /// <returns>False when the load was for another thread.</returns>
-        public bool Loaded(string threadId, AskThreadDetail? detail, IEnumerable<AskMessage> messages, bool hasMore, DateTime nowUtc)
+        public bool Loaded(string threadId, AskThreadState? state, IEnumerable<AskMessage> messages, bool hasMore, DateTime nowUtc)
         {
             if (threadId != ThreadId) return false;
+            AskThreadDetail? detail = state?.Detail;
             List<AskMessage> incoming = messages.ToList();
             Messages = MergeMessages(Messages.Where(IsLocal).ToList(), incoming);
             TrackedWork = new List<AskTrackedWork>();
-            foreach (AskTrackedWork w in detail?.TrackedWork ?? new List<AskTrackedWork>()) UpsertWork(w);
+            foreach (AskTrackedWork w in state?.TrackedWork ?? new List<AskTrackedWork>()) UpsertWork(w);
             IndexWork(Messages);
             if (detail?.Thread != null)
             {
@@ -391,8 +437,8 @@ namespace Armada.Tui.Ask
             }
 
             HasMore = hasMore;
-            IndexProposals(Messages, detail?.PendingProposals);
-            IndexCliPermissions(Messages, detail?.PendingCliPermissions);
+            IndexProposals(Messages, state?.PendingProposals);
+            IndexCliPermissions(Messages, state?.PendingCliPermissions);
             Changed();
             return true;
         }
@@ -441,20 +487,21 @@ namespace Armada.Tui.Ask
         /// Apply a thread detail refetch (tracked work, snapshots, pending proposals).
         /// </summary>
         /// <param name="threadId">Thread id.</param>
-        /// <param name="detail">Detail.</param>
+        /// <param name="state">Detail with its paged collections.</param>
         /// <returns>False when for another thread.</returns>
-        public bool Detail(string threadId, AskThreadDetail? detail)
+        public bool Detail(string threadId, AskThreadState? state)
         {
-            if (threadId != ThreadId || detail == null) return false;
-            foreach (AskTrackedWork w in detail.TrackedWork ?? new List<AskTrackedWork>()) UpsertWork(w);
+            AskThreadDetail? detail = state?.Detail;
+            if (threadId != ThreadId || state == null || detail == null) return false;
+            foreach (AskTrackedWork w in state.TrackedWork) UpsertWork(w);
             foreach (AskTrackedWork w in TrackedWork)
             {
                 if (w.Snapshot != null) Snapshots[w.Id] = w.Snapshot;
             }
 
             if (detail.Thread != null) Thread = detail.Thread;
-            IndexProposals(new List<AskMessage>(), detail.PendingProposals);
-            IndexCliPermissions(new List<AskMessage>(), detail.PendingCliPermissions);
+            IndexProposals(new List<AskMessage>(), state.PendingProposals);
+            IndexCliPermissions(new List<AskMessage>(), state.PendingCliPermissions);
             Changed();
             return true;
         }

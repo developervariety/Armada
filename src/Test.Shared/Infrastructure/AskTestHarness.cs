@@ -6,6 +6,7 @@ namespace Test.Shared.Infrastructure
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Ask;
     using Armada.Core.Settings;
@@ -175,6 +176,29 @@ namespace Test.Shared.Infrastructure
         public List<AskRecordedEvent> EventsFor(string userId, string eventType)
         {
             lock (Events) return Events.Where(e => e.UserId == userId && e.EventType == eventType).ToList();
+        }
+
+        /// <summary>
+        /// Every tool call of a message, read from the paged enumeration in the order they were made.
+        /// </summary>
+        /// <param name="owner">Thread owner.</param>
+        /// <param name="message">Message.</param>
+        /// <returns>Tool calls.</returns>
+        public async Task<List<AskMessageToolCall>> ToolCallsAsync(AuthContext owner, AskMessage message)
+        {
+            List<AskMessageToolCall> all = new List<AskMessageToolCall>();
+            int pageNumber = 1;
+            while (true)
+            {
+                EnumerationQuery query = new EnumerationQuery { PageNumber = pageNumber, PageSize = 1000, Order = EnumerationOrderEnum.CreatedAscending };
+                EnumerationResult<AskMessageToolCall>? page = await Threads.EnumerateToolCallsAsync(owner, message.ThreadId, message.Id, query).ConfigureAwait(false);
+                if (page == null || page.Objects.Count == 0) break;
+                all.AddRange(page.Objects);
+                if (pageNumber >= page.TotalPages) break;
+                pageNumber++;
+            }
+
+            return all;
         }
 
         /// <summary>

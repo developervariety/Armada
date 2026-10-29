@@ -1340,11 +1340,11 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
-        /// Apply one or more explicit objective/backlog rank updates.
+        /// Apply 1 to 1000 explicit objective/backlog rank updates. Returns the count and the applied ranks.
         /// </summary>
-        public async Task<List<Objective>?> ReorderObjectivesAsync(ObjectiveReorderRequest request, CancellationToken token = default)
+        public async Task<ObjectiveReorderResult?> ReorderObjectivesAsync(ObjectiveReorderRequest request, CancellationToken token = default)
         {
-            return await PostAsync<List<Objective>, ObjectiveReorderRequest>("/api/v1/objectives/reorder", request, token).ConfigureAwait(false);
+            return await PostAsync<ObjectiveReorderResult, ObjectiveReorderRequest>("/api/v1/objectives/reorder", request, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1399,11 +1399,12 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
-        /// Apply one or more explicit backlog rank updates using the backlog alias surface.
+        /// Apply 1 to 1000 explicit backlog rank updates using the backlog alias surface. Returns the count and the applied
+        /// ranks.
         /// </summary>
-        public async Task<List<Objective>?> ReorderBacklogAsync(ObjectiveReorderRequest request, CancellationToken token = default)
+        public async Task<ObjectiveReorderResult?> ReorderBacklogAsync(ObjectiveReorderRequest request, CancellationToken token = default)
         {
-            return await PostAsync<List<Objective>, ObjectiveReorderRequest>("/api/v1/backlog/reorder", request, token).ConfigureAwait(false);
+            return await PostAsync<ObjectiveReorderResult, ObjectiveReorderRequest>("/api/v1/backlog/reorder", request, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1439,19 +1440,27 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
-        /// List refinement sessions linked to one objective.
+        /// One page of the refinement sessions linked to one objective, most recently updated first.
         /// </summary>
-        public async Task<List<ObjectiveRefinementSession>?> ListObjectiveRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
+        public async Task<EnumerationResult<ObjectiveRefinementSession>?> EnumerateObjectiveRefinementSessionsAsync(string objectiveId, EnumerationQuery? query = null, CancellationToken token = default)
         {
-            return await EnumerateAllAsync<ObjectiveRefinementSession>("/api/v1/objectives/" + objectiveId + "/refinement-sessions/enumerate", token).ConfigureAwait(false);
+            return await PostAsync<EnumerationResult<ObjectiveRefinementSession>, EnumerationQuery>("/api/v1/objectives/" + objectiveId + "/refinement-sessions/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
         }
 
         /// <summary>
-        /// List refinement sessions linked to one backlog item through the backlog alias surface.
+        /// One page of the refinement sessions linked to one backlog item through the backlog alias surface.
         /// </summary>
-        public async Task<List<ObjectiveRefinementSession>?> ListBacklogRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
+        public async Task<EnumerationResult<ObjectiveRefinementSession>?> EnumerateBacklogRefinementSessionsAsync(string objectiveId, EnumerationQuery? query = null, CancellationToken token = default)
         {
-            return await EnumerateAllAsync<ObjectiveRefinementSession>("/api/v1/backlog/" + objectiveId + "/refinement-sessions/enumerate", token).ConfigureAwait(false);
+            return await PostAsync<EnumerationResult<ObjectiveRefinementSession>, EnumerationQuery>("/api/v1/backlog/" + objectiveId + "/refinement-sessions/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// One page of a refinement session's transcript, newest first by default.
+        /// </summary>
+        public async Task<EnumerationResult<ObjectiveRefinementMessage>?> EnumerateObjectiveRefinementMessagesAsync(string sessionId, EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<ObjectiveRefinementMessage>, EnumerationQuery>("/api/v1/objective-refinement-sessions/" + sessionId + "/messages/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
         }
 
         /// <summary>

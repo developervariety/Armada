@@ -227,7 +227,7 @@ namespace Test.Shared.Suites.Services
                 AssertFalse((await inbox.GetInboxAsync(TenantAdmin("usr_cpa14")).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "no inbox item for the admin");
                 AssertFalse((await inbox.GetInboxAsync(owner).ConfigureAwait(false)).Any(i => i.Kind == InboxItemKinds.CliPermission), "no inbox item for the owner");
                 AskThreadDetail? detail = await h.Threads.GetThreadDetailAsync(owner, thread.Id).ConfigureAwait(false);
-                AssertEqual(0, detail!.PendingCliPermissions.Count, "nothing pending on the thread");
+                AssertEqual(0L, detail!.PendingCliPermissionCount, "nothing pending on the thread");
                 AssertEqual(0, await svc.SweepAsync().ConfigureAwait(false), "nothing left for the sweep");
             }));
 
@@ -616,7 +616,9 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(CaptainRuntimeOptions.GetAutoApprove(first.Captain), "no bypass flag");
                 AssertEqual(h.Settings.Permissions.PromptTimeoutSeconds, first.PermissionPromptTimeoutSeconds);
                 AskMessagePage page = (await h.Threads.EnumerateMessagesAsync(owner, thread.Id, new AskMessageEnumerateRequest()).ConfigureAwait(false))!;
-                AskMessageToolCall persisted = page.Messages.SelectMany(m => m.ToolCalls).Single(c => c.CallId == "toolu_9");
+                List<AskMessageToolCall> allCalls = new List<AskMessageToolCall>();
+                foreach (AskMessage m in page.Messages.Where(x => x.ToolCallCount > 0)) allCalls.AddRange(await h.ToolCallsAsync(owner, m).ConfigureAwait(false));
+                AskMessageToolCall persisted = allCalls.Single(c => c.CallId == "toolu_9");
                 AssertEqual(true, persisted.PermissionDenied, "permission denial persisted with the reply");
 
                 await svc.SetThreadPolicyAsync(owner, thread.Id, CliPermissionPolicyEnum.Bypass).ConfigureAwait(false);

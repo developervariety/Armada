@@ -73,6 +73,8 @@ namespace Armada.Core.Services.Ask
 
             // list_* readers
             "list_backlog",
+            "list_backlog_planning_session_messages",
+            "list_backlog_refinement_session_messages",
             "list_backlog_refinement_sessions",
             "list_objectives",
             "list_prompt_templates",
@@ -88,6 +90,11 @@ namespace Armada.Core.Services.Ask
             "list_ask_messages",
             "list_ask_quick_actions",
             "get_ask_work",
+            "list_ask_work",
+            "list_ask_work_missions",
+            "list_ask_work_targets",
+            "list_ask_proposals",
+            "list_ask_tool_calls",
 
             // Evaluate run readers
             "get_model_probe_run",
