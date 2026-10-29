@@ -330,6 +330,8 @@ export interface Mission {
   prUrl: string | null;
   commitHash: string | null;
   failureReason: string | null;
+  /** Category of the failure (MissionFailureKindEnum), for example 'Infra' when the host blocked landing. */
+  failureKind?: string | null;
   diffSnapshot: string | null;
   createdUtc: string;
   startedUtc: string | null;
