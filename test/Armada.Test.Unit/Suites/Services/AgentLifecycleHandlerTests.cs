@@ -3416,7 +3416,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RegisterTrackedProcess(Handler, processId, Captain.Id, Mission.Id);
                 string record = String.Join("\n", lines);
                 Handler.HandleAgentOutput(processId, record);
-                await WaitForProgressSignalsAsync(_Db.Driver, Captain.Id, ProgressParser.ParseAll(record).Count).ConfigureAwait(false);
+                int progressSignals = ProgressParser.ParseAll(record).Count(signal => signal.Type is not ("note" or "papercut"));
+                await WaitForProgressSignalsAsync(_Db.Driver, Captain.Id, progressSignals).ConfigureAwait(false);
 
                 await MissionService.HandleCompletionAsync(Captain, Mission.Id).ConfigureAwait(false);
             }
