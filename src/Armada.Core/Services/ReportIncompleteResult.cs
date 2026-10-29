@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json.Serialization;
     using System.Text.RegularExpressions;
 
     /// <summary>
@@ -73,7 +74,22 @@ namespace Armada.Core.Services
                 || PersonaCatalog.Matches(persona, PersonaCatalog.Judge);
         }
 
-        private enum ObligationKind { Blocking, FutureOnly, BareStage }
+        [JsonConverter(typeof(JsonStringEnumConverter))]
+        private enum ObligationKindEnum { Blocking, FutureOnly, BareStage }
+
+        private sealed class CriterionAssertion
+        {
+            internal string Number { get; }
+            internal string Text { get; }
+            internal ObligationKindEnum Kind { get; }
+
+            internal CriterionAssertion(string number, string text, ObligationKindEnum kind)
+            {
+                Number = number;
+                Text = text;
+                Kind = kind;
+            }
+        }
 
         #region Public-Methods
 
@@ -140,14 +156,14 @@ namespace Armada.Core.Services
             {
                 return false;
             }
-            List<(string Number, string Text, ObligationKind Kind)> assertions = new List<(string, string, ObligationKind)>();
+            List<CriterionAssertion> assertions = new List<CriterionAssertion>();
             for (int matchIndex = 0; matchIndex < matches.Count; matchIndex++)
             {
                 Match match = matches[matchIndex];
                 int start = SentenceStart(text, match.Index);
                 int nextCriterion = matchIndex + 1 < matches.Count ? matches[matchIndex + 1].Index : text.Length;
                 int end = SentenceEnd(text, match.Index + match.Length, nextCriterion, resultIndex);
-                ObligationKind kind = ObligationKind.Blocking;
+                ObligationKindEnum kind = ObligationKindEnum.Blocking;
                 if (hasPendingDownstreamJudge)
                 {
                     string reason = text.Substring(match.Index + match.Length, end - match.Index - match.Length);
@@ -155,16 +171,16 @@ namespace Armada.Core.Services
                     {
                         if (obligations == null)
                         {
-                            if (_PendingJudgeOnly.IsMatch(reason)) kind = ObligationKind.FutureOnly;
+                            if (_PendingJudgeOnly.IsMatch(reason)) kind = ObligationKindEnum.FutureOnly;
                             Match futureReviews = _PendingRoleReviewsOnly.Match(reason);
                             if (futureReviews.Success && pendingDownstreamReviewCount > 0
                                 && (!futureReviews.Groups["count"].Success
-                                    || ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount)) kind = ObligationKind.FutureOnly;
+                                    || ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount)) kind = ObligationKindEnum.FutureOnly;
                         }
                         else
                         {
                             kind = ClassifyObligation(reason, obligations);
-                            if (kind == ObligationKind.BareStage)
+                            if (kind == ObligationKindEnum.BareStage)
                             {
                                 int tailEnd = AssociatedParagraphEnd(text, end, nextCriterion, resultIndex);
                                 string tail = text.Substring(end, tailEnd - end).Trim();
@@ -176,11 +192,11 @@ namespace Armada.Core.Services
                                         if (IsFutureClause(clause, obligations)) future = true;
                                         else if (!Regex.IsMatch(clause, @"\A(?:The\s+)?parent\s+objective\s+(?:is|remains)\s+open[.!]?\s*\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
                                         {
-                                            kind = ObligationKind.Blocking;
+                                            kind = ObligationKindEnum.Blocking;
                                             break;
                                         }
                                     }
-                                    if (kind != ObligationKind.Blocking && future) kind = ObligationKind.FutureOnly;
+                                    if (kind != ObligationKindEnum.Blocking && future) kind = ObligationKindEnum.FutureOnly;
                                     end = tailEnd;
                                 }
                             }
@@ -194,14 +210,14 @@ namespace Armada.Core.Services
                     }
                 }
                 string sentence = text.Substring(start, end - start).Trim();
-                assertions.Add((match.Groups["number"].Value, sentence, kind));
+                assertions.Add(new CriterionAssertion(match.Groups["number"].Value, sentence, kind));
             }
-            HashSet<string> explained = assertions.Where(item => item.Kind == ObligationKind.FutureOnly && item.Number.Length > 0)
+            HashSet<string> explained = assertions.Where(item => item.Kind == ObligationKindEnum.FutureOnly && item.Number.Length > 0)
                 .Select(item => item.Number).ToHashSet(StringComparer.Ordinal);
-            foreach (var assertion in assertions)
+            foreach (CriterionAssertion assertion in assertions)
             {
-                if (assertion.Kind == ObligationKind.FutureOnly) continue;
-                if (assertion.Kind == ObligationKind.BareStage && assertion.Number.Length > 0 && explained.Contains(assertion.Number)) continue;
+                if (assertion.Kind == ObligationKindEnum.FutureOnly) continue;
+                if (assertion.Kind == ObligationKindEnum.BareStage && assertion.Number.Length > 0 && explained.Contains(assertion.Number)) continue;
                 statement = assertion.Text.Length <= MaxStatementLength ? assertion.Text : assertion.Text.Substring(0, MaxStatementLength) + "...";
                 return true;
             }
@@ -237,7 +253,7 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private static ObligationKind ClassifyObligation(string reason, PendingReviewObligations obligations)
+        private static ObligationKindEnum ClassifyObligation(string reason, PendingReviewObligations obligations)
         {
             string value = reason.Trim();
             Match stage = Regex.Match(value, @"\Aat\s+(?:this|the)\s+(?<role>(?:[A-Za-z]+\s+){0,3})stage\b\s*",
@@ -246,14 +262,14 @@ namespace Armada.Core.Services
             {
                 string role = Regex.Replace(stage.Groups["role"].Value, @"\b(?:current|precursor)\b", String.Empty,
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)).Trim();
-                if (role.Length > 0 && !PersonaCatalog.Matches(role, obligations.CurrentPersona)) return ObligationKind.Blocking;
+                if (role.Length > 0 && !PersonaCatalog.Matches(role, obligations.CurrentPersona)) return ObligationKindEnum.Blocking;
                 value = value.Substring(stage.Length).Trim();
             }
-            if (value.Trim('.', '!', '?', ' ', '\r', '\n').Length == 0) return ObligationKind.BareStage;
-            if (_PendingJudgeOnly.IsMatch(value)) return ObligationKind.FutureOnly;
+            if (value.Trim('.', '!', '?', ' ', '\r', '\n').Length == 0) return ObligationKindEnum.BareStage;
+            if (_PendingJudgeOnly.IsMatch(value)) return ObligationKindEnum.FutureOnly;
             value = Regex.Replace(value, @"\A(?:only\s+)?because\s+", String.Empty,
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-            return IsFutureClause(value, obligations) ? ObligationKind.FutureOnly : ObligationKind.Blocking;
+            return IsFutureClause(value, obligations) ? ObligationKindEnum.FutureOnly : ObligationKindEnum.Blocking;
         }
 
         private static bool IsFutureClause(string clause, PendingReviewObligations obligations)
