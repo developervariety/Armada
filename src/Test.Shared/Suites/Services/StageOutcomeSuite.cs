@@ -7,6 +7,7 @@ namespace Test.Shared.Suites.Services
     using System.Linq;
     using System.Net;
     using System.Text;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -459,6 +460,82 @@ namespace Test.Shared.Suites.Services
                 AssertNull(await service.RecordAttemptAsync(missing).ConfigureAwait(false), "missing mission");
 
                 await AssertThrowsAsync<ArgumentNullException>(() => service.RecordAttemptAsync(null!), "null capture").ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("record_attempt_contract_repair_kind", "An attempt records the latest contract repair written since it started; earlier, unreadable or unbounded repairs are not attributed", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                StageOutcomeService service = new StageOutcomeService(db, CreateLogging());
+                Captain captain = new Captain("repaired worker");
+                await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+                Mission mission = await CreateMissionAsync(db, MissionStatusEnum.WorkProduced, null, null).ConfigureAwait(false);
+
+                // A repair of an earlier attempt is outside this attempt's window.
+                await CreateRepairEventAsync(db, mission, ContractRepairKindEnum.VerdictNonCanonical, _Fixed.AddMinutes(-5)).ConfigureAwait(false);
+                StageAttemptCapture capture = Capture(exitCode: 0);
+                capture.MissionId = mission.Id;
+                capture.Captain = captain;
+                capture.StartedUtc = _Fixed;
+                capture.EndedUtc = _Fixed.AddMinutes(3);
+                StageOutcome? clean = await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertNotNull(clean, "recorded without a repair");
+                AssertNull(clean!.ContractRepairKind, "an earlier attempt's repair is not attributed");
+                AssertNull((await db.StageOutcomes.ReadAsync(clean.Id).ConfigureAwait(false))!.ContractRepairKind, "null round-trips");
+
+                // Two repairs in one attempt: the last one recorded is kept on the outcome.
+                await CreateRepairEventAsync(db, mission, ContractRepairKindEnum.CommitMissingRecoveredFromRepo, _Fixed.AddMinutes(1)).ConfigureAwait(false);
+                await CreateRepairEventAsync(db, mission, ContractRepairKindEnum.CompletionLineMissing, _Fixed.AddMinutes(2)).ConfigureAwait(false);
+                StageOutcome? repaired = await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertEqual(ContractRepairKindEnum.CompletionLineMissing, repaired!.ContractRepairKind, "latest repair of the attempt");
+                StageOutcome? read = await db.StageOutcomes.ReadAsync(repaired.Id).ConfigureAwait(false);
+                AssertEqual(ContractRepairKindEnum.CompletionLineMissing, read!.ContractRepairKind, "stored and read back");
+
+                // Without a start time the attempt window cannot be bounded, so nothing is attributed.
+                StageAttemptCapture unbounded = Capture(exitCode: 0);
+                unbounded.MissionId = mission.Id;
+                unbounded.Captain = captain;
+                StageOutcome? noStart = await service.RecordAttemptAsync(unbounded).ConfigureAwait(false);
+                AssertNotNull(noStart, "still recorded");
+                AssertNull(noStart!.ContractRepairKind, "no start time, no attribution");
+
+                // An unreadable latest repair event leaves the kind null and the outcome is still recorded.
+                ArmadaEvent broken = new ArmadaEvent(ContractRepair.EventType, "broken");
+                broken.MissionId = mission.Id;
+                broken.EntityType = "mission";
+                broken.EntityId = mission.Id;
+                broken.Payload = "{not json";
+                broken.CreatedUtc = _Fixed.AddMinutes(4);
+                await db.Events.CreateAsync(broken).ConfigureAwait(false);
+                StageOutcome? unreadable = await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertNotNull(unreadable, "recorded despite an unreadable repair event");
+                AssertNull(unreadable!.ContractRepairKind, "unreadable payload is not attributed");
+            }));
+
+            cases.Add(CaseAsync("contract_repair_kind_persists_and_serializes", "ContractRepairKind round-trips every kind and null through the store, and defaults to null from minimal JSON", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                Mission mission = await CreateMissionAsync(db, MissionStatusEnum.WorkProduced, null, null).ConfigureAwait(false);
+
+                StageOutcome outcome = new StageOutcome { MissionId = mission.Id, TenantId = mission.TenantId };
+                StageOutcome created = await db.StageOutcomes.CreateAsync(outcome).ConfigureAwait(false);
+                AssertNull((await db.StageOutcomes.ReadAsync(created.Id).ConfigureAwait(false))!.ContractRepairKind, "default null stored");
+                foreach (ContractRepairKindEnum kind in Enum.GetValues(typeof(ContractRepairKindEnum)))
+                {
+                    created.ContractRepairKind = kind;
+                    await db.StageOutcomes.UpdateAsync(created).ConfigureAwait(false);
+                    AssertEqual(kind, (await db.StageOutcomes.ReadAsync(created.Id).ConfigureAwait(false))!.ContractRepairKind, "round-trips " + kind);
+                }
+                created.ContractRepairKind = null;
+                await db.StageOutcomes.UpdateAsync(created).ConfigureAwait(false);
+                AssertNull((await db.StageOutcomes.ReadAsync(created.Id).ConfigureAwait(false))!.ContractRepairKind, "cleared back to null");
+
+                StageOutcome minimal = JsonSerializer.Deserialize<StageOutcome>("{\"MissionId\":\"msn_x\"}")!;
+                AssertNull(minimal.ContractRepairKind, "minimal JSON defaults to null");
+                string json = JsonSerializer.Serialize(new StageOutcome { ContractRepairKind = ContractRepairKindEnum.PlanBlockNonCanonical });
+                AssertContains("\"ContractRepairKind\":\"PlanBlockNonCanonical\"", json, "serialized by name");
+                AssertEqual(ContractRepairKindEnum.PlanBlockNonCanonical, JsonSerializer.Deserialize<StageOutcome>(json)!.ContractRepairKind, "deserialized by name");
             }));
 
             cases.Add(CaseAsync("manual_classification_survives_reclassify", "A manual cause is kept by re-application, and clearing it hands it back to the rules", TestTags.Positive, async () =>
@@ -1085,6 +1162,18 @@ namespace Test.Shared.Suites.Services
             StageOutcome outcome = new StageOutcome();
             StageOutcomeService.DecideDisposition(capture, after, outcome);
             return outcome.Disposition;
+        }
+
+        private static async Task CreateRepairEventAsync(DatabaseDriver db, Mission mission, ContractRepairKindEnum kind, DateTime createdUtc)
+        {
+            ArmadaEvent evt = new ArmadaEvent(ContractRepair.EventType, "Contract repaired (" + kind + ")");
+            evt.TenantId = mission.TenantId;
+            evt.EntityType = "mission";
+            evt.EntityId = mission.Id;
+            evt.MissionId = mission.Id;
+            evt.Payload = JsonSerializer.Serialize(new ContractRepairRecord { MissionId = mission.Id, Persona = "Worker", RepairKind = kind, Detail = "test" });
+            evt.CreatedUtc = createdUtc;
+            await db.Events.CreateAsync(evt).ConfigureAwait(false);
         }
 
         private static async Task<Mission> CreateMissionAsync(DatabaseDriver db, MissionStatusEnum status, MissionFailureKindEnum? kind, string? reason)

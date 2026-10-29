@@ -659,6 +659,7 @@ namespace Armada.Core.Services
             AddIfPresent(commands, profile.LintCommand);
             AddIfPresent(commands, profile.BuildCommand);
             AddIfPresent(commands, profile.UnitTestCommand);
+            AddIfPresent(commands, profile.AbbreviatedUnitTestCommand);
             AddIfPresent(commands, profile.IntegrationTestCommand);
             AddIfPresent(commands, profile.E2ETestCommand);
             AddIfPresent(commands, profile.MigrationCommand);

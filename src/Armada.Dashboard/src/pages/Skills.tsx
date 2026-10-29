@@ -170,12 +170,6 @@ export default function Skills() {
   // Name, ID and description used to stack in one cell; each is its own one-line column now.
   const columns: DataTableColumn<Skill>[] = [
     {
-      key: 'name', label: t('Skill'), required: true, headerTitle: t('Skill name. Project profiles list skills by this name (or ID) to add them to their missions.'),
-      clearFilter: () => setColFilters(f => ({ ...f, name: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Skill')} title={t('Show only skills whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
-      render: (skill) => <strong>{skill.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique skill ID (skl_ prefix). Project profiles can refer to a skill by this ID or by its name.'), cellClassName: 'mono text-dim table-id-cell',
       render: (skill) => (
         <span className="id-display">
@@ -183,6 +177,12 @@ export default function Skills() {
           <CopyButton text={skill.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Skill'), required: true, headerTitle: t('Skill name. Project profiles list skills by this name (or ID) to add them to their missions.'),
+      clearFilter: () => setColFilters(f => ({ ...f, name: '' })),
+      filter: <input type="text" className="col-filter" aria-label={t('Skill')} title={t('Show only skills whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
+      render: (skill) => <strong>{skill.name}</strong>,
     },
     {
       key: 'description', label: t('Description'), headerTitle: t('Short summary of the skill. Hover a value for the full text.'), cellClassName: 'text-dim truncate-cell',

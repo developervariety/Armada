@@ -13,7 +13,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
-    /// REST API routes for durable agent memory: list/search, create (upsert), read, update, and delete.
+    /// REST API routes for durable agent memory: list/search, enumerate, create (upsert), read, update, and delete.
     /// Memories are scoped to the caller exactly like other configuration entities.
     /// </summary>
     public class MemoryRoutes
@@ -51,22 +51,51 @@ namespace Armada.Server.Routes
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return BuildAuthError(req);
 
-                EnumerationQuery query = new EnumerationQuery();
-                if (Int32.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber)) query.PageNumber = pageNumber;
-                if (Int32.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize)) query.PageSize = pageSize;
-                query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
-
-                string? search = NormalizeEmpty(req.Query.GetValueOrDefault("search"));
-                string? topic = NormalizeEmpty(req.Query.GetValueOrDefault("topic"));
-                MemoryTypeEnum? type = null;
-                if (Enum.TryParse(req.Query.GetValueOrDefault("type"), true, out MemoryTypeEnum parsedType)) type = parsedType;
-
-                return await _Memories.EnumerateAsync(ctx, query, search, type, topic).ConfigureAwait(false);
+                MemoryEnumerateRequest query = new MemoryEnumerateRequest();
+                query.ApplyMemoryQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyDefaultSort(!String.IsNullOrEmpty(req.Query.GetValueOrDefault("order")));
+                return await _Memories.EnumerateAsync(ctx, query).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Memories")
                 .WithSummary("List/search memories")
-                .WithDescription("Returns durable memories visible to the caller, ordered by salience then recency. Filter with type, topic, vesselId, and search; page with pageNumber/pageSize.")
+                .WithDescription("Returns durable memories visible to the caller. Accepts the standard enumeration query parameters (pageNumber, pageSize, order, createdAfter, createdBefore, vesselId, voyageId, missionId, tenantId, userId) plus search, type, topic, topicContains, vesselName, summaryContains, scope, minSalience, and sortBy. Without sortBy or order, results are ordered by salience, then newest first.")
+                .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Page number (1-based)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size (1-1000)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("order", "CreatedAscending or CreatedDescending; the direction of sortBy", false))
+                .WithParameter(OpenApiParameterMetadata.Query("sortBy", "Created, Updated, Salience, Vessel, Type, Topic, Summary, or Visibility", false))
+                .WithParameter(OpenApiParameterMetadata.Query("createdAfter", "Only memories created after this timestamp", false))
+                .WithParameter(OpenApiParameterMetadata.Query("createdBefore", "Only memories created before this timestamp", false))
+                .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Filter by vessel or source vessel ID", false))
+                .WithParameter(OpenApiParameterMetadata.Query("voyageId", "Filter by source voyage ID", false))
+                .WithParameter(OpenApiParameterMetadata.Query("missionId", "Filter by source mission ID", false))
+                .WithParameter(OpenApiParameterMetadata.Query("search", "Case-insensitive text matched against content, topic, and tags", false))
+                .WithParameter(OpenApiParameterMetadata.Query("type", "Memory type (Episodic, Semantic, Procedural)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("topic", "Exact topic (case-insensitive)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("topicContains", "Topic substring (case-insensitive)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("vesselName", "Vessel name substring (case-insensitive)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("summaryContains", "Summary (or content) substring (case-insensitive)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("scope", "Visibility (TenantWide or UserSpecific)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("minSalience", "Minimum salience (0.0-1.0)", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Memory>>("Paged memories"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<MemoryEnumerateRequest>("/api/v1/memories/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                MemoryEnumerateRequest query = JsonSerializer.Deserialize<MemoryEnumerateRequest>(req.Http.Request.DataAsString, _BodyJsonOptions) ?? new MemoryEnumerateRequest();
+                MemoryEnumerateOrderProbe? probe = JsonSerializer.Deserialize<MemoryEnumerateOrderProbe>(req.Http.Request.DataAsString, _BodyJsonOptions);
+                query.ApplyMemoryQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyDefaultSort(probe?.Order != null || !String.IsNullOrEmpty(req.Query.GetValueOrDefault("order")));
+                return await _Memories.EnumerateAsync(ctx, query).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Memories")
+                .WithSummary("Enumerate memories")
+                .WithDescription("Paginated enumeration of the memories visible to the caller with filtering and sorting. Accepts every EnumerationQuery field plus search, type, topic, topicContains, vesselName, summaryContains, scope, minSalience, and sortBy. Order is the sort direction. Without sortBy or order, results are ordered by salience, then newest first.")
+                .WithRequestBody(OpenApiJson.BodyFor<MemoryEnumerateRequest>("Memory enumeration query", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<Memory>>("Paged memories"))
                 .WithSecurity("ApiKey"));
 
@@ -192,11 +221,6 @@ namespace Armada.Server.Routes
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
-        }
-
-        private static string? NormalizeEmpty(string? value)
-        {
-            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
         private static ApiErrorResponse BuildAuthError(ApiRequest req)

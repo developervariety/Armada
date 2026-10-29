@@ -178,6 +178,12 @@ export interface Vessel {
   definitionOfDoneBuildCommand?: string | null;
   definitionOfDoneTestCommand?: string | null;
   definitionOfDoneTimeoutSeconds?: number;
+  /** Per-vessel override for the Test intent; null uses the repo script or ecosystem default. */
+  testCommand?: string | null;
+  /** Per-vessel override for the Lint intent. */
+  lintCommand?: string | null;
+  /** Per-vessel override for the Audit intent. */
+  auditCommand?: string | null;
   allowConcurrentMissions: boolean;
   /** Per-vessel auto-approve override for missions; null or absent uses the captain setting. */
   autoApprove?: boolean | null;
@@ -195,6 +201,7 @@ export type MissionStatus =
   | 'WorkProduced'
   | 'PullRequestOpen'
   | 'Testing'
+  | 'Verifying'
   | 'Review'
   | 'Complete'
   | 'Failed'
@@ -362,6 +369,7 @@ export interface MissionAssignmentCaptainStatus {
   objectiveId: string | null;
   quarantineUntilUtc: string | null;
   quarantineReason: string | null;
+  eligibleForMission?: boolean | null;
 }
 
 export interface MissionAssignmentBlocker {
@@ -937,6 +945,7 @@ export interface WorkflowProfile {
   lintCommand: string | null;
   buildCommand: string | null;
   unitTestCommand: string | null;
+  abbreviatedUnitTestCommand: string | null;
   integrationTestCommand: string | null;
   e2eTestCommand: string | null;
   migrationCommand: string | null;
@@ -1049,7 +1058,7 @@ export interface CaptainChatMetrics {
   timeToFirstTextMs?: number | null;
   /** Cache-read input tokens (a subset of promptTokens), when reported. */
   cachedTokens?: number | null;
-  /** Cost of the turn in US dollars, when the runtime reports it (Claude Code, OpenCode). */
+  /** Cost of the turn in US dollars, when the runtime reports it (Claude Code, OpenCode, pi). */
   costUsd?: number | null;
   /** True when completionTokens is an estimate from the reply length rather than the runtime's own count. */
   tokensEstimated?: boolean | null;
@@ -1395,6 +1404,7 @@ export type CheckRunType =
   | 'Lint'
   | 'Build'
   | 'UnitTest'
+  | 'AbbreviatedUnitTest'
   | 'IntegrationTest'
   | 'E2ETest'
   | 'Migration'
@@ -2445,6 +2455,8 @@ export interface HistoricalTimelineQuery {
   toUtc?: string | null;
   pageNumber?: number;
   pageSize?: number;
+  /** Server ordering by occurrence time: CreatedDescending (newest first, default) or CreatedAscending. */
+  order?: 'CreatedAscending' | 'CreatedDescending';
 }
 
 export interface DispatchRequest {
@@ -2915,6 +2927,35 @@ export interface Memory {
   lastUpdateUtc: string;
 }
 
+/** Column a memory enumeration sorts by; `order` gives the direction. */
+export type MemorySortField = 'Created' | 'Updated' | 'Salience' | 'Vessel' | 'Type' | 'Topic' | 'Summary' | 'Visibility';
+
+/**
+ * Body of POST /api/v1/memories/enumerate: the standard enumeration query plus memory filters. Filtering,
+ * sorting and paging all run on the server. Without sortBy or order the server orders by salience, then newest.
+ */
+export interface MemoryEnumerateQuery {
+  pageNumber?: number;
+  pageSize?: number;
+  order?: 'CreatedAscending' | 'CreatedDescending';
+  sortBy?: MemorySortField;
+  createdAfter?: string;
+  createdBefore?: string;
+  vesselId?: string;
+  voyageId?: string;
+  missionId?: string;
+  tenantId?: string;
+  userId?: string;
+  search?: string;
+  type?: MemoryType;
+  topic?: string;
+  topicContains?: string;
+  vesselName?: string;
+  summaryContains?: string;
+  scope?: ScopeEnum;
+  minSalience?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Vessel Import (bulk onboarding of existing local repositories)
 // ---------------------------------------------------------------------------
@@ -3096,9 +3137,31 @@ export interface VesselImportErrorDetail {
 
 export type FleetActionKind = 'Command' | 'Mission';
 export type FleetActionRunStatus = 'Pending' | 'Running' | 'Completed' | 'CompletedWithFailures' | 'Cancelled' | 'Failed';
-export type FleetActionTargetStatus = 'Pending' | 'Skipped' | 'Running' | 'Succeeded' | 'Failed' | 'Cancelled' | 'TimedOut';
+export type FleetActionTargetStatus = 'Pending' | 'Skipped' | 'Running' | 'Succeeded' | 'Failed' | 'Cancelled' | 'TimedOut' | 'Findings';
 
+export interface FleetActionInput {
+  name: string;
+  type: 'string' | 'semver' | 'enum';
+  required: boolean;
+  default?: string | null;
+  allowedValues: string[];
+  description?: string | null;
+}
+export interface FleetActionInputRequest {
+  Name: string;
+  Type: 'string' | 'semver' | 'enum';
+  Required?: boolean;
+  Default?: string | null;
+  AllowedValues?: string[];
+  Description?: string | null;
+}
 export interface FleetAction {
+  inputs?: FleetActionInput[];
+  requiredTools?: string[];
+  requiresNetwork?: boolean;
+  commandWindows?: string | null;
+  outputParser?: string | null;
+  scanSourceActionKey?: string | null;
   id: string;
   tenantId: string | null;
   userId: string | null;
@@ -3121,6 +3184,12 @@ export interface FleetAction {
 
 /** Create/update body. PascalCase keys because the server binds them as-is. */
 export interface FleetActionUpsertRequest {
+  Inputs?: FleetActionInputRequest[];
+  RequiredTools?: string[];
+  RequiresNetwork?: boolean;
+  CommandWindows?: string | null;
+  OutputParser?: string | null;
+  ScanSourceActionKey?: string | null;
   Name?: string;
   Description?: string | null;
   Kind?: FleetActionKind;
@@ -3141,6 +3210,7 @@ export interface FleetActionRunOverrides {
 }
 
 export interface FleetActionRunRequest {
+  InputValues?: Record<string, string>;
   VesselIds: string[];
   Concurrency?: number | null;
   Overrides?: FleetActionRunOverrides | null;
@@ -3157,6 +3227,14 @@ export interface FleetActionRunStartResult {
 }
 
 export interface FleetActionRun {
+  inputs?: FleetActionInput[];
+  findingsCount?: number;
+  requiredTools?: string[];
+  requiresNetwork?: boolean;
+  commandWindows?: string | null;
+  outputParser?: string | null;
+  scanSourceActionKey?: string | null;
+  inputValues?: Record<string, string>;
   approvalOptions?: RunApprovalOptions | null;
   id: string;
   tenantId: string | null;
@@ -3184,6 +3262,7 @@ export interface FleetActionRun {
 }
 
 export interface FleetActionRunTargetSummary {
+  scanSummary?: string | null;
   id: string;
   runId: string | null;
   vesselId: string;
@@ -3205,6 +3284,7 @@ export interface FleetActionRunTargetSummary {
 }
 
 export interface FleetActionRunTarget {
+  scanSummary?: string | null;
   id: string;
   tenantId: string | null;
   runId: string | null;
@@ -3244,6 +3324,8 @@ export interface VesselImportSettingsData {
 }
 
 export interface FleetActionSettingsData {
+  offline?: boolean;
+  offlineHarborIds?: string[];
   maxConcurrency: number;
   defaultTimeoutSeconds: number;
   maxOutputBytes: number;
@@ -3451,12 +3533,26 @@ export interface AskMessage {
   isLocal?: boolean;
 }
 
+/** What the captain turn still running in a thread has streamed so far (the reply is persisted only when it ends). */
+export interface AskTurnProgress {
+  turnId: string;
+  /** The reply message reserved for the turn. */
+  messageId?: string | null;
+  text?: string | null;
+  thinkingText?: string | null;
+  /** Tool calls so far; a call still running has a null `ok` and no result. */
+  toolCalls?: AskToolCall[] | null;
+  startedUtc?: string;
+}
+
 export interface AskThreadDetail {
   thread: AskThread;
   trackedWork?: AskTrackedWork[] | null;
   pendingProposals?: AskActionProposal[] | null;
   /** Pending CLI permission requests of this thread's captain turns. */
   pendingCliPermissions?: CliPermissionRequest[] | null;
+  /** The running turn's streamed reply, tool calls, and thinking so far; null or absent when no turn is running. */
+  activeTurn?: AskTurnProgress | null;
 }
 
 export interface AskMessagePage {
@@ -3579,7 +3675,7 @@ export interface CliPermissionDecisionRequest {
   ruleScope?: CliPermissionRuleScope;
 }
 
-/** Query of GET /api/v1/cli-permissions/requests. */
+/** Filters and paging of POST /api/v1/cli-permissions/requests/enumerate; `limit` is the page size. */
 export interface CliPermissionRequestQuery {
   status?: CliPermissionRequestStatus | null;
   missionId?: string | null;
@@ -3587,6 +3683,7 @@ export interface CliPermissionRequestQuery {
   captainId?: string | null;
   vesselId?: string | null;
   limit?: number | null;
+  pageNumber?: number | null;
 }
 
 /** An allow or deny rule in Claude Code permission rule syntax, e.g. Bash(git status:*). */
