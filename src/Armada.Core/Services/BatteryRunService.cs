@@ -108,12 +108,14 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Every pack, valid or not.
+        /// One page of packs, valid or not, ordered by pack directory name. Only the page's manifests are read.
         /// </summary>
-        /// <returns>Packs.</returns>
-        public List<BatteryPack> ListPacks()
+        /// <param name="pageNumber">Page number (1-based).</param>
+        /// <param name="pageSize">Page size (1 to 1000).</param>
+        /// <returns>One page of packs.</returns>
+        public EnumerationResult<BatteryPack> ListPacks(int pageNumber, int pageSize)
         {
-            return _Catalog.LoadAll();
+            return _Catalog.LoadPage(pageNumber, pageSize);
         }
 
         /// <summary>
@@ -180,6 +182,7 @@ namespace Armada.Core.Services
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (packIds == null) throw new ArgumentNullException(nameof(packIds));
+            CollectionLimits.RequireConfigItems(packIds, "Packs");
             List<string> ids = packIds.Where(p => !String.IsNullOrWhiteSpace(p)).Select(p => p.Trim()).Distinct(StringComparer.Ordinal).ToList();
             if (ids.Count == 0) throw new ArgumentException("Name at least one pack.", nameof(packIds));
             int count = runCount ?? DefaultRunCount;
@@ -265,6 +268,43 @@ namespace Armada.Core.Services
             if (run == null) return null;
             run.Results = await _Database.BatteryTaskResults.ReadByRunAsync(runId, token).ConfigureAwait(false);
             return run;
+        }
+
+        /// <summary>
+        /// Read a run without its results (the REST and MCP run read).
+        /// </summary>
+        /// <param name="runId">Run identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The run, or null.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when runId is null or empty.</exception>
+        public async Task<BatteryRun?> ReadRunAsync(string runId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(runId)) throw new ArgumentNullException(nameof(runId));
+            return await _Database.BatteryRuns.ReadAsync(runId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// One page of a run's results, paged in the database. query.Status filters by outcome (Passed, Failed,
+        /// CouldNotRun, PendingEvaluation); query.Order orders by creation with the id as the tie-break.
+        /// </summary>
+        /// <param name="runId">Run identifier.</param>
+        /// <param name="query">Paging query.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page of results.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when runId or query is null.</exception>
+        /// <exception cref="ArgumentException">Thrown for an unknown outcome filter.</exception>
+        public async Task<EnumerationResult<BatteryTaskResult>> EnumerateResultsAsync(string runId, EnumerationQuery query, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(runId)) throw new ArgumentNullException(nameof(runId));
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            if (!String.IsNullOrWhiteSpace(query.Status))
+            {
+                if (!Enum.TryParse(query.Status.Trim(), true, out BatteryTaskOutcomeEnum outcome) || !Enum.IsDefined(outcome))
+                    throw new ArgumentException("Unknown outcome: " + query.Status + ". Use Passed, Failed, CouldNotRun or PendingEvaluation.", nameof(query));
+                query.Status = outcome.ToString();
+            }
+
+            return await _Database.BatteryTaskResults.EnumerateByRunAsync(runId, query, token).ConfigureAwait(false);
         }
 
         /// <summary>

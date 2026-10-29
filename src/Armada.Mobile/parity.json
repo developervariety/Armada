@@ -1985,6 +1985,14 @@
     },
     {
       "kind": "api",
+      "key": "enumerateCliPermissionRules",
+      "status": "implemented",
+      "mobile": "src/screens/system/CliPermissionsHub.tsx",
+      "workstream": "W1.2",
+      "notes": "CLI rules list: one bounded page with a truncation note"
+    },
+    {
+      "kind": "api",
       "key": "enumerateDeployments",
       "status": "not-applicable",
       "mobile": "",
@@ -2025,6 +2033,14 @@
     },
     {
       "kind": "api",
+      "key": "enumerateHarbors",
+      "status": "implemented",
+      "mobile": "src/screens/configuration/HarborsTab.tsx",
+      "workstream": "W4.2",
+      "notes": "Harbors list: one bounded page with a truncation note"
+    },
+    {
+      "kind": "api",
       "key": "enumerateHistoryTimeline",
       "status": "implemented",
       "mobile": "src/screens/activity/HistoryTab.tsx",
@@ -2046,6 +2062,22 @@
       "mobile": "",
       "workstream": "W4.2",
       "notes": "the Memories tab already pages, filters and searches on the server through listMemories (GET /api/v1/memories takes the same query fields); it has no sortable column headers, the dashboard table uses this enumerate twin"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateModelEndpoints",
+      "status": "implemented",
+      "mobile": "src/screens/configuration/EndpointsTab.tsx",
+      "workstream": "W4.2",
+      "notes": "Endpoints list (one bounded page with a truncation note) and the endpoint pickers through listAll"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateMuxEndpoints",
+      "status": "implemented",
+      "mobile": "src/screens/captains/MuxFields.tsx",
+      "workstream": "W3.1",
+      "notes": "read page by page through listMuxEndpoints"
     },
     {
       "kind": "api",
@@ -2838,6 +2870,14 @@
       "mobile": "src/screens/vessels/import",
       "workstream": "W3.1",
       "notes": "Vessel Import"
+    },
+    {
+      "kind": "api",
+      "key": "listAllMuxEndpoints",
+      "status": "implemented",
+      "mobile": "src/screens/captains/MuxFields.tsx",
+      "workstream": "W3.1",
+      "notes": "captain form Mux endpoint picker, through listMuxEndpoints"
     },
     {
       "kind": "api",

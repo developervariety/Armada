@@ -194,6 +194,12 @@ export default function AskWorkCard({ work, snapshot, highlighted }: AskWorkCard
         </ul>
       )}
 
+      {snapshot?.rowTotal != null && snapshot.rowTotal > Math.max(missions.length, targets.length) && (
+        <p className="text-dim ask-work-more" role="note">
+          {t('Showing {{shown}} of {{total}} rows.', { shown: Math.max(missions.length, targets.length), total: snapshot.rowTotal })}
+          {route && <> <Link to={route}>{t('Open details')}</Link></>}
+        </p>
+      )}
       {snapshot?.errorText && <p className="ask-work-error" role="note">{snapshot.errorText}</p>}
       {!snapshot && <p className="text-dim ask-work-loading">{t('Loading live status...')}</p>}
 

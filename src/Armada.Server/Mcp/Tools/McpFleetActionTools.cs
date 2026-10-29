@@ -147,7 +147,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "fleet_action_run_status",
-                "Get a fleet action run with per-target summaries (status, skip/failure reason codes, exit code, voyage id, output length hints). Output text is not included.",
+                "Get a fleet action run with its target counts (succeeded, failed, skipped, cancelled). Targets are not embedded: page them with enumerate (entityType fleet_action_run_target, runId, pageNumber, pageSize, optional status) for per-target status, reason codes, exit code, voyage id and output length hints.",
                 new
                 {
                     type = "object",
@@ -218,6 +218,10 @@ namespace Armada.Server.Mcp.Tools
             catch (KeyNotFoundException e)
             {
                 return new McpToolError(McpToolErrorCodeEnum.NotFound, e.Message) { StatusCode = 404 };
+            }
+            catch (CollectionLimitExceededException e)
+            {
+                return McpToolError.FromException(e);
             }
             catch (FleetActionTemplateException e)
             {

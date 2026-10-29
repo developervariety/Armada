@@ -284,7 +284,7 @@ namespace Armada.Core.Services
             if (barrier.FailedMission != null)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.WaitingForVoyageWorkers;
-                blocker.BlockingMissionIds = new List<string> { barrier.FailedMission.Id };
+                blocker.SetBlockingMissions(new List<string> { barrier.FailedMission.Id });
                 blocker.Summary = "Mission '" + barrier.FailedMission.Title + "' in another slice ended " + barrier.FailedMission.Status
                     + "; this integration will not run without it and is cancelled on the next dispatch pass. Restart that mission to continue.";
                 return blocker;
@@ -304,7 +304,7 @@ namespace Armada.Core.Services
             if (broadMissions.Count > 0)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.VesselBroadScopeMissionActive;
-                blocker.BlockingMissionIds = broadMissions.Select(m => m.Id).ToList();
+                blocker.SetBlockingMissions(broadMissions.Select(m => m.Id));
                 blocker.Summary = "Broad-scope mission '" + broadMissions[0].Title + "' holds vessel " + vessel.Name + " until it finishes.";
                 return blocker;
             }
@@ -312,7 +312,7 @@ namespace Armada.Core.Services
             if (activeMissions.Count > 0 && IsBroadScope(mission))
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.BroadScopeWaitingForVessel;
-                blocker.BlockingMissionIds = activeMissions.Select(m => m.Id).ToList();
+                blocker.SetBlockingMissions(activeMissions.Select(m => m.Id));
                 blocker.Summary = "This is a broad-scope mission; it waits until vessel " + vessel.Name + " has no active missions (" + activeMissions.Count + " running).";
                 return blocker;
             }
@@ -321,7 +321,7 @@ namespace Armada.Core.Services
             if (sameBranch.Count > 0)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.BranchInUse;
-                blocker.BlockingMissionIds = sameBranch.Select(m => m.Id).ToList();
+                blocker.SetBlockingMissions(sameBranch.Select(m => m.Id));
                 blocker.Summary = "Branch " + mission.BranchName + " is in use by '" + sameBranch[0].Title + "'. This mission continues that branch and starts when it finishes.";
                 return blocker;
             }
@@ -329,7 +329,7 @@ namespace Armada.Core.Services
             if (activeMissions.Count > 0 && !vessel.AllowConcurrentMissions)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.VesselConcurrencyLimit;
-                blocker.BlockingMissionIds = activeMissions.Select(m => m.Id).ToList();
+                blocker.SetBlockingMissions(activeMissions.Select(m => m.Id));
                 blocker.Summary = "Vessel " + vessel.Name + " runs one mission at a time and is busy with '" + activeMissions[0].Title + "'. Turn on Allow Concurrent Missions on the vessel to run more at once.";
                 return blocker;
             }
@@ -380,8 +380,8 @@ namespace Armada.Core.Services
 
             blocker.Reason = MissionAssignmentBlockerReasonEnum.NoIdleCaptain;
             await DescribeCaptainsAsync(blocker, allCaptains, mission, token).ConfigureAwait(false);
-            List<DateTime> quarantineEnds = blocker.Captains
-                .Where(c => c.QuarantineUntilUtc.HasValue)
+            List<DateTime> quarantineEnds = allCaptains
+                .Where(c => c.State == CaptainStateEnum.Quarantined && c.QuarantineUntilUtc.HasValue)
                 .Select(c => c.QuarantineUntilUtc!.Value)
                 .ToList();
             if (allCaptains.All(c => c.State == CaptainStateEnum.Quarantined) && quarantineEnds.Count > 0)
@@ -389,7 +389,7 @@ namespace Armada.Core.Services
                 blocker.UntilUtc = quarantineEnds.Min();
             }
 
-            if (blocker.Captains.Count == 1)
+            if (blocker.CaptainCount == 1 && blocker.Captains.Count == 1)
             {
                 blocker.Summary = "Waiting for a captain: " + (blocker.Captains[0].CaptainName ?? blocker.Captains[0].CaptainId) + " is " + blocker.Captains[0].Detail + ".";
             }
@@ -1570,21 +1570,7 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            List<string> outOfScopeFiles = new List<string>();
-            foreach (string changedFile in changedFiles)
-            {
-                string normalizedPath = NormalizeMissionPath(changedFile);
-                if (_IgnoredMissionArtifactFiles.Contains(normalizedPath))
-                {
-                    continue;
-                }
-
-                if (!allowedFiles.Contains(normalizedPath))
-                {
-                    outOfScopeFiles.Add(normalizedPath);
-                }
-            }
-
+            List<string> outOfScopeFiles = FindOutOfScopeFiles(changedFiles, allowedFiles);
             if (outOfScopeFiles.Count < 1)
             {
                 return false;
@@ -1600,7 +1586,7 @@ namespace Armada.Core.Services
             return true;
         }
 
-        private HashSet<string> ParseMissionScopedFiles(string description)
+        internal static HashSet<string> ParseMissionScopedFiles(string description)
         {
             HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (String.IsNullOrWhiteSpace(description))
@@ -1613,7 +1599,7 @@ namespace Armada.Core.Services
                 string fileSegment = directiveMatch.Groups["files"].Value;
                 foreach (System.Text.RegularExpressions.Match pathMatch in _ScopedFileTokenRegex.Matches(fileSegment))
                 {
-                    string normalizedPath = NormalizeMissionPath(pathMatch.Groups["path"].Value);
+                    string normalizedPath = NormalizeMissionPath(pathMatch.Groups["path"].Value).TrimEnd('.');
                     if (!String.IsNullOrEmpty(normalizedPath))
                     {
                         files.Add(normalizedPath);
@@ -1643,9 +1629,55 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Return the changed files that fall outside a mission's scoped allow list. Empty paths (a transport artifact)
+        /// and the runtime instruction files are never reported. An allow-list entry with a directory must match the
+        /// repo-relative path exactly (case-insensitive); a bare file name matches a changed file with that file name
+        /// in any directory.
+        /// </summary>
+        /// <param name="changedFiles">Repo-relative paths changed since the dock's start commit.</param>
+        /// <param name="allowedFiles">The scoped allow list parsed from the mission description.</param>
+        /// <returns>The normalized out-of-scope paths, without empty entries or duplicates.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when either argument is null.</exception>
+        internal static List<string> FindOutOfScopeFiles(IEnumerable<string> changedFiles, ICollection<string> allowedFiles)
+        {
+            if (changedFiles == null) throw new ArgumentNullException(nameof(changedFiles));
+            if (allowedFiles == null) throw new ArgumentNullException(nameof(allowedFiles));
+
+            HashSet<string> exactPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> bareNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string allowed in allowedFiles)
+            {
+                string normalizedAllowed = NormalizeMissionPath(allowed);
+                if (String.IsNullOrEmpty(normalizedAllowed)) continue;
+                if (normalizedAllowed.IndexOf('/') < 0) bareNames.Add(normalizedAllowed);
+                else exactPaths.Add(normalizedAllowed);
+            }
+
+            List<string> outOfScope = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string changedFile in changedFiles)
+            {
+                string normalizedPath = NormalizeMissionPath(changedFile);
+                if (String.IsNullOrEmpty(normalizedPath)) continue;
+                if (_IgnoredMissionArtifactFiles.Contains(normalizedPath)) continue;
+                if (exactPaths.Contains(normalizedPath)) continue;
+
+                int slash = normalizedPath.LastIndexOf('/');
+                string fileName = slash >= 0 ? normalizedPath.Substring(slash + 1) : normalizedPath;
+                if (fileName.Length > 0 && bareNames.Contains(fileName)) continue;
+
+                if (seen.Add(normalizedPath)) outOfScope.Add(normalizedPath);
+            }
+
+            return outOfScope;
+        }
+
         private static string NormalizeMissionPath(string path)
         {
-            return (path ?? String.Empty).Trim().Replace('\\', '/');
+            string normalized = (path ?? String.Empty).Trim().Replace('\\', '/');
+            while (normalized.StartsWith("./", StringComparison.Ordinal)) normalized = normalized.Substring(2);
+            return normalized;
         }
 
         private async Task EnsureMissionInstructionsPresentAsync(
@@ -1847,13 +1879,14 @@ namespace Armada.Core.Services
                 : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
         }
 
-        private async Task ReclaimMissionDockAsync(string dockId, CancellationToken token)
+        private async Task ReclaimMissionDockAsync(string dockId, CancellationToken token, string? forceReason = null,
+            [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             if (String.IsNullOrEmpty(dockId)) return;
 
             try
             {
-                await _Docks.ReclaimAsync(dockId, token: token).ConfigureAwait(false);
+                await _Docks.ReclaimAsync(dockId, token: token, forceReason: forceReason, caller: caller).ConfigureAwait(false);
             }
             catch (Exception reclaimEx)
             {

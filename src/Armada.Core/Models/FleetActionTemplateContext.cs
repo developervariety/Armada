@@ -16,6 +16,7 @@ namespace Armada.Core.Models
         /// <summary>Safe summary of the latest completed source scan for this vessel.</summary>
         public string ScanSummary { get; set; } = "";
         /// <summary>Validated runtime input values.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems, Reason = "One per declared fleet action input")]
         public System.Collections.Generic.Dictionary<string, string> InputValues { get; set; } = new();
 
         /// <summary>

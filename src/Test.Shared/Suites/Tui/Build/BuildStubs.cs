@@ -21,6 +21,8 @@ namespace Test.Shared.Suites.Tui.Build
             stub.Json("GET", "/api/v1/fleets", "{\"Success\":true,\"PageNumber\":1,\"PageSize\":9999,\"TotalPages\":1,\"TotalRecords\":2,\"Objects\":[" +
                 "{\"Id\":\"flt_web\",\"Name\":\"Web\",\"Description\":\"Frontend repos\",\"DefaultPipelineId\":\"ppl_std\",\"Active\":true,\"CreatedUtc\":\"2026-10-01T10:00:00Z\",\"LastUpdateUtc\":\"2026-10-02T10:00:00Z\"}," +
                 "{\"Id\":\"flt_ops\",\"Name\":\"Ops\",\"Description\":\"Infra\",\"Active\":true,\"CreatedUtc\":\"2026-10-03T10:00:00Z\",\"LastUpdateUtc\":\"2026-10-03T10:00:00Z\"}]}");
+            stub.Json("GET", "/api/v1/fleets/flt_web", "{\"Fleet\":{\"Id\":\"flt_web\",\"Name\":\"Web\",\"Description\":\"Frontend repos\",\"DefaultPipelineId\":\"ppl_std\",\"Active\":true,\"CreatedUtc\":\"2026-10-01T10:00:00Z\",\"LastUpdateUtc\":\"2026-10-02T10:00:00Z\"},\"VesselCount\":2}");
+            stub.Json("GET", "/api/v1/fleets/flt_ops", "{\"Fleet\":{\"Id\":\"flt_ops\",\"Name\":\"Ops\",\"Description\":\"Infra\",\"Active\":true,\"CreatedUtc\":\"2026-10-03T10:00:00Z\",\"LastUpdateUtc\":\"2026-10-03T10:00:00Z\"},\"VesselCount\":0}");
             stub.Json("GET", "/api/v1/vessels", "{\"Success\":true,\"PageNumber\":1,\"PageSize\":9999,\"TotalPages\":1,\"TotalRecords\":2,\"Objects\":[" + Vessel("vsl_demo", "DemoRepo", "flt_web", "LocalMerge") + "," + Vessel("vsl_api", "ApiRepo", "flt_web", "PullRequest") + "]}");
             stub.Json("GET", "/api/v1/pipelines", "{\"Success\":true,\"Objects\":[{\"Id\":\"ppl_std\",\"Name\":\"Standard\",\"Stages\":[{\"PersonaName\":\"Worker\",\"Order\":1},{\"PersonaName\":\"Judge\",\"Order\":2}]}],\"TotalRecords\":1}");
             stub.Json("GET", "/api/v1/captains", "{\"Success\":true,\"Objects\":[" +
