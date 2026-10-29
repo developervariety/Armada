@@ -32,6 +32,11 @@ namespace Armada.Core.Services
         /// </summary>
         public const string VesselNamePrefix = "battery-";
 
+        /// <summary>
+        /// Named reason when a pack has no build or unit-test command for the fixture workflow profile.
+        /// </summary>
+        public const string MissingWorkflowCommandsReason = "pack_missing_workflow_commands";
+
         #endregion
 
         #region Private-Members
@@ -204,12 +209,19 @@ namespace Armada.Core.Services
         /// <param name="token">Cancellation token.</param>
         /// <returns>The vessel.</returns>
         /// <exception cref="ArgumentNullException">Thrown when pack is null.</exception>
-        /// <exception cref="ArgumentException">Thrown when the vessel is missing and create is false.</exception>
+        /// <exception cref="ArgumentException">Thrown when the pack has no workflow commands, or when the vessel is missing and create is false.</exception>
         public async Task<Vessel> EnsureVesselAsync(BatteryPack pack, string? tenantId, string? userId, bool create, CancellationToken token = default)
         {
             if (pack == null) throw new ArgumentNullException(nameof(pack));
+            if (!pack.HasWorkflowCommands)
+                throw new ArgumentException("Battery pack '" + pack.Id + "' has no buildCommand or unitTestCommand (" + MissingWorkflowCommandsReason + ").");
+
             Vessel? existing = await FindVesselAsync(pack, tenantId, token).ConfigureAwait(false);
-            if (existing != null) return existing;
+            if (existing != null)
+            {
+                await EnsureWorkflowProfileAsync(pack, existing, token).ConfigureAwait(false);
+                return existing;
+            }
             if (!create)
                 throw new ArgumentException("Pack " + pack.Id + " has no fixture vessel (" + VesselNameFor(pack.Id, tenantId) + ") yet; pass createFixtureVessel to create it.");
 
@@ -229,13 +241,69 @@ namespace Armada.Core.Services
             };
 
             vessel = await _Database.Vessels.CreateAsync(vessel, token).ConfigureAwait(false);
+            await EnsureWorkflowProfileAsync(pack, vessel, token).ConfigureAwait(false);
             _Logging.Info(_Header + "created fixture vessel " + vessel.Id + " for pack " + pack.Id);
             return vessel;
+        }
+
+        /// <summary>
+        /// Name of the vessel-scoped workflow profile for a pack's fixture vessel.
+        /// </summary>
+        /// <param name="packId">Pack identifier.</param>
+        /// <returns>Profile name.</returns>
+        public static string WorkflowProfileNameFor(string packId)
+        {
+            return VesselNamePrefix + packId + " fixture";
         }
 
         #endregion
 
         #region Private-Methods
+
+        private async Task EnsureWorkflowProfileAsync(BatteryPack pack, Vessel vessel, CancellationToken token)
+        {
+            string name = WorkflowProfileNameFor(pack.Id);
+            string? build = NullIfWhiteSpace(pack.Manifest?.BuildCommand);
+            string? unitTest = NullIfWhiteSpace(pack.Manifest?.UnitTestCommand);
+            WorkflowProfileQuery query = new WorkflowProfileQuery
+            {
+                TenantId = vessel.TenantId,
+                Scope = WorkflowProfileScopeEnum.Vessel,
+                VesselId = vessel.Id,
+                Active = true
+            };
+            List<WorkflowProfile> existing = await _Database.WorkflowProfiles.EnumerateAllAsync(query, token).ConfigureAwait(false);
+            WorkflowProfile? profile = existing.Find(item => String.Equals(item.Name, name, StringComparison.Ordinal));
+            if (profile == null)
+            {
+                profile = new WorkflowProfile
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Name = name,
+                    Description = "Fixture workflow of battery pack " + pack.Id + ".",
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    VesselId = vessel.Id,
+                    IsDefault = true,
+                    Active = true,
+                    BuildCommand = build,
+                    UnitTestCommand = unitTest
+                };
+                await _Database.WorkflowProfiles.CreateAsync(profile, token).ConfigureAwait(false);
+                return;
+            }
+
+            profile.BuildCommand = build;
+            profile.UnitTestCommand = unitTest;
+            profile.IsDefault = true;
+            profile.Active = true;
+            await _Database.WorkflowProfiles.UpdateAsync(profile, token).ConfigureAwait(false);
+        }
+
+        private static string? NullIfWhiteSpace(string? value)
+        {
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
 
         private string WorkPathFor(string packId)
         {

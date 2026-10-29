@@ -47,6 +47,18 @@ namespace Armada.Core.Models
         public BatteryFixtureDefinition? Fixture { get; set; } = null;
 
         /// <summary>
+        /// Build command copied onto the fixture vessel's workflow profile. Empty means the pack
+        /// supplies no build command.
+        /// </summary>
+        public string? BuildCommand { get; set; } = null;
+
+        /// <summary>
+        /// Unit-test command copied onto the fixture vessel's workflow profile. Empty means the pack
+        /// supplies no unit-test command.
+        /// </summary>
+        public string? UnitTestCommand { get; set; } = null;
+
+        /// <summary>
         /// Tools the Admiral host needs for the pack's command-graded tasks.
         /// </summary>
         public List<BatteryToolchainRequirement> Toolchain

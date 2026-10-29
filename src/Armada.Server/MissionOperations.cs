@@ -351,6 +351,8 @@ namespace Armada.Server
 
             MissionMetadataUpdate.Apply(existing, patch);
             Mission stored = await _Database.Missions.UpdateAsync(existing, token).ConfigureAwait(false);
+            if (patch.Has("description"))
+                stored = await SignalDelivery.AnnotateBriefEditAsync(_Database, stored, token).ConfigureAwait(false);
             Notifier.MissionChanged(stored);
             return MissionUpdateResult.Updated(stored);
         }

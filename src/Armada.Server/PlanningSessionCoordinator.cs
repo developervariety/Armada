@@ -802,6 +802,12 @@ namespace Armada.Server
                 string? runtimeFailure = null;
 
                 ChatToolActivityTracker activityTracker = new ChatToolActivityTracker();
+                List<RuntimeTokenUsage> usageSamples = new List<RuntimeTokenUsage>();
+                runtime.OnTokenUsageReceived += (processId, sample) =>
+                {
+                    if (sample == null) return;
+                    lock (outputLock) usageSamples.Add(sample);
+                };
                 runtime.OnOutputReceived += (processId, line) =>
                 {
                     // Activity records are runtime telemetry, not the planner's answer: tool records become tool
@@ -889,6 +895,8 @@ namespace Armada.Server
                 assistantMessage.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.PlanningSessionMessages.UpdateAsync(assistantMessage).ConfigureAwait(false);
                 BroadcastMessageUpdated(session, assistantMessage);
+
+                await PersistPlanningTokenUsageAsync(session, captain, usageSamples, outputLock).ConfigureAwait(false);
 
                 captain = await RequireCaptainAsync(session.CaptainId, CancellationToken.None).ConfigureAwait(false);
                 captain.ProcessId = null;
@@ -1164,6 +1172,12 @@ namespace Armada.Server
             object outputLock = new object();
             int? processId = null;
 
+            List<RuntimeTokenUsage> usageSamples = new List<RuntimeTokenUsage>();
+            runtime.OnTokenUsageReceived += (processId, sample) =>
+            {
+                if (sample == null) return;
+                lock (outputLock) usageSamples.Add(sample);
+            };
             runtime.OnOutputReceived += (processId, line) =>
             {
                 if (ActivityRecords.IsActivityRecord(line)) return;
@@ -1226,6 +1240,7 @@ namespace Armada.Server
                 if (String.IsNullOrWhiteSpace(finalOutput) && exitCode.HasValue && exitCode.Value != 0)
                     finalOutput = "Planning helper prompt exited with code " + exitCode.Value + ".";
 
+                await PersistPlanningTokenUsageAsync(session, captain, usageSamples, outputLock).ConfigureAwait(false);
                 return finalOutput;
             }
             finally
@@ -1480,6 +1495,41 @@ namespace Armada.Server
                 throw new InvalidOperationException("Runtime " + runtime.Name + " does not currently support planning sessions.");
 
             return runtime;
+        }
+
+        private async Task PersistPlanningTokenUsageAsync(
+            PlanningSession session,
+            Captain captain,
+            List<RuntimeTokenUsage> samples,
+            object gate)
+        {
+            List<RuntimeTokenUsage> captured;
+            lock (gate)
+            {
+                captured = new List<RuntimeTokenUsage>(samples);
+            }
+
+            foreach (RuntimeTokenUsage usage in captured)
+            {
+                if (usage.UsageRule != TokenUsageRuleEnum.SeparateInputBuckets) continue;
+                await TokenUsageCapture.CaptureAsync(
+                    _Database,
+                    _Logging,
+                    "planning",
+                    model: !String.IsNullOrWhiteSpace(usage.Model) ? usage.Model : captain.Model,
+                    runtime: captain.Runtime.ToString(),
+                    tenantId: session.TenantId,
+                    userId: session.UserId,
+                    vesselId: session.VesselId,
+                    captainId: captain.Id,
+                    sourceId: session.Id,
+                    uncachedInputTokens: usage.UncachedInputTokens,
+                    outputTokens: usage.OutputTokens,
+                    cacheReadInputTokens: usage.CacheReadTokens,
+                    cacheWriteInputTokens: usage.CacheWriteTokens,
+                    inputText: null,
+                    outputText: null).ConfigureAwait(false);
+            }
         }
 
         private static WebSocketDeliveryScope SessionScope(PlanningSession session)

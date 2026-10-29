@@ -460,6 +460,19 @@ namespace Armada.Core.Models
         /// </summary>
         public PromptBudgetSummary? PromptBudget { get; set; } = null;
 
+        /// <summary>
+        /// How a brief edit reaches a running captain. Set on an update response only; not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Delivery { get; set; } = null;
+
+        /// <summary>
+        /// Why <see cref="Delivery"/> has that value, naming the runtime when a brief edit is stored
+        /// until the next launch. Set on an update response only; not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? DeliveryReason { get; set; } = null;
+
         #endregion
 
         #region Private-Members

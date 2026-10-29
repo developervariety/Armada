@@ -31,7 +31,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_send_signal",
-                "Send a signal/message to a captain",
+                "Send a signal/message to a captain. The stored signal is returned. When the captain is running on a runtime that does not deliver mail mid-mission, the response includes Delivery=stored_until_next_launch and a reason that names the runtime.",
                 new
                 {
                     type = "object",
@@ -78,6 +78,7 @@ namespace Armada.Server.Mcp.Tools
                     signal.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(sendCaller);
                     signal.ToCaptainId = captainId;
                     signal = await database.Signals.CreateAsync(signal).ConfigureAwait(false);
+                    signal = await SignalDelivery.AnnotateAsync(database, signal).ConfigureAwait(false);
                     return (object)signal;
                 });
 

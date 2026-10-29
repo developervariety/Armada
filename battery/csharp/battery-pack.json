@@ -9,6 +9,8 @@
     "path": "fixture",
     "defaultBranch": "main"
   },
+  "buildCommand": "dotnet build Inventory.sln",
+  "unitTestCommand": "dotnet run --project tests/Inventory.Tests",
   "toolchain": [
     {
       "name": "dotnet",

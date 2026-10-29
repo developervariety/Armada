@@ -112,13 +112,14 @@ namespace Armada.Server.Routes
                 signal.TenantId = ctx.TenantId;
                 signal.UserId = ctx.UserId;
                 signal = await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
+                signal = await SignalDelivery.AnnotateAsync(_database, signal).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return signal;
             },
             api => api
                 .WithTag("Signals")
                 .WithSummary("Send a signal")
-                .WithDescription("Creates a new signal (message between admiral and captains).")
+                .WithDescription("Creates a new signal (message between admiral and captains). When the recipient captain is running on a runtime that does not deliver mail mid-mission, the response includes Delivery=stored_until_next_launch and a reason that names the runtime.")
                 .WithRequestBody(OpenApiJson.BodyFor<Signal>("Signal data", true))
                 .WithResponse(201, OpenApiJson.For<Signal>("Created signal"))
                 .WithSecurity("ApiKey"));

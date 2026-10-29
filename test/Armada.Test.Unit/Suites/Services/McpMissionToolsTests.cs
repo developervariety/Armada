@@ -2061,6 +2061,86 @@ namespace Armada.Test.Unit.Suites.Services
                         "Caller deliveryMode should override default on collision");
                 }
             });
+
+            await RunTest("UpdateMission_RunningBriefEditWithoutMidMissionDelivery_ReturnsStoredUntilNextLaunch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(
+                        new Captain("brief-opencode", AgentRuntimeEnum.OpenCode) { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                    Mission running = await testDb.Driver.Missions.CreateAsync(new Mission("running brief", "original brief")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        CaptainId = captain.Id,
+                        Status = MissionStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+                    Mission pending = await testDb.Driver.Missions.CreateAsync(new Mission("pending brief", "pending original")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        CaptainId = captain.Id,
+                        Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? updateHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_update_mission") updateHandler = handler; },
+                        testDb.Driver,
+                        new RecordingAdmiralDouble(),
+                        null,
+                        null);
+                    AssertNotNull(updateHandler, "armada_update_mission handler must be registered");
+
+                    string runningJson;
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        runningJson = JsonSerializer.Serialize(await updateHandler!(JsonSerializer.SerializeToElement(new
+                        {
+                            missionId = running.Id,
+                            description = "revised brief for the running stage"
+                        })).ConfigureAwait(false));
+                    }
+                    Mission? noticed = JsonSerializer.Deserialize<Mission>(runningJson);
+                    AssertNotNull(noticed);
+                    AssertEqual(SignalDelivery.StoredUntilNextLaunch, noticed!.Delivery, runningJson);
+                    AssertContains("OpenCode", noticed.DeliveryReason!, runningJson);
+                    AssertContains("next launch", noticed.DeliveryReason!, runningJson);
+
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(running.Id).ConfigureAwait(false);
+                    AssertEqual("revised brief for the running stage", stored!.Description);
+                    AssertNull(stored.Delivery, "Delivery is an update-response notice and is not stored");
+                    AssertNull(stored.DeliveryReason);
+
+                    string pendingJson;
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        pendingJson = JsonSerializer.Serialize(await updateHandler!(JsonSerializer.SerializeToElement(new
+                        {
+                            missionId = pending.Id,
+                            description = "revised brief for a pending stage"
+                        })).ConfigureAwait(false));
+                    }
+                    Mission? pendingUpdated = JsonSerializer.Deserialize<Mission>(pendingJson);
+                    AssertNotNull(pendingUpdated);
+                    AssertNull(pendingUpdated!.Delivery, "a pending mission is not running, so a brief edit has no mid-mission notice");
+                    AssertNull(pendingUpdated.DeliveryReason);
+
+                    string titleJson;
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        titleJson = JsonSerializer.Serialize(await updateHandler!(JsonSerializer.SerializeToElement(new
+                        {
+                            missionId = running.Id,
+                            title = "renamed running brief"
+                        })).ConfigureAwait(false));
+                    }
+                    Mission? titleOnly = JsonSerializer.Deserialize<Mission>(titleJson);
+                    AssertNotNull(titleOnly);
+                    AssertNull(titleOnly!.Delivery, "a title-only update is not a brief edit");
+                    AssertNull(titleOnly.DeliveryReason);
+                }
+            });
         }
 
         private sealed class EvidenceHandlers
