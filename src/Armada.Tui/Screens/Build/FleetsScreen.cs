@@ -9,6 +9,7 @@ namespace Armada.Tui.Screens.Build
     using Armada.Client.Models;
     using Armada.Core.Models;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Screens.Operations;
     using Armada.Tui.Services;
     using Armada.Tui.Widgets;
@@ -183,11 +184,11 @@ namespace Armada.Tui.Screens.Build
         {
             Confirm("Delete Fleet", Tr("Delete fleet \"{{name}}\"? This cannot be undone.", LocalizationArgs.Of("name", fleet.Name)), () =>
             {
-                Run((c, t) => c.DeleteFleetAsync(fleet.Id, t), () =>
+                DeleteProgress.RunVoid(Context, "Deleting fleet", t => Context.Client.DeleteFleetAsync(fleet.Id, t), () =>
                 {
                     Toast(NotificationSeverityEnum.Warning, Tr("Fleet \"{{name}}\" deleted.", LocalizationArgs.Of("name", fleet.Name)));
                     Refresh();
-                }, null, ex => ShowMessage(Tr("Delete failed.")));
+                }, "Delete failed.");
             }, "Delete");
         }
 
@@ -198,12 +199,12 @@ namespace Armada.Tui.Screens.Build
             Confirm("Delete Selected Fleets", Tr("Delete {{count}} selected fleet(s)? This cannot be undone.", LocalizationArgs.Of("count", ids.Count)), () =>
             {
                 Grid.ClearMarks();
-                Call(async (c, t) =>
+                DeleteProgress.Run(Context, "{count, plural, one {Deleting # fleet} other {Deleting # fleets}}", async t =>
                 {
                     int failed = 0;
                     foreach (string id in ids)
                     {
-                        try { await c.DeleteFleetAsync(id, t).ConfigureAwait(false); }
+                        try { await Context.Client.DeleteFleetAsync(id, t).ConfigureAwait(false); }
                         catch (ArmadaApiException) { failed++; }
                     }
 
@@ -220,7 +221,7 @@ namespace Armada.Tui.Screens.Build
 
                     if (failed > 0) ShowMessage(Tr("Deleted {{deleted}} fleets, {{failed}} failed.", LocalizationArgs.Of("deleted", deleted, "failed", failed)));
                     Refresh();
-                }, "Delete failed.");
+                }, "Delete failed.", ids.Count);
             }, "Delete");
         }
 
