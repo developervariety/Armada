@@ -88,7 +88,8 @@ namespace Test.Shared.Suites.Client
                 FleetDetail? detail = await c.GetFleetAsync(created.Id);
                 Fleet? fetched = detail?.Fleet;
                 AssertEqual(created.Name, fetched?.Name, "get");
-                AssertNotNull(detail?.Vessels, "vessels included");
+                AssertEqual(0L, detail?.VesselCount, "vessel count (vessels are not embedded)");
+                AssertFalse(rawGet.Json.Contains("\"vessels\"", StringComparison.OrdinalIgnoreCase), "no embedded vessel list");
                 fetched!.Description = "updated";
                 Fleet? updated = await c.UpdateFleetAsync(created.Id, fetched);
                 AssertEqual("updated", updated?.Description, "update");

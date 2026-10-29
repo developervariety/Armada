@@ -148,6 +148,11 @@ namespace Armada.Server.WebSocket
                 // A taken name (or any unique value) is a Conflict reply for this action, never provider text.
                 return WebSocketCommandError.FromException(action, ex);
             }
+            catch (CollectionLimitExceededException ex)
+            {
+                // A list over its bound (docs/ENUMERATION.md) is bad input for this action.
+                return WebSocketCommandError.FromException(action, ex);
+            }
         }
 
         private async Task<object> DispatchCommandAsync(string action, WebSocketCommand command, string rawBody, AuthContext? caller)
@@ -201,8 +206,9 @@ namespace Armada.Server.WebSocket
                         return WebSocketCommandError.Create("get_fleet", WebSocketCommandErrorCodeEnum.NotFound, "Fleet not found");
                     else
                     {
-                        List<Vessel> fleetVessels = await _Database.Vessels.EnumerateByFleetAsync(getFleetId).ConfigureAwait(false);
-                        return new { type = "command.result", action = "get_fleet", data = (object)new { Fleet = foundFleet, Vessels = fleetVessels } };
+                        // Vessels are not embedded: page them with list_vessels and query.fleetId.
+                        EnumerationResult<Vessel> fleetVesselPage = await _Database.Vessels.EnumerateAsync(new EnumerationQuery { FleetId = getFleetId, PageSize = 1 }).ConfigureAwait(false);
+                        return new { type = "command.result", action = "get_fleet", data = (object)new FleetDetailResponse { Fleet = foundFleet, VesselCount = fleetVesselPage.TotalRecords } };
                     }
 
                 case "create_fleet":

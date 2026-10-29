@@ -1020,8 +1020,8 @@ namespace Test.Shared.Suites.E2E
                 string text = GetToolResultText(result);
                 FleetDetailResponse data = JsonHelper.Deserialize<FleetDetailResponse>(text);
                 AssertNotNull(data.Fleet);
-                AssertNotNull(data.Vessels);
-                AssertTrue(data.Vessels!.Count >= 2);
+                AssertTrue(data.VesselCount >= 2, "vessel count covers both vessels");
+                AssertFalse(text.Contains("\"vessels\"", StringComparison.OrdinalIgnoreCase), "vessels are not embedded in get_fleet");
             }));
 
             cases.Add(CaseAsync("armada_add_vessel_creates_vessel", "ArmadaAddVessel_CreatesVessel", TestTags.Positive, async () =>

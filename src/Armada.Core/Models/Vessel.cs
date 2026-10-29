@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// A git repository registered with Armada.
@@ -194,6 +195,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Optional protected-branch glob or exact-match patterns.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<string> ProtectedBranchPatterns { get; set; } = new List<string>();
 
         /// <summary>
@@ -204,12 +206,14 @@ namespace Armada.Core.Models
         /// <summary>
         /// Protected file-path globs the pre-land scanner blocks a mission from touching (e.g. ".github/**").
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<string> ProtectedPathPatterns { get; set; } = new List<string>();
 
         /// <summary>
         /// Private identifiers (company/domain strings) the pre-land scanner blocks from leaking into
         /// added diff lines for public repos.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<string> PrivateIdentifierDenylist { get; set; } = new List<string>();
 
         /// <summary>
@@ -243,11 +247,13 @@ namespace Armada.Core.Models
         /// Glob patterns a changed path must match to be auto-landable. When non-empty, a mission touching
         /// any path outside this allow-list holds for review.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<string> AutoLandPathAllowGlobs { get; set; } = new List<string>();
 
         /// <summary>
         /// Glob patterns that force a hold: a mission touching any matching path never auto-lands.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public List<string> AutoLandPathDenyGlobs { get; set; } = new List<string>();
 
         /// <summary>

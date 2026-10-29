@@ -47,6 +47,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         public async Task<Vessel> CreateAsync(Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            Armada.Core.Services.CollectionBounds.Validate(vessel);
             vessel.LastUpdateUtc = DateTime.UtcNow;
 
             using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
@@ -173,6 +174,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         public async Task<Vessel> UpdateAsync(Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            Armada.Core.Services.CollectionBounds.Validate(vessel);
             vessel.LastUpdateUtc = DateTime.UtcNow;
 
             using (MySqlConnection conn = new MySqlConnection(_ConnectionString))

@@ -433,7 +433,9 @@ namespace Test.Shared.Suites.Upgrade
 
             FleetDetailResponse fleet = await GetAsync<FleetDetailResponse>(api, "/api/v1/fleets/" + _Seed.FleetId).ConfigureAwait(false);
             AssertEqual(_Seed.FleetDescription, fleet.Fleet?.Description, "fleet via API");
-            AssertTrue(fleet.Vessels != null && fleet.Vessels.Any(v => v.Id == _Seed.VesselId), "fleet lists its vessel via API");
+            AssertTrue(fleet.VesselCount >= 1, "fleet counts its vessel via API");
+            EnumerationResult<Vessel> fleetVessels = await GetAsync<EnumerationResult<Vessel>>(api, "/api/v1/vessels?fleetId=" + _Seed.FleetId + "&pageSize=100").ConfigureAwait(false);
+            AssertTrue(fleetVessels.Objects.Any(v => v.Id == _Seed.VesselId), "fleet's vessels page includes its vessel via API");
             Vessel vessel = await GetAsync<Vessel>(api, "/api/v1/vessels/" + _Seed.VesselId).ConfigureAwait(false);
             AssertEqual(_Seed.VesselName, vessel.Name, "vessel via API");
             foreach (string missionId in _Seed.MissionStatuses.Keys)

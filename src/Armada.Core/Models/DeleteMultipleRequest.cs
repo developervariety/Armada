@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System.Collections.Generic;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Generic request body for batch deleting multiple entities by ID.
@@ -12,6 +13,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// List of entity IDs to delete.
         /// </summary>
+        [CollectionBound(CollectionLimits.MaxRequestItems)]
         public List<string> Ids { get; set; } = new List<string>();
 
         #endregion

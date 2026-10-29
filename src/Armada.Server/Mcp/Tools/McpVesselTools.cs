@@ -259,7 +259,7 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        ids = new { type = "array", items = new { type = "string" }, description = "List of vessel IDs to delete (vsl_ prefix)" }
+                        ids = new { type = "array", items = new { type = "string" }, description = "List of vessel IDs to delete (vsl_ prefix; at most 1000)" }
                     },
                     required = new[] { "ids" }
                 },
@@ -269,6 +269,7 @@ namespace Armada.Server.Mcp.Tools
                     DeleteMultipleArgs request = JsonSerializer.Deserialize<DeleteMultipleArgs>(args!.Value, _JsonOptions)!;
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)McpToolError.InvalidArgument("ids is required and must not be empty");
+                    CollectionLimits.RequireRequestItems(request.Ids, "ids");
 
                     DeleteMultipleResult result = new DeleteMultipleResult();
                     foreach (string id in request.Ids)

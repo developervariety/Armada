@@ -353,7 +353,7 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 FleetDetailResponse data = DeserializeData<FleetDetailResponse>(resp);
                 AssertEqual(fleetId, data.Fleet!.Id);
-                AssertNotNull(data.Vessels);
+                AssertEqual(0L, data.VesselCount, "vessel count; vessels are not embedded");
             }));
 
             cases.Add(CaseAsync("get_fleet_non_existent_returns_error", "GetFleet_NonExistent_ReturnsError", TestTags.Negative, async () =>
