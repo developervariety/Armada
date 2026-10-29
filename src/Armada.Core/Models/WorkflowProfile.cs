@@ -106,9 +106,19 @@ namespace Armada.Core.Models
         public string? BuildCommand { get; set; } = null;
 
         /// <summary>
-        /// Unit-test command.
+        /// Full unit-test command: the complete unit-test suite. Stage checks run it unless the mission description or
+        /// the stage persona's prompt asks for the abbreviated suite (see <see cref="UnitTestScopeDirective"/>), and it is
+        /// the command behind the <c>UnitTest</c> check type.
         /// </summary>
         public string? UnitTestCommand { get; set; } = null;
+
+        /// <summary>
+        /// Abbreviated unit-test command: a fast subset of the unit tests (for example one test project or a filter).
+        /// Used by the <c>AbbreviatedUnitTest</c> check type and by stage checks when the mission description or the
+        /// stage persona's prompt contains <c>[ARMADA:UNIT-TESTS] abbreviated</c>. When empty, those fall back to
+        /// <see cref="UnitTestCommand"/>.
+        /// </summary>
+        public string? AbbreviatedUnitTestCommand { get; set; } = null;
 
         /// <summary>
         /// Integration-test command.

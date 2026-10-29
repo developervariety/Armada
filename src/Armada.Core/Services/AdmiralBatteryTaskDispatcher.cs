@@ -85,7 +85,7 @@ namespace Armada.Core.Services
 
             List<CaptainAssignmentOverride> overrides = new List<CaptainAssignmentOverride>
             {
-                new CaptainAssignmentOverride("*", request.Captain.Id, null) { StrictCaptain = true }
+                new CaptainAssignmentOverride("*", request.Captain.Id, null) { StrictCaptain = true, PromptVariant = request.PromptVariant }
             };
             MissionDescription mission = new MissionDescription(request.Title, request.Description)
             {

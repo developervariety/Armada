@@ -73,9 +73,9 @@ namespace Test.Shared.Suites.E2E
                     AssertNotNull(fetched.Session);
                     AssertEqual(created.Session.Id, fetched.Session!.Id);
 
-                    HttpResponseMessage listResp = await authClient.GetAsync("/api/v1/planning-sessions").ConfigureAwait(false);
+                    HttpResponseMessage listResp = await authClient.PostAsync("/api/v1/planning-sessions/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, listResp.StatusCode);
-                    List<PlanningSession> sessions = await JsonHelper.DeserializeAsync<List<PlanningSession>>(listResp).ConfigureAwait(false);
+                    List<PlanningSession> sessions = (await JsonHelper.DeserializeAsync<EnumerationResult<PlanningSession>>(listResp).ConfigureAwait(false)).Objects;
                     AssertTrue(sessions.Any(session => session.Id == created.Session.Id), "Created planning session should appear in the list");
                 }
                 finally

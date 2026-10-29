@@ -14,6 +14,7 @@
 #   - for the host architecture: the bundled binary runs and
 #     "--install-startup --dry-run" writes nothing and names the LaunchAgent
 #     (HOME is a temp directory, so nothing touches the real login items).
+# After a successful build and verification, installs the host architecture's app into ~/Applications.
 #
 # Signing: with no Apple credentials in the environment the app is ad-hoc
 # signed (fine for local testing on this Mac). For Developer ID signing and
@@ -21,10 +22,11 @@
 # ("macOS signing and notarization") before running.
 #
 # Usage: scripts/macos/build-harbor-app.sh [--version X.Y.Z] [--output DIR]
-#                                          [--no-build] [--require-notarized]
+#                                          [--no-build] [--no-install] [--require-notarized]
 #   --version            default: <Version> in src/Directory.Build.props
 #   --output             default: installers/<version>
 #   --no-build           verify the .dmg files already in the output dir
+#   --no-install         build and verify without copying the app into ~/Applications
 #   --require-notarized  fail unless each image is Developer ID signed,
 #                        notarized, stapled, and accepted by Gatekeeper
 # =====================================================================
@@ -34,12 +36,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERSION=""
 OUTPUT=""
 BUILD=1
+INSTALL_APP=1
 REQUIRE_NOTARIZED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION="$2"; shift 2 ;;
     --output) OUTPUT="$2"; shift 2 ;;
     --no-build) BUILD=0; shift ;;
+    --no-install) INSTALL_APP=0; shift ;;
     --require-notarized) REQUIRE_NOTARIZED=1; shift ;;
     -h|--help) grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
@@ -120,6 +124,8 @@ for DMG in "${IMAGES[@]}"; do
   expect_key "$PLIST" NSHighResolutionCapable "true"
   EXE="$(plist_get "$PLIST" CFBundleExecutable)"
   check "executable Contents/MacOS/$EXE" test -x "$APP/Contents/MacOS/$EXE"
+  check "pi permission gate in Contents/Resources" test -f "$APP/Contents/Resources/Pi/armada-permission-gate.ts"
+  check "no pi resource directory in Contents/MacOS" test ! -e "$APP/Contents/MacOS/Pi"
   if file "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null | grep -q "Mac OS X icon"; then
     pass "AppIcon.icns is an icns"
   else
@@ -161,6 +167,40 @@ for DMG in "${IMAGES[@]}"; do
   hdiutil detach -quiet "$MOUNT" >/dev/null 2>&1 || hdiutil detach -force -quiet "$MOUNT" >/dev/null 2>&1
   rmdir "$MOUNT" 2>/dev/null || true
 done
+
+# Copy from the verified native image. Stage a fresh bundle so obsolete files from an older version cannot
+# break its code signature. Keep the old app until the replacement is ready, and restore it if promotion fails.
+install_native_app() (
+  # These are scoped to this subshell, rather than function locals: Bash runs EXIT traps after locals unwind.
+  apps_dir="${1:-${HOME}/Applications}"
+  target="$apps_dir/Armada Harbor.app"
+  mkdir -p "$apps_dir" || exit 1
+  mount="$(mktemp -d "${TMPDIR:-/tmp}/armada-harbor-install-mount.XXXXXX")" || exit 1
+  stage="$(mktemp -d "$apps_dir/.armada-harbor-install.XXXXXX")" || { rmdir "$mount"; exit 1; }
+  previous="$stage/previous.app"
+  cleanup_install() {
+    local result="$?"
+    hdiutil detach -quiet "$mount" >/dev/null 2>&1 || hdiutil detach -force -quiet "$mount" >/dev/null 2>&1 || true
+    rmdir "$mount" 2>/dev/null || true
+    if { [ -e "$previous" ] || [ -L "$previous" ]; } && ! { [ -e "$target" ] || [ -L "$target" ]; }; then
+      mv "$previous" "$target" || { echo "Previous Harbor app retained at $previous" >&2; return 1; }
+    fi
+    rm -rf "$stage"
+    return "$result"
+  }
+  trap cleanup_install EXIT
+  hdiutil attach -quiet -readonly -nobrowse -noautoopen -mountpoint "$mount" \
+    "$OUTPUT/armada-harbor-$VERSION-$HOST_RID.dmg" || exit 1
+  ditto "$mount/Armada Harbor.app" "$stage/Armada Harbor.app" || exit 1
+  codesign --verify --deep --strict "$stage/Armada Harbor.app" || exit 1
+  if [ -e "$target" ] || [ -L "$target" ]; then mv "$target" "$previous" || exit 1; fi
+  mv "$stage/Armada Harbor.app" "$target" || exit 1
+  echo "[harbor-app] installed $target ($HOST_RID)"
+)
+
+if [ "$FAILURES" -eq 0 ] && [ "$BUILD" -eq 1 ] && [ "$INSTALL_APP" -eq 1 ]; then
+  if install_native_app; then pass "native app installed in ~/Applications"; else fail "install native app in ~/Applications"; fi
+fi
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

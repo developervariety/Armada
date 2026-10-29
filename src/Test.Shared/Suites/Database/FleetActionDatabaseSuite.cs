@@ -396,6 +396,47 @@ namespace Test.Shared.Suites.Database
                 await AssertThrowsAsync<ArgumentNullException>(() => testDb.Driver.FleetActionRunTargets.EnumerateByRunAsync(Constants.DefaultTenantId, null!, null, 1, 10));
             }));
 
+            cases.Add(CaseAsync("run_engine_extensions_roundtrip", "Action options, inputs, findings and safe summaries survive create and update", TestTags.Positive, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync();
+                FleetAction action = NewAction(Constants.DefaultTenantId, "scan");
+                action.CommandWindows = "Write-Output scan";
+                action.OutputParser = "gitleaks-json";
+                action.ScanSourceActionKey = "scan-source";
+                action.RequiredTools = new() { "git", "gitleaks" };
+                action.RequiresNetwork = true;
+                action.Inputs = new() { new() { Name = "version", Type = "semver", Required = true, Default = "1.2.3", Description = "Release version", AllowedValues = new() { "1.2.3" } } };
+                await db.Driver.FleetActions.CreateAsync(action);
+                FleetAction? read = await db.Driver.FleetActions.ReadAsync(action.Id);
+                AssertEqual(action.CommandWindows, read!.CommandWindows);
+                AssertEqual(action.OutputParser, read.OutputParser);
+                AssertEqual(action.ScanSourceActionKey, read.ScanSourceActionKey);
+                AssertEqual("gitleaks", read.RequiredTools[1]);
+                AssertTrue(read.RequiresNetwork, "network flag");
+                AssertEqual("1.2.3", read.Inputs[0].Default);
+                AssertEqual("Release version", read.Inputs[0].Description);
+                read.RequiredTools.Clear(); read.RequiresNetwork = false; read.Inputs.Clear(); read.CommandWindows = null;
+                await db.Driver.FleetActions.UpdateAsync(read);
+                read = await db.Driver.FleetActions.ReadAsync(action.Id);
+                AssertEqual(0, read!.RequiredTools.Count); AssertEqual(0, read.Inputs.Count); AssertFalse(read.RequiresNetwork, "updated flag"); AssertNull(read.CommandWindows, "cleared Windows command");
+                FleetActionRun run = new() { TenantId = Constants.DefaultTenantId, ActionName = "scan", CommandWindows = "win", OutputParser = "gitleaks-json", ScanSourceActionKey = "source", RequiredTools = new() { "git" }, RequiresNetwork = true, Inputs = new() { new() { Name = "version", Type = "semver", Required = true } }, InputValues = new() { ["version"] = "1.2.3" }, FindingsCount = 2 };
+                await db.Driver.FleetActionRuns.CreateAsync(run);
+                FleetActionRun? saved = await db.Driver.FleetActionRuns.ReadAsync(run.Id);
+                AssertEqual("win", saved!.CommandWindows); AssertEqual("gitleaks-json", saved.OutputParser); AssertEqual("source", saved.ScanSourceActionKey); AssertEqual("git", saved.RequiredTools[0]); AssertTrue(saved.RequiresNetwork, "snapshot network"); AssertEqual("1.2.3", saved.InputValues["version"]); AssertEqual(2, saved.FindingsCount); AssertEqual("semver", saved.Inputs.Single().Type);
+                saved.FindingsCount = 3; saved.InputValues["version"] = "2.0.0";
+                await db.Driver.FleetActionRuns.UpdateAsync(saved);
+                saved = await db.Driver.FleetActionRuns.ReadAsync(run.Id);
+                AssertEqual(3, saved!.FindingsCount); AssertEqual("2.0.0", saved.InputValues["version"]);
+                FleetActionRunTarget target = new() { TenantId = Constants.DefaultTenantId, RunId = run.Id, VesselId = "vsl_history", VesselName = "history", Status = FleetActionTargetStatusEnum.Findings, ScanSummary = "Findings: 1 total" };
+                await db.Driver.FleetActionRunTargets.CreateAsync(target);
+                FleetActionRunTarget? result = await db.Driver.FleetActionRunTargets.ReadAsync(target.Id);
+                AssertEqual(FleetActionTargetStatusEnum.Findings, result!.Status); AssertEqual(target.ScanSummary, result.ScanSummary);
+                result.Status = FleetActionTargetStatusEnum.Skipped; result.SkipReason = "ToolMissing:npm"; result.ScanSummary = null;
+                await db.Driver.FleetActionRunTargets.UpdateAsync(result);
+                result = await db.Driver.FleetActionRunTargets.ReadAsync(target.Id);
+                AssertEqual("ToolMissing:npm", result!.SkipReason); AssertNull(result.ScanSummary, "cleared summary");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Fleet Action Database",

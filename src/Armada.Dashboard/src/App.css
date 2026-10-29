@@ -944,7 +944,7 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 }
 
 .tag.idle, .tag.pending, .tag.queued { background: var(--tag-idle-bg); color: var(--tag-idle-fg); }
-.tag.working, .tag.inprogress, .tag.assigned, .tag.open, .tag.testing { background: var(--tag-working-bg); color: var(--tag-working-fg); }
+.tag.working, .tag.inprogress, .tag.assigned, .tag.open, .tag.testing, .tag.verifying { background: var(--tag-working-bg); color: var(--tag-working-fg); }
 .tag.workproduced { background: var(--tag-review-bg); color: var(--tag-review-fg); }
 .tag.complete, .tag.completed, .tag.landed, .tag.passed, .tag.pass, .tag.healthy { background: var(--tag-complete-bg); color: var(--tag-complete-fg); }
 .tag.unhealthy { background: var(--tag-failed-bg); color: var(--tag-failed-fg); }
@@ -9169,6 +9169,11 @@ tr.row-muted td { opacity: 0.72; }
 .cli-perm-error { color: var(--red); font-size: 0.8rem; }
 .cli-perm-decision-message { margin: 0.25rem 0 0; font-size: 0.85rem; }
 .cli-perm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+.cli-perm-tab-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-bottom: 0.75rem; }
+.cli-perm-tab-header .segmented { margin-bottom: 0; }
+.cli-perm-hint { margin: 0; font-size: 0.85rem; min-width: 0; flex: 1 1 20rem; }
+section > .cli-perm-hint { margin-bottom: 0.75rem; }
+.cli-rule-row-actions { display: inline-flex; gap: 0.35rem; }
 .cli-perm-list { display: flex; flex-direction: column; gap: 0.6rem; }
 .cli-rule-form { margin-top: 1rem; padding: 0.9rem 1rem; }
 .cli-rule-allow { color: var(--green); }
