@@ -77,6 +77,35 @@ namespace Armada.Server.Routes
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/battery/packs/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    EnumerationQuery page = EnumerationRequestReader.Read(req, _JsonOptions);
+                    return _Service.ListPacks(ctx, page.PageNumber, page.PageSize);
+                }
+                catch (JsonException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid request body: " + ex.Message };
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("Battery")
+                .WithSummary("Enumerate fixture battery packs")
+                .WithDescription("One page of the fixture battery packs the Admiral found. The JSON body (EnumerationQuery) carries PageNumber and PageSize (1-1000).")
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<BatteryPackInfo>>("One page"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithSecurity("ApiKey"));
+
             app.Post("/api/v1/battery/runs", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

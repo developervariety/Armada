@@ -33,7 +33,6 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
 - [Tools](#tools)
   - **Status**
     - [status](#status)
-    - [inbox](#inbox)
     - [token_usage_summary](#token_usage_summary)
     - [papercut_summary](#papercut_summary)
     - [stop_server](#stop_server)
@@ -110,6 +109,15 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [create_playbook](#create_playbook)
     - [update_playbook](#update_playbook)
     - [delete_playbook](#delete_playbook)
+  - **Workflow Profiles**
+    - [get_workflow_profile](#get_workflow_profile)
+    - [create_workflow_profile](#create_workflow_profile)
+    - [update_workflow_profile](#update_workflow_profile)
+    - [delete_workflow_profile](#delete_workflow_profile)
+    - [delete_workflow_profiles](#delete_workflow_profiles)
+    - [validate_workflow_profile](#validate_workflow_profile)
+    - [resolve_workflow_profile](#resolve_workflow_profile)
+    - [preview_workflow_profile](#preview_workflow_profile)
   - **Fleet Actions**
     - [create_fleet_action](#create_fleet_action)
     - [update_fleet_action](#update_fleet_action)
@@ -119,10 +127,8 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [cancel_fleet_action_run](#cancel_fleet_action_run)
   - **CLI Permissions**
     - [cli_permission_prompt](#cli_permission_prompt)
-    - [list_cli_permission_requests](#list_cli_permission_requests)
     - [get_cli_permission_request](#get_cli_permission_request)
     - [decide_cli_permission_request](#decide_cli_permission_request)
-    - [list_cli_permission_rules](#list_cli_permission_rules)
     - [create_cli_permission_rule](#create_cli_permission_rule)
     - [update_cli_permission_rule](#update_cli_permission_rule)
     - [delete_cli_permission_rule](#delete_cli_permission_rule)
@@ -138,6 +144,9 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [create_failure_cause_rule](#create_failure_cause_rule)
     - [update_failure_cause_rule](#update_failure_cause_rule)
     - [delete_failure_cause_rule](#delete_failure_cause_rule)
+  - **Handoff Artifacts**
+    - [get_handoff_artifact](#get_handoff_artifact)
+    - [list_handoff_artifacts](#list_handoff_artifacts)
   - **Evaluate**
     - [evaluate_captain](#evaluate_captain)
     - [get_model_probe_run](#get_model_probe_run)
@@ -241,9 +250,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
 **Contract.** Tool names, argument names and types, and which arguments are required are frozen for 1.0 and listed in
 [API_SURFACE_1.0.md](API_SURFACE_1.0.md) (rules: [COMPATIBILITY.md](COMPATIBILITY.md)). Arguments are camelCase (matched
 case-insensitively); tool results carry the same entity shapes as the REST API, with PascalCase property names (the
-camelCase exceptions are the `inbox` envelope, `count`, `criticalCount`, `warningCount`, and `items`, the
-`list_prompt_templates` envelope and rows, the `list_cli_permission_requests` and `list_cli_permission_rules`
-envelopes, the `delete_cli_permission_rule` result, and the `cli_permission_prompt` answer). Unlike REST, MCP results keep null-valued properties. Enums are emitted as their
+camelCase exceptions are the `list_prompt_templates` envelope and rows, the `delete_cli_permission_rule` result, and the `cli_permission_prompt` answer). Unlike REST, MCP results keep null-valued properties. Enums are emitted as their
 names, as on REST. New tools, new optional arguments,
 and new result fields may be added in minor releases. Tools whose description starts with `[Experimental]` (the Harbor
 tools `get_harbor`, `get_harbor_metrics`, `create_harbor`, `update_harbor`, `delete_harbor`, `set_harbor_enabled`, `list_harbor_jobs`, `stop_harbor_job`) are excluded from the
@@ -259,6 +266,7 @@ Armada exposes a full MCP server that allows AI agents and MCP-compatible client
 - Read captain session logs (with pagination)
 - List and inspect docks (worktrees)
 - Manage reusable markdown playbooks and attach them to dispatches
+- Manage workflow profiles (the build, test, release, and deploy commands stage checks run) and preview what a vessel resolves to
 - Run and inspect structured delivery checks
 - Manage backlog/objective records, reorder them, refine them with explicit captain selection, and hand them off into planning and dispatch
 - Inspect, create, approve, verify, and roll back deployments
@@ -300,7 +308,7 @@ To register Armada with Claude Code manually, add it as an HTTP MCP server:
 claude mcp add --transport http --scope user armada http://localhost:7891/mcp
 ```
 
-Drop `--scope user` to add it for the current project only. While the Admiral listens on localhost (the default), no token or header is required; if you changed `mcpPort`, substitute your port. When the Admiral listens on any other address (for example in Docker), every MCP call needs a credential: add `--header "Authorization: Bearer <token>"` (or `X-Api-Key`). `armada mcp install --server <url> --token <token>` (or `--profile <name>`) writes the remote URL and the header for Claude Code, Gemini CLI, Cursor, Mux, and OpenCode, and configures Codex to read the token from `ARMADA_TOKEN`; without a remote target it writes the local, credential-less entries. See [REMOTE_SERVER.md](REMOTE_SERVER.md#mcp-clients-claude-code-codex-gemini-cli-cursor-mux-opencode).
+Drop `--scope user` to add it for the current project only. While the Admiral listens on localhost (the default), no token or header is required; if you changed `mcpPort`, substitute your port. When the Admiral listens on any other address (for example in Docker), every MCP call needs a credential: add `--header "Authorization: Bearer <token>"` (or `X-Api-Key`). `armada mcp install --server <url> --token <token>` (or `--profile <name>`) writes the remote URL and the header for Claude Code, Gemini CLI, Cursor, Mux, OpenCode, and pi, and configures Codex to read the token from `ARMADA_TOKEN`; without a remote target it writes the local, credential-less entries. See [REMOTE_SERVER.md](REMOTE_SERVER.md#mcp-clients-claude-code-codex-gemini-cli-cursor-mux-opencode).
 
 **Enterprise-managed Claude Code.** If the add is rejected with `Cannot add MCP server 'armada': not allowed by enterprise policy`, your organization's Claude Code managed settings restrict which MCP servers may be added (via `allowedMcpServers` / `managed-mcp.json`). This is enforced by IT and **cannot** be overridden by a user, a project `.mcp.json`, or `--mcp-config`. Ask your Claude Code administrator to allow the Armada endpoint by adding it to `allowedMcpServers` in the managed settings - on Windows `C:\Program Files\ClaudeCode\managed-settings.json` (or, higher priority, the Claude.ai admin console at Admin Settings > Claude Code > Managed settings):
 
@@ -354,8 +362,8 @@ call against the caller (including Ask Armada proposals executed after approval)
 
 | Level | Tools |
 |---|---|
-| Authenticated | Reads (`status`, `enumerate`, `get_*`, `list_*`, `mission_status`, `voyage_status`, logs, diffs, `inbox`, `vessel_health`, `search_memory`, `token_usage_summary`, ...), writes to caller-owned resources (memories, model endpoints, harbors), persona, pipeline, and prompt-template writes (as on REST: a regular user creates only `UserSpecific` ones and edits only their own), and `cli_permission_prompt` and `decide_cli_permission_request` (the handlers check the caller; see [CLI Permissions](#cli-permissions)) |
-| TenantAdmin | Every other write or execution (dispatch, captains, missions, voyages, docks, merge queue, signals, events, objectives, backlog, playbooks, releases, deployments, runbooks, check runs, fleet actions, vessel import, vessel health) |
+| Authenticated | Reads (`status`, `enumerate`, `get_*`, `list_*`, `mission_status`, `voyage_status`, logs, diffs, `vessel_health`, `search_memory`, `token_usage_summary`, ...), writes to caller-owned resources (memories, model endpoints, harbors), persona, pipeline, and prompt-template writes (as on REST: a regular user creates only `UserSpecific` ones and edits only their own), and `cli_permission_prompt` and `decide_cli_permission_request` (the handlers check the caller; see [CLI Permissions](#cli-permissions)) |
+| TenantAdmin | Every other write or execution (dispatch, captains, missions, voyages, docks, merge queue, signals, events, objectives, backlog, playbooks, workflow profiles (including `validate_workflow_profile`, as on REST), releases, deployments, runbooks, check runs, fleet actions, vessel import, vessel health) |
 | AdminOnly | `backup`, `restore`, `stop_server` (a credential is required even on loopback; use `X-Api-Key` from `settings.json`) |
 
 A denied call returns an `McpToolError` with `ErrorCode` `Forbidden` whose message names the required level. The full per-tool list is in
@@ -371,7 +379,9 @@ When the Admiral launches a captain for a mission it mints a **mission-scoped se
 `Mcp.MissionScopedTokens`, default true) and binds the captain's Armada MCP connection to it, sent as `X-Token`:
 
 - Claude Code, Codex, OpenCode and Mux captains get the same per-invocation binding as Ask turns (see below); no client
-  file is written into the repository worktree. With `IsolateCaptainLaunch` on, the isolation plan carries the token
+  file is written into the repository worktree. pi captains get a `.pi/mcp.json` in the worktree (header
+  `X-Token: ${ARMADA_MCP_TOKEN}`, the token only in the environment), excluded from git through the worktree's
+  `info/exclude` and deleted after the run. With `IsolateCaptainLaunch` on, the isolation plan carries the token
   for every CLI runtime (Gemini and Cursor included).
 - API-endpoint captains receive `ARMADA_MCP_URL` / `ARMADA_MCP_TOKEN`.
 - Harbor launches carry the token in `HarborLaunchRequest.McpSessionToken`; the Harbor binds it against the MCP URL the
@@ -399,15 +409,18 @@ Other CLI runtimes keep their host MCP configuration in thread turns and are not
 The MCP authentication handler validates the token like any session token and adds an `askThreadId` claim. Every tool
 handler is registered through the Ask gate, which checks that claim:
 
-- **Read-only tools** run normally: `status`, `enumerate`, `inbox`, `voyage_status`, `mission_status`,
+- **Read-only tools** run normally: `status`, `enumerate` (including the `inbox`, `cli_permission_rules`, and
+  `cli_permission_requests` entity types), `voyage_status`, `mission_status`,
   `fleet_action_run_status`, `vessel_health`, `papercut_summary`, `token_usage_summary`, `search_memory`,
   `evaluate_autoland`, every `get_*` reader (`get_backlog_item`, `get_backlog_planning_session`,
   `get_backlog_refinement_session`, `get_captain`, `get_captain_log`, `get_captain_tools`, `get_check_run`,
   `get_deployment`, `get_dock`, `get_fleet`, `get_harbor`, `get_harbor_metrics`, `get_memory`, `get_merge_entry`, `get_mission_diff`,
   `get_mission_log`, `get_model_endpoint`, `get_objective`, `get_persona`, `get_pipeline`, `get_playbook`,
-  `get_prompt_template`, `get_release`, `get_runbook`, `get_runbook_execution`, `get_vessel`), and the `list_*` readers
+  `get_prompt_template`, `get_release`, `get_runbook`, `get_runbook_execution`, `get_vessel`, `get_workflow_profile`), the
+  workflow profile readers (`validate_workflow_profile`, `resolve_workflow_profile`, `preview_workflow_profile`; validate
+  saves nothing), and the `list_*` readers
   (`list_backlog`, `list_backlog_refinement_sessions`, `list_objectives`, `list_prompt_templates`,
-  `list_cli_permission_requests`, `list_cli_permission_rules`, plus `get_cli_permission_request`), and the Ask Armada
+  plus `get_cli_permission_request`), and the Ask Armada
   readers (`list_ask_threads`, `get_ask_thread`, `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`). The list lives in
   `AskToolPolicy`; any tool not on it (including tools added later) is treated as state-changing.
 - **`cli_permission_prompt`** (the captain CLI's own permission prompt) runs without becoming a proposal: an approver
@@ -558,85 +571,6 @@ No parameters required.
 
 ---
 
-### inbox
-
-> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns every item in one result. Use `enumerate` with `entityType` `inbox` (one page with `TotalRecords`). It keeps working unchanged until then, and stays on the Ask Armada read-only allowlist.
-
-Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Call this to answer a user asking *"Is there anything waiting on me?"*, *"Is there anything that needs my attention?"*, or *"Do I have any action items from Armada work?"*.
-
-**What qualifies.** Two kinds of item appear:
-
-- **Awaiting your decision (human-in-the-loop):** a mission in `Review` (approve or reject), a deployment in `PendingApproval`, a pending Ask Armada action proposal in one of your own conversations, or a pending CLI permission request (a captain waiting to run one of its own tools, such as a shell command).
-- **Failed and needs intervention (human-out-of-the-loop):** a failed mission, a mission whose work could not be merged (landing failed), a failed merge, a failed or verification-failed deployment, or a stalled captain.
-
-Purely informational events (completions, normal progress) are deliberately excluded -- the inbox answers *"what needs me?"*, not *"what happened?"* (use `enumerate` or the Activity log for history). An empty `items` list means nothing currently needs the operator. Operational items are scoped like other reads (global admin: everything; tenant admin: the tenant; regular user: own items); Ask proposals are always limited to the caller's own threads, and proposals older than `Ask.ProposalExpiryMinutes` are left out (the same rule as `GET /api/v1/inbox`). Every item is returned (no category is capped), so `count` is the true number of items needing attention; only pending CLI permission requests stop at 1000, since they expire within minutes. Items are ordered by severity (`Critical` first), then title.
-
-**Item kinds and severity:**
-
-| `Kind` | Meaning | Severity |
-|---|---|---|
-| `review` | Mission awaiting your review/approval | `Warning`, or `Critical` if the review deadline has passed |
-| `landing_failed` | Mission produced work that could not be merged | `Critical` |
-| `failed` | Mission failed | `Warning` |
-| `merge_failed` | Queued merge failed testing or landing | `Critical` |
-| `deployment_approval` | Deployment waiting for your approval before it runs | `Warning` |
-| `deployment_failed` | Deployment failed or failed verification | `Critical` |
-| `stalled_captain` | Captain is stalled and may need recovery or a dock reclaim | `Warning` |
-| `ask_proposal` | Ask Armada action proposal waiting for your approval (`Href` is the conversation, `/ask/<threadId>`) | `Warning` |
-| `cli_permission` | CLI permission request waiting for an approver; visible to global admins, the tenant's tenant admins, and the owner of the thread or mission (`Href` is `/ask/<threadId>` for the caller's own conversation, otherwise `/cli-permissions?request=<id>`) | `Warning` |
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {}
-}
-```
-
-No parameters required.
-
-**Response:** counts plus the ordered item list. The wrapper fields are camelCase (`count`, `criticalCount`,
-`warningCount`, `items`); each item is an `InboxItem` with `Kind`, `Severity`, `Title`, `Detail`, `EntityType`,
-`EntityName` (display name of the referenced entity; use it instead of parsing `Title`), `EntityId`, and a dashboard
-`Href`. Deployment items also carry `EnvironmentName` and `DeploymentTitle`, and their `Title` reads
-"Deploy to <environment>: <title>". `cli_permission` items carry `CliPermission` (the request, with the caller's
-`CanDecide`) and `ExpiresUtc`. `Severity` is `Critical`, `Warning`, or `Info`.
-
-```json
-{
-  "count": 2,
-  "criticalCount": 1,
-  "warningCount": 1,
-  "items": [
-    {
-      "Kind": "landing_failed",
-      "Severity": "Critical",
-      "Title": "Landing failed: Add JWT validation",
-      "Detail": "The work could not be landed.",
-      "EntityType": "mission",
-      "EntityName": "Add JWT validation",
-      "EntityId": "msn_1a2b3c",
-      "Href": "/missions/msn_1a2b3c"
-    },
-    {
-      "Kind": "review",
-      "Severity": "Warning",
-      "Title": "Review: Refactor auth service",
-      "Detail": "Awaiting your review.",
-      "EntityType": "mission",
-      "EntityName": "Refactor auth service",
-      "EntityId": "msn_4d5e6f",
-      "Href": "/missions/msn_4d5e6f"
-    }
-  ]
-}
-```
-
-> Also exposed over REST as `GET /api/v1/inbox` and in the CLI as `armada inbox`.
-
----
-
 ### token_usage_summary
 
 For daily token heatmaps, supply explicit `fromUtc`/`toUtc` and `bucketMinutes: 1440`. Optional `sourceId` isolates a synthetic batch; `syntheticCount` reports included synthetic rows. Synthetic imports are available only through the global-admin REST endpoint, not MCP.
@@ -773,7 +707,7 @@ No parameters required.
 
 ### enumerate
 
-Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: inbox (the needs-you items, most urgent first; replaces the deprecated `inbox` tool), cli_permission_rules (replaces the deprecated `list_cli_permission_rules`), objectives (aliases `backlog`, `backlog_item`, `backlog_items`), fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health.
+Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: inbox (the needs-you items, most urgent first; replaces the removed `inbox` tool), cli_permission_rules (replaces the removed `list_cli_permission_rules`), cli_permission_requests (replaces the removed `list_cli_permission_requests`), objectives (aliases `backlog`, `backlog_item`, `backlog_items`), fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health.
 
 **Input Schema:**
 
@@ -781,7 +715,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 {
   "type": "object",
   "properties": {
-    "entityType": { "type": "string", "description": "Entity type to enumerate (inbox [the needs-you items, most urgent first], cli_permission_rules [vesselId and captainId filter], objectives [aliases backlog, backlog_item, backlog_items], fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health)" },
+    "entityType": { "type": "string", "description": "Entity type to enumerate (inbox [the needs-you items, most urgent first], cli_permission_rules [vesselId and captainId filter], cli_permission_requests [newest first; status, missionId, threadId, captainId, vesselId filter], objectives [aliases backlog, backlog_item, backlog_items], fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health)" },
     "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
     "pageSize": { "type": "integer", "description": "Results per page (default 10, max 1000)" },
     "order": { "type": "string", "description": "Sort order: CreatedAscending, CreatedDescending" },
@@ -794,6 +728,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
     "captainId": { "type": "string", "description": "Filter by captain ID (missions, events, signals)" },
     "voyageId": { "type": "string", "description": "Filter by voyage ID (missions, events)" },
     "missionId": { "type": "string", "description": "Filter by mission ID (events)" },
+    "threadId": { "type": "string", "description": "Filter by Ask thread ID (ath_ prefix; cli_permission_requests)" },
     "eventType": { "type": "string", "description": "Filter by event type (events only)" },
     "signalType": { "type": "string", "description": "Filter by signal type (signals only)" },
     "toCaptainId": { "type": "string", "description": "Filter by recipient captain (signals only)" },
@@ -813,6 +748,9 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 
 | `entityType` value | Supported filters |
 |---|---|
+| `inbox` | Paging only; most urgent first (see [Inbox items](#inbox-items-entitytype-inbox)) |
+| `cli_permission_rules` | `vesselId`, `captainId` |
+| `cli_permission_requests` (alias `cli-permission-requests`) | `status` (Pending/Allowed/Denied/Expired/Cancelled), `missionId`, `threadId`, `captainId`, `vesselId`; newest first (see [CLI permission requests](#cli-permission-requests-entitytype-cli_permission_requests)) |
 | `objectives` (aliases `backlog`, `backlog_item`, `backlog_items`) | `status`, `vesselId`, `voyageId`, `missionId`, `search` |
 | `fleets` | `createdAfter`, `createdBefore` |
 | `vessels` | `fleetId`, `createdAfter`, `createdBefore` |
@@ -837,7 +775,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `runbook_executions` (aliases `runbook-executions`, `runbookexecution`) | `search` (current MCP enumeration is primarily paginated browse) |
 | `project_profiles` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
 | `skills` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
-| `memories` | `search` (plus paginated browse) |
+| `memories` | `search` (content, topic, tags), `vesselId` (vessel or source vessel), `voyageId`, `missionId`, `createdAfter`, `createdBefore`, `order`. Filtered, sorted and paged in the database within the caller's visibility. Without `order`, salience descending then newest first; with `order`, by created time. |
 | `jobs` | (paginated browse only) |
 | `model_endpoints` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
 | `vessel_import_batch` (aliases `vessel_import_batches`, `vessel-import-batch`, `import_batches`) | `status` (Discovered/Importing/Completed/CompletedWithFailures/Failed/Discovering), `createdAfter`, `createdBefore`, `order`. Scoped to the caller's tenant. Items are not included; read a batch with items through `GET /api/v1/vessels/import/batches/{id}`. |
@@ -881,6 +819,86 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 ```
 
 > **Note:** When enumerating `missions`, the `DiffSnapshot` field is excluded from results to keep payloads compact. Use `get_mission_diff` to retrieve the full diff for a specific mission.
+
+#### Inbox items (`entityType` `inbox`)
+
+`enumerate` with `entityType` `inbox` returns one page of the operator's inbox: everything across the fleet that
+requires a human's attention or action right now, ordered most-urgent first. Call it to answer a user asking *"Is there
+anything waiting on me?"*, *"Is there anything that needs my attention?"*, or *"Do I have any action items from Armada
+work?"*. It replaces the removed `inbox` tool (D-012), which returned every item in one result.
+
+**What qualifies.** Two kinds of item appear:
+
+- **Awaiting your decision (human-in-the-loop):** a mission in `Review` (approve or reject), a deployment in `PendingApproval`, a pending Ask Armada action proposal in one of your own conversations, or a pending CLI permission request (a captain waiting to run one of its own tools, such as a shell command).
+- **Failed and needs intervention (human-out-of-the-loop):** a failed mission, a mission whose work could not be merged (landing failed), a failed merge, a failed or verification-failed deployment, or a stalled captain.
+
+Purely informational events (completions, normal progress) are deliberately excluded -- the inbox answers *"what needs me?"*, not *"what happened?"* (use `enumerate` or the Activity log for history). An empty page (`TotalRecords` 0) means nothing currently needs the operator. Operational items are scoped like other reads (global admin: everything; tenant admin: the tenant; regular user: own items); Ask proposals are always limited to the caller's own threads, and proposals older than `Ask.ProposalExpiryMinutes` are left out (the same rule as `GET /api/v1/inbox`). Every item is returned (no category is capped), so `count` is the true number of items needing attention; only pending CLI permission requests stop at 1000, since they expire within minutes. Items are ordered by severity (`Critical` first), then title.
+
+**Item kinds and severity:**
+
+| `Kind` | Meaning | Severity |
+|---|---|---|
+| `review` | Mission awaiting your review/approval | `Warning`, or `Critical` if the review deadline has passed |
+| `landing_failed` | Mission produced work that could not be merged | `Critical` |
+| `failed` | Mission failed | `Warning` |
+| `merge_failed` | Queued merge failed testing or landing | `Critical` |
+| `deployment_approval` | Deployment waiting for your approval before it runs | `Warning` |
+| `deployment_failed` | Deployment failed or failed verification | `Critical` |
+| `stalled_captain` | Captain is stalled and may need recovery or a dock reclaim | `Warning` |
+| `ask_proposal` | Ask Armada action proposal waiting for your approval (`Href` is the conversation, `/ask/<threadId>`) | `Warning` |
+| `cli_permission` | CLI permission request waiting for an approver; visible to global admins, the tenant's tenant admins, and the owner of the thread or mission (`Href` is `/ask/<threadId>` for the caller's own conversation, otherwise `/server?tab=cli-permissions&request=<id>`; the pre-v1.2.0 `/cli-permissions?request=<id>` still redirects there) | `Warning` |
+
+Each object on the page is an `InboxItem` with `Kind`, `Severity`, `Title`, `Detail`, `EntityType`, `EntityName`
+(display name of the referenced entity; use it instead of parsing `Title`), `EntityId`, and a dashboard `Href`.
+Deployment items also carry `EnvironmentName` and `DeploymentTitle`, and their `Title` reads
+"Deploy to <environment>: <title>". `cli_permission` items carry `CliPermission` (the request, with the caller's
+`CanDecide`) and `ExpiresUtc`. `Severity` is `Critical`, `Warning`, or `Info`.
+
+```json
+{ "entityType": "inbox", "pageNumber": 1, "pageSize": 25 }
+```
+
+```json
+{
+  "Success": true,
+  "PageNumber": 1,
+  "PageSize": 25,
+  "TotalPages": 1,
+  "TotalRecords": 1,
+  "Objects": [
+    {
+      "Kind": "landing_failed",
+      "Severity": "Critical",
+      "Title": "Landing failed: Add JWT validation",
+      "Detail": "The work could not be landed.",
+      "EntityType": "mission",
+      "EntityName": "Add JWT validation",
+      "EntityId": "msn_1a2b3c",
+      "Href": "/missions/msn_1a2b3c"
+    }
+  ]
+}
+```
+
+> Also exposed over REST as `POST /api/v1/inbox/enumerate` and in the CLI as `armada inbox`.
+
+#### CLI permission requests (`entityType` `cli_permission_requests`)
+
+`enumerate` with `entityType` `cli_permission_requests` returns one page of CLI permission requests, newest first, with
+`TotalRecords`. Filters: `status` (`Pending`, `Allowed`, `Denied`, `Expired`, or `Cancelled`; any other value is an
+`InvalidArgument` error), `missionId`, `threadId` (Ask thread, `ath_`), `captainId`, and `vesselId`; paging is
+`pageNumber` and `pageSize` (1 to 1000, default 10). Visibility is the same as `get_cli_permission_request` (see
+[CLI Permissions](#cli-permissions)); each request carries the tool name, redacted `InputText`, `SummaryText`,
+`SuggestedRule`, captain, vessel, mission or thread, `Status`, `ExpiresUtc`, and the caller's `CanDecide` and
+`CanRemember`. It replaces the removed `list_cli_permission_requests` tool (D-017), whose `limit` stopped at 1000.
+REST: `POST /api/v1/cli-permissions/requests/enumerate`.
+
+```json
+{ "entityType": "cli_permission_requests", "status": "Pending", "pageSize": 25 }
+```
+
+`entityType` `cli_permission_rules` (filters `vesselId` and `captainId`) replaces the removed
+`list_cli_permission_rules` tool (D-013).
 
 ---
 
@@ -1011,14 +1029,14 @@ Who may call what:
 | Tool | Caller |
 |---|---|
 | `cli_permission_prompt` | Only a captain's own mission- or Ask-thread-scoped session (a presented session token); every other caller gets `Forbidden` |
-| `list_cli_permission_requests`, `get_cli_permission_request` | Any authenticated person: global admins see every request, tenant admins their tenant, other users requests from their own Ask threads and missions. Captain sessions get an empty list (and `NotFound` by id) |
+| `enumerate` (`cli_permission_requests`), `get_cli_permission_request` | Any authenticated person: global admins see every request, tenant admins their tenant, other users requests from their own Ask threads and missions. Captain sessions get an empty page (and `NotFound` by id) |
 | `decide_cli_permission_request` | A global admin, a tenant admin of the request's tenant, or the owner when `Permissions.AllowOwnerApproval` is true; `AllowAndRemember` needs an admin. Requires a presented credential: captain sessions and the unauthenticated loopback identity get `Forbidden`, so a captain can never approve its own prompt |
-| `list_cli_permission_rules` | Any authenticated person (the caller's tenant plus rules for every tenant; captain sessions get an empty list) |
+| `enumerate` (`cli_permission_rules`) | Any authenticated person (the caller's tenant plus rules for every tenant; captain sessions get an empty page) |
 | `create_cli_permission_rule`, `update_cli_permission_rule`, `delete_cli_permission_rule` | TenantAdmin: global admins (any tenant, or every tenant), tenant admins (their own tenant) |
 | `set_captain_cli_permission_policy` | TenantAdmin: a global admin or a tenant admin of the captain's tenant; never a captain session |
 
-In an Ask conversation, `cli_permission_prompt` bypasses the proposal gate (an approver answers it instead), the three
-readers run like other read-only tools, and the decide, rule, and policy tools are refused outright with `Forbidden`
+In an Ask conversation, `cli_permission_prompt` bypasses the proposal gate (an approver answers it instead), the readers
+(`enumerate` and `get_cli_permission_request`) run like other read-only tools, and the decide, rule, and policy tools are refused outright with `Forbidden`
 (never proposed), so a captain cannot get its own prompts approved through a proposal.
 
 ### cli_permission_prompt
@@ -1058,21 +1076,6 @@ Denied (by an approver, a rule, expiry, or cancellation):
 
 A session whose mission or thread no longer exists gets `NotFound`.
 
-### list_cli_permission_requests
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `status` | string | No | `Pending`, `Allowed`, `Denied`, `Expired`, or `Cancelled` |
-| `missionId` | string | No | Mission filter (`msn_`) |
-| `threadId` | string | No | Ask thread filter (`ath_`) |
-| `captainId` | string | No | Captain filter (`cpt_`) |
-| `vesselId` | string | No | Vessel filter (`vsl_`) |
-| `limit` | int | No | 1-1000, default 100 |
-
-**Response:** `{ "count": 1, "limit": 100, "truncated": false, "requests": [CliPermissionRequest, ...] }`, newest first. `count` is the number returned; `truncated` is true when `limit` was reached, so more requests exist (raise `limit` or narrow the filters). Each request carries the tool
-name, redacted `InputText`, `SummaryText`, `SuggestedRule`, captain, vessel, mission or thread, `Status`, `ExpiresUtc`,
-and the caller's `CanDecide` and `CanRemember`.
-
 ### get_cli_permission_request
 
 | Parameter | Type | Required | Description |
@@ -1094,18 +1097,6 @@ Allow once, allow and remember, or deny a pending request; the waiting captain c
 | `ruleScope` | string | No | `Global`, `Vessel`, or `Captain` (default `Captain`) for that rule |
 
 **Response:** the decided CliPermissionRequest. `Conflict` when it is no longer pending.
-
-### list_cli_permission_rules
-
-> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns every rule in one result. Use `enumerate` with `entityType` `cli_permission_rules` (`vesselId` and `captainId` filter). It keeps working unchanged until then.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `scope` | string | No | `Global`, `Vessel`, or `Captain` |
-| `vesselId` | string | No | Vessel filter (`vsl_`) |
-| `captainId` | string | No | Captain filter (`cpt_`) |
-
-**Response:** `{ "count": 1, "rules": [CliPermissionRule, ...] }`.
 
 ### create_cli_permission_rule
 
@@ -1269,6 +1260,41 @@ an edited built-in is never overwritten by seeding. **Response:** the updated Fa
 next time the Admiral starts; disable it (`enabled` false) to keep it out of classification.
 
 ---
+
+## Handoff Artifacts
+
+A handoff artifact (`hoa_`) is the durable, versioned record one stage attempt hands to the next stage: numbered
+findings (file, line, severity, required fix), acceptance criteria, required actions, check results (passed, failed,
+skipped with a reason, could not run), commit references, protocol lines, the full stage output and the full diff (or
+where to regenerate it). Armada stores one per stage attempt, linked to its stage outcome. At launch the next stage
+receives a budgeted rendering of it whose pointer names `get_handoff_artifact` and the artifact id when the captain has
+Armada MCP tools. The shapes, the budget and the delivery order are in
+[REST_API.md](REST_API.md#handoff-artifacts); the tools enforce the same access rules through the same service.
+
+| Tool | Caller |
+|---|---|
+| `get_handoff_artifact`, `list_handoff_artifacts` | Any authenticated person: global admins every tenant, everyone else their own tenant. A captain session (mission-scoped token) sees its own voyage, or its own mission and the stage it depends on. Ask sessions get `Forbidden` |
+
+Errors are `McpToolError`s: `NotFound` (missing or out of scope), `Forbidden` (an Ask session) and `InvalidArgument`
+(arguments that do not parse). A missing required argument is refused by the MCP layer before the tool runs.
+
+### get_handoff_artifact
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `artifactId` | string | Yes | Artifact ID (`hoa_`) |
+
+**Response:** the complete HandoffArtifact, with `output` and `diff`.
+
+### list_handoff_artifacts
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `missionId` | string | Yes | Mission ID (`msn_`) |
+| `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 25) |
+
+**Response:** `EnumerationResult<HandoffArtifact>` (`objects`, `totalRecords`, `totalPages`), newest first, without
+`output` and `diff` (their lengths stay).
 
 ## Evaluate
 
@@ -2426,7 +2452,7 @@ Returns the cancelled mission. Cancelling stops the mission's agent first: the c
 
 ### restart_mission
 
-Restart a Failed, LandingFailed, or Cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description (instructions) before restarting. Clears the captain assignment, dock, PR URL, commit, failure, review, and timing fields. A later pipeline stage keeps the previous stage's branch (a first stage starts on a fresh branch), a finished voyage is reopened, and the stages cancelled because this one failed are restored to Pending. `Conflict` for any other status.
+Restart a Failed, LandingFailed, or Cancelled mission, resetting it to `Pending` for re-dispatch, or start a `Pending` mission as it is. Optionally update the title and description (instructions) before restarting. A failed or cancelled mission has the captain assignment, dock, PR URL, commit, failure, review, and timing fields cleared; a Pending one keeps every other field. A later pipeline stage keeps the previous stage's branch (a first stage starts on a fresh branch), a finished voyage is reopened, and the stages cancelled because this one failed are restored to Pending. The mission is then dispatched at once when a captain is free under the normal dispatch rules, and the result shows it `Assigned` or `InProgress`; otherwise it stays `Pending` (not an error) for the regular dispatcher. `Conflict` for any other status.
 
 **Input Schema:**
 
@@ -3242,7 +3268,7 @@ Register a new captain (AI agent).
   "type": "object",
   "properties": {
     "name": { "type": "string", "description": "Captain display name" },
-    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, Custom" },
+    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, Pi, ApiEndpoint, Custom" },
     "model": { "type": "string", "description": "Optional model override for this captain. When omitted, the runtime chooses automatically" },
     "modelEndpointId": { "type": "string", "description": "Managed inference endpoint ID (mep_ prefix) for an ApiEndpoint captain; persona priorities with runtime ApiEndpoint and this endpoint select it" },
     "reasoningEffort": { "type": "string", "description": "Reasoning effort: Off, Minimal, Low, Medium, or High. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort). Ignored by runtimes without a control." },
@@ -3267,7 +3293,7 @@ Register a new captain (AI agent).
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | Yes | Captain display name |
-| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, or `Custom` |
+| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, `Pi`, or `Custom` |
 | `model` | string | No | Optional model override. When omitted, the runtime chooses automatically |
 | `reasoningEffort` | string | No | Reasoning effort: `Off`, `Minimal`, `Low`, `Medium`, or `High`. Translated to each runtime's native control at launch |
 | `tier` | string | No | Capability tier for dispatch routing: `Economy`, `Standard`, or `Premium`. Empty/null auto-classifies from the model name |
@@ -3282,7 +3308,7 @@ Register a new captain (AI agent).
 | `muxMaxTokens` | integer | No | Optional Mux max tokens override (Mux runtime only) |
 | `muxSystemPromptPath` | string | No | Optional Mux system prompt file path (Mux runtime only) |
 | `muxApprovalPolicy` | string | No | Optional Mux approval policy override (Mux runtime only) |
-| `autoApprove` | boolean | No | Whether the CLI captain runs with its auto-approve or permission-bypass flag (default `true`). `false` runs it without auto-approve where the runtime supports it (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, Mux deny) |
+| `autoApprove` | boolean | No | Whether the CLI captain runs with its auto-approve or permission-bypass flag (default `true`). `false` runs it without auto-approve where the runtime supports it (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, pi --exclude-tools bash,powershell, Mux deny) |
 
 **Response:** [Captain](#captain) object. Invalid or unavailable models are returned as MCP tool errors. A taken name returns `{ "Error": "A captain named '...' already exists.", "ErrorCode": "Conflict", "Code": "DuplicateEntity" }`. The Mux options apply only when `runtime` is `Mux`.
 
@@ -3340,7 +3366,7 @@ Update a captain's properties (name, runtime, model, tier, personas, Mux options
   "properties": {
     "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" },
     "name": { "type": "string", "description": "New display name" },
-    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, Custom" },
+    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, Pi, ApiEndpoint, Custom" },
     "model": { "type": "string", "description": "New optional model override for this captain" },
     "modelEndpointId": { "type": "string", "description": "Managed inference endpoint ID (mep_ prefix) for an ApiEndpoint captain; empty string clears it, omitting it keeps it" },
     "reasoningEffort": { "type": "string", "description": "Reasoning effort: Off, Minimal, Low, Medium, or High. Empty string clears it. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort)." },
@@ -3366,7 +3392,7 @@ Update a captain's properties (name, runtime, model, tier, personas, Mux options
 |---|---|---|---|
 | `captainId` | string | Yes | Captain ID (prefix `cpt_`) |
 | `name` | string | No | New display name |
-| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, or `Custom` |
+| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, `Pi`, or `Custom` |
 | `model` | string | No | New optional model override. When omitted, the existing value is preserved |
 | `reasoningEffort` | string | No | Reasoning effort: `Off`, `Minimal`, `Low`, `Medium`, or `High`. Empty string clears it |
 | `tier` | string | No | Capability tier: `Economy`, `Standard`, or `Premium`. Empty string clears it (auto-classify from model) |
@@ -3751,6 +3777,262 @@ Delete a playbook by ID. Existing mission snapshots remain immutable.
 
 ---
 
+### get_workflow_profile
+
+Get a workflow profile by ID, including every command stage checks run and its environments. Requires an authenticated
+caller; a regular user sees the tenant's tenant-wide profiles plus their own user-specific ones, and another tenant's
+profile is `NotFound`.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Workflow profile ID (wfp_ prefix)" }
+  },
+  "required": ["id"]
+}
+```
+
+**Example:** `{ "id": "wfp_abc123" }`
+
+**Response:** [WorkflowProfile](#workflowprofile) object, or `{ "Error": "Workflow profile not found", "ErrorCode": "NotFound" }`.
+
+---
+
+### create_workflow_profile
+
+Create a workflow profile in the caller's tenant (a global admin may pass `tenantId`). Requires TenantAdmin, as
+`POST /api/v1/workflow-profiles` does. The definition is validated first (the same `WorkflowProfileService` validation
+REST uses): at least one command is required, `Fleet` scope needs `fleetId`, `Vessel` scope needs `vesselId`, environment
+names must be unique, and required inputs must name known environments. A `fleetId` or `vesselId` outside the caller's
+tenant is refused as `InvalidArgument` "... not found". Setting `isDefault` clears the default flag on the other profiles
+at the same scope.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "tenantId": { "type": "string", "description": "Tenant to create the profile in (global admins only; ignored for everyone else)" },
+    "name": { "type": "string", "description": "Human-readable profile name" },
+    "description": { "type": "string", "description": "Optional description" },
+    "scope": { "type": "string", "enum": ["Global", "Fleet", "Vessel"], "description": "Application scope: Global (default), Fleet (needs fleetId), or Vessel (needs vesselId)" },
+    "fleetId": { "type": "string", "description": "Fleet ID for a Fleet-scoped profile (flt_ prefix)" },
+    "vesselId": { "type": "string", "description": "Vessel ID for a Vessel-scoped profile (vsl_ prefix)" },
+    "isDefault": { "type": "boolean", "description": "Whether this is the default profile at its scope" },
+    "active": { "type": "boolean", "description": "Whether the profile is active (default true)" },
+    "ownershipScope": { "type": "string", "enum": ["UserSpecific", "TenantWide"], "description": "Ownership: UserSpecific (only you) or TenantWide (default for administrators); only tenant and global admins may change it" },
+    "languageHints": { "type": "array", "items": { "type": "string" } },
+    "lintCommand": { "type": "string" },
+    "buildCommand": { "type": "string" },
+    "unitTestCommand": { "type": "string" },
+    "integrationTestCommand": { "type": "string" },
+    "e2eTestCommand": { "type": "string" },
+    "migrationCommand": { "type": "string" },
+    "securityScanCommand": { "type": "string" },
+    "performanceCommand": { "type": "string" },
+    "packageCommand": { "type": "string" },
+    "deploymentVerificationCommand": { "type": "string" },
+    "rollbackVerificationCommand": { "type": "string" },
+    "publishArtifactCommand": { "type": "string" },
+    "releaseVersioningCommand": { "type": "string" },
+    "changelogGenerationCommand": { "type": "string" },
+    "requiredInputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["EnvironmentVariable", "FilePath", "DirectoryPath", "AwsSecretsManager", "AzureKeyVaultSecret", "HashiCorpVault", "OnePassword"] },
+          "key": { "type": "string" },
+          "environmentName": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["key"]
+      }
+    },
+    "expectedArtifacts": { "type": "array", "items": { "type": "string" } },
+    "environments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "environmentName": { "type": "string" },
+          "deployCommand": { "type": "string" },
+          "rollbackCommand": { "type": "string" },
+          "smokeTestCommand": { "type": "string" },
+          "healthCheckCommand": { "type": "string" },
+          "deploymentVerificationCommand": { "type": "string" },
+          "rollbackVerificationCommand": { "type": "string" }
+        },
+        "required": ["environmentName"]
+      }
+    }
+  },
+  "required": ["name"]
+}
+```
+
+**Example:**
+
+```json
+{
+  "name": "dotnet service",
+  "scope": "Vessel",
+  "vesselId": "vsl_abc123",
+  "buildCommand": "dotnet build",
+  "unitTestCommand": "dotnet test",
+  "environments": [{ "environmentName": "staging", "deployCommand": "./deploy.sh staging", "healthCheckCommand": "curl -f https://staging/health" }]
+}
+```
+
+**Response:** the created [WorkflowProfile](#workflowprofile), or `{ "Error": "At least one build, test, release, deploy, verification, migration, security, or performance command is required.", "ErrorCode": "InvalidArgument" }`.
+
+---
+
+### update_workflow_profile
+
+Partially update a workflow profile. Only the fields you pass change; omitted fields keep their stored values. Pass an
+empty string to clear a command, `fleetId`, or `vesselId`. Lists (`languageHints`, `requiredInputs`, `expectedArtifacts`,
+`environments`) replace the stored list when passed. The merged profile is validated before it is saved, so a rejected
+update changes nothing; an edited profile is no longer replaced by Armada's generated defaults. Requires TenantAdmin, as
+`PUT /api/v1/workflow-profiles/{id}` does; a profile in another tenant is `NotFound`, and a profile the caller may not
+edit is `Forbidden`.
+
+**Input Schema:** the [create_workflow_profile](#create_workflow_profile) properties without `tenantId`, plus
+`"id": { "type": "string", "description": "Workflow profile ID (wfp_ prefix)" }`; only `id` is required.
+
+**Example:** change only the unit test command:
+
+```json
+{ "id": "wfp_abc123", "unitTestCommand": "dotnet test --no-build" }
+```
+
+**Response:** the updated [WorkflowProfile](#workflowprofile).
+
+---
+
+### delete_workflow_profile
+
+Delete a workflow profile by ID. Requires TenantAdmin. This cannot be undone.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Workflow profile ID (wfp_ prefix)" }
+  },
+  "required": ["id"]
+}
+```
+
+**Response:**
+
+```json
+{ "Status": "deleted", "WorkflowProfileId": "wfp_..." }
+```
+
+---
+
+### delete_workflow_profiles
+
+Permanently delete several workflow profiles by ID (the MCP form of `POST /api/v1/workflow-profiles/delete/multiple`).
+Requires TenantAdmin. Ids that are empty, missing, in another tenant, or not editable by the caller are skipped with a
+reason instead of failing the batch.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "ids": { "type": "array", "items": { "type": "string" }, "description": "List of workflow profile IDs to delete (wfp_ prefix)" }
+  },
+  "required": ["ids"]
+}
+```
+
+**Example:** `{ "ids": ["wfp_abc123", "wfp_def456"] }`
+
+**Response:**
+
+```json
+{ "Status": "PartiallyDeleted", "Deleted": 1, "Skipped": [{ "Id": "wfp_def456", "Reason": "Not found" }] }
+```
+
+---
+
+### validate_workflow_profile
+
+Validate a workflow-profile definition without saving it. Requires TenantAdmin, as `POST /api/v1/workflow-profiles/validate`
+does. Takes the same properties as [create_workflow_profile](#create_workflow_profile) (without `tenantId`); `name` is
+required.
+
+**Example:** `{ "name": "draft", "buildCommand": "make", "unitTestCommand": "make test" }`
+
+**Response:** `WorkflowProfileValidationResult`:
+
+```json
+{
+  "IsValid": true,
+  "Errors": [],
+  "Warnings": [],
+  "AvailableCheckTypes": ["Build", "UnitTest"],
+  "CommandPreviews": [{ "CheckType": "Build", "EnvironmentName": null, "Command": "make" }]
+}
+```
+
+---
+
+### resolve_workflow_profile
+
+Resolve the workflow profile that applies to a vessel: the explicit `workflowProfileId` when given, otherwise the vessel's
+assigned profile, then vessel, fleet, and global precedence (the same resolution stage checks use). Requires an
+authenticated caller who can see the vessel.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" },
+    "workflowProfileId": { "type": "string", "description": "Optional explicit workflow profile override (wfp_ prefix)" }
+  },
+  "required": ["vesselId"]
+}
+```
+
+**Example:** `{ "vesselId": "vsl_abc123" }`
+
+**Response:** the resolved [WorkflowProfile](#workflowprofile), or `NotFound` with `Vessel not found` or `No workflow profile could be resolved for this vessel`.
+
+---
+
+### preview_workflow_profile
+
+Preview the commands a vessel would run: resolves the profile as [resolve_workflow_profile](#resolve_workflow_profile)
+does and returns the fully resolved command set. Same input schema and permissions as `resolve_workflow_profile`.
+
+**Example:** `{ "vesselId": "vsl_abc123", "workflowProfileId": "wfp_abc123" }`
+
+**Response:**
+
+```json
+{
+  "ResolvedProfile": { "Id": "wfp_abc123", "Name": "dotnet service" },
+  "ResolutionMode": "Explicit",
+  "AvailableCheckTypes": ["Build", "UnitTest"],
+  "CommandPreviews": [{ "CheckType": "UnitTest", "EnvironmentName": null, "Command": "dotnet test" }]
+}
+```
+
+---
+
 ### get_merge_entry
 
 Get details of a specific merge queue entry.
@@ -3773,7 +4055,9 @@ Get details of a specific merge queue entry.
 
 ### enqueue_merge
 
-Add a branch to the merge queue for testing and merging.
+Automatic completion remains blocked after a confirmed Failed stage check until a later check clears it. A CouldNotRun or TimedOut check is never treated as passing: the work proceeds to landing unverified and reaches Complete only after a confirmed landing. Local landing without a diff snapshot or confirmed source branch retains WorkProduced and preserves the branch. Resume-in-flight missions are excluded from orphan completion; an unconfirmed orphan exit holds work in WorkProduced for recovery.
+
+Add a branch to the merge queue for testing and merging. A Complete mission is refused as already landed only when it records a commit or its branch is confirmed contained in the target. Complete without landing evidence returns a Conflict describing the status mismatch; unavailable repositories do not establish landing.
 
 **Input Schema:**
 
@@ -4395,7 +4679,7 @@ Start a structured check run for a vessel using the resolved workflow profile or
     "workflowProfileId": { "type": "string", "description": "Optional workflow profile override (wfp_ prefix)" },
     "missionId": { "type": "string", "description": "Optional linked mission ID (msn_ prefix)" },
     "voyageId": { "type": "string", "description": "Optional linked voyage ID (vyg_ prefix)" },
-    "type": { "type": "string", "description": "Check type such as Build, UnitTest, IntegrationTest, Deploy, SmokeTest, HealthCheck, or ReleaseVersioning" },
+    "type": { "type": "string", "description": "Check type such as Build, UnitTest, AbbreviatedUnitTest, IntegrationTest, Deploy, SmokeTest, HealthCheck, or ReleaseVersioning" },
     "environmentName": { "type": "string", "description": "Optional environment name for deploy/rollback/verification checks" },
     "label": { "type": "string", "description": "Optional display label" },
     "branchName": { "type": "string", "description": "Optional branch association" },
@@ -4820,7 +5104,7 @@ Create a custom persona.
     "promptTemplateName": { "type": "string", "description": "Name of the prompt template to use for this persona" },
     "defaultCaptainId": { "type": "string", "description": "Optional default (preferred) captain id (cpt_ prefix) for this persona" },
     "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide" },
-    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
+    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "Pi", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
     "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
     "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
   },
@@ -4884,7 +5168,7 @@ Update persona properties.
     "promptTemplateName": { "type": "string", "description": "New prompt template name" },
     "defaultCaptainId": { "type": "string", "description": "Default (preferred) captain id (cpt_ prefix); an empty string clears it, and omitting it keeps it" },
     "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide" },
-    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
+    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "Pi", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
     "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
     "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
   },
@@ -5747,6 +6031,28 @@ Paginated result wrapper returned by `enumerate`.
 | `LastUpdateUtc` | string | ISO 8601 last update timestamp |
 | `Scope` | string | Armada.Core.Enums.ScopeEnum value. Ownership scope: tenant-wide playbooks are visible to everyone in the tenant but editable only by tenant/global admins; user-specific playbooks are owned by `UserId`. Defaults tenant-wide. |
 
+#### WorkflowProfile
+
+| Field | Type | Description |
+|---|---|---|
+| `Id` | string | Workflow profile ID (prefix `wfp_`) |
+| `TenantId` | string \| null | Owning tenant |
+| `UserId` | string \| null | Owning user |
+| `OwnershipScope` | string | `TenantWide` (visible to the tenant, editable by tenant/global admins) or `UserSpecific` (owned by `UserId`) |
+| `Name` | string | Profile name |
+| `Description` | string \| null | Description |
+| `Scope` | string | Application scope: `Global`, `Fleet`, or `Vessel` |
+| `FleetId` / `VesselId` | string \| null | Target for `Fleet` / `Vessel` scope |
+| `IsDefault` | bool | Default profile at its scope (at most one) |
+| `Active` | bool | Whether the profile is used for resolution |
+| `SourceTemplate` | string \| null | Set when Armada generated the profile; cleared once a person edits it |
+| `LanguageHints` | string[] | Language or framework hints |
+| `LintCommand`, `BuildCommand`, `UnitTestCommand`, `IntegrationTestCommand`, `E2ETestCommand`, `MigrationCommand`, `SecurityScanCommand`, `PerformanceCommand`, `PackageCommand`, `DeploymentVerificationCommand`, `RollbackVerificationCommand`, `PublishArtifactCommand`, `ReleaseVersioningCommand`, `ChangelogGenerationCommand` | string \| null | Commands stage checks and delivery helpers run |
+| `RequiredInputs` | object[] | `{ Provider, Key, EnvironmentName, Description }` secret or configuration references |
+| `ExpectedArtifacts` | string[] | Expected build or release artifacts |
+| `Environments` | object[] | `{ EnvironmentName, DeployCommand, RollbackCommand, SmokeTestCommand, HealthCheckCommand, DeploymentVerificationCommand, RollbackVerificationCommand }` |
+| `CreatedUtc` / `LastUpdateUtc` | string | ISO 8601 timestamps |
+
 #### SelectedPlaybook
 
 | Field | Type | Description |
@@ -5978,7 +6284,7 @@ Returned by `health_check_model_endpoints`.
 | Value | Description |
 |---|---|
 | `LocalMerge` | Merge the branch into the default branch in the vessel's working directory; nothing is pushed |
-| `MergeAndPush` | Merge the branch into the default branch in the vessel's working directory, then push it to the remote (the default) |
+| `MergeAndPush` | Integrate and verify in the mission dock, then push the exact verified commit to the remote target branch (the default); a dirty developer checkout is left untouched |
 | `PullRequest` | Create a pull request and poll for merge confirmation |
 | `MergeQueue` | Enqueue the branch into Armada's merge queue |
 | `None` | No automated landing: the mission stops at `WorkProduced` with its work on the branch, to be merged by hand (the dashboard and TUI offer Merge in Manage Branches). The Admiral moves it to `Complete` once its commit is contained in the target branch, checked right after a Manage Branches merge and on every health check |
@@ -6059,6 +6365,7 @@ Returned by `health_check_model_endpoints`.
 | `Cursor` | Cursor agent CLI |
 | `Mux` | Mux CLI |
 | `OpenCode` | OpenCode CLI (OpenAI-compatible providers) |
+| `Pi` | pi coding agent CLI (pi.dev; many providers) |
 | `Custom` | Custom agent runtime |
 
 ---

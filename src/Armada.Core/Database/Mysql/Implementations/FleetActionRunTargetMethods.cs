@@ -46,9 +46,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             await MysqlCommandHelper.WriteAsync(_ConnectionString, _WriteLock, async (MySqlConnection conn, MySqlTransaction tx) =>
             {
                 await MysqlCommandHelper.ExecuteAsync(conn, tx, @"INSERT INTO fleet_action_run_targets
-                    (id, tenant_id, run_id, vessel_id, vessel_name, status, skip_reason, failure_reason, rendered_text, exit_code, output_text, error_text, output_truncated, voyage_id, started_utc, completed_utc, duration_ms, created_utc, last_update_utc)
+                    (id, tenant_id, run_id, vessel_id, vessel_name, status, skip_reason, failure_reason, rendered_text, exit_code, output_text, error_text, output_truncated, voyage_id, started_utc, completed_utc, duration_ms, created_utc, last_update_utc, scan_summary)
                     VALUES
-                    (@id, @tenant_id, @run_id, @vessel_id, @vessel_name, @status, @skip_reason, @failure_reason, @rendered_text, @exit_code, @output_text, @error_text, @output_truncated, @voyage_id, @started_utc, @completed_utc, @duration_ms, @created_utc, @last_update_utc);",
+                    (@id, @tenant_id, @run_id, @vessel_id, @vessel_name, @status, @skip_reason, @failure_reason, @rendered_text, @exit_code, @output_text, @error_text, @output_truncated, @voyage_id, @started_utc, @completed_utc, @duration_ms, @created_utc, @last_update_utc, @scan_summary);",
                     cmd => Bind(cmd, target), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -97,7 +97,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     rendered_text = @rendered_text, exit_code = @exit_code, output_text = @output_text,
                     error_text = @error_text, output_truncated = @output_truncated, voyage_id = @voyage_id,
                     started_utc = @started_utc, completed_utc = @completed_utc, duration_ms = @duration_ms,
-                    created_utc = @created_utc, last_update_utc = @last_update_utc
+                    created_utc = @created_utc, scan_summary = @scan_summary, last_update_utc = @last_update_utc
                     WHERE id = @id;", cmd => Bind(cmd, target), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -177,6 +177,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             MysqlCommandHelper.AddDate(cmd, "@completed_utc", target.CompletedUtc);
             MysqlCommandHelper.Add(cmd, "@duration_ms", target.DurationMs);
             MysqlCommandHelper.AddDate(cmd, "@created_utc", target.CreatedUtc);
+            MysqlCommandHelper.Add(cmd, "@scan_summary", target.ScanSummary);
             MysqlCommandHelper.AddDate(cmd, "@last_update_utc", target.LastUpdateUtc);
         }
 
@@ -202,6 +203,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             target.DurationMs = MysqlCommandHelper.ReadNullableLong(reader["duration_ms"]);
             target.CreatedUtc = MysqlCommandHelper.ReadDate(reader["created_utc"]);
             target.LastUpdateUtc = MysqlCommandHelper.ReadDate(reader["last_update_utc"]);
+            target.ScanSummary = MysqlCommandHelper.ReadString(reader["scan_summary"]);
             return target;
         }
 

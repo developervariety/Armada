@@ -298,6 +298,8 @@ namespace Test.Shared.Suites.E2E
                 HttpResponseMessage response = await authClient.GetAsync("/api/v1/status/health");
                 HealthResponse health = await JsonHelper.DeserializeAsync<HealthResponse>(response);
                 Assert(health.Version != null, "Health check should include Version");
+                AssertEqual(Armada.Server.BuildIdentity.InformationalVersion, health.BuildVersion, "Build identity comes from the loaded server assembly");
+                AssertEqual(Armada.Server.BuildIdentity.CommitHash, health.CommitHash, "Commit is embedded at build time");
             }));
 
             cases.Add(CaseAsync("get_health_has_uptime", "GetHealth_HasUptime", TestTags.Positive, async () =>

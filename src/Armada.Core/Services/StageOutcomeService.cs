@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Reflection;
     using System.Security.Cryptography;
     using System.Text;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -37,6 +38,7 @@ namespace Armada.Core.Services
         private readonly LoggingModule _Logging;
         private readonly StageProvenanceProbe? _Provenance;
         private readonly Func<DockHostResolver?>? _DockHosts;
+        private readonly HandoffArtifactService _HandoffArtifacts;
         private static readonly string _ArmadaVersion = ReadArmadaVersion();
 
         #endregion
@@ -58,6 +60,7 @@ namespace Armada.Core.Services
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Provenance = provenance;
             _DockHosts = dockHosts;
+            _HandoffArtifacts = new HandoffArtifactService(database, logging);
         }
 
         #endregion
@@ -88,8 +91,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Record the outcome of a stage attempt whose exit the caller handled. Reads the mission as it is now (after
-        /// Armada acted on the exit) to decide the disposition, then classifies the cause. Never throws for a storage
-        /// problem: the outcome is diagnostic and must not disturb the exit handling.
+        /// Armada acted on the exit) to decide the disposition, then classifies the cause, and stores the attempt's handoff
+        /// artifact linked to the outcome (<see cref="HandoffArtifactService"/>). Never throws for a storage problem: the
+        /// outcome is diagnostic and must not disturb the exit handling.
         /// </summary>
         /// <param name="capture">What the exit handler captured.</param>
         /// <param name="token">Cancellation token.</param>
@@ -111,6 +115,9 @@ namespace Armada.Core.Services
                 StageOutcome stored = await _Database.StageOutcomes.CreateAsync(outcome, token).ConfigureAwait(false);
                 if (stored.Disposition == StageDispositionEnum.Completed)
                     await LinkEscalationsAsync(stored, mission, capture.DockId, token).ConfigureAwait(false);
+
+                // Every attempt also leaves its handoff artifact for the next stage, linked to this outcome.
+                await _HandoffArtifacts.RecordAttemptAsync(mission, capture.StageCheck, capture.Captain, stored, token).ConfigureAwait(false);
                 return stored;
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
@@ -277,6 +284,7 @@ namespace Armada.Core.Services
             await ReadProvenanceAsync(captain, outcome, endpointRead, token).ConfigureAwait(false);
 
             DecideDisposition(capture, mission, outcome);
+            outcome.ContractRepairKind = await ReadContractRepairKindAsync(mission, capture, token).ConfigureAwait(false);
             if (PersonaCatalog.Matches(outcome.Persona, PersonaCatalog.Judge))
             {
                 outcome.JudgeVerdict = JudgeVerdictParser.Parse(mission.AgentOutput).ToString();
@@ -284,6 +292,37 @@ namespace Armada.Core.Services
             }
 
             return outcome;
+        }
+
+        /// <summary>
+        /// The contract repair recorded for this attempt: the latest <c>mission.contract_repaired</c> event of the mission
+        /// written since the attempt started. Null without a start time (the window cannot be bounded), without a repair,
+        /// or when the event cannot be read; the outcome must still be recorded.
+        /// </summary>
+        private async Task<ContractRepairKindEnum?> ReadContractRepairKindAsync(Mission mission, StageAttemptCapture capture, CancellationToken token)
+        {
+            if (!capture.StartedUtc.HasValue) return null;
+            try
+            {
+                EnumerationResult<ArmadaEvent> repairs = await _Database.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = mission.Id,
+                    EventType = ContractRepair.EventType,
+                    CreatedAfter = capture.StartedUtc.Value,
+                    PageSize = 1,
+                    Order = EnumerationOrderEnum.CreatedDescending
+                }, token).ConfigureAwait(false);
+                ArmadaEvent? latest = repairs.Objects.FirstOrDefault();
+                if (latest == null || String.IsNullOrWhiteSpace(latest.Payload)) return null;
+                ContractRepairRecord? record = JsonSerializer.Deserialize<ContractRepairRecord>(latest.Payload!);
+                if (record == null || record.RepairKind == ContractRepairKindEnum.None) return null;
+                return record.RepairKind;
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Warn(_Header + "could not read the contract repair for mission " + mission.Id + ": " + ex.Message);
+                return null;
+            }
         }
 
         /// <summary>

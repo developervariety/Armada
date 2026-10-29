@@ -5,7 +5,7 @@ namespace Armada.Core.Models
     /// the dashboard, the mobile app, and the TUI so an operator can see how the model performed. Durations are
     /// measured by the server on the monotonic clock (see <see cref="Armada.Core.Services.ChatTurnTelemetryRecorder"/>);
     /// token counts and cost come from the runtime's own usage report where it has one (Claude Code's stream-json
-    /// result, Codex's turn.completed usage, OpenCode's step_finish), and completion tokens are otherwise estimated
+    /// result, Codex's turn.completed usage, OpenCode's step_finish, pi's assistant message_end usage), and completion tokens are otherwise estimated
     /// from the reply length (<see cref="TokensEstimated"/>).
     /// </summary>
     public class CaptainChatMetrics
@@ -64,7 +64,7 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Cost of the turn in US dollars, when reported by the runtime (Claude Code's total_cost_usd, OpenCode's
-        /// per-step cost).
+        /// per-step cost, pi's per-response usage.cost.total).
         /// </summary>
         public double? CostUsd { get; set; } = null;
 

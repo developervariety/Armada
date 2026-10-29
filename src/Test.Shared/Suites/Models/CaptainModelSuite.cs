@@ -120,7 +120,7 @@ namespace Test.Shared.Suites.Models
                 AssertTrue(builtIn.SupportsPlanningSessions);
                 AssertNull(builtIn.PlanningSessionSupportReason);
                 AssertFalse(custom.SupportsPlanningSessions);
-                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, Mux, and OpenCode runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
+                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, and Pi runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
             }));
 
             cases.Add(Case("planning_support_matches_runtime_adapter", "Captain planning support matches the runtime adapter for every runtime (ApiEndpoint unsupported, OpenCode supported)", TestTags.Negative, () =>
@@ -131,6 +131,9 @@ namespace Test.Shared.Suites.Models
                 Captain openCode = new Captain("oc", AgentRuntimeEnum.OpenCode);
                 AssertTrue(openCode.SupportsPlanningSessions, "OpenCode supports planning");
                 AssertNull(openCode.PlanningSessionSupportReason);
+                Captain pi = new Captain("pi", AgentRuntimeEnum.Pi);
+                AssertTrue(pi.SupportsPlanningSessions, "Pi supports planning");
+                AssertNull(pi.PlanningSessionSupportReason);
 
                 SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
                 logging.Settings.EnableConsole = false;

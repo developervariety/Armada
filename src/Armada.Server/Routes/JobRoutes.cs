@@ -2,6 +2,8 @@ namespace Armada.Server.Routes
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading.Tasks;
     using WatsonWebserver;
     using WatsonWebserver.Core;
@@ -21,6 +23,11 @@ namespace Armada.Server.Routes
 
         private readonly DatabaseDriver _database;
         private readonly JobService _jobs;
+        private static readonly JsonSerializerOptions _BodyJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
 
         #endregion
 
@@ -61,38 +68,55 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
 
-                // With pageNumber, pageSize, status, or kind: one filtered page (the dashboard header polls
-                // status=Queued,Running). Without any of them: every job in scope, as before.
-                if (JobQuery.TryFromQuerystring(key => req.Query.GetValueOrDefault(key), out JobQuery? query, out string? queryError))
-                {
-                    if (!ctx.IsAdmin) query!.TenantId = ctx.TenantId;
-                    if (!ctx.IsAdmin && !ctx.IsTenantAdmin) query!.UserId = ctx.UserId;
-                    return (object)await _database.Jobs.EnumeratePageAsync(query!).ConfigureAwait(false);
-                }
-                if (queryError != null)
+                // Always one page: without parameters, the first page of 100 (there is no unpaged form).
+                if (!JobQuery.TryFromQuerystring(key => req.Query.GetValueOrDefault(key), out JobQuery? query, out string? queryError))
                 {
                     req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = queryError };
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = queryError ?? "Invalid job query" };
                 }
 
-                List<Job> jobs = ctx.IsAdmin
-                    ? await _database.Jobs.EnumerateAsync().ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Jobs.EnumerateAsync(ctx.TenantId!).ConfigureAwait(false)
-                        : await _database.Jobs.EnumerateAsync(ctx.TenantId!, ctx.UserId!).ConfigureAwait(false);
-                return (object)new { Success = true, Objects = jobs, TotalRecords = jobs.Count };
+                ScopeJobQuery(ctx, query!);
+                return (object)await _database.Jobs.EnumeratePageAsync(query!).ConfigureAwait(false);
             },
             api => api
                 .WithResponse(200, OpenApiResponseMetadata.Create("Successful response"))
                 .WithTag("Jobs")
-                .WithSummary("List background jobs")
-                .WithDescription("Returns background jobs newest first, scoped to the caller. With any of pageNumber, pageSize "
-                    + "(1-1000, default 100), status (comma-separated: Queued, Running, Succeeded, Failed, Cancelled), or kind, "
-                    + "returns one page as an enumeration result; without them, returns every job in scope.")
+                .WithSummary("List one page of background jobs")
+                .WithDescription("Returns one page of background jobs newest first, scoped to the caller: pageNumber, pageSize "
+                    + "(1-1000, default 100), status (comma-separated: Queued, Running, Succeeded, Failed, Cancelled), and kind. "
+                    + "Without parameters it returns the first page; it never returns every job.")
                 .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Page number (1-based)", false, OpenApiSchemaMetadata.Integer()))
                 .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size, 1-1000 (default 100)", false, OpenApiSchemaMetadata.Integer()))
                 .WithParameter(OpenApiParameterMetadata.Query("status", "Comma-separated job statuses, e.g. Queued,Running", false))
                 .WithParameter(OpenApiParameterMetadata.Query("kind", "Job kind, e.g. Report", false))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/jobs/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string body = req.Http.Request.DataAsString;
+                JobQuery query = String.IsNullOrWhiteSpace(body)
+                    ? new JobQuery()
+                    : JsonSerializer.Deserialize<JobQuery>(body, _BodyJsonOptions) ?? new JobQuery();
+                if (Int32.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber)) query.PageNumber = pageNumber;
+                if (Int32.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize)) query.PageSize = pageSize;
+                ScopeJobQuery(ctx, query);
+                return (object)await _database.Jobs.EnumeratePageAsync(query).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Jobs")
+                .WithSummary("Enumerate background jobs")
+                .WithDescription("One page of background jobs newest first, scoped to the caller. The JSON body (JobQuery) carries "
+                    + "Statuses, Kind, PageNumber, and PageSize (1-1000, default 100); pageNumber and pageSize querystring values override it.")
+                .WithRequestBody(OpenApiJson.BodyFor<JobQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Job>>("One page"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
@@ -156,6 +180,17 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("Conflicts with the current state"))
                 .WithSecurity("ApiKey"));
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static void ScopeJobQuery(AuthContext ctx, JobQuery query)
+        {
+            // Body tenant/user values are honored only as a global admin's narrowing filter.
+            if (!ctx.IsAdmin) query.TenantId = ctx.TenantId;
+            if (!ctx.IsAdmin && !ctx.IsTenantAdmin) query.UserId = ctx.UserId;
         }
 
         #endregion

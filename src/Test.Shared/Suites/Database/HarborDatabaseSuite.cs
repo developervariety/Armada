@@ -56,14 +56,15 @@ namespace Test.Shared.Suites.Database
                 harbor.Capabilities.Add(new HarborCapability { Name = "codex" });
                 Harbor created = await testDb.Driver.Harbors.CreateAsync(harbor).ConfigureAwait(false);
 
-                created.Capabilities = new List<HarborCapability> { new HarborCapability { Name = "opencode" } };
+                created.Capabilities = new List<HarborCapability> { new HarborCapability { Name = "opencode" }, new HarborCapability { Name = "Pi", Available = true, Detail = "/Users/u/.local/bin/pi" } };
                 created.ConnectionStatus = HarborConnectionStatusEnum.Connected;
                 await testDb.Driver.Harbors.UpdateAsync(created).ConfigureAwait(false);
 
                 Harbor? reloaded = await testDb.Driver.Harbors.ReadAsync(created.Id).ConfigureAwait(false);
                 AssertNotNull(reloaded, "Expected Harbor to reload.");
-                AssertEqual(1, reloaded!.Capabilities.Count);
-                AssertEqual("opencode", reloaded.Capabilities[0].Name);
+                AssertEqual(2, reloaded!.Capabilities.Count);
+                AssertTrue(reloaded.Capabilities.Exists(c => c.Name == "opencode"), "Expected the opencode capability to round-trip.");
+                AssertTrue(reloaded.Capabilities.Exists(c => c.Name == "Pi" && c.Available && c.Detail == "/Users/u/.local/bin/pi"), "Expected the Pi runtime capability to round-trip.");
                 AssertEqual(HarborConnectionStatusEnum.Connected, reloaded.ConnectionStatus);
             }));
 

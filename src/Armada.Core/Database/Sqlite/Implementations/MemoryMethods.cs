@@ -191,6 +191,29 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<EnumerationResult<Memory>> EnumerateAsync(MemoryEnumerateRequest query, string? tenantId, string? ownerUserId, string? viewerUserId, CancellationToken token = default)
+        {
+            if (query == null) query = new MemoryEnumerateRequest();
+
+            MemoryEnumerateQuery sql = MemoryEnumerateQueryBuilder.Build(query, tenantId, ownerUserId, viewerUserId);
+            Action<SqliteCommand> bind = cmd => BindParameters(cmd, sql.Parameters);
+
+            using (SqliteConnection conn = new SqliteProviderConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                long total = await SqliteCommandHelper.CountAsync(conn, "SELECT COUNT(*)" + sql.FromClause + sql.WhereClause + ";", bind, token).ConfigureAwait(false);
+                List<Memory> rows = await SqliteCommandHelper.QueryAsync(conn,
+                    "SELECT " + MemoryEnumerateQueryBuilder.SelectColumns + sql.FromClause + sql.WhereClause + sql.OrderByClause + SqliteCommandHelper.Page(query.Offset, query.PageSize) + ";",
+                    bind, MemoryFromReader, token).ConfigureAwait(false);
+
+                foreach (Memory memory in rows)
+                    memory.Tags = await LoadTagsAsync(conn, memory.Id, token).ConfigureAwait(false);
+
+                return EnumerationResult<Memory>.Create(query, rows, total);
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<bool> ExistsAnyAsync(CancellationToken token = default)
         {
             using (SqliteConnection conn = new SqliteProviderConnection(_Driver.ConnectionString))
@@ -361,6 +384,16 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)memory.VesselId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(memory.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(memory.LastUpdateUtc));
+        }
+
+
+        private static void BindParameters(SqliteCommand cmd, List<QueryParameter> parameters)
+        {
+            foreach (QueryParameter parameter in parameters)
+            {
+                if (parameter.Value is DateTime dt) SqliteCommandHelper.AddDate(cmd, parameter.Name, dt);
+                else SqliteCommandHelper.Add(cmd, parameter.Name, parameter.Value);
+            }
         }
 
         private static Memory MemoryFromReader(SqliteDataReader reader)
