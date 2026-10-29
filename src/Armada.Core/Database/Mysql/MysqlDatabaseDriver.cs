@@ -738,7 +738,9 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(124, "Persist local context search vectors", ContextEmbeddingSchema.MysqlStatements),
                 new SchemaMigration(125, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.MysqlStatements),
                 new SchemaMigration(126, "Persist per-attempt provenance records", MissionAttemptProvenanceSchema.MysqlStatements),
-                new SchemaMigration(127, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.MysqlStatements)
+                new SchemaMigration(127, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.MysqlStatements),
+                new SchemaMigration(128, "Persist the unread reply count of saved Ask threads",
+                    @"ALTER TABLE ask_threads ADD COLUMN unread_count INT NOT NULL DEFAULT 0;")
             };
         }
 

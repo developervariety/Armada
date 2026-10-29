@@ -1439,3 +1439,13 @@ Both tools require a global administrator.
 ### Compact voyage status fields
 
 `armada_voyage_status` with `summary:false` and `includeMissions:true` returns bounded mission details. Set `includeDescription:true` to include mission description previews. A nonempty `includeFields` list includes report previews only when it contains `output`; omitted or empty fields retain the default bounded report preview. Each preview remains limited to 4096 characters with `Truncated` and `FullLength` metadata. Use `armada_mission_output` for paged full reports.
+
+### 8.29 Saved Ask Conversations
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_list_ask_threads`, `armada_get_ask_thread` |
+
+Both tools read the conversations the authenticated human caller owns. No tool in
+this group sends a message, approves or rejects a proposal, changes a conversation
+or deletes one. See [Saved Ask Conversations](MCP_API.md#saved-ask-conversations).

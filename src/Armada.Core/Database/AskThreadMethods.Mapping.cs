@@ -21,6 +21,7 @@ namespace Armada.Core.Database
             AddUtc(command, "@created_utc", "ask_threads", "created_utc", thread.CreatedUtc);
             AddUtc(command, "@last_activity_utc", "ask_threads", "last_activity_utc", thread.LastActivityUtc);
             Add(command, "@active_turn_id", thread.ActiveTurnId);
+            Add(command, "@unread_count", thread.UnreadCount);
         }
 
         private static AskThread ReadThread(DbDataReader reader)
@@ -31,7 +32,8 @@ namespace Armada.Core.Database
                 Title = Text(reader, "title")!, CaptainId = Text(reader, "captain_id"),
                 Pinned = ProductionFactSql.ReadBool(reader["pinned"]), Archived = ProductionFactSql.ReadBool(reader["archived"]),
                 CreatedUtc = ProductionFactSql.ReadUtc(reader["created_utc"]), LastActivityUtc = ProductionFactSql.ReadUtc(reader["last_activity_utc"]),
-                ActiveTurnId = Text(reader, "active_turn_id")
+                ActiveTurnId = Text(reader, "active_turn_id"),
+                UnreadCount = Convert.ToInt32(reader["unread_count"], CultureInfo.InvariantCulture)
             };
         }
 

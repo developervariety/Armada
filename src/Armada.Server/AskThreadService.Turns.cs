@@ -66,6 +66,7 @@ namespace Armada.Server
             finally
             {
                 _Active.TryRemove(RuntimeKey(turn), out bool removed);
+                _Chat.DiscardLiveToolCalls(turn.ThreadId, turn.RequestId);
             }
         }
 

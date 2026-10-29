@@ -34,6 +34,7 @@ namespace Armada.Server.Routes
         public void Register(Webserver app, Func<HttpContextBase, Task<AuthContext>> authenticate, IAuthorizationService authz)
         {
             RegisterThreadRoutes(app, authenticate, authz);
+            RegisterUnreadRoutes(app, authenticate, authz);
             RegisterTurnRoutes(app, authenticate, authz);
         }
 
@@ -95,6 +96,41 @@ namespace Armada.Server.Routes
             }, api => api.WithTag("Ask Threads").WithSummary("Update saved thread metadata")
                 .WithRequestBody(OpenApiJson.BodyFor<AskThreadUpdateRequest>("Fields to update", true))
                 .WithResponse(200, OpenApiJson.For<AskThread>("Updated thread"))
+                .WithSecurity("ApiKey"));
+        }
+
+        private void RegisterUnreadRoutes(Webserver app, Func<HttpContextBase, Task<AuthContext>> authenticate, IAuthorizationService authz)
+        {
+            app.Post("/api/v1/ask/threads/{id}/read", async (ApiRequest req) =>
+            {
+                AuthContext caller = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(caller, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery)) return RouteAuthRefusal.Refuse(req, caller);
+                try
+                {
+                    AskThread? thread = await _Threads.MarkThreadReadAsync(caller, req.Parameters["id"]).ConfigureAwait(false);
+                    if (thread == null) return Error(req, 404, ApiResultEnum.NotFound, "Ask thread not found.");
+                    return thread;
+                }
+                catch (Exception ex) when (TryMapException(req, ex, out ApiErrorResponse error)) { return error; }
+            }, api => api.WithTag("Ask Threads").WithSummary("Mark a saved Ask thread read")
+                .WithResponse(200, OpenApiJson.For<AskThread>("Thread with its unread count cleared"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/ask/threads/{id}/unread", async (ApiRequest req) =>
+            {
+                AuthContext caller = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(caller, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery)) return RouteAuthRefusal.Refuse(req, caller);
+                try
+                {
+                    AskThread? thread = await _Threads.MarkThreadUnreadAsync(caller, req.Parameters["id"]).ConfigureAwait(false);
+                    if (thread == null) return Error(req, 404, ApiResultEnum.NotFound, "Ask thread not found.");
+                    return thread;
+                }
+                catch (Exception ex) when (TryMapException(req, ex, out ApiErrorResponse error)) { return error; }
+            }, api => api.WithTag("Ask Threads").WithSummary("Mark a saved Ask thread unread")
+                .WithResponse(200, OpenApiJson.For<AskThread>("Thread with its unread count set to one"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
         }
 

@@ -96,6 +96,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** Id of the signed-in user, or an empty string. Unlike useAuth it works outside an AuthProvider, for browser-local state keyed by user. */
+export function useAuthUserId(): string {
+  return useContext(AuthContext)?.user?.user?.id ?? '';
+}
+
 export function useAuth(): AuthState {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');

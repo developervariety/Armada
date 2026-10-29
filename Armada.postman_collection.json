@@ -11312,6 +11312,24 @@
 					}
 				},
 				{
+					"name": "Mark Saved Ask Thread Read",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/read", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "read"]},
+						"description": "Clear the unread reply count of an owned Ask thread."
+					}
+				},
+				{
+					"name": "Mark Saved Ask Thread Unread",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/unread", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "unread"]},
+						"description": "Set the unread reply count of an owned Ask thread to one."
+					}
+				},
+				{
 					"name": "Update Saved Ask Thread",
 					"request": {
 						"method": "PUT",

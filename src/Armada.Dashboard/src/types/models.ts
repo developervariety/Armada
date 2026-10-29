@@ -2857,6 +2857,18 @@ export interface CaptainChatResponse {
   metrics: CaptainChatMetrics;
   error: string | null;
   thinking?: string | null;
+  /** The tool calls the captain made during the turn, in call order. */
+  toolCalls?: ChatToolCall[];
+}
+
+/** One tool call a captain made during a saved chat turn. */
+export interface ChatToolCall {
+  id: string;
+  name: string;
+  status: 'running' | 'success' | 'failed';
+  arguments?: string | null;
+  result?: string | null;
+  elapsedMs?: number | null;
 }
 
 /** A durable Ask Armada conversation owned by the signed-in user. */
@@ -2871,6 +2883,8 @@ export interface AskThread {
   createdUtc: string;
   lastActivityUtc: string;
   activeTurnId: string | null;
+  /** Replies that finished since the owner last opened the conversation. Zero when read. */
+  unreadCount: number;
 }
 
 /** One durable user request and its stored captain response. */
@@ -2883,6 +2897,8 @@ export interface AskTurn {
   showThinking: boolean;
   state: 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Uncertain';
   response: CaptainChatResponse | null;
+  /** Tool calls a running turn has made so far. Empty once the response holds them. */
+  liveToolCalls?: ChatToolCall[];
   createdUtc: string;
   completedUtc: string | null;
 }

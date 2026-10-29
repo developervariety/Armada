@@ -13,7 +13,7 @@ namespace Armada.Core.Database
     /// <summary>Provider-neutral persistence for saved Ask threads and durable turns.</summary>
     public sealed partial class AskThreadMethods : IAskThreadMethods
     {
-        private const string _ThreadColumns = "id, tenant_id, user_id, title, captain_id, pinned, archived, created_utc, last_activity_utc, active_turn_id";
+        private const string _ThreadColumns = "id, tenant_id, user_id, title, captain_id, pinned, archived, created_utc, last_activity_utc, active_turn_id, unread_count";
         private const string _TurnColumns = "thread_id, request_id, sequence, captain_id, content, show_thinking, state, response_json, created_utc, completed_utc";
         private const string _TurnSelectColumns = "t.thread_id, t.request_id, t.sequence, t.captain_id, t.content, t.show_thinking, t.state, t.response_json, t.created_utc, t.completed_utc";
         private readonly Func<DbConnection> _ConnectionFactory;
@@ -44,7 +44,7 @@ namespace Armada.Core.Database
                 using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 using (DbCommand command = connection.CreateCommand())
                 {
-                    command.CommandText = "INSERT INTO ask_threads (" + _ThreadColumns + ") VALUES (@id, @tenant_id, @user_id, @title, @captain_id, @pinned, @archived, @created_utc, @last_activity_utc, @active_turn_id);";
+                    command.CommandText = "INSERT INTO ask_threads (" + _ThreadColumns + ") VALUES (@id, @tenant_id, @user_id, @title, @captain_id, @pinned, @archived, @created_utc, @last_activity_utc, @active_turn_id, @unread_count);";
                     BindThread(command, thread);
                     await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }

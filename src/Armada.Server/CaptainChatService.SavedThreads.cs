@@ -1,6 +1,7 @@
 namespace Armada.Server
 {
     using System;
+    using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
@@ -17,6 +18,29 @@ namespace Armada.Server
             if (turn == null) throw new ArgumentNullException(nameof(turn));
             return ChatWithScopeAsync(caller, turn.CaptainId, request,
                 WebSocketDeliveryScope.ForInteractiveOwner(caller.TenantId, caller.UserId), turn, token);
+        }
+
+        /// <summary>Read the tool calls a saved turn has made while it runs.</summary>
+        /// <param name="threadId">Thread identifier.</param>
+        /// <param name="requestId">Saved request identifier.</param>
+        /// <returns>The calls so far, or an empty list when the turn is not running here.</returns>
+        internal List<ChatToolCall> SnapshotLiveToolCalls(string threadId, string requestId)
+        {
+            return _LiveToolCalls.TryGetValue(LiveToolCallKey(threadId, requestId), out ChatToolCallRecorder? recorder)
+                ? recorder.Snapshot() : new List<ChatToolCall>();
+        }
+
+        /// <summary>Forget the live tool calls of a saved turn once its outcome is stored or abandoned.</summary>
+        /// <param name="threadId">Thread identifier.</param>
+        /// <param name="requestId">Saved request identifier.</param>
+        internal void DiscardLiveToolCalls(string threadId, string requestId)
+        {
+            _LiveToolCalls.TryRemove(LiveToolCallKey(threadId, requestId), out ChatToolCallRecorder? removed);
+        }
+
+        private static string LiveToolCallKey(string threadId, string requestId)
+        {
+            return threadId.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + threadId + requestId;
         }
     }
 }

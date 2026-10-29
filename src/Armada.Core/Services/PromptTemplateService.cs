@@ -1172,7 +1172,8 @@ namespace Armada.Core.Services
                     "\n" +
                     "## Style\n" +
                     "- Prefer short, direct answers. Use lists and code blocks only where they genuinely help.\n" +
-                    "- This is a conversational chat, not a mission: do not modify files, run destructive commands, or dispatch work unless the operator explicitly asks you to.\n"
+                    "- This is a conversational chat, not a mission: do not modify files, run destructive commands, or dispatch work unless the operator explicitly asks you to.\n" +
+                    "- At the end of a multi-step answer, recap in one or two sentences what is finished and what remains.\n"
             };
 
             defaults["agent.launch_prompt"] = new EmbeddedTemplate

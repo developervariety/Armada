@@ -1663,6 +1663,33 @@ non-hexadecimal SHA returns `Reason: commit_sha_not_full`; a dismissed or alread
 promoted proposal returns `Reason: proposal_not_open` and changes nothing. A
 promoted subject is not proposed again.
 
+## Saved Ask Conversations
+
+Two read-only tools list and read the saved Ask conversations of the authenticated
+caller. They are operator tools: they are not caller-scoped, so a mission caller and
+an Ask turn can neither list nor call them, and each handler also refuses a credential
+that is not a human owner. A caller sees only conversations it owns, as on the REST
+routes. No MCP tool sends a message, approves or rejects a proposal, changes a
+conversation or deletes one; those stay human actions. The stdio server does not
+register them.
+
+### armada_list_ask_threads
+
+List the caller's saved conversations, pinned first and then by newest activity.
+Args: optional `pageNumber` (default 1), `pageSize` (default 25, maximum 100) and
+`includeArchived` (default false). Returns the REST enumeration result. Each thread
+carries `id`, `title`, `captainId`, `pinned`, `archived`, `lastActivityUtc`,
+`activeTurnId` and `unreadCount`.
+
+### armada_get_ask_thread
+
+Read one conversation. Args: `threadId` (required), optional `beforeSequence`,
+`pageSize` (default 10, maximum 50) and `includeToolCalls` (default false). Returns
+`{ Thread, Turns }`, with turns oldest first inside the page. Page back by passing the
+first `sequence` of the previous page as `beforeSequence`. Tool-call cards are left out
+unless `includeToolCalls` is true. An unknown thread, or one the caller does not own,
+returns an `Error`.
+
 ## Captain Writes
 
 `armada_create_captain` accepts `name` (required), `runtime`, `model`, `apiKey`,

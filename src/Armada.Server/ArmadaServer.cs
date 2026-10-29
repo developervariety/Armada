@@ -197,6 +197,7 @@ namespace Armada.Server
         private TypedDispatchStalenessAdapter? _DispatchStalenessAdapter;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private AskActionService _AskActions = null!;
+        private AskThreadService? _AskThreads = null;
         private VesselCheckoutImportService _VesselCheckoutImports = null!;
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -1803,7 +1804,8 @@ namespace Armada.Server
                 _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
-            new AskThreadRoutes(new AskThreadService(_Database, captainChat))
+            _AskThreads = new AskThreadService(_Database, captainChat);
+            new AskThreadRoutes(_AskThreads)
                 .Register(_App, authenticate, _AuthorizationService);
             new AskActionRoutes(_AskActions).Register(_App, authenticate, _AuthorizationService);
 
@@ -2220,7 +2222,8 @@ namespace Armada.Server
                 missionOperations: _MissionOperations,
                 askActions: _AskActions,
                 vesselCheckoutImportService: _VesselCheckoutImports,
-                captainModelProbe: _CaptainModelProbe);
+                captainModelProbe: _CaptainModelProbe,
+                askThreads: _AskThreads);
 
         }
 

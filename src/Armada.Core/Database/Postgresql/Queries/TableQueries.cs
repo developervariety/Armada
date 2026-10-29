@@ -1237,7 +1237,9 @@ $convert$;"),
                 new SchemaMigration(135, "Persist local context search vectors", ContextEmbeddingSchema.PostgresqlStatements),
                 new SchemaMigration(136, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.PostgresqlStatements),
                 new SchemaMigration(137, "Persist per-attempt provenance records", MissionAttemptProvenanceSchema.PostgresqlStatements),
-                new SchemaMigration(138, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.PostgresqlStatements)
+                new SchemaMigration(138, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.PostgresqlStatements),
+                new SchemaMigration(139, "Persist the unread reply count of saved Ask threads",
+                    @"ALTER TABLE ask_threads ADD COLUMN IF NOT EXISTS unread_count INTEGER NOT NULL DEFAULT 0;")
             };
         }
 

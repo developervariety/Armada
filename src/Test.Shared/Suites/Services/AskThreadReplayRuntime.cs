@@ -24,6 +24,7 @@ namespace Test.Shared.Suites.Services
         public string Prompt { get; private set; } = String.Empty;
         public bool AutoComplete { get; set; } = true;
         public string Reply { get; set; } = "Saved assistant reply";
+        public List<string> Lines { get; set; } = new List<string>();
         public TaskCompletionSource<bool> Started { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<int> StartAsync(string workingDirectory, string prompt, Dictionary<string, string>? environment = null,
@@ -37,8 +38,14 @@ namespace Test.Shared.Suites.Services
             return Task.FromResult(1900000001);
         }
 
+        public void Emit(string line)
+        {
+            OnStdoutReceived?.Invoke(1900000001, line);
+        }
+
         public void Complete()
         {
+            foreach (string line in Lines) OnStdoutReceived?.Invoke(1900000001, line);
             OnStdoutReceived?.Invoke(1900000001, Reply);
             OnOutputReceived?.Invoke(1900000001, Reply);
             GC.KeepAlive(OnTokenUsageReceived);

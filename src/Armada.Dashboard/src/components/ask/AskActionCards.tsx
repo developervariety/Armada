@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { decideAskProposal, listAskProposals, listAskWorkReports } from '../../api/client';
 import type { AskActionProposal, AskWorkReport } from '../../types/models';
 
 interface Props { threadId: string; busy: boolean; t: (value: string) => string; }
+
+// The detail page of a tracked mission or voyage. A job has no page of its own.
+function workPath(report: AskWorkReport): string | null {
+  if (report.kind === 'Mission') return `/missions/${encodeURIComponent(report.id)}`;
+  if (report.kind === 'Voyage') return `/voyages/${encodeURIComponent(report.id)}`;
+  return null;
+}
 
 export default function AskActionCards({ threadId, busy, t }: Props) {
   const [proposals, setProposals] = useState<AskActionProposal[]>([]);
@@ -102,10 +110,10 @@ export default function AskActionCards({ threadId, busy, t }: Props) {
     <div className="ask-action-heading"><h3>{t('Work reports')}</h3><button className="btn btn-sm" onClick={() => void loadWork(true)} disabled={refreshing}>{refreshing ? t('Refreshing…') : t('Refresh')}</button></div>
     {workError && <p className="ask-action-error" role="alert">{workError}</p>}
     {work.map((item) => <article className="card ask-action-card" key={`${item.kind}:${item.id}`}>
-      <div className="ask-action-card-title"><strong>{item.title}</strong><span className="badge">{item.deliveryState}</span></div>
+      <div className="ask-action-card-title"><strong>{workPath(item) ? <Link to={workPath(item)!}>{item.title}</Link> : item.title}</strong><span className="badge">{item.deliveryState}</span></div>
       <p>{item.summary}</p><p className="text-dim">{item.kind}: {item.status} · {item.producedWork ? t('Work produced') : t('Work not confirmed')} · {item.delivered ? t('Delivered') : t('Delivery not confirmed')}</p>
-      {item.parentMissionId && <p className="text-dim">{t('Parent mission')}: {item.parentMissionId}</p>}
-      {item.rescueMissionId && <p className="text-dim">{t('Rescue mission')}: {item.rescueMissionId}</p>}
+      {item.parentMissionId && <p className="text-dim">{t('Parent mission')}: <Link to={`/missions/${encodeURIComponent(item.parentMissionId)}`}>{item.parentMissionId}</Link></p>}
+      {item.rescueMissionId && <p className="text-dim">{t('Rescue mission')}: <Link to={`/missions/${encodeURIComponent(item.rescueMissionId)}`}>{item.rescueMissionId}</Link></p>}
       {item.producedWork && !item.delivered && <p className="ask-action-warning" role="status">{t('Work was produced; delivery is not confirmed.')}</p>}
       {item.kind === 'Job' && ['lost', 'unknown', 'missing'].includes(item.status.toLowerCase()) && <p className="text-dim" role="status">{t('The job outcome is unknown. Armada will not retry it automatically.')}</p>}
     </article>)}
