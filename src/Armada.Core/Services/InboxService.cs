@@ -143,6 +143,8 @@ namespace Armada.Core.Services
                 List<Mission> failed = await MissionsByStatusAsync(auth, MissionStatusEnum.Failed, token).ConfigureAwait(false);
                 foreach (Mission mission in failed)
                 {
+                    // An operator's own stop needs no attention (older stops were recorded as Failed).
+                    if (mission.FailureKind == MissionFailureKindEnum.OperatorAction) continue;
                     items.Add(new InboxItem
                     {
                         Kind = InboxItemKinds.Failed,

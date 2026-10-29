@@ -37,6 +37,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import { canEdit as canEditScoped, type ScopeViewer } from '../lib/scoping';
 import { buildRunbookDuplicatePayload } from '../lib/duplicates';
 import { cloneExecution, createDefaultParameter, createDefaultStep, RUNBOOK_CHECK_TYPES, RUNBOOK_EXECUTION_STATUSES } from '../lib/deliveryForms';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 interface RunbookPageState {
   prefillExecution?: Partial<RunbookExecutionStartRequest>;
@@ -50,6 +51,7 @@ export default function RunbookDetail() {
   const { isAdmin, isTenantAdmin, user } = useAuth();
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   const createMode = id === 'new';
@@ -273,13 +275,9 @@ export default function RunbookDetail() {
       message: t('Delete "{{title}}"? This removes the runbook definition and keeps existing executions only in the event log history.', { title: runbook.title }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteRunbook(runbook.id);
-          pushToast('warning', t('Runbook "{{title}}" deleted.', { title: runbook.title }));
-          navigate('/runbooks');
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'runbook', action: () => deleteRunbook(runbook.id), errorMessage: (err) => err instanceof Error ? err.message : t('Delete failed.') }))) return;
+        pushToast('warning', t('Runbook "{{title}}" deleted.', { title: runbook.title }));
+        navigate('/runbooks');
       },
     });
   }
@@ -479,6 +477,7 @@ export default function RunbookDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      {deletion.dialog}
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}
