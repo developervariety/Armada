@@ -162,6 +162,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The changed-files read behind the no-op completion gate and scope validation leaves out untracked scratch files (`.backup`, `.bak`, `.orig`, `.rej`, `.tmp`, `.swp`, `.swo`, `~` suffixes, `.DS_Store`, `Thumbs.db`). A Worker that wrote only an editor backup no longer counts as having produced work. Tracked and committed files count whatever their name.
 
+### Changelog-only landing conflicts
+
+- A landing merge, local or through the merge queue, that stops on `CHANGELOG.md` as its only unresolved path keeps both sides with a git union merge and completes the merge commit. Release-note entries added by concurrent missions no longer fail the landing. A conflict in any other file, or a `CHANGELOG.md` conflict missing its base, ours or theirs stage, fails as before.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

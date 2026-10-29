@@ -54,7 +54,9 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
    3. Create a temporary worktree from the current target branch.
    4. Merge the entry's branch into the worktree (`git merge`). A branch that strictly
       descends from the target lands as a fast-forward, with no merge commit.
-   5. If the merge conflicts, read the conflicted files (`git diff --name-only -z
+   5. If the merge stops on `CHANGELOG.md` alone (all three index stages present), keep
+      both sides with `git merge-file --union`, stage the result, and complete the merge
+      commit. Otherwise, if the merge conflicts, read the conflicted files (`git diff --name-only -z
       --diff-filter=U`, before `git merge --abort` clears them), classify the failure
       with those files and the diff size, mark the entry `Failed`, and move on.
    6. Read the landing evidence: the vessel record, every changed path

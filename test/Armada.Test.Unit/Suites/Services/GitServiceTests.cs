@@ -2492,6 +2492,82 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("MergeBranchLocalAsync keeps both sides when CHANGELOG.md is the only conflict", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_changelog_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string source = Path.Combine(rootDir, "source");
+                    string target = Path.Combine(rootDir, "target");
+                    SeedTemplateRepository(source);
+                    await File.WriteAllTextAsync(Path.Combine(source, "CHANGELOG.md"), "# Changelog\n\n- base entry\n").ConfigureAwait(false);
+                    await RunGitAsync(source, "add", "CHANGELOG.md").ConfigureAwait(false);
+                    await RunGitAsync(source, "commit", "-m", "Add changelog").ConfigureAwait(false);
+                    await RunGitAsync(source, "checkout", "-b", "armada/mission/changelog").ConfigureAwait(false);
+                    await File.AppendAllTextAsync(Path.Combine(source, "CHANGELOG.md"), "- mission entry\n").ConfigureAwait(false);
+                    await RunGitAsync(source, "commit", "-a", "-m", "Mission release note").ConfigureAwait(false);
+                    await RunGitAsync(source, "checkout", "main").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", source, target).ConfigureAwait(false);
+                    await RunGitAsync(target, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(target, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.AppendAllTextAsync(Path.Combine(target, "CHANGELOG.md"), "- target entry\n").ConfigureAwait(false);
+                    await RunGitAsync(target, "commit", "-a", "-m", "Target release note").ConfigureAwait(false);
+
+                    await CreateService().MergeBranchLocalAsync(target, source, "armada/mission/changelog", "main").ConfigureAwait(false);
+
+                    string changelog = await File.ReadAllTextAsync(Path.Combine(target, "CHANGELOG.md")).ConfigureAwait(false);
+                    AssertContains("- base entry", changelog);
+                    AssertContains("- mission entry", changelog, "the mission's entry is kept");
+                    AssertContains("- target entry", changelog, "the target's entry is kept");
+                    AssertFalse(changelog.Contains("<<<<<<<", StringComparison.Ordinal), "no conflict markers remain");
+                    AssertEqual("", (await RunGitAsync(target, "status", "--porcelain", "--untracked-files=all").ConfigureAwait(false)).Trim(), "the resolver leaves no stray files");
+                    AssertEqual(3, (await RunGitAsync(target, "rev-list", "--parents", "-n", "1", "HEAD").ConfigureAwait(false)).Trim().Split(' ').Length, "the landing is a merge commit");
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("MergeBranchLocalAsync still fails and restores the target when a code file conflicts beside CHANGELOG.md", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_changelog_code_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string source = Path.Combine(rootDir, "source");
+                    string target = Path.Combine(rootDir, "target");
+                    SeedTemplateRepository(source);
+                    await File.WriteAllTextAsync(Path.Combine(source, "CHANGELOG.md"), "# Changelog\n\n- base entry\n").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(source, "Program.cs"), "original line\n").ConfigureAwait(false);
+                    await RunGitAsync(source, "add", "CHANGELOG.md", "Program.cs").ConfigureAwait(false);
+                    await RunGitAsync(source, "commit", "-m", "Add changelog and code").ConfigureAwait(false);
+                    await RunGitAsync(source, "checkout", "-b", "armada/mission/code").ConfigureAwait(false);
+                    await File.AppendAllTextAsync(Path.Combine(source, "CHANGELOG.md"), "- mission entry\n").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(source, "Program.cs"), "mission line\n").ConfigureAwait(false);
+                    await RunGitAsync(source, "commit", "-a", "-m", "Mission change").ConfigureAwait(false);
+                    await RunGitAsync(source, "checkout", "main").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "clone", source, target).ConfigureAwait(false);
+                    await RunGitAsync(target, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(target, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.AppendAllTextAsync(Path.Combine(target, "CHANGELOG.md"), "- target entry\n").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(target, "Program.cs"), "target line\n").ConfigureAwait(false);
+                    await RunGitAsync(target, "commit", "-a", "-m", "Target change").ConfigureAwait(false);
+                    string targetBefore = (await RunGitAsync(target, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                    InvalidOperationException? failure = null;
+                    try { await CreateService().MergeBranchLocalAsync(target, source, "armada/mission/code", "main").ConfigureAwait(false); }
+                    catch (InvalidOperationException ex) { failure = ex; }
+
+                    AssertNotNull(failure, "a code conflict still fails the landing");
+                    AssertEqual(targetBefore, (await RunGitAsync(target, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "the target is restored");
+                    AssertEqual("", (await RunGitAsync(target, "status", "--porcelain", "--untracked-files=all").ConfigureAwait(false)).Trim(), "no merge state or stray files remain");
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
