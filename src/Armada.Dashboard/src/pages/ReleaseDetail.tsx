@@ -27,6 +27,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { joinList, RELEASE_STATUSES, splitList } from '../lib/deliveryForms';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 interface ReleasePrefillState {
   prefill?: ReleaseUpsertRequest;
@@ -39,6 +40,7 @@ export default function ReleaseDetail() {
   const navigate = useNavigate();
   const { isAdmin, isTenantAdmin } = useAuth();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   // The static route releases/new has no :id parameter; releases/:id with id "new" is the same page.
@@ -310,13 +312,9 @@ export default function ReleaseDetail() {
       message: t('Delete "{{title}}"? This removes only the release record.', { title: release.title }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteRelease(release.id);
-          pushToast('warning', t('Release "{{title}}" deleted.', { title: release.title }));
-          navigate('/releases');
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'release', action: () => deleteRelease(release.id), errorMessage: (err) => err instanceof Error ? err.message : t('Delete failed.') }))) return;
+        pushToast('warning', t('Release "{{title}}" deleted.', { title: release.title }));
+        navigate('/releases');
       },
     });
   }
@@ -416,6 +414,7 @@ export default function ReleaseDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      {deletion.dialog}
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}

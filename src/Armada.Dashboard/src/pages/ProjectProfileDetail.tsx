@@ -22,6 +22,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { canEdit as canEditScoped, type ScopeViewer } from '../lib/scoping';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 
 
@@ -47,6 +48,7 @@ export default function ProjectProfileDetail() {
   const { isAdmin, isTenantAdmin, user } = useAuth();
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
   const { t, formatDateTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   const createMode = id === 'new';
@@ -144,13 +146,9 @@ export default function ProjectProfileDetail() {
 
   async function handleDelete() {
     setConfirmOpen(false);
-    try {
-      await deleteProjectProfile(id!);
-      pushToast('warning', t('Project profile deleted.'));
-      navigate('/project-profiles');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Delete failed.'));
-    }
+    if (!(await deletion.run({ kind: 'projectProfile', action: () => deleteProjectProfile(id!), errorMessage: (err) => err instanceof Error ? err.message : t('Delete failed.') }))) return;
+    pushToast('warning', t('Project profile deleted.'));
+    navigate('/project-profiles');
   }
 
   async function loadPreview() {
@@ -197,6 +195,7 @@ export default function ProjectProfileDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonOpen} title={profile?.name || t('Project Profile')} data={profile} onClose={() => setJsonOpen(false)} />
+      {deletion.dialog}
       <ConfirmDialog
         open={confirmOpen}
         title={t('Delete Project Profile')}

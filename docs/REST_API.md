@@ -3389,7 +3389,7 @@ Manual `WorkProduced` or `Complete` returns HTTP 409 (MCP `Conflict`) while the 
 | `Testing` | `Review`, `InProgress`, `Complete`, `Failed` |
 | `Verifying` | Owned by the exit handler; manual handoff is refused; cancellation is allowed |
 | `Review` | `Complete`, `InProgress`, `Failed` |
-| `LandingFailed` | `WorkProduced`, `Failed`, `Cancelled` |
+| `LandingFailed` | `WorkProduced`, `Complete`, `Failed`, `Cancelled` |
 | `Complete` | (terminal) |
 | `Failed` | (terminal) |
 | `Cancelled` | (terminal) |
@@ -3916,6 +3916,8 @@ Lift a captain's quarantine, returning it to `Idle` and clearing the quarantine 
 #### POST /api/v1/captains/{id}/stop
 
 Stop a running captain through its owning lifecycle. The captain is recalled to idle only after exit is confirmed; a Harbor process handle is never treated as an Admiral-local PID.
+
+The mission the captain was running is set to `Cancelled` with failure kind `OperatorAction`, and its failure reason records who stopped it, through which surface, and when (for example `Stopped by operator (usr_...) via stop_captain (REST) at 2026-10-28T02:37:59Z.`). A `mission.stopped_by_operator` event carries the same data. Before the dock is reclaimed, uncommitted work in it is committed to the mission branch as `WIP: preserved on operator stop` and pushed, best effort; the commit hash is added to the failure reason and the event.
 
 **Permission:** TenantAdmin
 
@@ -8926,7 +8928,7 @@ An atomic unit of work assigned to a captain.
 | `CommitHash` | string? | null | Git commit hash captured on completion |
 | `DiffSnapshot` | string? | null | Always `null` in list/status responses to keep payloads compact. Use `GET /api/v1/missions/{id}/diff` to retrieve the full diff. |
 | `FailureReason` | string? | null | Human-readable reason for a failure or landing failure. Display text only; never parsed |
-| `FailureKind` | string? | null | Structured failure classification set where the failure happens: `Compile`, `TestFail`, `Timeout`, `LandingConflict`, `Crash`, `NoOp`, `Boundary`, `ScopeViolation`, `JudgeRejected`, `Infra`, `Unknown`, `ReviewDenied`, `DependencyFailed`, `MaxRuntimeExceeded`, `StallRecoveryExhausted`, `OperatorAction`, `InvalidOutput`. Autonomous recovery reads this field |
+| `FailureKind` | string? | null | Structured failure classification set where the failure happens: `Compile`, `TestFail`, `Timeout`, `LandingConflict`, `Crash`, `NoOp`, `Boundary`, `ScopeViolation`, `JudgeRejected`, `Infra`, `Unknown`, `ReviewDenied`, `DependencyFailed`, `MaxRuntimeExceeded`, `StallRecoveryExhausted`, `OperatorAction`, `InvalidOutput`, `Blocked`. Autonomous recovery reads this field |
 | `IsEvaluation` | bool | false | Evaluation work (fixture battery, model evaluation). Set at dispatch (`POST /api/v1/missions` body or the voyage's `IsEvaluation`); a mission created in an evaluation voyage, and every mission derived from it, is flagged too. Its stage outcomes are tagged `IsEvaluation` and excluded from production outcomes (`isEvaluation=false`). Also returned on mission summaries |
 | `WaitForVoyageWorkers` | bool | false | When true, a Worker waits for other implementation pipelines, including reviews and checks, to settle. Its own downstream stages and the Architect are excluded; reworks inherit the barrier (set from an architect plan's `waitForOtherMissions`) |
 | `Persona` | string? | null | Persona for this mission (`Worker`, `Architect`, `Judge`, ...); null means `Worker` |
