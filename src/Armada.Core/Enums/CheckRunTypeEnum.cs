@@ -101,6 +101,11 @@ namespace Armada.Core.Enums
         /// <summary>
         /// Caller-specified custom command.
         /// </summary>
-        Custom = 18
+        Custom = 18,
+
+        /// <summary>
+        /// Abbreviated (quick) unit-test execution using the workflow profile's abbreviated unit-test command.
+        /// </summary>
+        AbbreviatedUnitTest = 19
     }
 }

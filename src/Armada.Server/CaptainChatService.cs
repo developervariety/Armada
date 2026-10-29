@@ -316,6 +316,7 @@ namespace Armada.Server
 
                 bool isMux = captain.Runtime == AgentRuntimeEnum.Mux;
                 bool isOpenCode = captain.Runtime == AgentRuntimeEnum.OpenCode;
+                bool isPi = captain.Runtime == AgentRuntimeEnum.Pi;
                 bool isClaude = captain.Runtime == AgentRuntimeEnum.ClaudeCode;
                 bool isCodex = captain.Runtime == AgentRuntimeEnum.Codex;
                 string? reportedModel = null;
@@ -527,6 +528,61 @@ namespace Armada.Server
                         return;
                     }
 
+                    if (isPi && PiStreamEvent.TryParse(line, out PiStreamEvent? piEvent) && piEvent != null)
+                    {
+                        // pi --mode json: text deltas are reply text, thinking deltas are thinking, and tool executions
+                        // become tool-call chips (with pi's own durationMs). The raw JSON envelope never leaks.
+                        telemetry.ObservePi(piEvent);
+                        PiMessage? assistantEnd = piEvent.AssistantMessageEnd;
+                        if (assistantEnd != null)
+                        {
+                            lock (outputLock)
+                            {
+                                string? model = assistantEnd.ResponseModel ?? assistantEnd.Model;
+                                if (!String.IsNullOrWhiteSpace(model)) reportedModel = model;
+                            }
+                        }
+
+                        string? deltaText = piEvent.TextDelta;
+                        if (!String.IsNullOrEmpty(deltaText))
+                        {
+                            lock (outputLock)
+                            {
+                                if (output.Length < _MaxOutputChars) output.Append(deltaText);
+                            }
+                            emitChunk(deltaText!);
+                        }
+
+                        string? thinkingDelta = piEvent.ThinkingDelta;
+                        if (!String.IsNullOrEmpty(thinkingDelta) && showThinking)
+                        {
+                            lock (outputLock)
+                            {
+                                if (thinking.Length < _MaxOutputChars) thinking.Append(thinkingDelta);
+                            }
+                            emitThinking(thinkingDelta!);
+                        }
+
+                        if (piEvent.Type == PiStreamEvent.TypeToolExecutionStart)
+                        {
+                            emitTool(new CaptainToolActivity { Phase = "started", Id = piEvent.ToolCallId, Name = piEvent.ToolName, Arguments = Truncate(piEvent.Args, 4000) });
+                        }
+                        else if (piEvent.Type == PiStreamEvent.TypeToolExecutionEnd)
+                        {
+                            emitTool(new CaptainToolActivity
+                            {
+                                Phase = "completed",
+                                Id = piEvent.ToolCallId,
+                                Name = piEvent.ToolName,
+                                Ok = piEvent.IsError.HasValue ? !piEvent.IsError.Value : (bool?)null,
+                                ElapsedMs = piEvent.DurationMs,
+                                Result = Truncate(PiToolResult.TextOf(piEvent.Result), 16000)
+                            });
+                        }
+
+                        return;
+                    }
+
                     if (isCodex && CodexStreamEvent.TryParse(line, out CodexStreamEvent? codexEvent) && codexEvent != null)
                     {
                         // codex exec --json: a completed agent message is reply text, reasoning is thinking, and command
@@ -551,7 +607,7 @@ namespace Armada.Server
 
                 // Bind the captain's Armada MCP connection to the supplied session token. ApiEndpoint captains read the
                 // endpoint and token from the environment. Every CLI runtime (Claude Code, Codex, Gemini, Cursor, Mux,
-                // OpenCode) gets a per-launch override from CaptainThreadMcpPlanner that leaves the CLI's own login in
+                // OpenCode, Pi) gets a per-launch override from CaptainThreadMcpPlanner that leaves the CLI's own login in
                 // place (only on scoped turns, so the direct chat endpoint's behavior is unchanged).
                 Dictionary<string, string>? environment = null;
                 bool isolateLaunch = false;
@@ -707,7 +763,7 @@ namespace Armada.Server
 
                 // All timing is on the recorder's one monotonic base, so time to first token never exceeds the total
                 // and streaming always resolves. Real token counts come only from a runtime's own usage report (Claude
-                // Code's result event, Codex's turn.completed, OpenCode's step_finish, mux's run_completed usage in
+                // Code's result event, Codex's turn.completed, OpenCode's step_finish, pi's message_end, mux's run_completed usage in
                 // contract version 2); otherwise the shared builder estimates completion tokens from the reply, matching
                 // planning-session metrics. (Mux's finalEstimatedTokens is a whole-context estimate, not the reply, and is
                 // never used.)

@@ -933,7 +933,7 @@ namespace Armada.Server
                 assistantMessage.Metrics = telemetry.Build(assistantMessage.Content, null);
 
                 // Best-effort token accounting for the planning turn: the runtime's reported usage where it has one
-                // (Claude Code's result event, Codex, OpenCode, mux's run_completed usage), otherwise output estimated from the reply.
+                // (Claude Code's result event, Codex, OpenCode, pi, mux's run_completed usage), otherwise output estimated from the reply.
                 await Armada.Core.Services.TokenUsageCapture.CaptureAsync(
                     _Database, _Logging, "planning",
                     model: captain.Model,
@@ -1217,6 +1217,22 @@ namespace Armada.Server
                 // to stdout-only keeps CLI stderr banners (e.g. Codex's stdin/version preamble) out of the
                 // captured reply.
                 if (captain.Runtime == AgentRuntimeEnum.Mux && MuxRuntime.IsProtocolEventLine(line)) return;
+                if (captain.Runtime == AgentRuntimeEnum.Pi && PiRuntime.IsProtocolEventLine(line))
+                {
+                    // pi streams reply text as text_delta fragments: join them without adding line breaks, and drop
+                    // every other record (session header, thinking, tool calls, usage).
+                    string? piText = PiRuntime.TryExtractAssistantText(line);
+                    if (!String.IsNullOrEmpty(piText))
+                    {
+                        lock (outputLock)
+                        {
+                            output.Append(piText);
+                            BoundedTextBuffer.Trim(output, _MaxPlanningOutputChars);
+                        }
+                    }
+                    return;
+                }
+
                 if (captain.Runtime == AgentRuntimeEnum.OpenCode && OpenCodeRuntime.IsProtocolEventLine(line))
                 {
                     if (OpenCodeStreamEvent.TryParse(line, out OpenCodeStreamEvent? openCodeEvent) && openCodeEvent != null)
