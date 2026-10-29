@@ -310,7 +310,6 @@ namespace Test.Shared.Suites.Services
                     stage.Persona = "Worker";
                     stage.BranchName = "feature/prior-stage";
                     stage.CommitHash = "0123456789abcdef0123456789abcdef01234567";
-                    stage.AgentOutput = "prior-evidence-marker-7f3a";
                     string handoff = PipelineHandoffContext.Build(stage);
                     string taskHead = "task-head-marker";
                     string taskTail = "task-tail-beyond-prefix";
@@ -320,8 +319,7 @@ namespace Test.Shared.Suites.Services
                     AssertContains("## Prior Stage Output", handoff, "the handoff carries the prior-stage heading");
                     AssertContains("Branch: feature/prior-stage", handoff, "the handoff carries the branch");
                     AssertContains("Commit: 0123456789abcdef0123456789abcdef01234567", handoff, "the handoff carries the commit");
-                    AssertContains("mission_status/get_mission_diff", handoff, "the handoff carries the retrieval instruction");
-                    AssertContains("prior-evidence-marker-7f3a", handoff, "the handoff carries the evidence marker");
+                    AssertContains("list_handoff_artifacts", handoff, "the handoff carries the retrieval instruction");
 
                     string embedded = await RescueTaskTextAsync(testDb, coordinator, incidents, vessel.Id, task + handoff).ConfigureAwait(false);
                     string expected = task.Substring(0, 3000) + handoff;
@@ -329,20 +327,11 @@ namespace Test.Shared.Suites.Services
                     AssertTrue(embedded.Length <= 3000 + handoff.Length, "the preserved text stays within the task budget plus the handoff");
                     AssertFalse(embedded.Contains(taskTail, StringComparison.Ordinal), "task characters past the budget are omitted");
 
-                    string shortTask = "short-task-marker";
-                    Mission longStage = new Mission("Long prior stage", "Scoped acceptance criteria");
-                    longStage.Persona = "Worker";
-                    longStage.BranchName = "feature/long-prior-stage";
-                    longStage.CommitHash = "abcdef0123456789abcdef0123456789abcdef01";
-                    longStage.AgentOutput = "opening-evidence-marker\n" + new string('e', 8000) + "\nclosing-evidence-marker";
-                    string longHandoff = PipelineHandoffContext.Build(longStage);
-                    AssertTrue(shortTask.Length < 3000, "the short task fits in the task budget");
-                    AssertTrue(shortTask.Length + longHandoff.Length > 3000, "the short task plus the handoff exceeds the task budget");
-                    string shortEmbedded = await RescueTaskTextAsync(testDb, coordinator, incidents, vessel.Id, shortTask + longHandoff).ConfigureAwait(false);
-                    AssertEqual(shortTask + longHandoff, shortEmbedded, "a short task keeps the complete handoff");
-
-                    string handoffOnly = await RescueTaskTextAsync(testDb, coordinator, incidents, vessel.Id, longHandoff).ConfigureAwait(false);
-                    AssertEqual(longHandoff, handoffOnly, "a description that is the handoff keeps that block");
+                    Vessel handoffVessel = new Vessel("handoff-recovery-vessel", "https://github.com/test/handoff.git");
+                    handoffVessel.DefaultBranch = "main";
+                    handoffVessel = await testDb.Driver.Vessels.CreateAsync(handoffVessel).ConfigureAwait(false);
+                    string handoffOnly = await RescueTaskTextAsync(testDb, coordinator, incidents, handoffVessel.Id, handoff).ConfigureAwait(false);
+                    AssertEqual(handoff, handoffOnly, "a description that is the handoff keeps that block");
                 }
             }));
 
