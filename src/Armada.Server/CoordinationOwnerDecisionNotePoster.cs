@@ -87,8 +87,16 @@ namespace Armada.Server
         {
             try
             {
-                string? participant = _Database == null ? null
-                    : await VoyageDispatchOrigin.ReadAsync(_Database, mission, token).ConfigureAwait(false);
+                string? participant = null;
+                try
+                {
+                    if (_Database != null)
+                        participant = await VoyageDispatchOrigin.ReadAsync(_Database, mission, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    _Logging.Warn(_Header + "dispatch origin unavailable; blocked question stays on the board: " + ex.Message);
+                }
                 await _Coordination.PostMessageAsync(
                     CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.System,
                     authorId: null, authorName: "Mission Blocked", content: content,

@@ -1181,9 +1181,23 @@ namespace Armada.Server.Mcp.Tools
                     preflight = new
                     {
                         type = "object",
-                        description = "Recorded operator answers to the dispatch-preflight questions. This value is replaced with the preparation object.",
+                        description = "Recorded operator answers and changed-input review retry evidence. This value is replaced with the preparation object.",
                         properties = new
                         {
+                            reviewRetry = new
+                            {
+                                type = "object",
+                                description = "Operator evidence for a retry after two frozen-source Judge rejections. No stage or finding is waived.",
+                                properties = new
+                                {
+                                    judgeMissionId = new { type = "string" },
+                                    candidateHash = new { type = "string", maxLength = 40 },
+                                    inputHash = new { type = "string", maxLength = 64 },
+                                    changedInput = new { type = "string", maxLength = 2000 },
+                                    findingsEvidence = new { type = "string", maxLength = 2000 },
+                                    allFindingsAddressed = new { type = "boolean" }
+                                }
+                            },
                             questions = new
                             {
                                 type = "array",
