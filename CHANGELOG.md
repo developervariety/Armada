@@ -53,6 +53,17 @@ upstream integrations and excludes changes already present at that baseline.
 ### Saved Ask conversations over MCP
 
 - `armada_list_ask_threads` and `armada_get_ask_thread` read the authenticated human caller's saved conversations. They are read-only: no MCP tool sends, approves, rejects, changes or deletes. See [Saved Ask Conversations](docs/MCP_API.md#saved-ask-conversations).
+### Route authorization census
+
+- Every registered REST route outside the anonymous allow list rejects a caller with no credentials (HTTP 401). The allow list is the health check, login, tenant lookup, self-registration, and the dashboard shell. The OpenAPI document and Swagger UI now use the same authorization decision as other routes. No separate route registry was added.
+
+### Toolchain suggestion
+
+- `GET /api/v1/vessels/{id}/toolchain-suggestion` and `armada_suggest_vessel_toolchain` read marker files in a vessel working directory and return suggested build, test and lint commands for .NET, Node, Python, Go and Rust. The read does not create or change a workflow profile or a vessel command. See [GET /api/v1/vessels/{id}/toolchain-suggestion](docs/REST_API.md#get-apiv1vesselsidtoolchain-suggestion).
+
+### Abbreviated unit-test command
+
+- A workflow profile stores an optional `abbreviatedUnitTestCommand` beside `unitTestCommand`. Checks and the definition-of-done gate keep running `unitTestCommand`. See [Workflow Profiles](docs/OPERATIONAL_ASSETS.md#5-workflow-profiles).
 
 ### Mission captain tier
 

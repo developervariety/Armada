@@ -9,7 +9,7 @@ namespace Armada.Server.Mcp
     {
         private static readonly HashSet<string> _Reads = new HashSet<string>(StringComparer.Ordinal)
         {
-            "armada_status", "armada_enumerate", "armada_get_fleet", "armada_get_vessel",
+            "armada_status", "armada_enumerate", "armada_get_fleet", "armada_get_vessel", "armada_suggest_vessel_toolchain",
             "armada_get_captain", "armada_get_dock", "armada_voyage_status", "armada_mission_status",
             "armada_mission_output", "armada_get_mission_diff", "armada_get_mission_log",
             "armada_mission_change_summary", "armada_mission_attempts", "armada_job_status", "list_objectives", "get_objective",

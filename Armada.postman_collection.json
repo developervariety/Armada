@@ -2728,6 +2728,27 @@
 					}
 				},
 				{
+					"name": "Suggest Vessel Toolchain",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/toolchain-suggestion",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"vessels",
+								"{{vesselId}}",
+								"toolchain-suggestion"
+							]
+						},
+						"description": "Reads marker files in the vessel working directory and returns suggested build, test and lint commands. The read does not create or change a workflow profile or a vessel command."
+					}
+				},
+				{
 					"name": "Preview Landing Readiness",
 					"request": {
 						"method": "GET",

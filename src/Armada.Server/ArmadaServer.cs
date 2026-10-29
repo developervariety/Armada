@@ -8,8 +8,9 @@ namespace Armada.Server
     using System.Text.Json;
     using SyslogLogging;
     using WatsonWebserver;
-    using WatsonWebserver.Core;
-    using WatsonWebserver.Core.OpenApi;
+using WatsonWebserver.Core;
+using WatsonWebserver.Core.OpenApi;
+using WatsonWebserver.Core.Routing;
     using Armada.Core;
     using Armada.Core.Context;
     using ArmadaConstants = Armada.Core.Constants;
@@ -757,6 +758,10 @@ namespace Armada.Server
                 };
             });
 
+            // The library registers these paths with no authorization check.
+            // They use the same authorization decision as every other route.
+            RequireAuthenticationOnDocumentationRoutes();
+
             // Set timestamp on request start
             _App.Routes.PreRouting = async (HttpContextBase ctx) =>
             {
@@ -1438,6 +1443,49 @@ namespace Armada.Server
             {
                 _Logging.Warn(_Header + name + " ended with an error during shutdown: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// OpenAPI and Swagger routes the library registers do not check permission.
+        /// They use the same authorization decision as every other route.
+        /// </summary>
+        private void RequireAuthenticationOnDocumentationRoutes()
+        {
+            foreach (RoutingGroup group in new[] { _App.Routes.PreAuthentication, _App.Routes.PostAuthentication })
+            {
+                foreach (StaticRoute route in group.Static.GetAll())
+                {
+                    if (!IsDocumentationRoute(route.Path)) continue;
+                    Func<HttpContextBase, Task> serve = route.Handler;
+                    route.Handler = async ctx =>
+                    {
+                        AuthContext auth = await AuthenticateRequestAsync(ctx).ConfigureAwait(false);
+                        if (!_AuthorizationService.IsAuthorized(auth, ctx.Request.Method.ToString(), ctx.Request.Url.RawWithoutQuery))
+                        {
+                            bool authenticated = auth != null && auth.IsAuthenticated;
+                            ctx.Response.StatusCode = authenticated ? 403 : 401;
+                            ctx.Response.ContentType = "application/json";
+                            await ctx.Response.Send(JsonSerializer.Serialize(RouteAuthRefusal.Build(authenticated), _JsonOptions)).ConfigureAwait(false);
+                            return;
+                        }
+
+                        await serve(ctx).ConfigureAwait(false);
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// True for the OpenAPI document and the Swagger UI paths.
+        /// </summary>
+        /// <param name="path">Registered route path.</param>
+        /// <returns>Whether the path publishes API documentation.</returns>
+        private static bool IsDocumentationRoute(string path)
+        {
+            string normalized = (path ?? String.Empty).Trim().Trim('/').ToLowerInvariant();
+            return normalized == "openapi.json"
+                || normalized == "swagger"
+                || normalized.StartsWith("swagger/", StringComparison.Ordinal);
         }
 
         private async Task<AuthContext> AuthenticateRequestAsync(WatsonWebserver.Core.HttpContextBase ctx)

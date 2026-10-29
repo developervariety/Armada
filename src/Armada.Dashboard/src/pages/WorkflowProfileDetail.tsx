@@ -103,6 +103,7 @@ export default function WorkflowProfileDetail() {
   const [lintCommand, setLintCommand] = useState('');
   const [buildCommand, setBuildCommand] = useState('');
   const [unitTestCommand, setUnitTestCommand] = useState('');
+  const [abbreviatedUnitTestCommand, setAbbreviatedUnitTestCommand] = useState('');
   const [failedTestLinePattern, setFailedTestLinePattern] = useState('');
   const [isolatedTestRerunCommand, setIsolatedTestRerunCommand] = useState('');
   const [gateCommandTimeoutSeconds, setGateCommandTimeoutSeconds] = useState('');
@@ -171,6 +172,7 @@ export default function WorkflowProfileDetail() {
         setLintCommand(result.lintCommand || '');
         setBuildCommand(result.buildCommand || '');
         setUnitTestCommand(result.unitTestCommand || '');
+        setAbbreviatedUnitTestCommand(result.abbreviatedUnitTestCommand || '');
         setFailedTestLinePattern(result.failedTestLinePattern || '');
         setIsolatedTestRerunCommand(result.isolatedTestRerunCommand || '');
         setGateCommandTimeoutSeconds(result.gateCommandTimeoutSeconds != null ? String(result.gateCommandTimeoutSeconds) : '');
@@ -228,6 +230,7 @@ export default function WorkflowProfileDetail() {
       lintCommand: lintCommand.trim() || null,
       buildCommand: buildCommand.trim() || null,
       unitTestCommand: unitTestCommand.trim() || null,
+      abbreviatedUnitTestCommand: abbreviatedUnitTestCommand.trim() || null,
       failedTestLinePattern: failedTestLinePattern.trim() ? failedTestLinePattern : null,
       isolatedTestRerunCommand: isolatedTestRerunCommand.trim() || null,
       gateCommandTimeoutSeconds: gateCommandTimeoutSeconds.trim() ? Number(gateCommandTimeoutSeconds.trim()) : null,
@@ -618,6 +621,10 @@ export default function WorkflowProfileDetail() {
           <label className="playbook-editor-field">
             <span>{t('Unit Test Command')}</span>
             <textarea value={unitTestCommand} disabled={!canManage} onChange={(event) => setUnitTestCommand(event.target.value)} rows={3} />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Abbreviated Unit Test Command')}</span>
+            <textarea value={abbreviatedUnitTestCommand} disabled={!canManage} onChange={(event) => setAbbreviatedUnitTestCommand(event.target.value)} rows={2} />
           </label>
           <label className="playbook-editor-field">
             <span>{t('Failed Test Line Pattern')}</span>

@@ -1029,7 +1029,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(129, "Persist per-attempt provenance records", MissionAttemptProvenanceSchema.SqlServerStatements),
                 new SchemaMigration(130, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.SqlServerStatements),
                 new SchemaMigration(131, "Persist the unread reply count of saved Ask threads",
-                    @"IF COL_LENGTH('ask_threads', 'unread_count') IS NULL ALTER TABLE ask_threads ADD unread_count INT NOT NULL DEFAULT 0;")
+                    @"IF COL_LENGTH('ask_threads', 'unread_count') IS NULL ALTER TABLE ask_threads ADD unread_count INT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(132, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.SqlServerStatements)
             };
         }
 

@@ -428,6 +428,35 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/vessels/{id}/toolchain-suggestion", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+
+                string id = req.Parameters["id"];
+                Vessel? vessel = await Armada.Core.Authorization.CallerScopedRead.ReadVesselAsync(_database, ctx, id).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                ToolchainSuggestion suggestion = VesselToolchainDetector.Detect(vessel.WorkingDirectory);
+                suggestion.VesselId = vessel.Id;
+                return (object)suggestion;
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("Suggest toolchain commands for a vessel checkout")
+                .WithDescription("Reads marker files in the vessel working directory and returns suggested build, test and lint commands. The read does not create or change a workflow profile or a vessel command.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<ToolchainSuggestion>("Suggested commands"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/vessels/{id}/branches", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

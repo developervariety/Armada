@@ -1859,6 +1859,13 @@ create does, so its answer matches the create. Validation refuses a
 `failedTestLinePattern` that is not a valid .NET regular expression or has no
 named group `name`, a `gateInputPaths` entry that is rooted or holds a `..`
 segment, and a `gateCommandTimeoutSeconds` outside 30 to 3600.
+`abbreviatedUnitTestCommand` is stored and returned with the profile. Checks
+and the definition-of-done gate keep running `unitTestCommand`.
+
+`armada_suggest_vessel_toolchain` reads marker files in a vessel working
+directory and returns suggested build, test and lint commands. It does not
+create or change a workflow profile or a vessel command. The same read is
+`GET /api/v1/vessels/{id}/toolchain-suggestion`.
 
 ### Playbooks
 

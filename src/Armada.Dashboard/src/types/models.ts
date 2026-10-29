@@ -1064,6 +1064,7 @@ export interface WorkflowProfile {
   lintCommand: string | null;
   buildCommand: string | null;
   unitTestCommand: string | null;
+  abbreviatedUnitTestCommand?: string | null;
   failedTestLinePattern?: string | null;
   isolatedTestRerunCommand?: string | null;
   gateCommandTimeoutSeconds?: number | null;

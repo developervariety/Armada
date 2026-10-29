@@ -45,6 +45,17 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
+        /// Read the routes a running Admiral has registered.
+        /// </summary>
+        /// <param name="server">The Admiral.</param>
+        /// <returns>The route table.</returns>
+        public static ServedRouteTable FromServer(Armada.Server.ArmadaServer server)
+        {
+            if (server == null) throw new ArgumentNullException(nameof(server));
+            return FromRoutes(server.RestRoutes);
+        }
+
+        /// <summary>
         /// Read the table of the shared in-process Admiral for a suite.
         /// </summary>
         /// <param name="suiteKey">The suite instance acquiring the server.</param>
