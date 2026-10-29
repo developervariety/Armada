@@ -30,6 +30,13 @@ upstream integrations and excludes changes already present at that baseline.
 ### Test waits
 
 - Shared test waits that poll until a deadline use a monotonic clock, so a wall-clock jump does not shorten the wait. The budgets are unchanged.
+### Container base images
+
+- The Dashboard image builds on `node:22.23.4-alpine3.24` and serves from `nginx:1.31.8-alpine3.24`. The proxy image uses the same Node tag for its dashboard build, and its default .NET images are `mcr.microsoft.com/dotnet/sdk:10.0.403-noble` and `mcr.microsoft.com/dotnet/runtime:10.0.14-noble`. A proxy build argument still overrides a pin. The default runtime stage stays root, and the dashboard image has no non-root stage. See [Pinning base images](docs/DOCKER.md#pinning-base-images).
+
+### Dependency patches
+
+- Patch updates only: `Microsoft.Data.SqlClient` 7.0.3, `Microsoft.Data.Sqlite` 10.0.14, `SQLitePCLRaw.bundle_e_sqlite3` 3.0.5, `Microsoft.Extensions.FileSystemGlobbing` 10.0.14, `System.Security.Cryptography.Pkcs` 10.0.14 on `net10.0`, `PrettyId` 2.0.2, `SyslogLogging` 2.2.2, `Radiant` 0.1.3, and `xunit.runner.visualstudio` 4.0.1. Dashboard patch updates: React 19.2.9, React DOM 19.2.9, React Router 7.18.5, Testing Library React 16.3.3, user-event 14.6.8, and `@types/react-dom` 19.2.7. The `net8.0` PKCS pin stays 8.0.2.
 
 ### Added
 

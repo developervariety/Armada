@@ -303,7 +303,7 @@ Both scripts prompt for confirmation, stop containers, and delete local SQLite d
 
 ## Non-root Containers
 
-The default `armada-server` and `armada-proxy` images run as root. Each Dockerfile also defines a `runtime-nonroot` stage that runs the process as an unprivileged account. The default stage, `runtime`, is the last stage of each Dockerfile, so a build without `--target` produces the root image with the same user, paths and volumes as before. The dashboard image is unchanged.
+The default `armada-server` and `armada-proxy` images run as root. Each Dockerfile also defines a `runtime-nonroot` stage that runs the process as an unprivileged account. The default stage, `runtime`, is the last stage of each Dockerfile, so a build without `--target` produces the root image with the same user, paths and volumes as before. The dashboard image has no non-root stage. It uses the official nginx image, which runs as root.
 
 The `runtime-nonroot` stage takes two build arguments, `ARMADA_UID` and `ARMADA_GID` (both default to `1654`, the .NET base image's `app` user). It reuses an account that already holds the UID, or creates `armada`, and sets the account's home directory to `/home/armada` (mode `0700`). `/home/armada` and `/app/data` belong to that account. The application files under `/app` stay owned by root and are read-only to the account. UID and GID `0` fail the build.
 
@@ -379,14 +379,16 @@ The default image runs as root, and root can read and write files owned by any U
 
 ### Pinning base images
 
-The Dockerfiles default to the floating base tags. The base images are build arguments, so a build can pin an exact patch tag or a digest without editing a file:
+The Dashboard Dockerfile pins Node and nginx to exact patch tags. The proxy Dockerfile defaults are exact patch tags. The server image still defaults to the floating .NET SDK tag `10.0`, because that image carries the SDK so a vessel gate can honor a repository `global.json`. A proxy build argument overrides a default, including a digest:
 
 | Image | Build argument | Default |
 |-------|----------------|---------|
 | Server build and runtime | `SDK_IMAGE` | `mcr.microsoft.com/dotnet/sdk:10.0` |
-| Proxy build | `SDK_IMAGE` | `mcr.microsoft.com/dotnet/sdk:10.0` |
-| Proxy runtime | `RUNTIME_IMAGE` | `mcr.microsoft.com/dotnet/runtime:10.0` |
-| Proxy dashboard build | `NODE_IMAGE` | `node:20-alpine` |
+| Proxy build | `SDK_IMAGE` | `mcr.microsoft.com/dotnet/sdk:10.0.403-noble` |
+| Proxy runtime | `RUNTIME_IMAGE` | `mcr.microsoft.com/dotnet/runtime:10.0.14-noble` |
+| Proxy dashboard build | `NODE_IMAGE` | `node:22.23.4-alpine3.24` |
+| Dashboard build | none (Dockerfile `FROM`) | `node:22.23.4-alpine3.24` |
+| Dashboard runtime | none (Dockerfile `FROM`) | `nginx:1.31.8-alpine3.24` |
 
 ```bash
 docker build -f src/Armada.Proxy/Dockerfile \

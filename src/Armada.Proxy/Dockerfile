@@ -1,10 +1,10 @@
-# Base images. The defaults are the floating tags. Pass an exact patch tag or a digest to pin a build:
+# Base images. The defaults are exact patch tags. Pass a build argument to override a pin, including a digest:
 #   --build-arg SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:<patch>-noble
 #   --build-arg RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:<patch>-noble
 #   --build-arg NODE_IMAGE=node:<patch>-alpine<version>
-ARG SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0
-ARG RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:10.0
-ARG NODE_IMAGE=node:20-alpine
+ARG SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0.403-noble
+ARG RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime:10.0.14-noble
+ARG NODE_IMAGE=node:22.23.4-alpine3.24
 
 # --- Dashboard build stage ---
 FROM ${NODE_IMAGE} AS dashboard-build

@@ -11,18 +11,18 @@
     "test:run": "vitest run"
   },
   "dependencies": {
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "react": "^19.2.9",
+    "react-dom": "^19.2.9",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^7.18.2",
+    "react-router-dom": "^7.18.5",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.4",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.0.5",
     "jsdom": "^29.1.1",
     "typescript": "^7.0.2",
