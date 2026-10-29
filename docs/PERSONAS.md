@@ -593,6 +593,61 @@ checkouts") show no tracked change, and the report contains no copied, vendor
 or restricted content. Any other text after the semicolon blocks, including a
 qualifier such as "only this partial report exists".
 
+The detector reads every line that holds a criterion reference and a NOT MET
+phrase, and a line it cannot fully parse blocks. A criterion reference is
+`criterion` or `criteria` with a number, a range, `#N` or a spelled number up
+to twenty; `AC3`, `AC-3` or `AC 3`; or `acceptance criterion` or `acceptance
+criteria` without a number. A NOT MET phrase is "not met", "not yet met", "not
+fully met", "unmet", "not satisfied", "isn't met" and its siblings, "has not
+been met", "partially met", "partly met", "does not meet" and "cannot be met",
+including the bare forms `Criterion 2: not met` and `Criterion 2 - not met` and
+a Markdown table row that holds both. The phrase can follow the reference after
+up to 120 characters on the same line, across a parenthetical or a file name.
+
+The only shape that hands off is a prose line that defers the criterion to a
+later review stage: `Criterion N is not met because the <roles> reviews have not
+run.` Its scope is its own line, after the list bullet, number, checkbox, quote
+and emphasis markers, plus the lines indented deeper than it (sub-bullets
+included). The first following line that is not indented deeper, a blank line,
+a rule, a table row, or the next criterion ends the item. Line endings are
+normalized first. The line passes only when:
+
+- the text before the subject, within its own sentence, is a label (Note,
+  Result, Status, Summary, Acceptance criteria, Criteria, Current stage, At this
+  stage, or an `[ARMADA:...]` marker), complete MET clauses such as `Criteria 1
+  and 2 are MET` joined by a comma, semicolon, "and" or "but", or connective
+  words; a complete earlier sentence on the same line is out of scope, like an
+  earlier line;
+- between the subject and the phrase there are only status words and
+  parentheticals; a parenthetical here, or inside a MET clause, is a pointer (a
+  file name, path, section number such as 2.1, or a "see ..." reference without
+  an incompleteness word) or review-stage words alone (final, later, Judge,
+  Linter, and similar), and any other content blocks;
+- the phrase is one of the not-met forms, not "partially met", "does not meet"
+  or "cannot be met"; and
+- every sentence after the phrase, through the end of the item, is a future
+  clause the future grammar accepts, the open parent objective sentence, or one
+  of the fixed process statements.
+
+A list item of the form `- <text> - NOT MET. <reason>` (also with an em dash,
+`--` or `:` before the phrase) is a candidate without a criterion reference; its
+reason is checked the same way. The fixed process statements include
+`` `git status --porcelain=v1` returned no output in <paths> ``, which equals
+"the checkouts show no tracked change". A criterion reference or NOT MET phrase
+inside parentheses is a candidate. The phrase set also covers incomplete, not
+complete, not done, not achieved, not fulfilled, unfulfilled, `NOT-MET`,
+emphasised `*not* met`, and `<reference>: FAIL`, `: ✗` or `: ❌`.
+
+Anything else on the line blocks. The detector is a short-circuit, not the
+review. It reads statements that pair a criterion reference with a not-met or
+incomplete phrase on one line, plus the item's deeper-indented lines and its own
+sentence. It does not pair a reference and a phrase split across lines, does not
+read prose on other lines or paragraphs, and does not recognise criteria named
+without a criterion or AC token (such as "Requirement 3" or "the goal"). Those
+reports reach the later review stages, which judge them. A timeout while reading blocks.
+The report-only brief tells captains to write a deferred criterion alone on its
+own line.
+
 Only the final outcome `[ARMADA:RESULT] COMPLETE` counts, and the sentence must
 say the acceptance criteria themselves are not met; a finding that some code
 does not meet a limit is not matched. An Implementation Worker that ends

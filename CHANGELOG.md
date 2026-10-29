@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Report-incomplete detector blocks any criterion line it cannot fully parse
+
+- A report-only Worker that ends COMPLETE hands off an unmet criterion only as a prose line of the shape `Criterion N is not met because the <roles> reviews have not run.` Its scope is its own line plus the lines indented deeper than it. Text before the subject in its own sentence must be a label (including an `[ARMADA:...]` marker), complete MET clauses or connective words; an earlier complete sentence is out of scope. Only status words or one parenthetical without an incompleteness word may sit between the subject and the phrase. Every sentence after the phrase must be a future-review clause, the open parent objective, or a fixed process statement. Any other line that holds a criterion reference (`criterion`, `criteria` with a number, range, `#N` or spelled number, `AC3`, `acceptance criteria`) and a NOT MET phrase (not met, not yet met, not fully met, unmet, isn't met, has not been met, partially met, does not meet, cannot be met, bare `Criterion 2: not met`, a table row) fails the stage as `report_incomplete`, as does a regex timeout. A `- <text> - NOT MET. <reason>` list item is read without a criterion reference, a parenthetical must be a pointer or review-stage words, and incomplete, not done, not achieved, unfulfilled, `NOT-MET`, `: FAIL` and `: ✗` count as NOT MET phrases. The report-only brief tells captains the deferral shape.
+
 ### Review inbox items
 
 - The inbox `review` item lists a mission in Review only when its stage requires review, the same rule approve and deny apply. A captain that reports Review as progress on a stage without a review gate no longer produces an "Awaiting your review" item.

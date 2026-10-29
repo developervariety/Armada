@@ -2561,9 +2561,123 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            Dictionary<string, string> wholeStatementCriteria = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["prefix-defect"] = "The parser is only half written and criterion 2 is not met because later reviews are pending.",
+                ["prefix-defect-semicolon"] = "The parser is only half written; criterion 2 is not met because later reviews are pending.",
+                ["gap-defect"] = "Criterion 4 is wholly unimplemented and is not met because later reviews are pending.",
+                ["long-subject"] = "Criterion 2 for the long coverage matrix across every documented row is not met because the later reviews have not run.",
+                ["later-sentence"] = "Criterion 3 is not met because later reviews are pending. Sections 4-6 are not written.",
+                ["later-sentence-commentary"] = "Criterion 3 is not met because the later reviews have not run. The matrix covers every documented row.",
+                ["child-line-defect"] = "Criterion 3 is not met because the later reviews have not run.\n  - Sections 4-6 are not written.",
+                ["child-line-crlf"] = "Criterion 3 is not met because the later reviews have not run.\r\n  - Sections 4-6 are not written.",
+                ["parenthetical-defect"] = "Criterion 2 (half written) is not met because the later reviews have not run.",
+                ["parenthetical-section-unfinished"] = "Criterion 2 (see section 2.1) is not met because the source study is unfinished.",
+                ["bare-colon"] = "Criterion 2: not met.",
+                ["bare-dash"] = "Criterion 2 - not met.",
+                ["bare-word"] = "Criterion 2 not met.",
+                ["table-row"] = "| Criterion 2 | NOT MET | later reviews have not run |",
+                ["ac-number"] = "AC3 is not met because the source study is unfinished.",
+                ["ac-dash"] = "AC-3 is not met because the source study is unfinished.",
+                ["ac-space"] = "AC 3 is not met because the source study is unfinished.",
+                ["hash-number"] = "Criterion #4 is not met because the source study is unfinished.",
+                ["spelled-number"] = "Criterion two is not met because the source study is unfinished.",
+                ["has-not-been-met"] = "Criterion 2 has not been met because the source study is unfinished.",
+                ["partially-met"] = "Criterion 2 is partially met because the later reviews have not run.",
+                ["only-partly-met"] = "Criteria 1 and 2 are only partly met because the later reviews have not run.",
+                ["does-not-meet"] = "Criterion 2 does not yet meet its limit because the later reviews have not run.",
+                ["cannot-be-met"] = "Criterion 2 cannot be met because the later reviews have not run.",
+                ["not-yet-met-unfinished"] = "Criterion 2 is not yet met because the source study is unfinished.",
+                ["not-fully-met-unfinished"] = "Criterion 2 is not fully met because the source study is unfinished.",
+                ["isnt-met-unfinished"] = "Criterion 2 isn't met because the source study is unfinished.",
+                ["unmet-unfinished"] = "Criterion 2 is unmet because the source study is unfinished.",
+                ["range-unfinished"] = "Criteria 1-3 are not met because the source study is unfinished.",
+                ["not-yet-met-future"] = "Criterion 3 is not yet met because the later reviews have not run.",
+                ["not-fully-met-future"] = "Criterion 3 is not fully met because the later reviews have not run.",
+                ["isnt-met-future"] = "Criterion 3 isn't met because the later reviews have not run.",
+                ["unmet-future"] = "Criterion 3 is unmet because the later reviews have not run.",
+                ["range-future"] = "Criteria 1-3 are not met because the later reviews have not run.",
+                ["has-not-been-met-future"] = "Criterion 3 has not yet been met because the later reviews have not run.",
+                ["ac-future"] = "AC3 is not met because the later reviews have not run.",
+                ["hash-future"] = "Criterion #3 is not met because the later reviews have not run.",
+                ["met-clause-before"] = "Criteria 1 and 2 are MET, but criterion 3 is not met because the later reviews have not run.",
+                ["met-clause-evidence-before"] = "Criterion 1 is MET (see the matrix); criterion 3 is not met because the later reviews have not run.",
+                ["label-before"] = "Status: criterion 3 is not met because the later reviews have not run.",
+                ["parenthetical-final-review"] = "Criterion 3 (final review) is not met because the later reviews have not run.",
+                ["parenthetical-section-future"] = "Criterion 3 (see section 2.1) is not met because the later reviews have not run.",
+                ["process-sentence-after"] = "Criterion 3 is not met because the later reviews have not run. Only this Worker artifact exists.",
+                ["child-line-future"] = "Criterion 3 is not met because the later reviews have not run.\n  - The later reviews have not run.",
+                ["next-line-prose"] = "Criterion 3 is not met because the later reviews have not run.\nThe matrix covers every documented row.",
+                ["next-line-rule"] = "Criterion 3 is not met because the later reviews have not run.\n---\n| Row | Status |",
+                ["previous-line-defect"] = "The parser is only half written.\nCriterion 2 is not met because later reviews are pending.",
+                ["real-shape-report"] = "## Acceptance Criteria\n- All five roles produce the same six-row report. - MET. Evidence is in the matrix.\n- Every row cites its source. - MET. Evidence is in the matrix.\n- All five roles review the same six-row report; no tracked changes, vendor-body copies or restricted values. - NOT MET. The current PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews have not run, and the additional Revising Worker stage has not run; only this Worker artifact exists, although `git status --porcelain=v1` returned no output in ExampleSource, ../ExampleDecoder, ../ExampleProduct and ../ExampleGlossary, and this report contains no vendor-body copy or restricted value.\n\nCriterion 3 is NOT MET because the current PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews have not run, and the additional Revising Worker stage has not run; only this Worker artifact exists, although the four checkouts show no tracked change and this report contains no vendor-body copy or restricted value.\n\n[ARMADA:NOTE] Worker finished the six Example batch04 rows; no tracked changes. Criterion 3 is NOT MET because the PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews and the additional Revising Worker stage have not run.",
+                ["prior-sentence-out-of-scope"] = "Section 4 is not written. Criterion 2 is not met because the later reviews have not run.",
+                ["note-marker-before"] = "[ARMADA:NOTE] Criterion 3 is not met because the later reviews have not run.",
+                ["suffix-item-defect"] = "- Parser coverage. - NOT MET. The parser is unfinished.",
+                ["suffix-item-colon-defect"] = "- Parser coverage. - NOT MET: The parser is unfinished.",
+                ["suffix-item-future"] = "- Parser coverage. - NOT MET. The later reviews have not run.",
+                ["suffix-item-em-dash-future"] = "- Parser coverage — NOT MET. The later reviews have not run.",
+                ["suffix-item-double-dash-future"] = "- Parser coverage -- NOT MET. The later reviews have not run.",
+                ["suffix-item-colon-future"] = "- Parser coverage: NOT MET. The later reviews have not run.",
+                ["suffix-item-git-status-future"] = "- Parser coverage. - NOT MET. The later reviews have not run; only this Worker artifact exists, although `git status --porcelain=v1` returned no output in ExampleSource and ../ExampleDecoder.",
+                ["suffix-item-git-status-other-command"] = "- Parser coverage. - NOT MET. The later reviews have not run; only this Worker artifact exists, although `git diff` returned no output in ExampleSource.",
+                ["reference-in-parentheses"] = "Parser unfinished (criterion 2 is not met because the later reviews have not run.)",
+                ["parenthetical-nothing-implemented"] = "Criterion 3 (nothing implemented) is not met because the later reviews have not run.",
+                ["parenthetical-in-progress"] = "Criterion 3 (in progress) is not met because the later reviews have not run.",
+                ["parenthetical-blocked"] = "Criterion 3 (blocked) is not met because the later reviews have not run.",
+                ["parenthetical-percent"] = "Criterion 3 (about 40% done) is not met because the later reviews have not run.",
+                ["met-clause-parenthetical-defect"] = "Criterion 1 is met (parser unfinished) and criterion 3 is not met because the later reviews have not run.",
+                ["parenthetical-file-name"] = "Criterion 3 (see parser.cs) is not met because the later reviews have not run.",
+                ["phrase-incomplete"] = "Criterion 2 is incomplete because the source study is unfinished.",
+                ["phrase-not-complete"] = "Criterion 2 is not complete because the source study is unfinished.",
+                ["phrase-not-done"] = "Criterion 2 is not done because the source study is unfinished.",
+                ["phrase-not-achieved"] = "Criterion 2 is not achieved because the source study is unfinished.",
+                ["phrase-not-fulfilled"] = "Criterion 2 is not fulfilled because the source study is unfinished.",
+                ["phrase-unfulfilled"] = "Criterion 2 is unfulfilled because the source study is unfinished.",
+                ["phrase-hyphen"] = "Criterion 2 is NOT-MET because the source study is unfinished.",
+                ["phrase-star-emphasis"] = "Criterion 2 is *not* met because the source study is unfinished.",
+                ["phrase-underscore-emphasis"] = "Criterion 2 is _not_ met because the source study is unfinished.",
+                ["phrase-parenthesized-yet"] = "Criterion 2 is not (yet) met because the source study is unfinished.",
+                ["phrase-fail"] = "Criterion 2: FAIL",
+                ["phrase-cross"] = "Criterion 2: ✗",
+                ["phrase-cross-emoji"] = "Criterion 2: ❌",
+                ["phrase-lowercase-ac"] = "ac3 is not met because the source study is unfinished.",
+                ["bullet-then-note"] = "- Criterion 3 is not met because the later reviews have not run.\n- The matrix covers every documented row."
+            };
+            HashSet<string> wholeStatementHandoff = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "not-yet-met-future",
+                "not-fully-met-future",
+                "isnt-met-future",
+                "unmet-future",
+                "range-future",
+                "has-not-been-met-future",
+                "ac-future",
+                "hash-future",
+                "met-clause-before",
+                "met-clause-evidence-before",
+                "label-before",
+                "parenthetical-final-review",
+                "parenthetical-section-future",
+                "process-sentence-after",
+                "child-line-future",
+                "next-line-prose",
+                "next-line-rule",
+                "previous-line-defect",
+                "real-shape-report",
+                "prior-sentence-out-of-scope",
+                "note-marker-before",
+                "suffix-item-future",
+                "suffix-item-em-dash-future",
+                "suffix-item-double-dash-future",
+                "suffix-item-colon-future",
+                "suffix-item-git-status-future",
+                "parenthetical-file-name",
+                "bullet-then-note"
+            };
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
             {
-                foreach (string scenario in new[] { "natural-future", "natural-current-qualifier", "natural-two-clause", "natural-process-tail", "natural-tail-current", "natural-tail-earlier", "natural-tail-negative", "natural-tail-partial", "natural-tail-free-checkout", "natural-tail-bare-noun", "natural-malformed", "natural-wrong-role", "natural-duplicate-role", "natural-missing-worker", "natural-cancelled-worker", "natural-foreign-worker", "natural-cancelled-middle", "natural-foreign-middle", "natural-unfinished-current", "natural-unfinished-earlier", "colon-summary", "colon-current", "colon-earlier", "colon-wrong-role", "colon-duplicate-role", "colon-wrong-count", "colon-missing-worker", "colon-cancelled-worker", "colon-foreign-worker", "pending-reviews", "canonical-reviews", "at-stage-context", "at-stage-summary", "at-stage-same-criterion", "at-stage-current-before", "at-stage-current-after", "at-stage-mixed-current", "at-stage-mixed-earlier", "at-stage-no-context", "at-stage-cross-criterion", "at-stage-wrong-role", "at-stage-duplicate-role", "at-stage-missing-worker", "at-stage-cancelled-worker", "at-stage-foreign-worker", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future", "wrapped-current", "wrapped-earlier", "unpunctuated-future", "list-current", "list-earlier", "paragraph-current", "heading-current", "lowercase-marker", "next-criterion", "note-current", "note-earlier", "false-criterion", "intermediate-result-current", "bold-future" })
+                foreach (string scenario in new[] { "natural-future", "natural-current-qualifier", "natural-two-clause", "natural-process-tail", "natural-tail-current", "natural-tail-earlier", "natural-tail-negative", "natural-tail-partial", "natural-tail-free-checkout", "natural-tail-bare-noun", "natural-malformed", "natural-wrong-role", "natural-duplicate-role", "natural-missing-worker", "natural-cancelled-worker", "natural-foreign-worker", "natural-cancelled-middle", "natural-foreign-middle", "natural-unfinished-current", "natural-unfinished-earlier", "colon-summary", "colon-current", "colon-earlier", "colon-wrong-role", "colon-duplicate-role", "colon-wrong-count", "colon-missing-worker", "colon-cancelled-worker", "colon-foreign-worker", "pending-reviews", "canonical-reviews", "at-stage-context", "at-stage-summary", "at-stage-same-criterion", "at-stage-current-before", "at-stage-current-after", "at-stage-mixed-current", "at-stage-mixed-earlier", "at-stage-no-context", "at-stage-cross-criterion", "at-stage-wrong-role", "at-stage-duplicate-role", "at-stage-missing-worker", "at-stage-cancelled-worker", "at-stage-foreign-worker", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future", "wrapped-current", "wrapped-earlier", "unpunctuated-future", "list-current", "list-earlier", "paragraph-current", "heading-current", "lowercase-marker", "next-criterion", "note-current", "note-earlier", "false-criterion", "intermediate-result-current", "bold-future" }.Concat(wholeStatementCriteria.Keys))
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -2691,12 +2805,17 @@ namespace Armada.Test.Unit.Suites.Services
                             if (scenario == "at-stage-cross-criterion") output.Add("Criterion 4 is NOT MET because the later reviews have not run.");
                             if (scenario == "at-stage-current-after") output.Add("Criterion 3 is NOT MET because current source study is unfinished.");
                         }
+                        if (wholeStatementCriteria.TryGetValue(scenario, out string? wholeStatement))
+                        {
+                            output.RemoveAt(output.Count - 1);
+                            output.Add(wholeStatement);
+                        }
                         if (scenario == "unfinished-after-future") output.Add("Acceptance criterion 2 is NOT MET because the source study is unfinished.");
                         output.Add(scenario == "lowercase-marker" ? "[armada:result] COMPLETE" : "[ARMADA:RESULT] COMPLETE");
                         await rig.RunCaptainAsync(output.ToArray()).ConfigureAwait(false);
                         Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
                         Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
-                        if (scenario is "natural-future" or "natural-current-qualifier" or "natural-two-clause" or "natural-process-tail" or "colon-summary" or "at-stage-context" or "at-stage-summary" or "at-stage-same-criterion" or "pending-reviews" or "canonical-reviews" or "generic-reviews" or "pending-future-reviews" or "unpunctuated-future" or "lowercase-marker" or "next-criterion" or "bold-future")
+                        if (scenario is "natural-future" or "natural-current-qualifier" or "natural-two-clause" or "natural-process-tail" or "colon-summary" or "at-stage-context" or "at-stage-summary" or "at-stage-same-criterion" or "pending-reviews" or "canonical-reviews" or "generic-reviews" or "pending-future-reviews" or "unpunctuated-future" or "lowercase-marker" or "next-criterion" or "bold-future" || wholeStatementHandoff.Contains(scenario))
                         {
                             AssertTrue(worker.Status is MissionStatusEnum.WorkProduced or MissionStatusEnum.Complete, "Complete current work reaches its configured review chain: " + worker.FailureReason);
                             foreach (Mission stage in futureStages)
