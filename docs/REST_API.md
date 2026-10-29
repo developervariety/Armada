@@ -2715,8 +2715,13 @@ Stop one captain. MCP `armada_stop_captain` and WebSocket `stop_captain` run the
 same service and apply the same rule. A Planning captain is stopped through its
 active planning session and a Refining captain through its active objective
 refinement session; the response names the stopped session. Any other captain
-has its agent process stopped and is recalled to Idle, which fails its active
-mission. No shutdown request is sent: the agent process gets a 3-second grace
+has its agent process stopped and is recalled to Idle. The mission it was running
+ends Cancelled with the reason `operator_stopped: stopped by <user> via <surface>
+at <UTC time>`, plus `; uncommitted work saved to refs/heads/recover/<mission>-<n>`
+when the dock reclaim saved the dock's uncommitted work, and a
+`mission.stopped_by_operator` event is recorded. Autonomous recovery and the Needs
+You failure feed ignore such a mission. A recall by the admiral itself (stall
+handling, recovery) keeps failing the mission. No shutdown request is sent: the agent process gets a 3-second grace
 period to exit, then its process tree is killed. Only a process verified as the
 one the admiral launched is killed: a live process whose start time differs from
 the recorded launch holds a reused process ID and is left running

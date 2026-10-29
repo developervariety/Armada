@@ -18,6 +18,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
+    using StubGitService = global::Test.Shared.Infrastructure.StubGitService;
 
     /// <summary>
     /// Unit coverage for Armada-native autonomous recovery records and dispatch policy.
@@ -2585,6 +2586,66 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, reconciledAfter.RecoveryAttempts, "Recovery spends no budget on a reconciled mission.");
                 AssertTrue(Math.Abs((reconciledAfter.LastUpdateUtc - reconciled.LastUpdateUtc).TotalMilliseconds) < 5,
                     "Recovery never writes a reconciled mission, so it cannot keep it inside the lookback window.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A mission an operator stopped opens no incident and dispatches no rescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_operator_stop", "usr_auto_operator_stop").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_operator_stop", "usr_auto_operator_stop").ConfigureAwait(false);
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_stop_docks_" + Guid.NewGuid().ToString("N"));
+                settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_stop_repos_" + Guid.NewGuid().ToString("N"));
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                StubGitService git = new StubGitService();
+                CaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, new DockService(logging, testDb.Driver, settings, git));
+
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Stopped voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("stopped-worker")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    State = CaptainStateEnum.Working
+                }).ConfigureAwait(false);
+                Mission running = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    VoyageId = voyage.Id,
+                    CaptainId = captain.Id,
+                    Persona = "Worker",
+                    Title = "Running mission",
+                    Description = "Original mission description",
+                    Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                captain.CurrentMissionId = running.Id;
+                await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                CaptainAdministrationService administration = new CaptainAdministrationService(
+                    testDb.Driver, (captainId, token) => captains.RecallAsync(captainId, token: token));
+                await administration.StopAsync(captain.Id, null, stop: new OperatorStopContext("tester", OperatorStopContext.RestSurface)).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                Mission stopped = (await testDb.Driver.Missions.ReadAsync(running.Id).ConfigureAwait(false))!;
+                await orchestrator.HandleMissionOutcomeAsync(stopped, false).ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "No rescue for a mission an operator stopped (status " + stopped.Status + ").");
+                AssertEqual(0, await CountIncidentsAsync(incidents, vessel, running.Id).ConfigureAwait(false), "No incident for a mission an operator stopped.");
+                AssertEqual(MissionStatusEnum.Cancelled, stopped.Status, "An operator stop ends the mission Cancelled.");
             }).ConfigureAwait(false);
 
             await RunTest("A reconciler-cancelled mission opens no incident and dispatches no rescue", async () =>

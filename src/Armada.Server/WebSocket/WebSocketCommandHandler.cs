@@ -298,7 +298,7 @@ namespace Armada.Server.WebSocket
         /// </summary>
         private async Task<object> StopCaptainCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            CaptainStopResult stopped = await CaptainAdministration.StopAsync(command.CaptainId ?? "", null).ConfigureAwait(false);
+            CaptainStopResult stopped = await CaptainAdministration.StopAsync(command.CaptainId ?? "", null, stop: new OperatorStopContext(caller?.UserId, OperatorStopContext.WebSocketSurface)).ConfigureAwait(false);
             if (stopped.Outcome != CaptainAdministrationOutcomeEnum.Completed)
                 return new { type = "command.error", action = "stop_captain", error = stopped.Message, outcome = stopped.Outcome.ToString() };
             return new { type = "command.result", action = "stop_captain", data = (object)stopped };
@@ -309,7 +309,7 @@ namespace Armada.Server.WebSocket
         /// </summary>
         private async Task<object> StopAllCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
-            CaptainStopAllResult stopAll = await CaptainAdministration.StopAllAsync().ConfigureAwait(false);
+            CaptainStopAllResult stopAll = await CaptainAdministration.StopAllAsync(stop: new OperatorStopContext(caller?.UserId, OperatorStopContext.WebSocketSurface)).ConfigureAwait(false);
             return new { type = "command.result", action = "stop_all", data = (object)stopAll };
         }
 
