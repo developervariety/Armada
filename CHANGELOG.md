@@ -52,6 +52,7 @@ upstream integrations and excludes changes already present at that baseline.
 ### Secret redaction
 
 - An unquoted labelled secret value (`token = ...`) stops at a comma, semicolon, closing bracket, brace or paren, so the delimiter and the text after it stay.
+- Redaction leaves an already redacted value (`token=[REDACTED]`) unchanged, so text redacted twice reads the same as text redacted once.
 
 ### Objective completion time
 
