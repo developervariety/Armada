@@ -3917,6 +3917,8 @@ Lift a captain's quarantine, returning it to `Idle` and clearing the quarantine 
 
 Stop a running captain through its owning lifecycle. The captain is recalled to idle only after exit is confirmed; a Harbor process handle is never treated as an Admiral-local PID.
 
+The mission the captain was running is set to `Cancelled` with failure kind `OperatorAction`, and its failure reason records who stopped it, through which surface, and when (for example `Stopped by operator (usr_...) via stop_captain (REST) at 2026-10-28T02:37:59Z.`). A `mission.stopped_by_operator` event carries the same data. Before the dock is reclaimed, uncommitted work in it is committed to the mission branch as `WIP: preserved on operator stop` and pushed, best effort; the commit hash is added to the failure reason and the event.
+
 **Permission:** TenantAdmin
 
 **Path Parameters:**

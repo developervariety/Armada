@@ -602,13 +602,25 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task RecallCaptainAsync(string captainId, CancellationToken token = default)
+        public Task RecallCaptainAsync(string captainId, CancellationToken token = default)
         {
-            await _Captains.RecallAsync(captainId, token: token).ConfigureAwait(false);
+            return RecallCaptainAsync(captainId, null, token);
         }
 
         /// <inheritdoc />
-        public async Task RecallAllAsync(CancellationToken token = default)
+        public async Task RecallCaptainAsync(string captainId, OperatorStopContext? stop, CancellationToken token = default)
+        {
+            await _Captains.RecallAsync(captainId, null, stop, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public Task RecallAllAsync(CancellationToken token = default)
+        {
+            return RecallAllAsync(null, token);
+        }
+
+        /// <inheritdoc />
+        public async Task RecallAllAsync(OperatorStopContext? stop, CancellationToken token = default)
         {
             _Logging.Warn(_Header + "RECALLING ALL CAPTAINS");
 
@@ -619,7 +631,7 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    await _Captains.RecallAsync(captain.Id, token: token).ConfigureAwait(false);
+                    await _Captains.RecallAsync(captain.Id, null, stop, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
