@@ -1042,7 +1042,7 @@ namespace Armada.Core.Database.Mysql
                         failure_kind VARCHAR(64),
                         search_text LONGTEXT,
                         payload LONGTEXT NOT NULL,
-                        detected_utc TEXT NOT NULL,
+                        detected_utc DATETIME(6) NOT NULL,
                         last_update_utc DATETIME(6) NOT NULL
                     );",
                     @"CREATE INDEX idx_incidents_tenant_user ON incidents(tenant_id, user_id);",
@@ -1057,7 +1057,7 @@ namespace Armada.Core.Database.Mysql
                         status VARCHAR(32) NOT NULL,
                         search_text LONGTEXT,
                         payload LONGTEXT NOT NULL,
-                        started_utc TEXT NOT NULL,
+                        started_utc DATETIME(6) NOT NULL,
                         last_update_utc DATETIME(6) NOT NULL
                     );",
                     @"CREATE INDEX idx_runbook_executions_tenant_user ON runbook_executions(tenant_id, user_id);",

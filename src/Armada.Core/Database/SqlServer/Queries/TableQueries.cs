@@ -2015,7 +2015,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                         failure_kind NVARCHAR(64),
                         search_text NVARCHAR(MAX),
                         payload NVARCHAR(MAX) NOT NULL,
-                        detected_utc TEXT NOT NULL,
+                        detected_utc DATETIME2 NOT NULL,
                         last_update_utc DATETIME2 NOT NULL
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_incidents_tenant_user') CREATE INDEX idx_incidents_tenant_user ON incidents(tenant_id, user_id);",
@@ -2030,7 +2030,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                         status NVARCHAR(32) NOT NULL,
                         search_text NVARCHAR(MAX),
                         payload NVARCHAR(MAX) NOT NULL,
-                        started_utc TEXT NOT NULL,
+                        started_utc DATETIME2 NOT NULL,
                         last_update_utc DATETIME2 NOT NULL
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_runbook_executions_tenant_user') CREATE INDEX idx_runbook_executions_tenant_user ON runbook_executions(tenant_id, user_id);",

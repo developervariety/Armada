@@ -83,7 +83,7 @@ beforeEach(async () => {
   for (const fn of [api.listEnvironments, api.listReleases, api.listWorkflowProfiles, api.listRunbookExecutions, api.listDeployments, api.listVoyages, api.listObjectives, api.listCheckRuns, api.listIncidents, api.listRunbooks]) {
     fn.mockResolvedValue(page([]) as never);
   }
-  api.getReleaseGitHubPullRequests.mockResolvedValue({ objects: [], pageNumber: 1, pageSize: 25, totalPages: 0, totalRecords: 0 });
+  api.getReleaseGitHubPullRequests.mockResolvedValue({ objects: [], pageNumber: 1, pageSize: 25, totalPages: 0, totalRecords: 0 } as never);
 });
 
 function queryOf(href: string): Record<string, string> {

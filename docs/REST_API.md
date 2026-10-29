@@ -249,7 +249,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/*/enumerate` | POST | Authenticated | Scoped exactly like the matching `GET` list |
 | `/api/v1/status/health` | GET | NoAuthRequired | |
 | `/api/v1/authenticate` | POST | NoAuthRequired | |
-| `/api/v1/tenants/lookup` | POST | NoAuthRequired | Input: email, returns matching tenants |
+| `/api/v1/tenants/lookup` | POST | NoAuthRequired | Input: email and paging, returns one page of matching tenants with totals |
 | `/api/v1/onboarding` | POST | NoAuthRequired | Gated by `AllowSelfRegistration` setting (default `false`) |
 | `/api/v1/whoami` | GET | Authenticated | |
 | `/api/v1/status` | GET | Authenticated | Server-wide aggregate counts and recent signals, not tenant-scoped (open item O-03 in [SECURITY_REVIEW.md](SECURITY_REVIEW.md)) |
@@ -744,7 +744,7 @@ password of the default admin also deactivates the seeded `default` bearer token
 
 #### POST /api/v1/tenants/lookup
 
-Look up which tenants a given email address belongs to. Used by the dashboard login flow to determine the tenant before authentication.
+Look up which tenants a given email address belongs to. Used by the login flows (dashboard, mobile, TUI) to determine the tenant before authentication. Returns one page of the active tenants in which a user with the email exists, ordered by tenant name then id, paged and counted in the database. `PageNumber` and `PageSize` (1 to 1000, default 10) come from the body; querystring `pageNumber` and `pageSize` override them. A login picker that needs every tenant reads the pages until `TotalPages`.
 
 **Permission:** NoAuthRequired
 
@@ -752,7 +752,9 @@ Look up which tenants a given email address belongs to. Used by the dashboard lo
 
 ```json
 {
-  "Email": "admin@armada"
+  "Email": "admin@armada",
+  "PageNumber": 1,
+  "PageSize": 100
 }
 ```
 
@@ -765,7 +767,11 @@ Look up which tenants a given email address belongs to. Used by the dashboard lo
       "Id": "default",
       "Name": "Default Tenant"
     }
-  ]
+  ],
+  "PageNumber": 1,
+  "PageSize": 100,
+  "TotalPages": 1,
+  "TotalRecords": 1
 }
 ```
 
@@ -1332,6 +1338,8 @@ refresh the output heartbeat. A failed stall recovery retains the mission's dock
 reclaiming it. `MaxMissionRuntimeMinutes`, when enabled, remains an independent cap.
 
 Accepts partial updates to editable server settings and saves them to `settings.json`. Editable top-level fields: `DataRetentionDays`, `RequestHistoryRetentionDays`, `AdmiralPort`, `McpPort`, `MaxCaptains`, `HeartbeatIntervalSeconds`, `StallThresholdMinutes`, `StageCheckTimeoutMinutes` (1 to 240), `BlockDependentsOfFailedStages`, `IdleCaptainTimeoutSeconds`, `PlanningSessionInactivityTimeoutMinutes`, `PlanningSessionAbandonmentTimeoutMinutes`, `PlanningSessionRetentionDays`, `LandingMode` (the global landing mode: `LocalMerge`, `MergeAndPush`, `PullRequest`, `MergeQueue`, or `None`), `SelfVesselId`, `RebuildSlotRetentionCount`, `RemoteControl`, `Import`, `FleetActions`, `RepositoryHealth`, `Retention`, `Permissions`, `Ask`, and `Push`; omitted fields are unchanged. When `RemoteControl` is supplied, it replaces the full `RemoteControl` settings object (send `Password` or `EnrollmentToken` as `********` to keep the stored value). When `Import` is supplied, it replaces the full `Import` (vessel import) settings object; see [Vessel Import](#vessel-import) for the fields and their ranges. When `FleetActions` is supplied, it replaces the full `FleetActions` object (omitted fields take their defaults; values are clamped: `MaxConcurrency` 1-32, `DefaultTimeoutSeconds` 5-7200, `MaxOutputBytes` 1024-1048576, `RunRetentionDays` 1-3650) and applies immediately.
+
+Lists in settings are bounded (see [ENUMERATION.md](ENUMERATION.md)): `Import.AllowedRoots`, `Import.ExcludedDirectoryNames`, and `FleetActions.OfflineHarborIds` hold at most 256 entries each, and an update with more is rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` naming the list) before anything is applied. `RepositoryHealth.ScoredCriteria` and `Push.Categories` keep one entry per defined value (duplicates and unknown values are dropped).
 
 **Permission:** AdminOnly
 
@@ -7802,7 +7810,7 @@ Enumerate environments using a JSON body and optional querystring overrides.
 
 #### POST /api/v1/environments
 
-Create one environment.
+Create one environment. `VerificationDefinitions` holds at most 256 definitions and each definition's `Headers` at most 256 entries; create and update (`PUT /api/v1/environments/{id}`) reject more with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` such as `VerificationDefinitions.Headers`).
 
 **Permission:** TenantAdmin
 
@@ -7932,7 +7940,7 @@ Deny one pending deployment without executing it.
 
 #### POST /api/v1/deployments/{id}/verify
 
-Re-run the configured post-deploy verification for an existing deployment.
+Re-run the configured post-deploy verification for an existing deployment. Every verification run is linked in `CheckRunIds`, which holds at most 1000 ids: a verify, rollback, or link that would push it past the limit is rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` `CheckRunIds`) before any check runs, and rollout monitoring stops for that deployment. Every check run also carries its `DeploymentId`, so `POST /api/v1/check-runs/enumerate` with `deploymentId` reads them all.
 
 **Permission:** TenantAdmin
 
@@ -7983,7 +7991,7 @@ Enumerate releases using a JSON body and optional querystring overrides.
 
 #### POST /api/v1/releases
 
-Create a release from linked voyages, missions, and check runs.
+Create a release from linked voyages, missions, and check runs. `VoyageIds`, `MissionIds`, `CheckRunIds`, and `ObjectiveIds` hold at most 1000 ids each. Linked voyages expand to every one of their missions, and a release may link at most 1000 missions and 1000 derived artifacts in all; a create, update, or refresh past any of these limits is rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` naming the list) rather than cut short.
 
 **Permission:** TenantAdmin
 
@@ -8013,7 +8021,7 @@ Read one release.
 
 #### POST /api/v1/releases/{id}/github/pull-requests/enumerate
 
-One page of the GitHub pull requests linked to one release's missions (`404` when the release is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of the GitHub pull requests linked to one release's missions (`404` when the release is not visible). The distinct pull requests are resolved from the release's mission links (at most 1000), ordered by pull request number (newest first) then repository, and only the requested page is read from GitHub, so `TotalRecords` is exact and each page costs at most `PageSize` GitHub reads. Paging comes from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
 
 **Permission:** Authenticated (release scope; this replaces the removed `GET /api/v1/releases/{id}/github/pull-requests`)
 
@@ -8073,7 +8081,7 @@ List incidents in the caller scope.
 
 #### POST /api/v1/incidents/enumerate
 
-Enumerate incidents using a JSON body and optional querystring overrides.
+Enumerate incidents using a JSON body and optional querystring overrides. Incidents are stored one row each (their `incident.snapshot` events remain as history), so the filters (`VesselId`, `EnvironmentId`, `DeploymentId`, `ReleaseId`, `MissionId`, `VoyageId`, `Status`, `Severity`, `Search`) apply, the page is cut, and `TotalRecords` is counted in the database inside the caller's scope. Ordered by last update (newest first) then id. `PageSize` 1 to 1000 (default 50).
 
 **Permission:** Authenticated
 
@@ -8082,7 +8090,7 @@ Enumerate incidents using a JSON body and optional querystring overrides.
 
 #### POST /api/v1/incidents
 
-Create one incident.
+Create one incident. `RescueMissionIds` and `ObjectiveIds` hold at most 1000 ids (create and update reject more with `400`, `Data.Code` `CollectionLimitExceeded`); autonomous mission recovery appends at most `MaxMissionRecoveryAttempts` (5) rescues and never past the limit.
 
 **Permission:** TenantAdmin
 
@@ -8135,7 +8143,7 @@ List runbooks in the caller scope.
 
 #### POST /api/v1/runbooks/enumerate
 
-Enumerate runbooks using a JSON body and optional querystring overrides.
+Enumerate runbooks using a JSON body and optional querystring overrides. A runbook is a playbook row, so the list is filtered, paged, and counted in the playbooks table inside the caller's scope: `WorkflowProfileId`, `EnvironmentId`, and `DefaultCheckType` match the runbook metadata block, `Active` the playbook flag, and `Search` the file name, description, and content (title, steps, overview), ignoring case. Ordered by file name then id. `PageSize` 1 to 1000 (default 50). `Parameters` and `Steps` hold at most 256 entries; a playbook written outside the runbook API with more reports the rest in `OmittedParameterCount` and `OmittedStepCount` (the text stays in `OverviewMarkdown`).
 
 **Permission:** Authenticated
 
@@ -8144,7 +8152,7 @@ Enumerate runbooks using a JSON body and optional querystring overrides.
 
 #### POST /api/v1/runbooks
 
-Create one runbook backed by a playbook and optional explicit steps/parameters.
+Create one runbook backed by a playbook and optional explicit steps/parameters. `Steps` and `Parameters` hold at most 256 entries; create and update reject more with `400` (`Data.Code` `CollectionLimitExceeded`).
 
 **Permission:** TenantAdmin
 
@@ -8191,7 +8199,7 @@ List runbook executions in the caller scope.
 
 #### POST /api/v1/runbook-executions/enumerate
 
-Enumerate runbook executions using a JSON body and optional querystring overrides.
+Enumerate runbook executions using a JSON body and optional querystring overrides. Executions are stored one row each (their `runbook-execution.snapshot` events remain as history), so `RunbookId`, `DeploymentId`, `IncidentId`, `Status`, and `Search` filter, page, and count in the database inside the caller's scope. Ordered by last update (newest first) then id. `PageSize` 1 to 1000 (default 50).
 
 **Permission:** Authenticated
 
@@ -8200,7 +8208,7 @@ Enumerate runbook executions using a JSON body and optional querystring override
 
 #### POST /api/v1/runbooks/{id}/executions
 
-Start one runbook execution.
+Start one runbook execution. `ParameterValues` (the supplied values plus the runbook's defaults) holds at most 256 entries; more is rejected with `400` (`Data.Code` `CollectionLimitExceeded`).
 
 **Permission:** TenantAdmin
 
@@ -8219,7 +8227,7 @@ Read one runbook execution.
 
 #### PUT /api/v1/runbook-executions/{id}
 
-Update one runbook execution, including step completion and notes.
+Update one runbook execution, including step completion and notes. `CompletedStepIds` and `StepNotes` hold at most 256 entries; more is rejected with `400` (`Data.Code` `CollectionLimitExceeded`).
 
 **Permission:** TenantAdmin
 
@@ -8329,8 +8337,9 @@ Return aggregate counts and time buckets for matching request-history entries.
 
 **Permission:** Authenticated
 
-- Query: `bucketMinutes`, `fromUtc`, `toUtc`, `method`, `route`, `statusCode`, `principal`
+- Query: `bucketMinutes` (1 to 527040), `fromUtc`, `toUtc`, `method`, `route`, `statusCode`, `principal`
 - Defaults: last 24 hours, 15-minute buckets
+- At most 1000 buckets: a window and `bucketMinutes` that would produce more are rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` `Buckets`) before any entry is read
 - Response: `200 OK` - `RequestHistorySummaryResult`
 
 #### GET /api/v1/request-history/{id}
@@ -8362,6 +8371,7 @@ Delete multiple request-history entries by identifier.
 }
 ```
 
+- At most 1000 ids; more is rejected with `400` (`Data.Code` `CollectionLimitExceeded`) and nothing is deleted. `Skipped` has one entry per id that was not deleted, so it is bounded by the request.
 - Response: `200 OK` - `DeleteMultipleResult`
 
 #### POST /api/v1/request-history/delete/by-filter
@@ -8393,12 +8403,14 @@ Return token usage aggregated into time buckets (each with a per-model breakdown
 
 **Permission:** Authenticated
 
-- Query: `fromUtc`, `toUtc`, `bucketMinutes`, `model`, `runtime`, `source`, `sourceId`, `vesselId`, `captainId`, `harborId`, `tenantId`, `userId`
+- Query: `fromUtc`, `toUtc`, `bucketMinutes` (fractional allowed, at most 527040), `modelLimit` (1 to 100, default 10), `model`, `runtime`, `source`, `sourceId`, `vesselId`, `captainId`, `harborId`, `tenantId`, `userId`
 - `harborId` keeps the usage of work that ran on that Harbor (mission runs, chat and Ask turns, and planning turns
   launched there)
 - Defaults: last 24 hours, 15-minute buckets
 - `source` is one of `mission`, `chat`, `planning`, `synthetic`
-- Response: `200 OK` - `TokenUsageSummaryResult` (fields: `fromUtc`, `toUtc`, `bucketMinutes`, `recordCount`, `estimatedCount`, `syntheticCount`, `inputTokens`, `outputTokens`, `cachedTokens`, `totalTokens`, `buckets[]`, `byModel[]`)
+- At most 1000 buckets: a window and `bucketMinutes` that would produce more are rejected with `400` (`Data.Code` `CollectionLimitExceeded`, `Data.Field` `Buckets`) before any record is read
+- `byModel` lists the `modelLimit` most-used models (total tokens, then name); the remaining models are summed into `otherModels` (model `(other)`), and `otherModelCount` says how many. Each bucket's `models` lists only those top models, with its own `otherModels`/`otherModelCount`, so `byModel` plus `otherModels` always adds up to the totals
+- Response: `200 OK` - `TokenUsageSummaryResult` (fields: `fromUtc`, `toUtc`, `bucketMinutes`, `recordCount`, `estimatedCount`, `syntheticCount`, `inputTokens`, `outputTokens`, `cachedTokens`, `totalTokens`, `modelLimit`, `modelCount`, `otherModelCount`, `otherModels`, `buckets[]`, `byModel[]`)
 
 #### POST /api/v1/token-usage/synthetic
 
@@ -8667,16 +8679,22 @@ Request body for `POST /api/v1/tenants/lookup`.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `Email` | string | Yes | Email address to look up |
+| `PageNumber` | int | No | One-based page (default 1) |
+| `PageSize` | int | No | Tenants per page, 1 to 1000 (default 10) |
 
 ---
 
 #### TenantLookupResult
 
-Result of `POST /api/v1/tenants/lookup`.
+Result of `POST /api/v1/tenants/lookup`: one page of the tenants matching the email.
 
 | Field | Type | Description |
 |---|---|---|
-| `Tenants` | array | List of `{ TenantId, TenantName }` entries matching the email |
+| `Tenants` | array | One page of `{ Id, Name }` entries matching the email (at most `PageSize`) |
+| `PageNumber` | int | Page returned |
+| `PageSize` | int | Page size used |
+| `TotalPages` | int | Number of pages |
+| `TotalRecords` | long | Matching tenants across every page |
 
 ---
 
