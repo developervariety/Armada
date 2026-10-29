@@ -300,7 +300,7 @@ namespace Armada.Core.Services
                 // report-only mission whose success condition is producing no change, and probe
                 // captains reported it as delivered-unresolved (papercuts, 2026-08-10).
                 string completionClause = mission.IsReadOnlyMode
-                    ? "This is a report-only " + mission.Mode + " mission: producing no repository change is the expected outcome, not a failure. Deliver the report in your final message."
+                    ? "This is a report-only " + mission.Mode + " mission: producing no repository change is the expected outcome, not a failure. Deliver the report in your final message. To defer a criterion to a later review stage, write it alone on its own line: `Criterion N is not met because the <roles> reviews have not run.` Put nothing else on that line."
                     : "For an Implementation mission, a standalone COMPLETE line is valid only after the requested work is complete and the required changes are saved.";
 
                 sections.Add(
