@@ -69,6 +69,18 @@ namespace Armada.Client
             return GetAsync<EnumerationResult<ModelProbeRun>>($"/api/v1/model-probe-runs{ArmadaQueryString.FromObject(query)}", null, token);
         }
 
+        /// <summary>
+        /// POST /api/v1/model-probe-runs/enumerate: one page of the quick model probe runs visible to the caller, newest first, with the total.
+        /// </summary>
+        /// <param name="query">Paging and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<ModelProbeRun>?> EnumerateModelProbeRunsAsync(ModelProbeRunQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<ModelProbeRun>>("/api/v1/model-probe-runs/enumerate", query ?? new ModelProbeRunQuery(), null, token);
+        }
+
         #endregion
     }
 }

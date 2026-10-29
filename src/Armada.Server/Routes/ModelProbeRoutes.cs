@@ -137,6 +137,29 @@ namespace Armada.Server.Routes
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/model-probe-runs/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    return await _Service.ListRunsAsync(ctx, ReadBody<ModelProbeRunQuery>(req)).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("ModelProbes")
+                .WithSummary("Enumerate model probe runs")
+                .WithDescription("One page of quick model probe runs visible to the caller, newest first. The JSON body (ModelProbeRunQuery) carries TenantId (global admins only), CaptainId, ModelEndpointId, Status, PageNumber, and PageSize (1-1000, default 100).")
+                .WithRequestBody(OpenApiJson.BodyFor<ModelProbeRunQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<ModelProbeRun>>("One page"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/model-probe-runs/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

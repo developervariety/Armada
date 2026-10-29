@@ -131,9 +131,24 @@ export default function AskMessageView({ message, proposal, captainName, proposa
     );
   }
 
+  // A turn that failed or was stopped keeps the tool calls it made before it ended; show them above the error, as the
+  // live reply did.
+  const toolChips = (
+    <ChatToolChips
+      tools={toolCallsToEvents(message.toolCalls)}
+      runningLabel={t('running…')}
+      argumentsLabel={t('Arguments')}
+      resultLabel={t('Result')}
+      noDetailsLabel={t('No details available.')}
+      permissionDeniedNote={permissionDeniedNote}
+      permissionDeniedLabel={t('Refused for lack of permission')}
+    />
+  );
+
   if (kind === 'Error') {
     return (
       <article className="ask-msg ask-msg-error" role="note" data-sequence={message.sequence}>
+        {toolChips}
         <div className="ask-msg-error-head">
           <span className="ask-msg-label">{t('Error')}</span>
           {when}
@@ -167,21 +182,12 @@ export default function AskMessageView({ message, proposal, captainName, proposa
   // Assistant text, the captain's automatic WorkReport (same bubble plus a Report tag), and any unknown kind: tool
   // chips, optional thinking, Markdown body.
   const isReport = kind === 'WorkReport';
-  const tools = toolCallsToEvents(message.toolCalls);
   // The reply's turn statistics behind an (i), as on a Planning reply: the full set when the Admiral recorded the
   // turn's telemetry, otherwise (older replies) the turn's total and its tool calls (lib/chatMetrics).
   const stats = askTurnStatistics(t, message);
   return (
     <article className={isReport ? 'ask-msg ask-msg-assistant ask-msg-report' : 'ask-msg ask-msg-assistant'} data-sequence={message.sequence}>
-      <ChatToolChips
-        tools={tools}
-        runningLabel={t('running…')}
-        argumentsLabel={t('Arguments')}
-        resultLabel={t('Result')}
-        noDetailsLabel={t('No details available.')}
-        permissionDeniedNote={permissionDeniedNote}
-        permissionDeniedLabel={t('Refused for lack of permission')}
-      />
+      {toolChips}
       <div className="ask-bubble ask-bubble-assistant">
         <div className="ask-bubble-head text-dim">
           <span>{captainName || t('Captain')}</span>

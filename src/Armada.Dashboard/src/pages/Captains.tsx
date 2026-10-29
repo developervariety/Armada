@@ -27,6 +27,7 @@ import { supportsAutoApproveSwitch } from '../lib/captainApproval';
 import { CAPTAIN_AUTO_APPROVE_TOOLTIP, CAPTAIN_CLI_POLICY_TOOLTIP, CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP, CAPTAIN_NAME_TOOLTIP, CAPTAIN_REASONING_EFFORT_TOOLTIP, CAPTAIN_RUNTIME_TOOLTIP, CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP, CAPTAIN_TIER_TOOLTIP, buildCaptainCreatePayload, buildCaptainPayload, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged, emptyCaptainForm, type CaptainFormState } from '../lib/captainForm';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
+import { PLANNING_PATH } from '../lib/navTargets';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
@@ -338,7 +339,7 @@ export default function Captains() {
   }
 
   function handleStartPlanning(captain: Captain) {
-    navigate('/planning', {
+    navigate(PLANNING_PATH, {
       state: {
         captainId: captain.id,
       },
@@ -352,11 +353,6 @@ export default function Captains() {
 
   const columns: DataTableColumn<Captain>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Captain name, shown in lists, logs and mission assignments. Click to sort.'), cellClassName: 'cell-nowrap',
-      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only captains whose name contains this text (not case sensitive).')} value={colFilters.name} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
-      render: (c) => <><strong>{c.name}</strong>{c.tier ? <> <CaptainTierBadge tier={c.tier} /></> : null}</>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique captain ID (cpt_ prefix), used by the API, CLI, MCP tools and logs. Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (c) => (
         <span className="id-display">
@@ -364,6 +360,11 @@ export default function Captains() {
           <CopyButton text={c.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Captain name, shown in lists, logs and mission assignments. Click to sort.'), cellClassName: 'cell-nowrap',
+      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only captains whose name contains this text (not case sensitive).')} value={colFilters.name} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
+      render: (c) => <><strong>{c.name}</strong>{c.tier ? <> <CaptainTierBadge tier={c.tier} /></> : null}</>,
     },
     {
       key: 'runtime', label: t('Runtime'), sortKey: 'runtime', headerTitle: t('Agent program the captain runs, such as ClaudeCode, Codex, Mux or ApiEndpoint. Click to sort.'), cellClassName: 'text-dim',
@@ -461,6 +462,7 @@ export default function Captains() {
                   <option value="Cursor">Cursor</option>
                   <option value="Mux">Mux</option>
                   <option value="OpenCode">OpenCode</option>
+                  <option value="Pi">pi</option>
                   <option value="ApiEndpoint">API Endpoint</option>
                 </select>
               </label>

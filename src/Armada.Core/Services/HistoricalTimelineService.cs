@@ -174,13 +174,21 @@ namespace Armada.Core.Services
                 filtered = filtered.Where(entry => allowed.Contains(entry.SourceType));
             }
 
-            List<HistoricalTimelineEntry> ordered = filtered
-                .OrderByDescending(entry => entry.OccurredUtc)
-                .ThenByDescending(entry => entry.SourceId, StringComparer.Ordinal)
-                .ToList();
+            // Stable total order (occurrence time, then source type and id) so consecutive pages never overlap or skip.
+            List<HistoricalTimelineEntry> ordered = query.Order == EnumerationOrderEnum.CreatedAscending
+                ? filtered
+                    .OrderBy(entry => entry.OccurredUtc)
+                    .ThenBy(entry => entry.SourceType, StringComparer.Ordinal)
+                    .ThenBy(entry => entry.SourceId, StringComparer.Ordinal)
+                    .ToList()
+                : filtered
+                    .OrderByDescending(entry => entry.OccurredUtc)
+                    .ThenByDescending(entry => entry.SourceType, StringComparer.Ordinal)
+                    .ThenByDescending(entry => entry.SourceId, StringComparer.Ordinal)
+                    .ToList();
 
-            int pageSize = query.PageSize < 1 ? 50 : query.PageSize;
-            int offset = query.Offset < 0 ? 0 : query.Offset;
+            int pageSize = query.PageSize;
+            int offset = query.Offset;
             List<HistoricalTimelineEntry> page = ordered.Skip(offset).Take(pageSize).ToList();
 
             stopwatch.Stop();
@@ -349,7 +357,7 @@ namespace Armada.Core.Services
                 Description = "Planning session",
                 Status = session.Status.ToString(),
                 Severity = session.Status == PlanningSessionStatusEnum.Failed ? "error" : "info",
-                Route = "/planning/" + session.Id,
+                Route = "/dispatch?tab=planning&session=" + session.Id,
                 OccurredUtc = session.LastUpdateUtc,
                 MetadataJson = JsonSerializer.Serialize(new
                 {

@@ -147,9 +147,9 @@ namespace Test.Shared.Suites.Tui.Build
                 AssertFalse(local.Description.Contains("pushes"), "LocalMerge description does not claim to push: " + local.Description);
                 LandingModeInfo push = LandingModeInfo.For("MergeAndPush");
                 AssertEqual("MergeAndPush", push.Value, "MergeAndPush known");
-                AssertEqual("Merge and Push -- local merge, then push to the remote", push.Label, "MergeAndPush label");
+                AssertEqual("Merge and Push -- verify and push to the remote", push.Label, "MergeAndPush label");
                 AssertEqual("local + push", push.Short, "MergeAndPush short");
-                AssertTrue(push.Description.Contains("then pushes it to the working directory's remote"), "MergeAndPush description: " + push.Description);
+                AssertTrue(push.Description.Contains("pushes the verified commit to the remote target branch"), "MergeAndPush description: " + push.Description);
                 foreach (string name in Enum.GetNames(typeof(LandingModeEnum)))
                     AssertEqual(name, LandingModeInfo.For(name).Value, "every enum value has an entry: " + name);
             }));
@@ -180,8 +180,8 @@ namespace Test.Shared.Suites.Tui.Build
                     AssertEqual("LocalMerge", landing.Value, "new vessels still default to LocalMerge");
                     AssertTrue(dialog.Form.Rows.First(r => r.Label == "Landing Mode").Hint!.Contains("Nothing is pushed."), "LocalMerge hint says nothing is pushed");
                     landing.Choose(landing.Options.First(o => o.Value == "MergeAndPush"));
-                    AssertEqual("Merge and Push -- local merge, then push to the remote", landing.Selected!.Label, "MergeAndPush option label");
-                    AssertTrue(dialog.Form.Rows.First(r => r.Label == "Landing Mode").Hint!.Contains("then pushes it to the working directory's remote"), "MergeAndPush hint");
+                    AssertEqual("Merge and Push -- verify and push to the remote", landing.Selected!.Label, "MergeAndPush option label");
+                    AssertTrue(dialog.Form.Rows.First(r => r.Label == "Landing Mode").Hint!.Contains("pushes the verified commit to the remote target branch"), "MergeAndPush hint");
                     int listsBeforeCreate = stub.CountFor("GET", "/api/v1/vessels");
                     host.Press("ctrl+s");
                     AssertTrue(host.PumpUntil(() => stub.CountFor("POST", "/api/v1/vessels") == 1), "create");

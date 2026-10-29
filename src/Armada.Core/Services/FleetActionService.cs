@@ -211,6 +211,7 @@ namespace Armada.Core.Services
 
             RequireKindPermission(auth, definition.Kind);
             request.Overrides?.ApprovalOptions?.ValidateFor(auth);
+            Dictionary<string, string> inputValues = FleetActionInputValidator.Resolve(definition.Inputs, request.InputValues);
 
             List<string> vesselIds = request.VesselIds
                 .Where(v => !String.IsNullOrWhiteSpace(v))
@@ -234,6 +235,13 @@ namespace Armada.Core.Services
                 UserId = auth.UserId,
                 ActionId = sourceActionId,
                 ActionName = definition.Name,
+                CommandWindows = definition.CommandWindows,
+                OutputParser = definition.OutputParser,
+                RequiredTools = definition.RequiredTools,
+                RequiresNetwork = definition.RequiresNetwork,
+                ScanSourceActionKey = definition.ScanSourceActionKey,
+                Inputs = definition.Inputs,
+                InputValues = inputValues,
                 Kind = definition.Kind,
                 CommandText = definition.Kind == FleetActionKindEnum.Command ? definition.CommandText : null,
                 PromptTemplate = definition.Kind == FleetActionKindEnum.Mission ? definition.PromptTemplate : null,
@@ -456,6 +464,16 @@ namespace Armada.Core.Services
                 action.Kind = request.Kind.Value;
             }
 
+            if (request.CommandWindows != null) action.CommandWindows = request.CommandWindows;
+            if (request.OutputParser != null) action.OutputParser = String.IsNullOrWhiteSpace(request.OutputParser) ? null : request.OutputParser.Trim();
+            if (request.ScanSourceActionKey != null) action.ScanSourceActionKey = request.ScanSourceActionKey;
+            if (request.RequiredTools != null) action.RequiredTools = request.RequiredTools;
+            if (request.RequiresNetwork.HasValue) action.RequiresNetwork = request.RequiresNetwork.Value;
+            if (request.Inputs != null) action.Inputs = request.Inputs;
+            FleetActionInputValidator.ValidateDefinitions(action.Inputs);
+            if (action.OutputParser != null && FleetActionOutputParsers.FleetActionParserRegistry.Get(action.OutputParser) == null) throw new ArgumentException("Unknown output parser: " + action.OutputParser);
+            foreach (string tool in action.RequiredTools)
+                if (String.IsNullOrWhiteSpace(tool) || !System.Text.RegularExpressions.Regex.IsMatch(tool, @"^[A-Za-z0-9_][A-Za-z0-9_.+-]*\z")) throw new ArgumentException("RequiredTools must contain executable names, not paths or shell commands.");
             if (request.Name != null) action.Name = request.Name.Trim();
             if (request.Description != null) action.Description = String.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
             if (request.CommandText != null) action.CommandText = String.IsNullOrWhiteSpace(request.CommandText) ? null : request.CommandText;
@@ -472,12 +490,13 @@ namespace Armada.Core.Services
             if (action.Kind == FleetActionKindEnum.Command)
             {
                 if (String.IsNullOrWhiteSpace(action.CommandText)) throw new ArgumentException("CommandText is required for a Command action.", nameof(request));
-                FleetActionTemplateRenderer.Validate(action.CommandText);
+                FleetActionTemplateRenderer.Validate(action.CommandText, action.Inputs.Select(i => i.Name));
+                FleetActionTemplateRenderer.Validate(action.CommandWindows, action.Inputs.Select(i => i.Name));
             }
             else
             {
                 if (String.IsNullOrWhiteSpace(action.PromptTemplate)) throw new ArgumentException("PromptTemplate is required for a Mission action.", nameof(request));
-                FleetActionTemplateRenderer.Validate(action.PromptTemplate);
+                FleetActionTemplateRenderer.Validate(action.PromptTemplate, action.Inputs.Select(i => i.Name));
             }
 
             return action;
