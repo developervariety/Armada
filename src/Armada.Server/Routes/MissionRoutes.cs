@@ -337,6 +337,14 @@ namespace Armada.Server.Routes
                 if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc)) query.FromUtc = fromUtc.ToUniversalTime();
                 if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc)) query.ToUtc = toUtc.ToUniversalTime();
                 if (int.TryParse(QueryValueReader.Read(req, "bucketMinutes"), out int bucketMinutes) && bucketMinutes > 0) query.BucketMinutes = bucketMinutes;
+                try
+                {
+                    CollectionLimits.RequireMissionHistoryBuckets(query.FromUtc, query.ToUtc, query.BucketMinutes);
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
                 string? fleetId = QueryValueReader.Read(req, "fleetId");
                 if (!String.IsNullOrEmpty(fleetId)) query.FleetId = fleetId;
                 string? vesselId = QueryValueReader.Read(req, "vesselId");
@@ -954,6 +962,14 @@ namespace Armada.Server.Routes
                 DeleteMultipleRequest? body = JsonSerializer.Deserialize<DeleteMultipleRequest>(req.Http.Request.DataAsString, _jsonOptions);
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
                     return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" };
+                try
+                {
+                    CollectionLimits.RequireRequestItems(body.Ids, "Ids");
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
 
                 DeleteMultipleResult result = await _operations.PurgeMissionsAsync(
                     body.Ids,
@@ -1360,6 +1376,7 @@ namespace Armada.Server.Routes
 
         private static MissionHistorySummaryResult BuildMissionHistorySummary(MissionHistoryQuery query, IEnumerable<MissionHistoryPoint> points)
         {
+            CollectionLimits.RequireMissionHistoryBuckets(query.FromUtc, query.ToUtc, query.BucketMinutes);
             DateTime fromUtc = query.FromUtc.Kind == DateTimeKind.Utc ? query.FromUtc : query.FromUtc.ToUniversalTime();
             DateTime toUtc = query.ToUtc.Kind == DateTimeKind.Utc ? query.ToUtc : query.ToUtc.ToUniversalTime();
             int bucketMinutes = query.BucketMinutes > 0 ? query.BucketMinutes : 60;

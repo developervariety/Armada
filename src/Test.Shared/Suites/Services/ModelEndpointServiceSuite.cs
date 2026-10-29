@@ -832,6 +832,55 @@ namespace Test.Shared.Suites.Services
                 AssertTrue((await service.EnumerateAsync(global).ConfigureAwait(false)).Count >= 1, "A global admin must enumerate all endpoints.");
             }));
 
+            cases.Add(CaseAsync("launch_options_round_trip_and_stay_when_omitted", "Launch options persist and an update that omits them keeps them", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ModelEndpointService service = new ModelEndpointService(testDb.Driver, CreateLogging());
+                AuthContext auth = AuthContext.Authenticated("ten_mep_launch", "usr_mep_launch", false, true, "UnitTest");
+                ModelEndpoint endpoint = NewInference("Bounded", "https://api.openai.com");
+                endpoint.LaunchOptions = new EndpointLaunchOptions
+                {
+                    ToolsEnabled = false,
+                    ReadOnlyTools = true,
+                    AllowedTools = new List<string> { "read_file" },
+                    MaxTokens = 32,
+                    MaxIterations = 7
+                };
+
+                ModelEndpoint created = await service.CreateAsync(auth, endpoint).ConfigureAwait(false);
+                ModelEndpoint? stored = await service.ReadAsync(auth, created.Id).ConfigureAwait(false);
+                AssertNotNull(stored, "The created endpoint must be readable.");
+                AssertFalse(stored!.LaunchOptions.ToolsEnabled);
+                AssertTrue(stored.LaunchOptions.ReadOnlyTools);
+                AssertEqual(1, stored.LaunchOptions.AllowedTools?.Count ?? 0);
+                AssertEqual("read_file", stored.LaunchOptions.AllowedTools![0]);
+                AssertEqual(32, stored.LaunchOptions.MaxTokens ?? -1);
+                AssertEqual(7, stored.LaunchOptions.MaxIterations);
+
+                ModelEndpoint update = NewInference("Bounded", "https://api.openai.com");
+                update.Id = created.Id;
+                ModelEndpoint kept = await service.UpdateAsync(auth, update).ConfigureAwait(false);
+                AssertEqual(7, kept.LaunchOptions.MaxIterations);
+                AssertEqual("read_file", kept.LaunchOptions.AllowedTools![0]);
+            }));
+
+            cases.Add(CaseAsync("launch_options_reject_an_out_of_range_cap_and_an_oversized_tool_list", "Launch options reject an out-of-range cap and an oversized tool list", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ModelEndpointService service = new ModelEndpointService(testDb.Driver, CreateLogging());
+                AuthContext auth = AuthContext.Authenticated("ten_mep_launch2", "usr_mep_launch2", false, true, "UnitTest");
+
+                ModelEndpoint badCap = NewInference("Bad cap", "https://api.openai.com");
+                badCap.LaunchOptions = new EndpointLaunchOptions { MaxIterations = 0 };
+                await AssertThrowsAsync<EndpointLaunchOptionsException>(() => service.CreateAsync(auth, badCap));
+
+                ModelEndpoint tooMany = NewInference("Too many", "https://api.openai.com");
+                tooMany.LaunchOptions = new EndpointLaunchOptions { AllowedTools = new List<string>() };
+                for (int i = 0; i < CollectionLimits.MaxConfigItems + 1; i++) tooMany.LaunchOptions.AllowedTools.Add("tool_" + i);
+                await AssertThrowsAsync<CollectionLimitExceededException>(() => service.CreateAsync(auth, tooMany));
+                AssertEqual(0, (await service.EnumerateAsync(auth).ConfigureAwait(false)).Count);
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.ModelEndpointService",
                 displayName: "Model Endpoint Service",

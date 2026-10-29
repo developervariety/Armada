@@ -17,6 +17,11 @@ namespace Armada.Core.Services
         {
             List<RequestHistoryEntry> safeEntries = entries ?? new List<RequestHistoryEntry>();
             RequestHistoryQuery safeQuery = query ?? new RequestHistoryQuery();
+            if (safeQuery.FromUtc.HasValue && safeQuery.ToUtc.HasValue)
+            {
+                double width = safeQuery.BucketMinutes <= 0 ? 15 : safeQuery.BucketMinutes;
+                CollectionLimits.RequireInclusiveBuckets(safeQuery.FromUtc.Value, safeQuery.ToUtc.Value, width);
+            }
 
             RequestHistorySummaryResult result = new RequestHistorySummaryResult
             {

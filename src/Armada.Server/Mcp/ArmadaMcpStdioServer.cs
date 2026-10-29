@@ -1,6 +1,7 @@
 namespace Armada.Server.Mcp
 {
     using System.IO;
+    using Armada.Core.Services;
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Nodes;
@@ -310,7 +311,15 @@ namespace Armada.Server.Mcp
                 arguments = argumentsElement.Clone();
             arguments = McpToolArgumentNormalizer.Normalize(arguments, registration.InputSchema, _JsonOptions);
 
-            object toolResult = await registration.Handler(arguments).ConfigureAwait(false);
+            object toolResult;
+            try
+            {
+                toolResult = await registration.Handler(arguments).ConfigureAwait(false);
+            }
+            catch (CollectionLimitExceededException limit)
+            {
+                return McpCollectionLimitError.StdioResult(limit);
+            }
             JsonNode? toolNode = ToJsonNode(toolResult);
             if (toolNode != null
                 && McpToolResultError.TryGetError(JsonSerializer.SerializeToElement(toolNode, _JsonOptions), out string? errorMessage))

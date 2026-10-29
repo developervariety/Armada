@@ -585,6 +585,7 @@ namespace Armada.Core.Services
         public async Task<MergeQueuePurgeResult> DeleteMultipleAsync(List<string> entryIds, string? tenantId = null, CancellationToken token = default)
         {
             if (entryIds == null) throw new ArgumentNullException(nameof(entryIds));
+            CollectionLimits.RequireRequestItems(entryIds, "EntryIds");
 
             MergeQueuePurgeResult result = new MergeQueuePurgeResult();
 

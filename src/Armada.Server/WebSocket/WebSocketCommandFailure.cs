@@ -2,6 +2,7 @@ namespace Armada.Server.WebSocket
 {
     using System;
     using System.Text.Json;
+    using Armada.Core.Services;
 
     /// <summary>
     /// A <c>command.error</c> frame for a command that threw. The frame has the same fields as a refusal:
@@ -30,6 +31,18 @@ namespace Armada.Server.WebSocket
         public static object FromException(Exception ex)
         {
             if (ex == null) throw new ArgumentNullException(nameof(ex));
+            if (ex is CollectionLimitExceededException limit)
+            {
+                return new
+                {
+                    type = "command.error",
+                    error = limit.Message,
+                    code = CollectionLimitExceededException.ErrorCode,
+                    field = limit.Field,
+                    limit = limit.Limit,
+                    actual = limit.Actual
+                };
+            }
             return new { type = "command.error", error = ex.Message ?? "", code = CodeFor(ex) };
         }
 
@@ -39,6 +52,7 @@ namespace Armada.Server.WebSocket
         public static string CodeFor(Exception ex)
         {
             if (ex == null) throw new ArgumentNullException(nameof(ex));
+            if (ex is CollectionLimitExceededException) return CollectionLimitExceededException.ErrorCode;
             if (ex is KeyNotFoundException) return WebSocketCommandRefusal.NotFoundCode;
             if (ex is ArgumentException || ex is JsonException) return InvalidArgumentCode;
             if (ex is UnauthorizedAccessException) return WebSocketCommandRefusal.ForbiddenCode;

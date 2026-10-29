@@ -8,6 +8,7 @@ namespace Armada.Server.Mcp.Tools
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Registers MCP tools for fleet CRUD operations.
@@ -162,6 +163,7 @@ namespace Armada.Server.Mcp.Tools
                     DeleteMultipleArgs request = JsonSerializer.Deserialize<DeleteMultipleArgs>(args!.Value, _JsonOptions)!;
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)new { Error = "ids is required and must not be empty" };
+                    CollectionLimits.RequireRequestItems(request.Ids, "Ids");
 
                     DeleteMultipleResult result = new DeleteMultipleResult();
                     foreach (string id in request.Ids)

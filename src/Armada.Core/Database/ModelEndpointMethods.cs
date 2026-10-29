@@ -25,7 +25,7 @@ namespace Armada.Core.Database
             new[]
             {
                 "id", "tenant_id", "user_id", "name", "kind", "scope", "provider", "base_url", "api_key", "model", "dimensionality", "timeout_ms", "enabled",
-                "health_status", "last_health_check_utc", "last_health_error", "last_latency_ms", "health_history_json", "created_utc", "last_update_utc"
+                "health_status", "last_health_check_utc", "last_health_error", "last_latency_ms", "health_history_json", "launch_options_json", "created_utc", "last_update_utc"
             },
             Array.Empty<string>(),
             ModelEndpointColumns.Read,

@@ -84,8 +84,15 @@ namespace Armada.Server.Routes
 
                 CaptainChatRequest request = JsonSerializer.Deserialize<CaptainChatRequest>(req.Http.Request.DataAsString, _bodyJsonOptions) ?? new CaptainChatRequest();
                 // The turn's live chunk, tool and thinking events reach only this caller's sessions.
-                CaptainChatResponse response = await _captainChat.ChatAsync(ctx, id, request).ConfigureAwait(false);
-                return response;
+                try
+                {
+                    CaptainChatResponse response = await _captainChat.ChatAsync(ctx, id, request).ConfigureAwait(false);
+                    return response;
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
             },
             api => api
                 .WithTag("Ask")

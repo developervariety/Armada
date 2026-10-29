@@ -155,6 +155,36 @@ namespace Armada.Core.Models
         public bool ApiKeySpecified { get; private set; } = false;
 
         /// <summary>
+        /// Options applied when a mission or Ask turn launches on this endpoint. Omitted on create or
+        /// update leaves the stored options unchanged. A stored null reads as the defaults.
+        /// </summary>
+        public EndpointLaunchOptions LaunchOptions
+        {
+            get => _LaunchOptions;
+            set
+            {
+                LaunchOptionsSpecified = true;
+                _LaunchOptions = value ?? new EndpointLaunchOptions();
+            }
+        }
+
+        /// <summary>
+        /// Whether launch options were explicitly supplied during JSON deserialization.
+        /// </summary>
+        [JsonIgnore]
+        public bool LaunchOptionsSpecified { get; private set; } = false;
+
+        /// <summary>
+        /// Replace the stored launch options without marking them as supplied by a request.
+        /// </summary>
+        /// <param name="options">Options read from storage, or null for the defaults.</param>
+        public void LoadLaunchOptions(EndpointLaunchOptions? options)
+        {
+            _LaunchOptions = options ?? new EndpointLaunchOptions();
+            LaunchOptionsSpecified = false;
+        }
+
+        /// <summary>
         /// Result of the most recent health check for this endpoint's base URL.
         /// </summary>
         public EndpointHealthStatusEnum HealthStatus { get; set; } = EndpointHealthStatusEnum.Unknown;
@@ -295,6 +325,7 @@ namespace Armada.Core.Models
         private int _Dimensionality = 0;
         private int _TimeoutMs = 120000;
         private List<ModelEndpointHealthRecord> _HealthHistory = new List<ModelEndpointHealthRecord>();
+        private EndpointLaunchOptions _LaunchOptions = new EndpointLaunchOptions();
 
         #endregion
 

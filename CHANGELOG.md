@@ -7,6 +7,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Endpoint launch options
+
+- An inference endpoint stores launch options: whether tools are enabled, whether tools are read-only, an optional allowed-tool list, a completion length and an iteration cap. Omitted on create or update, the stored options stay unchanged. The defaults keep the previous launch behavior: tools on, mutating tools allowed, every otherwise offered tool allowed, no completion-length override, and 100 iterations. A mission launch and an Ask turn on that endpoint apply the options, and a tool the model names outside them is refused rather than executed. Create and update reject an invalid value. See [Model endpoint launch options](docs/REST_API.md#model-endpoint-launch-options).
+- Migrations: SQLite 139, PostgreSQL 143, MySQL 132, SQL Server 135.
+
+### Request size limits
+
+- A bulk-delete identifier list, a dispatch mission list, a dispatch playbook selection and a captain chat history each have a fixed limit well above ordinary use. A token-usage, request-history or mission-history summary refuses a window that would fill more than 1000 buckets. REST returns HTTP 400 with `data.code` `CollectionLimitExceeded`. MCP and WebSocket return the same code. A successful response is unchanged. See [Request limits](docs/REQUEST_LIMITS.md).
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.

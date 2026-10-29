@@ -43,6 +43,7 @@ namespace Armada.Core.Database
             endpoint.LastHealthError = row.NullableText("last_health_error");
             endpoint.LastLatencyMs = row.NullableLong("last_latency_ms");
             endpoint.HealthHistory = row.Json<List<ModelEndpointHealthRecord>>("health_history_json", _Json) ?? new List<ModelEndpointHealthRecord>();
+            endpoint.LoadLaunchOptions(row.Json<EndpointLaunchOptions>("launch_options_json", _Json));
             endpoint.CreatedUtc = row.Utc("created_utc");
             endpoint.LastUpdateUtc = row.Utc("last_update_utc");
             return endpoint;
@@ -74,6 +75,7 @@ namespace Armada.Core.Database
                 .Text("last_health_error", endpoint.LastHealthError)
                 .Long("last_latency_ms", endpoint.LastLatencyMs)
                 .Text("health_history_json", JsonSerializer.Serialize(endpoint.HealthHistory ?? new List<ModelEndpointHealthRecord>(), _Json))
+                .Text("launch_options_json", JsonSerializer.Serialize(endpoint.LaunchOptions ?? new EndpointLaunchOptions(), _Json))
                 .Utc("created_utc", endpoint.CreatedUtc)
                 .Utc("last_update_utc", endpoint.LastUpdateUtc);
         }

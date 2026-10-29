@@ -3081,6 +3081,14 @@ export interface ModelEndpointHealthRecord {
   success: boolean;
 }
 
+export interface EndpointLaunchOptions {
+  toolsEnabled: boolean;
+  readOnlyTools: boolean;
+  allowedTools: string[] | null;
+  maxTokens: number | null;
+  maxIterations: number;
+}
+
 export interface ModelEndpoint {
   id: string;
   tenantId: string | null;
@@ -3094,6 +3102,7 @@ export interface ModelEndpoint {
   dimensionality: number;
   timeoutMs: number;
   enabled: boolean;
+  launchOptions?: EndpointLaunchOptions;
   hasApiKey: boolean;
   healthStatus: EndpointHealthStatus;
   lastHealthCheckUtc: string | null;

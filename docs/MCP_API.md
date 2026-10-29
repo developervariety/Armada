@@ -704,7 +704,10 @@ field, or an `Error` nested inside the payload, is a successful result. Over
 HTTP, an error result reaches the client with `isError: true` and its full
 payload, and the tool-call audit records it as `Failed` with the error message.
 Local stdio (`armada mcp stdio`) applies the same rule and answers an error
-result with a JSON-RPC internal error that carries the message.
+result with a JSON-RPC internal error that carries the message. A
+collection-limit refusal is the exception: both transports return it as the
+tool result, with `errorCode` `CollectionLimitExceeded`, and stdio does not
+collapse that result into a protocol error. See [Request limits](REQUEST_LIMITS.md).
 
 When a structured result includes an action hint, follow it before you retry.
 Do not repeat a dispatch call until you have checked whether it created a

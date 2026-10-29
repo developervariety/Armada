@@ -595,6 +595,14 @@ namespace Armada.Server.Routes
                 DeleteMultipleRequest? body = JsonSerializer.Deserialize<DeleteMultipleRequest>(req.Http.Request.DataAsString, _jsonOptions);
                 if (body == null || body.Ids == null || body.Ids.Count == 0)
                     return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Ids is required and must not be empty" };
+                try
+                {
+                    CollectionLimits.RequireRequestItems(body.Ids, "Ids");
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
 
                 DeleteMultipleResult result = await _captainAdministration.DeleteManyAsync(body.Ids, ctx).ConfigureAwait(false);
 

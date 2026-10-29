@@ -741,7 +741,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(127, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.MysqlStatements),
                 new SchemaMigration(128, "Persist the unread reply count of saved Ask threads",
                     @"ALTER TABLE ask_threads ADD COLUMN unread_count INT NOT NULL DEFAULT 0;"),
-                new SchemaMigration(129, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.MysqlStatements)
+                new SchemaMigration(129, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.MysqlStatements),
+                new SchemaMigration(132, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.MysqlStatements)
             };
         }
 
