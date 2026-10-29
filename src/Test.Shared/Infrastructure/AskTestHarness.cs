@@ -86,6 +86,7 @@ namespace Test.Shared.Infrastructure
                 lock (Events) Events.Add(new AskRecordedEvent { TenantId = tenantId, UserId = userId, EventType = eventType, Payload = payload });
             };
             Threads.ActiveTurnResolver = Turns.ActiveTurnId;
+            Threads.ActiveTurnProgressResolver = Turns.ActiveTurnProgress;
             Actions.OnWorkLinked = Tracker.OnWorkLinkedAsync;
             Actions.OnProposalApproved = Turns.StartFollowUpAsync;
             Tracker.Narrate = Turns.NarrateAsync;

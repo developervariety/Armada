@@ -40,6 +40,9 @@ export interface VesselFormState {
   definitionOfDoneBuildCommand: string;
   definitionOfDoneTestCommand: string;
   definitionOfDoneTimeoutSeconds: string;
+  testCommand: string;
+  lintCommand: string;
+  auditCommand: string;
 }
 
 /** Landing-mode option with a short label and a full explanation. */
@@ -60,6 +63,7 @@ export const emptyVesselForm: VesselFormState = {
   secretScanEnabled: false, protectedPathPatterns: '', privateIdentifierDenylist: '',
   autoLandEnabled: false, autoLandMaxFiles: '', autoLandMaxLines: '', autoLandPathAllowGlobs: '', autoLandPathDenyGlobs: '',
   definitionOfDoneEnabled: false, definitionOfDoneBuildCommand: '', definitionOfDoneTestCommand: '', definitionOfDoneTimeoutSeconds: '',
+  testCommand: '', lintCommand: '', auditCommand: '',
 };
 
 /** Landing-mode metadata shared by the vessel form, the Vessels filter, and the Vessels table. */
@@ -67,7 +71,7 @@ export function getLandingModes(t: (text: string) => string): LandingModeOption[
   return [
     { value: '', label: t('Default (use global setting)'), short: t('global default'), description: t('Uses the global default landing mode configured for the Admiral.') },
     { value: 'LocalMerge', label: t('Local Merge -- into your working directory, no push'), short: t('local, no push'), description: t('Merges the mission branch into the default branch in your local working directory. Nothing is pushed. Requires the vessel to have a working directory and local path configured.') },
-    { value: 'MergeAndPush', label: t('Merge and Push -- local merge, then push to the remote'), short: t('local + push'), description: t('Merges the mission branch into the default branch in your local working directory, then pushes it to the working directory\'s remote. Requires the vessel to have a working directory and local path configured, and the working directory needs a remote.') },
+    { value: 'MergeAndPush', label: t('Merge and Push -- verify and push to the remote'), short: t('local + push'), description: t('Integrates and verifies the mission in its dock, then pushes the verified commit to the remote target branch. A dirty working directory does not block publication.') },
     { value: 'PullRequest', label: t('Pull Request -- push and open a PR'), short: t('opens a PR'), description: t('Pushes the mission branch and opens a pull request on the remote. The mission stays open until the PR is merged.') },
     { value: 'MergeQueue', label: t('Merge Queue -- validated sequential merge'), short: t('merge queue'), description: t('Enqueues the mission branch for a validated merge. The merge queue runs tests and merges branches one at a time per vessel.') },
     { value: 'None', label: t('None -- manual integration'), short: t('manual only'), description: t('No automatic landing. Work stays as WorkProduced and the branch is kept in the repository for you to integrate manually.') },
@@ -134,6 +138,9 @@ export function vesselToForm(v: Vessel): VesselFormState {
     definitionOfDoneBuildCommand: v.definitionOfDoneBuildCommand || '',
     definitionOfDoneTestCommand: v.definitionOfDoneTestCommand || '',
     definitionOfDoneTimeoutSeconds: v.definitionOfDoneTimeoutSeconds ? String(v.definitionOfDoneTimeoutSeconds) : '',
+    testCommand: v.testCommand || '',
+    lintCommand: v.lintCommand || '',
+    auditCommand: v.auditCommand || '',
   };
 }
 
@@ -186,6 +193,10 @@ export function buildVesselPayload(form: VesselFormState, existing: Vessel | nul
   payload.definitionOfDoneTimeoutSeconds = form.definitionOfDoneTimeoutSeconds.trim()
     ? Math.max(30, parseInt(form.definitionOfDoneTimeoutSeconds, 10) || 1800)
     : 1800;
+  // Blank command overrides clear the field so the repo script or ecosystem default applies.
+  payload.testCommand = form.testCommand.trim() || null;
+  payload.lintCommand = form.lintCommand.trim() || null;
+  payload.auditCommand = form.auditCommand.trim() || null;
 
   // GitHub token override: omit to keep the stored value; an empty string clears it.
   if (existing && form.clearGitHubTokenOverride) payload.gitHubTokenOverride = '';

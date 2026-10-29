@@ -80,6 +80,7 @@ import type {
   HarborJobStopResult,
   ModelEndpoint,
   Memory,
+  MemoryEnumerateQuery,
   ModelEndpointProbeResult,
   ModelEndpointHealthSweepResponse,
   PasswordChangeRequest,
@@ -192,7 +193,7 @@ import type {
   ModelProbeRun,
   ModelProbeRunQuery,
 } from '../types/models';
-import { fetchAllPages } from './paging';
+import { MAX_PAGE_SIZE } from './paging';
 
 /**
  * Host services the client cannot implement portably. The dashboard registers a browser adapter (anchor
@@ -547,10 +548,13 @@ function buildQuery(params?: { pageNumber?: number; pageSize?: number; filters?:
  * Every row of a paged enumerate route, collected page by page. Each request returns at most one page; use this where a
  * screen needs the whole set (pickers, maps), and the route itself for one page.
  */
-async function enumerateAll<T>(path: string, body: Record<string, unknown> = {}): Promise<T[]> {
-  const result = await fetchAllPages<T>((pageNumber, pageSize) =>
-    post<EnumerationResult<T>>(path, { ...body, PageNumber: pageNumber, PageSize: pageSize }));
-  return result.objects;
+/**
+ * One bounded page (the first MAX_PAGE_SIZE rows) of an enumerate route, for the array-returning list helpers below.
+ * It never loops over pages: a caller that needs more pages the route itself, explicitly (see api/paging.ts).
+ */
+async function enumerateFirstPage<T>(path: string, body: Record<string, unknown> = {}): Promise<T[]> {
+  const result = await post<EnumerationResult<T>>(path, { ...body, PageNumber: 1, PageSize: MAX_PAGE_SIZE });
+  return result?.objects ?? [];
 }
 
 function buildRequestHistoryQuery(params?: RequestHistoryQuery): string {
@@ -848,17 +852,21 @@ export interface BranchInfo {
   behind: number;
 }
 
-/** Every branch of a vessel, read page by page from the paged branches route, with its default branch and any git error. */
+/**
+ * The first MAX_PAGE_SIZE branches of a vessel (one page of the paged branches route, never a loop over every page),
+ * with its default branch, any git error, and the true branch count from the route's total.
+ */
 export const getVesselBranches = async (id: string): Promise<{ vesselId: string; defaultBranch?: string; branches: BranchInfo[]; branchCount: number; error?: string }> => {
-  let first: (EnumerationResult<BranchInfo> & { vesselId: string; defaultBranch?: string; error?: string }) | null = null;
-  const all = await fetchAllPages<BranchInfo>(async (pageNumber, pageSize) => {
-    const page = await post<EnumerationResult<BranchInfo> & { vesselId: string; defaultBranch?: string; error?: string }>(
-      `/api/v1/vessels/${encodeURIComponent(id)}/branches/enumerate`, { PageNumber: pageNumber, PageSize: pageSize });
-    if (!first) first = page;
-    return page;
-  });
-  const head = first as (EnumerationResult<BranchInfo> & { vesselId: string; defaultBranch?: string; error?: string }) | null;
-  return { vesselId: head?.vesselId ?? id, defaultBranch: head?.defaultBranch, branches: all.objects, branchCount: all.objects.length, error: head?.error ?? undefined };
+  const page = await post<EnumerationResult<BranchInfo> & { vesselId: string; defaultBranch?: string; error?: string }>(
+    `/api/v1/vessels/${encodeURIComponent(id)}/branches/enumerate`, { PageNumber: 1, PageSize: MAX_PAGE_SIZE });
+  const branches = page?.objects ?? [];
+  return {
+    vesselId: page?.vesselId ?? id,
+    defaultBranch: page?.defaultBranch,
+    branches,
+    branchCount: typeof page?.totalRecords === 'number' ? Math.max(page.totalRecords, branches.length) : branches.length,
+    error: page?.error ?? undefined,
+  };
 };
 
 /** Number of branches of a vessel: a one-branch page of the paged branches route, so the server measures ahead/behind for at most one branch. */
@@ -873,6 +881,64 @@ export const pushVesselBranch = (id: string, branch: string) =>
 
 export const mergeVesselBranch = (id: string, source: string, target: string, push: boolean) =>
   post<{ vesselId: string; source: string; target: string; merged: boolean; pushed: boolean }>(`/api/v1/vessels/${id}/branches/merge`, { Source: source, Target: target, Push: push });
+
+export type VesselCleanupDisposition = 'Safe' | 'InUse' | 'Unknown';
+export type VesselCleanupResourceType = 'Dock' | 'Worktree' | 'Branch' | 'Repository';
+
+/** One resource in a vessel cleanup inventory. sizeBytes is null when it could not be measured (never estimated). */
+export interface VesselCleanupResource {
+  key: string;
+  resourceType: VesselCleanupResourceType;
+  disposition: VesselCleanupDisposition;
+  reason: string;
+  identity: string;
+  path: string | null;
+  branchName: string | null;
+  repositoryPath: string | null;
+  harborId: string | null;
+  dockId: string | null;
+  missionId: string | null;
+  missionStatus: string | null;
+  voyageId: string | null;
+  captainId: string | null;
+  sizeBytes: number | null;
+}
+
+export interface VesselCleanupInventory {
+  vesselId: string;
+  vesselName: string;
+  scannedUtc: string;
+  resources: VesselCleanupResource[];
+  safeCount: number;
+  inUseCount: number;
+  unknownCount: number;
+  safeMeasuredBytes: number;
+  safeUnmeasuredCount: number;
+}
+
+export interface VesselCleanupItemResult {
+  key: string;
+  resourceType: VesselCleanupResourceType | null;
+  identity: string | null;
+  status: 'Deleted' | 'Skipped' | 'Failed';
+  message: string;
+}
+
+export interface VesselCleanupResult {
+  results: VesselCleanupItemResult[];
+  deleted: number;
+  skipped: number;
+  failed: number;
+  inventory: VesselCleanupInventory;
+}
+
+/** Read-only cleanup inventory of a vessel's docks, worktrees, and Armada-managed branches. Deletes nothing. */
+export const getVesselCleanupInventory = (id: string) =>
+  get<VesselCleanupInventory>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { timeout: 300000 });
+
+/** Clean up the selected inventory keys; the server revalidates each one and returns per-item outcomes plus a fresh inventory. */
+export const runVesselCleanup = (id: string, keys: string[]) =>
+  post<VesselCleanupResult>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { Keys: keys }, { timeout: 600000 });
 
 // ==================== Vessel History ====================
 /** Per-day commit counts for a vessel branch (heatmap). A missing repo or branch returns 200 with `error` set. */
@@ -965,9 +1031,9 @@ export const createBacklogItem = (data: ObjectiveUpsertRequest) => post<Objectiv
 export const updateBacklogItem = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`, data);
 export const deleteBacklogItem = (id: string) => del<void>(`/api/v1/backlog/${encodeURIComponent(id)}`);
 export const listObjectiveRefinementSessions = (objectiveId: string) =>
-  enumerateAll<ObjectiveRefinementSession>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`);
+  enumerateFirstPage<ObjectiveRefinementSession>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`);
 export const listBacklogRefinementSessions = (objectiveId: string) =>
-  enumerateAll<ObjectiveRefinementSession>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`);
+  enumerateFirstPage<ObjectiveRefinementSession>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`);
 export const createObjectiveRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
   post<ObjectiveRefinementSessionDetail>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions`, data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
 export const createBacklogRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
@@ -1103,7 +1169,7 @@ export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);
 export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purge`);
 
 // ==================== Planning Sessions ====================
-export const listPlanningSessions = () => enumerateAll<PlanningSession>('/api/v1/planning-sessions/enumerate');
+export const listPlanningSessions = () => enumerateFirstPage<PlanningSession>('/api/v1/planning-sessions/enumerate');
 export const getPlanningSession = (id: string) => get<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}`);
 export const createPlanningSession = (data: PlanningSessionCreateRequest) =>
   post<PlanningSessionDetail>('/api/v1/planning-sessions', data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
@@ -1157,6 +1223,9 @@ export const getWorkflowProfile = (id: string) => get<WorkflowProfile>(`/api/v1/
 export const createWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfile>('/api/v1/workflow-profiles', data);
 export const updateWorkflowProfile = (id: string, data: Partial<WorkflowProfile>) => put<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`, data);
 export const deleteWorkflowProfile = (id: string) => del<void>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`);
+export const enumerateWorkflowProfiles = (query?: { pageNumber?: number; pageSize?: number; scope?: string; fleetId?: string; vesselId?: string; search?: string; active?: boolean }) =>
+  post<EnumerationResult<WorkflowProfile>>('/api/v1/workflow-profiles/enumerate', query || {});
+export const deleteWorkflowProfilesBatch = (ids: string[]) => post<BatchDeleteResult>('/api/v1/workflow-profiles/delete/multiple', { Ids: ids });
 export const validateWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfileValidationResult>('/api/v1/workflow-profiles/validate', data);
 export const previewWorkflowProfileForVessel = (vesselId: string, workflowProfileId?: string | null) =>
   get<WorkflowProfileResolutionPreviewResult>(`/api/v1/workflow-profiles/preview/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
@@ -1185,7 +1254,7 @@ export const updateSkill = (id: string, data: Partial<Skill>) => put<Skill>(`/ap
 export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURIComponent(id)}`);
 
 // Harbors (host runners)
-export const listHarbors = () => enumerateAll<Harbor>('/api/v1/harbors/enumerate');
+export const listHarbors = () => enumerateFirstPage<Harbor>('/api/v1/harbors/enumerate');
 export const getHarbor = (id: string) => get<Harbor>(`/api/v1/harbors/${encodeURIComponent(id)}`);
 export const createHarbor = (data: Partial<Harbor>) => post<Harbor>('/api/v1/harbors', data);
 export const updateHarbor = (id: string, data: Partial<Harbor>) =>
@@ -1204,7 +1273,7 @@ export const stopHarborJob = (id: string, jobId: string) =>
   post<HarborJobStopResult>(`/api/v1/harbors/${encodeURIComponent(id)}/jobs/${encodeURIComponent(jobId)}/stop`, {});
 
 // Model endpoints (embedding/inference)
-export const listModelEndpoints = () => enumerateAll<ModelEndpoint>('/api/v1/model-endpoints/enumerate');
+export const listModelEndpoints = () => enumerateFirstPage<ModelEndpoint>('/api/v1/model-endpoints/enumerate');
 export const duplicateModelEndpoint = (sourceId: string, data: Partial<ModelEndpoint> & { apiKey?: string | null }) =>
   post<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(sourceId)}/duplicate`, data);
 export const getModelEndpoint = (id: string) => get<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(id)}`);
@@ -1221,6 +1290,8 @@ export const healthCheckModelEndpoints = () =>
 // ==================== Memories ====================
 export const listMemories = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Memory>>(`/api/v1/memories${buildQuery(params)}`);
+export const enumerateMemories = (query?: MemoryEnumerateQuery) =>
+  post<EnumerationResult<Memory>>('/api/v1/memories/enumerate', query || {});
 export const getMemory = (id: string) => get<Memory>(`/api/v1/memories/${encodeURIComponent(id)}`);
 export const createMemory = (data: Partial<Memory>) => post<Memory>('/api/v1/memories', data);
 export const updateMemory = (id: string, data: Partial<Memory>) =>
@@ -1318,7 +1389,7 @@ export const getAskQuickActions = async (): Promise<AskQuickAction[]> => {
 };
 
 // Needs-you inbox
-export const getInbox = () => enumerateAll<InboxItem>('/api/v1/inbox/enumerate');
+export const getInbox = () => enumerateFirstPage<InboxItem>('/api/v1/inbox/enumerate');
 
 // ==================== CLI tool permissions ====================
 // Requests are CLI tool calls (shell, edit, fetch) a captain asked Armada to approve; rules allow or deny them by
@@ -1333,12 +1404,16 @@ function cliQuery(params: Record<string, string | number | null | undefined>): s
   return parts.length > 0 ? `?${parts.join('&')}` : '';
 }
 
-/** Requests visible to the caller, newest first; filter by status, mission, thread, captain, or vessel. */
-export const listCliPermissionRequests = (query?: CliPermissionRequestQuery) =>
-  get<CliPermissionRequest[]>(`${CLI_PERMISSIONS}/requests${cliQuery({
-    status: query?.status, missionId: query?.missionId, threadId: query?.threadId,
-    captainId: query?.captainId, vesselId: query?.vesselId, limit: query?.limit,
-  })}`);
+/**
+ * The newest `limit` CLI permission requests visible to the caller (default 100, at most 1000): one page of the paged
+ * enumerate route, never the whole list. Filter by status, mission, thread, captain, or vessel.
+ */
+export const listCliPermissionRequests = async (query?: CliPermissionRequestQuery): Promise<CliPermissionRequest[]> =>
+  (await post<EnumerationResult<CliPermissionRequest>>(`${CLI_PERMISSIONS}/requests/enumerate`, {
+    Status: query?.status ?? undefined, MissionId: query?.missionId ?? undefined, ThreadId: query?.threadId ?? undefined,
+    CaptainId: query?.captainId ?? undefined, VesselId: query?.vesselId ?? undefined,
+    PageNumber: query?.pageNumber ?? 1, PageSize: query?.limit ?? 100,
+  }))?.objects ?? [];
 
 export const getCliPermissionRequest = (id: string) =>
   get<CliPermissionRequest>(`${CLI_PERMISSIONS}/requests/${encodeURIComponent(id)}`);
@@ -1354,7 +1429,7 @@ export const decideCliPermissionRequest = (id: string, body: CliPermissionDecisi
 
 /** Rules visible to the caller (own tenant plus all-tenant rules). */
 export const listCliPermissionRules = (query?: { scope?: CliPermissionRuleScope | null; vesselId?: string | null; captainId?: string | null }) =>
-  enumerateAll<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/enumerate${cliQuery({ scope: query?.scope, vesselId: query?.vesselId, captainId: query?.captainId })}`);
+  enumerateFirstPage<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/enumerate${cliQuery({ scope: query?.scope, vesselId: query?.vesselId, captainId: query?.captainId })}`);
 
 export const getCliPermissionRule = (id: string) =>
   get<CliPermissionRule>(`${CLI_PERMISSIONS}/rules/${encodeURIComponent(id)}`);
@@ -1580,7 +1655,7 @@ export const updateRelease = (id: string, data: ReleaseUpsertRequest) => put<Rel
 export const refreshRelease = (id: string) => post<Release>(`/api/v1/releases/${encodeURIComponent(id)}/refresh`, {});
 export const deleteRelease = (id: string) => del<void>(`/api/v1/releases/${encodeURIComponent(id)}`);
 export const getReleaseGitHubPullRequests = (id: string) =>
-  enumerateAll<GitHubPullRequestDetail>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests/enumerate`);
+  enumerateFirstPage<GitHubPullRequestDetail>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests/enumerate`);
 
 // ==================== Check Runs ====================
 export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

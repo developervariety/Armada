@@ -721,7 +721,7 @@ namespace Armada.Core.Services.Push
             occurrence.EntityId = request.Id;
             occurrence.TenantId = request.TenantId;
             occurrence.OwnerUserId = request.UserId;
-            string pageUrl = "/cli-permissions?request=" + request.Id;
+            string pageUrl = "/server?tab=cli-permissions&request=" + request.Id;
             if (!String.IsNullOrEmpty(request.ThreadId))
             {
                 occurrence.Url = "/ask/" + request.ThreadId;

@@ -5,7 +5,7 @@ namespace Armada.Tui.Routing
     using System.Linq;
 
     /// <summary>
-    /// The sidebar navigation, mirroring the dashboard's <c>navConfig.tsx</c> exactly (Dashboard, Ask Armada, then the
+    /// The sidebar navigation, mirroring the dashboard's <c>lib/navModel.ts</c> exactly (Dashboard, Ask Armada, then the
     /// grouped sections with the same labels and matchers). Thread-safe (immutable).
     /// </summary>
     public static class NavCatalog
@@ -26,6 +26,13 @@ namespace Armada.Tui.Routing
         /// The grouped sections. Never null.
         /// </summary>
         public static IReadOnlyList<NavSection> Sections { get; } = BuildSections();
+
+        /// <summary>
+        /// Destinations that became hub tabs (Planning, Jobs, Storage, CLI Tool Permissions), mirroring the dashboard's
+        /// <c>navShortcuts</c>: not in the sidebar, but kept as Go commands (with their old g-letter keys) pointing at the
+        /// new tab locations. Never null.
+        /// </summary>
+        public static IReadOnlyList<NavShortcut> Shortcuts { get; } = BuildShortcuts();
 
         #endregion
 
@@ -76,8 +83,10 @@ namespace Armada.Tui.Routing
             if (item.To == "/missions") return path.StartsWith("/voyages") || path.StartsWith("/merge-queue");
             if (item.To == "/vessels") return path.StartsWith("/fleets") || path.StartsWith("/workspace");
             if (item.To == "/captains") return path.StartsWith("/docks");
-            if (item.To == "/dispatch") return path.StartsWith("/backlog") || path.StartsWith("/objectives");
-            if (item.To == "/server") return path.StartsWith("/doctor") || path.StartsWith("/settings") || path.StartsWith("/admin");
+            if (item.To == "/dispatch") return path.StartsWith("/backlog") || path.StartsWith("/objectives") || path.StartsWith("/planning");
+            if (item.To == "/activity") return path.StartsWith("/history") || path.StartsWith("/requests") || path.StartsWith("/events") || path.StartsWith("/signals") || path.StartsWith("/jobs");
+            if (item.To == "/delivery") return path.StartsWith("/checks") || path.StartsWith("/environments") || path.StartsWith("/deployments") || path.StartsWith("/releases") || path.StartsWith("/incidents") || path.StartsWith("/runbooks");
+            if (item.To == "/server") return path.StartsWith("/doctor") || path.StartsWith("/settings") || path.StartsWith("/admin") || path.StartsWith("/storage") || path.StartsWith("/cli-permissions");
             return false;
         }
 
@@ -85,27 +94,26 @@ namespace Armada.Tui.Routing
         {
             List<NavSection> sections = new List<NavSection>();
             sections.Add(new NavSection("operations", "OPERATIONS",
-                new[] { "/inbox", "/dispatch", "/fleet-actions", "/planning", "/backlog", "/objectives", "/voyages", "/missions", "/merge-queue" },
+                new[]
+                {
+                    "/inbox", "/dispatch", "/fleet-actions", "/planning", "/backlog", "/objectives", "/voyages", "/missions", "/merge-queue",
+                    "/activity", "/history", "/requests", "/events", "/signals", "/jobs",
+                },
                 new[]
                 {
                     new NavItem("/inbox", "Needs You", "Reviews, failures, and stalls awaiting your attention", "!", "i"),
-                    new NavItem("/planning", "Planning", "Plan with a captain, preserve the transcript, and dispatch directly from the session", "P"),
-                    new NavItem("/dispatch", "Dispatch", "Send work to vessels; capture and refine backlog on the Backlog tab", ">"),
+                    new NavItem("/dispatch", "Dispatch", "Send work to vessels, plan with a captain on the Planning tab, and capture and refine backlog on the Backlog tab", ">"),
                     new NavItem("/fleet-actions", "Fleet Actions", "Run a command or mission across many vessels and watch each run", "F", "f"),
                     new NavItem("/missions", "Missions", "Work units, plus Voyages and the full Merge Queue as tabs", "M", "m"),
-                }));
-            sections.Add(new NavSection("delivery", "DELIVERY",
-                new[] { "/delivery", "/checks", "/environments", "/deployments", "/releases", "/incidents", "/runbooks" },
-                new[]
-                {
-                    new NavItem("/delivery", "Delivery", "Deployments, Environments, Releases, Incidents, Checks, and Runbooks as tabs", "D", "d"),
+                    new NavItem("/activity", "Activity", "One log across requests, events, signals, and history, plus background jobs on the Jobs tab", "~", "y"),
                 }));
             sections.Add(new NavSection("fleet", "BUILD",
-                new[] { "/fleets", "/vessels", "/workspace", "/captains", "/docks" },
+                new[] { "/fleets", "/vessels", "/workspace", "/captains", "/docks", "/delivery", "/checks", "/environments", "/deployments", "/releases", "/incidents", "/runbooks" },
                 new[]
                 {
                     new NavItem("/vessels", "Vessels", "Repositories grouped by fleet, plus the vessel workspace, on one surface", "V", "v"),
                     new NavItem("/captains", "Captains", "AI coding agents that execute missions", "C", "c"),
+                    new NavItem("/delivery", "Delivery", "Deployments, Environments, Releases, Incidents, Checks, and Runbooks as tabs", "D", "d"),
                 }));
             sections.Add(new NavSection("configuration", "CONFIGURATION",
                 new[] { "/configuration", "/workflow-profiles", "/project-profiles", "/skills", "/personas", "/pipelines", "/prompt-templates", "/playbooks" },
@@ -113,22 +121,25 @@ namespace Armada.Tui.Routing
                 {
                     new NavItem("/configuration", "Configuration", "Workflow Profiles, Project Profiles, Skills, Personas, Pipelines, Prompts, and Playbooks as tabs", "=", "o"),
                 }));
-            sections.Add(new NavSection("activity", "ACTIVITY",
-                new[] { "/activity", "/history", "/requests", "/events", "/signals", "/jobs" },
-                new[]
-                {
-                    new NavItem("/activity", "Activity", "One log across requests, events, signals, and history; filter by source type", "~", "y"),
-                    new NavItem("/jobs", "Jobs", "Background jobs and their status", "J", "j"),
-                }));
             sections.Add(new NavSection("system", "SYSTEM",
-                new[] { "/server", "/doctor", "/settings", "/admin", "/api-explorer", "/cli-permissions" },
+                new[] { "/storage", "/server", "/doctor", "/settings", "/admin", "/api-explorer", "/cli-permissions" },
                 new[]
                 {
-                    new NavItem("/cli-permissions", "CLI Tool Permissions", "Approve CLI tool requests from captains and manage allow and deny rules", "K", "k"),
                     new NavItem("/api-explorer", "API Explorer", "Browse the live OpenAPI document, execute requests, and inspect responses", "A", "x"),
-                    new NavItem("/server", "Settings", "Server settings, diagnostics, and tenant/user/credential administration", "S", "s"),
+                    new NavItem("/server", "Settings", "Server settings, Storage, CLI Tool Permissions, Diagnostics, and tenant/user/credential administration as tabs", "S", "s"),
                 }));
             return sections.AsReadOnly();
+        }
+
+        private static IReadOnlyList<NavShortcut> BuildShortcuts()
+        {
+            return new List<NavShortcut>
+            {
+                new NavShortcut("planning", "OPERATIONS", new NavItem(TabLinks.PlanningPath, "Planning", "Plan with a captain, preserve the transcript, and dispatch directly from the session", "P")),
+                new NavShortcut("jobs", "OPERATIONS", new NavItem(TabLinks.JobsPath, "Jobs", "Background jobs and their status", "J", "j")),
+                new NavShortcut("storage", "SYSTEM", new NavItem(TabLinks.StoragePath, "Storage", "Inspect managed files, database allocation, host capacity and record counts", "S")),
+                new NavShortcut("clipermissions", "SYSTEM", new NavItem(TabLinks.CliPermissionsPath, "CLI Tool Permissions", "Approve CLI tool requests from captains and manage allow and deny rules", "K", "k")),
+            }.AsReadOnly();
         }
 
         #endregion

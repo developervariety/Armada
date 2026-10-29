@@ -175,21 +175,21 @@ export default function Harbors() {
   // The ID used to sit under the name, and the capability list wrapped; both are one line now.
   const columns: DataTableColumn<Harbor>[] = [
     {
-      key: 'name', label: t('Harbor'), required: true, headerTitle: t('Harbor name. A Harbor is the app on a developer machine that runs captains, git and worktrees there. (disabled) means it gets no new missions.'), cellClassName: 'cell-nowrap',
-      render: (harbor) => (
-        <>
-          <strong>{harbor.name}</strong>
-          {!harbor.enabled && <span className="text-dim"> ({t('disabled')})</span>}
-        </>
-      ),
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique Harbor ID (hbr_ prefix). Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (harbor) => (
         <span className="id-display">
           <span className="id-value" title={harbor.id}>{harbor.id}</span>
           <CopyButton text={harbor.id} onClick={e => e.stopPropagation()} />
         </span>
+      ),
+    },
+    {
+      key: 'name', label: t('Harbor'), required: true, headerTitle: t('Harbor name. A Harbor is the app on a developer machine that runs captains, git and worktrees there. (disabled) means it gets no new missions.'), cellClassName: 'cell-nowrap',
+      render: (harbor) => (
+        <>
+          <strong>{harbor.name}</strong>
+          {!harbor.enabled && <span className="text-dim"> ({t('disabled')})</span>}
+        </>
       ),
     },
     { key: 'status', label: t('Status'), headerTitle: t('Connection as the Admiral sees it: Connected, Degraded (heartbeats late), Disconnected (no link) or Unknown (never connected).'), cellClassName: 'cell-nowrap', render: (harbor) => <span className={`tag ${(harbor.connectionStatus || '').toLowerCase()}`} title={t(STATUS_TIPS[harbor.connectionStatus] ?? harbor.connectionStatus)}>{t(harbor.connectionStatus)}</span> },
