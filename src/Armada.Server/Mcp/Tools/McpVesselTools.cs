@@ -225,7 +225,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "delete_vessel",
-                "Delete a vessel by ID",
+                "Delete a vessel by ID. Returns status, vesselId, warningCount, and (when cleanup left anything behind) the first 50 warnings.",
                 new
                 {
                     type = "object",
@@ -246,9 +246,7 @@ namespace Armada.Server.Mcp.Tools
                     List<string> warnings = await CleanupVesselResourcesAsync(vessel, database, dockService, settings, admiral).ConfigureAwait(false);
 
                     await database.Vessels.DeleteAsync(vesselId).ConfigureAwait(false);
-                    if (warnings.Count > 0)
-                        return (object)new { Status = "deleted", VesselId = vesselId, Warnings = warnings };
-                    return (object)new { Status = "deleted", VesselId = vesselId };
+                    return (object)VesselDeleteResult.Create(vesselId, warnings);
                 });
 
             register(

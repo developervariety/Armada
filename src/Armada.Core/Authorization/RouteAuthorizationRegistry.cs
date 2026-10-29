@@ -104,6 +104,8 @@ namespace Armada.Core.Authorization
 
             Add("GET", "/api/v1/storage", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
             Add("POST", "/api/v1/storage/refresh", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
+            Add("GET", "/api/v1/storage/hosts", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
+            Add("POST", "/api/v1/storage/hosts/enumerate", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
 
             // BackupRoutes
             Add("GET", "/api/v1/backup", "Backup", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
