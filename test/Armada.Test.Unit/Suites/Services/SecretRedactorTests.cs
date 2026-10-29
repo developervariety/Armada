@@ -51,6 +51,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("secret: [REDACTED])", redacted);
             });
 
+            await RunTest("Redact_AlreadyRedactedText_IsUnchanged", () =>
+            {
+                string value = "fixture" + "Value42";
+                string[] inputs =
+                {
+                    "tok" + "en=" + value + " at /data/x",
+                    "Exception(\"tok" + "en=" + value + "\")",
+                    "pass" + "word: '" + value + "', next",
+                    "api_" + "key=" + value + "]"
+                };
+                foreach (string input in inputs)
+                {
+                    string once = SecretRedactor.Redact(input);
+                    AssertFalse(once.Contains(value, StringComparison.Ordinal), input + " hides its value");
+                    AssertEqual(once, SecretRedactor.Redact(once), input + " redacts to the same text a second time");
+                }
+            });
+
             await RunTest("Redact_KeywordInsideALongerName_IsStillRedacted", () =>
             {
                 string value = "abc" + "def123";
