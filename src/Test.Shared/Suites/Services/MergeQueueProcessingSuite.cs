@@ -158,6 +158,80 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("passing_integration_receipt", "Merge queue persists passing checks against the exact SHA pushed to origin", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                MergeQueueRepoSet repos = MergeQueueRepoSet.Create();
+                repos.PushBranch("feature/receipt", "receipt.txt", "receipt\n");
+                MergeQueueService queue = CreateQueue(testDb.Driver);
+                Mission mission = await CreateMissionAsync(testDb.Driver, repos);
+                MergeEntry entry = await EnqueueAsync(queue, testDb.Driver, repos, "feature/receipt", mission.Id, "echo verified");
+                await queue.ProcessQueueAsync();
+                MergeEntry stored = (await queue.GetAsync(entry.Id))!;
+                AssertEqual(MergeStatusEnum.Landed, stored.Status);
+                AssertEqual(0, stored.TestExitCode!.Value);
+                AssertContains("verified", stored.TestOutput!);
+                AssertContains(repos.OriginHead("main"), stored.TestOutput!);
+                AssertEqual(repos.OriginHead("main"), (await testDb.Driver.Missions.ReadAsync(mission.Id))!.CommitHash);
+            }));
+            cases.Add(CaseAsync("merged_result_must_pass", "Merge queue refuses a branch whose checks fail only after integrating current main", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                MergeQueueRepoSet repos = MergeQueueRepoSet.Create();
+                repos.PushBranch("feature/integration", "feature.txt", "feature\n");
+                repos.AdvanceMain("target-only.txt", "new target\n");
+                string before = repos.OriginHead("main");
+                MergeQueueService queue = CreateQueue(testDb.Driver);
+                string command = OperatingSystem.IsWindows() ? "if exist target-only.txt (exit /b 7) else (exit /b 0)" : "test ! -f target-only.txt";
+                MergeEntry entry = await EnqueueAsync(queue, testDb.Driver, repos, "feature/integration", null, command);
+                await queue.ProcessQueueAsync();
+                AssertEqual(MergeStatusEnum.Failed, (await queue.GetAsync(entry.Id))!.Status);
+                AssertEqual(before, repos.OriginHead("main"));
+                AssertFalse(repos.OriginHasFile("main", "feature.txt"), "Unverified integration is never published.");
+            }));
+            cases.Add(CaseAsync("test_mutation_refused", "A passing command that changes integration HEAD cannot land a different commit", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                MergeQueueRepoSet repos = MergeQueueRepoSet.Create();
+                repos.PushBranch("feature/mutates", "mutates.txt", "mutates\n");
+                string before = repos.OriginHead("main");
+                MergeQueueService queue = CreateQueue(testDb.Driver);
+                MergeEntry entry = await EnqueueAsync(queue, testDb.Driver, repos, "feature/mutates", null, "git reset --hard HEAD^");
+                await queue.ProcessQueueAsync();
+                AssertEqual(MergeStatusEnum.Failed, (await queue.GetAsync(entry.Id))!.Status);
+                AssertEqual(before, repos.OriginHead("main"));
+            }));
+
+            cases.Add(CaseAsync("cancel_during_check", "Cancelling a merge entry during its check cannot be overwritten or publish the commit", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                MergeQueueRepoSet repos = MergeQueueRepoSet.Create();
+                repos.PushBranch("feature/cancel", "cancel.txt", "cancel\n");
+                string before = repos.OriginHead("main");
+                MergeQueueService queue = CreateQueue(testDb.Driver);
+                MergeEntry entry = await EnqueueAsync(queue, testDb.Driver, repos, "feature/cancel", null, "passing check");
+                queue.LocalVerificationCommands = new FakeHostCommandExecutor { Handler = _ =>
+                {
+                    queue.CancelAsync(entry.Id).GetAwaiter().GetResult();
+                    return new HostCommandResult { ExitCode = 0 };
+                } };
+                await queue.ProcessQueueAsync();
+                AssertEqual(MergeStatusEnum.Cancelled, (await queue.GetAsync(entry.Id))!.Status);
+                AssertEqual(before, repos.OriginHead("main"));
+            }));
+            cases.Add(CaseAsync("stale_queue_update", "A stale processing result cannot replace a newer merge-entry version", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                MergeEntry entry = await testDb.Driver.MergeEntries.CreateAsync(new MergeEntry("feature/stale"));
+                DateTime version = entry.LastUpdateUtc;
+                MergeEntry newer = (await testDb.Driver.MergeEntries.ReadAsync(entry.Id))!;
+                newer.Status = MergeStatusEnum.Cancelled;
+                await testDb.Driver.MergeEntries.UpdateAsync(newer);
+                entry.Status = MergeStatusEnum.Landed;
+                AssertFalse(await testDb.Driver.MergeEntries.TryUpdateIfUnchangedAsync(entry, version));
+                AssertEqual(MergeStatusEnum.Cancelled, (await testDb.Driver.MergeEntries.ReadAsync(entry.Id))!.Status);
+            }));
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Merge Queue Processing", cases: cases);
         }
 
