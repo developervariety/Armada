@@ -78,49 +78,6 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
-                "list_cli_permission_requests",
-                "List CLI permission requests (a CLI captain asking to run one of its own tools, for example a shell command) visible to the caller, newest first. Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Each request has the tool name, a redacted input summary, captain, vessel, mission or thread, status, expiry, and canDecide. The result has count (rows returned), limit (the cap applied, default 100, at most 1000), and truncated (true when the limit was reached, so more requests exist).",
-                new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        status = new { type = "string", description = "Pending, Allowed, Denied, Expired, or Cancelled" },
-                        missionId = new { type = "string", description = "Mission filter (msn_ prefix)" },
-                        threadId = new { type = "string", description = "Ask thread filter (ath_ prefix)" },
-                        captainId = new { type = "string", description = "Captain filter (cpt_ prefix)" },
-                        vesselId = new { type = "string", description = "Vessel filter (vsl_ prefix)" },
-                        limit = new { type = "integer", description = "Maximum rows (1-1000, default 100)" }
-                    }
-                },
-                async (args) =>
-                {
-                    if (service == null) return (object)McpToolError.Unavailable("CLI permissions are not available on this server.");
-                    AuthContext caller = McpToolHelpers.ResolveCallerContext();
-                    CliPermissionRequestListArgs request = args.HasValue
-                        ? JsonSerializer.Deserialize<CliPermissionRequestListArgs>(args.Value, _JsonOptions) ?? new CliPermissionRequestListArgs()
-                        : new CliPermissionRequestListArgs();
-                    CliPermissionRequestQuery query = new CliPermissionRequestQuery
-                    {
-                        MissionId = Blank(request.MissionId),
-                        ThreadId = Blank(request.ThreadId),
-                        CaptainId = Blank(request.CaptainId),
-                        VesselId = Blank(request.VesselId)
-                    };
-                    if (request.Limit.HasValue) query.Limit = request.Limit.Value;
-                    if (!String.IsNullOrWhiteSpace(request.Status))
-                    {
-                        if (!EnumNames.TryParse(request.Status, true, out CliPermissionRequestStatusEnum status))
-                            return (object)McpToolError.InvalidArgument("status must be one of " + McpToolHelpers.EnumNames<CliPermissionRequestStatusEnum>() + ".");
-                        query.Status = status;
-                    }
-
-                    List<CliPermissionRequest> rows = await service.ListAsync(caller, query).ConfigureAwait(false);
-                    // count is what was returned, not a total: the query stops at limit, so truncated says more exist.
-                    return (object)new { count = rows.Count, limit = query.Limit, truncated = rows.Count >= query.Limit, requests = rows };
-                });
-
-            register(
                 "get_cli_permission_request",
                 "Get one CLI permission request visible to the caller.",
                 new
@@ -171,38 +128,6 @@ namespace Armada.Server.Mcp.Tools
                     }
 
                     return (object)await service.DecideAsync(caller, request.RequestId, body).ConfigureAwait(false);
-                });
-
-            register(
-                "list_cli_permission_rules",
-                "List CLI permission rules visible to the caller (the caller's tenant plus rules for every tenant). Rules use Claude Code permission rule syntax, for example Bash(git status:*), WebFetch(domain:example.com), or Edit(//repo/src/**); deny rules win over allow rules.",
-                new
-                {
-                    type = "object",
-                    properties = new
-                    {
-                        scope = new { type = "string", description = "Global, Vessel, or Captain" },
-                        vesselId = new { type = "string", description = "Vessel filter (vsl_ prefix)" },
-                        captainId = new { type = "string", description = "Captain filter (cpt_ prefix)" }
-                    }
-                },
-                async (args) =>
-                {
-                    if (service == null) return (object)McpToolError.Unavailable("CLI permissions are not available on this server.");
-                    AuthContext caller = McpToolHelpers.ResolveCallerContext();
-                    CliPermissionRuleListArgs request = args.HasValue
-                        ? JsonSerializer.Deserialize<CliPermissionRuleListArgs>(args.Value, _JsonOptions) ?? new CliPermissionRuleListArgs()
-                        : new CliPermissionRuleListArgs();
-                    CliPermissionRuleQuery query = new CliPermissionRuleQuery { VesselId = Blank(request.VesselId), CaptainId = Blank(request.CaptainId) };
-                    if (!String.IsNullOrWhiteSpace(request.Scope))
-                    {
-                        if (!EnumNames.TryParse(request.Scope, true, out CliPermissionRuleScopeEnum scope))
-                            return (object)McpToolError.InvalidArgument("scope must be one of " + McpToolHelpers.EnumNames<CliPermissionRuleScopeEnum>() + ".");
-                        query.Scope = scope;
-                    }
-
-                    List<CliPermissionRule> rules = await service.ListRulesAsync(caller, query).ConfigureAwait(false);
-                    return (object)new { count = rules.Count, rules };
                 });
 
             register(

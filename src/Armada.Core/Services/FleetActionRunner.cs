@@ -90,6 +90,7 @@ namespace Armada.Core.Services
         private readonly LoggingModule _Logging;
         private readonly IFleetActionMissionDispatcher? _MissionDispatcher;
         private readonly IHostCommandExecutor _LocalExecutor;
+        private readonly Func<string?, FleetActionOutputParsers.IFleetActionOutputParser?> _OutputParserResolver;
         private readonly HarborConnectionManager? _Harbors;
         private readonly FleetActionHealthSummaryBuilder _HealthSummary;
         private readonly ConcurrentDictionary<string, FleetActionRunContext> _Active = new ConcurrentDictionary<string, FleetActionRunContext>(StringComparer.Ordinal);
@@ -116,6 +117,7 @@ namespace Armada.Core.Services
         /// <param name="missionDispatcher">Mission dispatcher, or null to fail Mission targets with DispatchUnavailable.</param>
         /// <param name="localExecutor">Executor for the Admiral host; defaults to <see cref="LocalHostCommandExecutor"/>.</param>
         /// <param name="harbors">Harbor connection manager for vessels with a preferred Harbor, or null.</param>
+        /// <param name="outputParserResolver">Optional stateless parser resolver; defaults to the built-in registry.</param>
         /// <exception cref="ArgumentNullException">Thrown when database, settings, or logging is null.</exception>
         public FleetActionRunner(
             DatabaseDriver database,
@@ -123,7 +125,8 @@ namespace Armada.Core.Services
             LoggingModule logging,
             IFleetActionMissionDispatcher? missionDispatcher,
             IHostCommandExecutor? localExecutor = null,
-            HarborConnectionManager? harbors = null)
+            HarborConnectionManager? harbors = null,
+            Func<string?, FleetActionOutputParsers.IFleetActionOutputParser?>? outputParserResolver = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -131,6 +134,7 @@ namespace Armada.Core.Services
             _MissionDispatcher = missionDispatcher;
             _LocalExecutor = localExecutor ?? new LocalHostCommandExecutor();
             _Harbors = harbors;
+            _OutputParserResolver = outputParserResolver ?? FleetActionOutputParsers.FleetActionParserRegistry.Get;
             _HealthSummary = new FleetActionHealthSummaryBuilder(database);
         }
 
@@ -629,6 +633,12 @@ namespace Armada.Core.Services
                 return;
             }
 
+            if (run.RequiresNetwork && (_Settings.FleetActions.Offline || _Settings.FleetActions.OfflineHarborIds.Contains(vessel.PreferredHarborId ?? String.Empty)))
+            {
+                await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.Skipped, FleetActionReasonCodes.NetworkUnavailable, null, null, token).ConfigureAwait(false);
+                return;
+            }
+
             if (String.IsNullOrWhiteSpace(vessel.WorkingDirectory))
             {
                 await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.Skipped, FleetActionReasonCodes.NoWorkingDirectory, null,
@@ -652,7 +662,26 @@ namespace Armada.Core.Services
                 return;
             }
 
-            if (FleetActionTemplateRenderer.References(run.CommandText, FleetActionTemplateRenderer.BuildCommandVariable)
+            bool windows = selection.IsRemote ? FleetActionShellCommandBuilder.IsWindowsPlatform(selection.HarborOsPlatform) : OperatingSystem.IsWindows();
+            string? commandTemplate = FleetActionShellCommandBuilder.SelectCommand(run.CommandText, run.CommandWindows, windows);
+            foreach (string tool in run.RequiredTools)
+            {
+                // Definitions permit executable names only. Quote again to keep preflight separate from execution.
+                string probe = windows
+                    ? "if (Get-Command -Name '" + tool.Replace("'", "''") + "' -CommandType Application -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
+                    : "command -v '" + tool.Replace("'", "'\"'\"'") + "' >/dev/null 2>&1";
+                HostCommandRequest preflight = selection.IsRemote
+                    ? FleetActionShellCommandBuilder.BuildRemote(probe, workingDirectory, GitStatusTimeoutMs, selection.HarborOsPlatform)
+                    : FleetActionShellCommandBuilder.BuildLocal(probe, workingDirectory, GitStatusTimeoutMs);
+                HostCommandResult available = await selection.Executor.RunAsync(preflight, token).ConfigureAwait(false);
+                if (available.TimedOut || available.ExitCode != 0)
+                {
+                    await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.Skipped, FleetActionReasonCodes.ToolMissing + tool, null, null, token).ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            if (FleetActionTemplateRenderer.References(commandTemplate, FleetActionTemplateRenderer.BuildCommandVariable)
                 && String.IsNullOrWhiteSpace(vessel.DefinitionOfDoneBuildCommand))
             {
                 await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.Skipped, FleetActionReasonCodes.NoBuildCommand, null,
@@ -663,7 +692,7 @@ namespace Armada.Core.Services
             string rendered;
             try
             {
-                rendered = await RenderAsync(run.CommandText, vessel, tenantId, token).ConfigureAwait(false);
+                rendered = await RenderAsync(commandTemplate, vessel, tenantId, run, token).ConfigureAwait(false);
             }
             catch (FleetActionTemplateException e)
             {
@@ -726,10 +755,15 @@ namespace Armada.Core.Services
                 EntityId = run.Id
             }, _Logging, token).ConfigureAwait(false);
 
+            // The target budget includes parsing, using a monotonic clock so sleep/clock changes cannot extend it.
+            long executionStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             HostCommandResult result = await selection.Executor.RunAsync(request, token).ConfigureAwait(false);
 
-            target.OutputText = TruncateTail(result.StandardOutput, maxBytes, out bool outputTruncated);
-            string? errorText = TruncateTail(result.StandardError, maxBytes, out bool errorTruncated);
+            bool secretReport = run.OutputParser == "gitleaks-json";
+            string safeOutput = secretReport ? "Secret scan raw output redacted." : result.StandardOutput;
+            string safeError = secretReport ? "Secret scan diagnostics redacted." : result.StandardError;
+            target.OutputText = TruncateTail(safeOutput, maxBytes, out bool outputTruncated);
+            string? errorText = TruncateTail(safeError, maxBytes, out bool errorTruncated);
             target.OutputTruncated = outputTruncated || errorTruncated;
 
             if (result.TimedOut)
@@ -739,8 +773,35 @@ namespace Armada.Core.Services
                 return;
             }
 
+            token.ThrowIfCancellationRequested();
+            FleetActionOutputParsers.FleetActionParseResult? parsed = null;
+            FleetActionOutputParsers.IFleetActionOutputParser? parser = _OutputParserResolver(run.OutputParser);
+            if (parser != null)
+            {
+                double elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - executionStarted) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                int remainingMs = Math.Max(0, timeoutMs - (int)Math.Min(Int32.MaxValue, elapsedMs));
+                using CancellationTokenSource parseDeadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+                if (remainingMs == 0) parseDeadline.Cancel(); else parseDeadline.CancelAfter(remainingMs);
+                try
+                {
+                    parsed = parser.Parse(result.StandardOutput, parseDeadline.Token);
+                    parseDeadline.Token.ThrowIfCancellationRequested();
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && parseDeadline.IsCancellationRequested)
+                {
+                    target.ExitCode = null;
+                    await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.TimedOut, null, FleetActionReasonCodes.Timeout, errorText, token).ConfigureAwait(false);
+                    return;
+                }
+            }
+            token.ThrowIfCancellationRequested();
+            target.ScanSummary = parsed?.Summary;
             target.ExitCode = result.ExitCode;
-            if (result.ExitCode == 0)
+            if (parsed?.Parsed == true && parsed.Total > 0)
+            {
+                await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.Findings, null, null, errorText, token).ConfigureAwait(false);
+            }
+            else if (result.ExitCode == 0)
             {
                 await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.Succeeded, null, null, errorText, token).ConfigureAwait(false);
             }
@@ -762,12 +823,41 @@ namespace Armada.Core.Services
             return new FleetActionExecutorSelection(new RemoteHostCommandExecutor(_Harbors, harborId), true, harbor?.OsPlatform);
         }
 
-        private async Task<string> RenderAsync(string? template, Vessel vessel, string tenantId, CancellationToken token)
+        private async Task<string> RenderAsync(string? template, Vessel vessel, string tenantId, FleetActionRun run, CancellationToken token)
         {
             FleetActionTemplateContext context = FleetActionTemplateContext.FromVessel(vessel);
             if (FleetActionTemplateRenderer.References(template, FleetActionTemplateRenderer.HealthSummaryVariable))
                 context.HealthSummary = await _HealthSummary.BuildAsync(tenantId, vessel.Id, token).ConfigureAwait(false);
+            context.InputValues = run.InputValues;
+            if (run.Kind == FleetActionKindEnum.Mission && FleetActionTemplateRenderer.References(template, "scan.summary") && !String.IsNullOrWhiteSpace(run.ScanSourceActionKey))
+                context.ScanSummary = await FindScanSummaryAsync(tenantId, vessel.Id, run.ScanSourceActionKey!, token).ConfigureAwait(false);
             return FleetActionTemplateRenderer.Render(template, context);
+        }
+
+        private async Task<string> FindScanSummaryAsync(string tenantId, string vesselId, string sourceKey, CancellationToken token)
+        {
+            FleetAction? source = await _Database.FleetActions.ReadAsync(tenantId, sourceKey, token).ConfigureAwait(false)
+                ?? await _Database.FleetActions.ReadByBuiltInKeyAsync(tenantId, sourceKey, token).ConfigureAwait(false);
+            if (source == null) return String.Empty;
+            FleetActionRunTarget? latest = null;
+            int pageNumber = 1;
+            while (true)
+            {
+                EnumerationResult<FleetActionRun> page = await _Database.FleetActionRuns.EnumerateAsync(tenantId, new EnumerationQuery { PageNumber = pageNumber, PageSize = 100 }, token).ConfigureAwait(false);
+                foreach (FleetActionRun previous in page.Objects)
+                {
+                    if (previous.ActionId != source.Id || previous.Kind != FleetActionKindEnum.Command || previous.CompletedUtc == null
+                        || (previous.Status != FleetActionRunStatusEnum.Completed && previous.Status != FleetActionRunStatusEnum.CompletedWithFailures)) continue;
+                    foreach (FleetActionRunTarget candidate in await _Database.FleetActionRunTargets.ReadAllByRunAsync(previous.Id, token).ConfigureAwait(false))
+                    {
+                        if (candidate.VesselId == vesselId && candidate.CompletedUtc.HasValue && candidate.ScanSummary != null
+                            && (latest == null || candidate.CompletedUtc > latest.CompletedUtc)) latest = candidate;
+                    }
+                }
+                if (pageNumber >= page.TotalPages) break;
+                pageNumber++;
+            }
+            return latest?.ScanSummary ?? String.Empty;
         }
 
         private async Task AcquireGlobalSlotAsync(CancellationToken token)
@@ -869,6 +959,7 @@ namespace Armada.Core.Services
 
         private async Task<bool> DispatchMissionTargetAsync(FleetActionRun run, FleetActionRunTarget target, CancellationToken token)
         {
+
             if (_MissionDispatcher == null)
             {
                 await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.Failed, null, FleetActionReasonCodes.DispatchUnavailable,
@@ -884,6 +975,12 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            if (run.RequiresNetwork && (_Settings.FleetActions.Offline || _Settings.FleetActions.OfflineHarborIds.Contains(vessel.PreferredHarborId ?? String.Empty)))
+            {
+                await CompleteTargetAsync(run.Kind, target, FleetActionTargetStatusEnum.Skipped, FleetActionReasonCodes.NetworkUnavailable, null, null, token).ConfigureAwait(false);
+                return false;
+            }
+
             if (FleetActionTemplateRenderer.References(run.PromptTemplate, FleetActionTemplateRenderer.BuildCommandVariable)
                 && String.IsNullOrWhiteSpace(vessel.DefinitionOfDoneBuildCommand))
             {
@@ -895,7 +992,7 @@ namespace Armada.Core.Services
             string prompt;
             try
             {
-                prompt = await RenderAsync(run.PromptTemplate, vessel, tenantId, token).ConfigureAwait(false);
+                prompt = await RenderAsync(run.PromptTemplate, vessel, tenantId, run, token).ConfigureAwait(false);
             }
             catch (FleetActionTemplateException e)
             {
@@ -1103,6 +1200,7 @@ namespace Armada.Core.Services
 
             List<FleetActionRunTarget> targets = await _Database.FleetActionRunTargets.ReadAllByRunAsync(runId, token).ConfigureAwait(false);
             run.TargetCount = targets.Count;
+            run.FindingsCount = targets.Count(t => t.Status == FleetActionTargetStatusEnum.Findings);
             run.SucceededCount = targets.Count(t => t.Status == FleetActionTargetStatusEnum.Succeeded);
             run.FailedCount = targets.Count(t => t.Status == FleetActionTargetStatusEnum.Failed || t.Status == FleetActionTargetStatusEnum.TimedOut);
             run.SkippedCount = targets.Count(t => t.Status == FleetActionTargetStatusEnum.Skipped);
@@ -1153,7 +1251,8 @@ namespace Armada.Core.Services
                 KeyValuePair<string, object?> kindTag = new KeyValuePair<string, object?>("kind", kind.ToString());
                 ArmadaMetrics.FleetActionTargets.Add(1, kindTag, new KeyValuePair<string, object?>("outcome", target.Status.ToString()));
 
-                bool executed = target.Status == FleetActionTargetStatusEnum.Succeeded
+                bool executed = target.Status == FleetActionTargetStatusEnum.Findings
+                    || target.Status == FleetActionTargetStatusEnum.Succeeded
                     || target.Status == FleetActionTargetStatusEnum.Failed
                     || target.Status == FleetActionTargetStatusEnum.TimedOut;
                 if (executed && target.DurationMs.HasValue)

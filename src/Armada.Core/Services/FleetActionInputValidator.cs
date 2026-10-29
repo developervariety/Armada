@@ -1,0 +1,61 @@
+namespace Armada.Core.Services
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Text.RegularExpressions;
+    using Armada.Core.Models;
+
+    /// <summary>Validates declared names, defaults and runtime input values before a run is written.</summary>
+    public static class FleetActionInputValidator
+    {
+        private static readonly Regex Name = new(@"^[A-Za-z_][A-Za-z0-9_]*\z", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+        private static readonly Regex Semver = new(@"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\z", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+
+        /// <summary>Reject invalid names, types, duplicate definitions and defaults.</summary>
+        public static void ValidateDefinitions(IEnumerable<FleetActionInput>? definitions)
+        {
+            HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
+            foreach (FleetActionInput input in definitions ?? Enumerable.Empty<FleetActionInput>())
+            {
+                if (input == null || !Name.IsMatch(input.Name ?? "") || !names.Add(input.Name!)) throw new ArgumentException("Input names must be unique identifiers.");
+                if (input.Type != "string" && input.Type != "semver" && input.Type != "enum") throw new ArgumentException("Input " + input.Name + " has an unsupported type.");
+                if (input.Type == "enum" && (input.AllowedValues == null || input.AllowedValues.Count == 0)) throw new ArgumentException("Input " + input.Name + " requires allowed values.");
+                if (input.Default != null) ValidateValue(input, input.Default);
+            }
+        }
+
+        /// <summary>Apply defaults and validate all supplied values, rejecting unknown inputs.</summary>
+        public static Dictionary<string, string> Resolve(IEnumerable<FleetActionInput>? definitions, Dictionary<string, string>? values)
+        {
+            List<FleetActionInput> inputs = (definitions ?? Enumerable.Empty<FleetActionInput>()).ToList();
+            ValidateDefinitions(inputs);
+            Dictionary<string, string> supplied = new(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in values ?? new Dictionary<string, string>())
+            {
+                if (!inputs.Any(i => String.Equals(i.Name, pair.Key, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Unknown input: " + pair.Key);
+                if (!supplied.TryAdd(pair.Key, pair.Value)) throw new ArgumentException("Duplicate input: " + pair.Key);
+            }
+            Dictionary<string, string> result = new(StringComparer.OrdinalIgnoreCase);
+            foreach (FleetActionInput input in inputs)
+            {
+                string? value = supplied.TryGetValue(input.Name, out string? explicitValue) ? explicitValue : input.Default;
+                if (String.IsNullOrEmpty(value))
+                {
+                    if (input.Required) throw new ArgumentException("Required input is missing: " + input.Name);
+                    result[input.Name] = "";
+                    continue;
+                }
+                ValidateValue(input, value!);
+                result[input.Name] = value!;
+            }
+            return result;
+        }
+
+        private static void ValidateValue(FleetActionInput input, string value)
+        {
+            if (input.Type == "semver" && !Semver.IsMatch(value)) throw new ArgumentException("Input " + input.Name + " must be a semantic version (for example 1.2.3).");
+            if (input.Type == "enum" && !input.AllowedValues.Contains(value, StringComparer.Ordinal)) throw new ArgumentException("Input " + input.Name + " must be one of: " + String.Join(", ", input.AllowedValues));
+        }
+    }
+}

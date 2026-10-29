@@ -97,7 +97,7 @@ how to find out which ones matter.
 | # | Challenge | How it shows up |
 |---|---|---|
 | B1 | **Output contract failures look like work failures.** `[ARMADA:RESULT]`, `[ARMADA:VERDICT]`, required `##` sections, the `armada-plan` block. | Good work is redone because a marker was missing or paraphrased. |
-| B2 | **Commit and repository hygiene.** The model does not commit, leaves scratch files, changes encodings or line endings. | The leftover-work auto-commit picks up `README.md.backup`; the Judge rejects BOM and CRLF changes. |
+| B2 | **Commit and repository hygiene.** The model does not commit, leaves scratch files, changes encodings or line endings. | Historically, the leftover-work auto-commit picked up `README.md.backup`; this is now prevented for untracked scratch files by `GitService.CommitAllAsync`. The Judge rejects BOM and CRLF changes. |
 
 ### C. The prompts and handoffs Armada builds
 
@@ -113,7 +113,7 @@ how to find out which ones matter.
 
 | # | Challenge | How it shows up |
 |---|---|---|
-| D1 | **Runtime differences.** Tool-call format, how errors are returned, and whether malformed calls are retried differ between Mux, OpenCode, the API endpoint runtime and vendor CLIs. | The same model works in one runtime and fails in another. |
+| D1 | **Runtime differences.** Tool-call format, how errors are returned, and whether malformed calls are retried differ between Mux, OpenCode, pi, the API endpoint runtime and vendor CLIs. | The same model works in one runtime and fails in another. |
 | D2 | **Tooling bugs.** The Mux BOM bug, a repository that tracks a generated file, a Codex sandbox that cannot run `dotnet`. | These hit every model but count against whichever model was running. |
 | D3 | **Orchestration bugs.** A duplicate relaunch on the same dock, a stage-check timeout shorter than the test run, an exit -1 reported as a restart (see `DECISIONS.md`). | Failures are recorded against the model, and its scorecard is wrong. |
 
@@ -306,6 +306,23 @@ Replace the 3000-character output excerpt and the 4000-character diff cap with a
 
 The rework prompt is built from the artifact (numbered findings, each with file, line and required fix) instead of
 one long paragraph.
+
+**Implemented (Phase 3, item 1).** `HandoffArtifact` (schema version 1, table `handoff_artifacts`, migration 97) is
+stored once per stage attempt by the stage outcome recorder and linked to the outcome, mission, persona and captain. It is
+built from what Armada already parses: protocol lines, the Judge verdict and its `Affected Case` blocks (numbered
+findings with file, line, severity and required fix), a verifier's block, the stage-check result, the commit and the
+diff (outputs and diffs over 1,000,000 characters are measured and pointed to, not stored). It expires with its mission
+through `DataExpiryService`. At launch `HandoffRenderer` replaces the 3000-character output excerpt and the
+4000-character diff cap: the budget is one eighth of the reader's served context when its endpoint sets one, otherwise
+the `handoffBudgetTokens` setting (default 4000); findings and required actions come first, then checks, diff sections of
+files named in findings, other diff sections and the output; then a pointer chosen from the reader's actual tools (MCP
+`get_handoff_artifact`, or `.armada/handoff/<persona>-<missionId>.md` in the worktree, git-excluded and a scratch path)
+and an explicit did-not-fit list. The existing templates receive the rendered block through `{PreviousStageOutput}` and
+`{Diff}` and the prior-stage section of the description; their wording is unchanged. REST
+`GET /api/v1/missions/{id}/handoff-artifacts` and `GET /api/v1/handoff-artifacts/{id}`, MCP `get_handoff_artifact` and
+`list_handoff_artifacts`, and the .NET client expose the artifacts, tenant-scoped like stage outcomes. The rework prompt
+is built from the artifact with one demand per line (item 2, see its Status under Phase 3). The effect of neither item has
+been measured on the battery.
 
 ### 3.2 Render prompts for the reader (Armada, at launch)
 
@@ -532,7 +549,15 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
 1. Correct stale claims (this revision does so for this document).
 2. Fix the clear orchestration defects in `DECISIONS.md` (duplicate relaunch, stage-check timeout, exit -1
    misclassification) and skip scratch files in the leftover-work auto-commit. Addresses D2 and D3. The first three
-   landed before this plan (commits 31caab7d6 and 7b4bfa09f); the scratch-file skip remains.
+   landed before this plan (commits 31caab7d6 and 7b4bfa09f). Scratch-file skip: done (B2) in
+   `GitService.CommitAllAsync`, called by `MissionService.CommitLeftoverWorkAsync`, using
+   `ScratchFileMatcher.IsScratchFile`. Untracked files with case-insensitive suffixes `.backup`, `.bak`, `.orig`,
+   `.rej`, `.tmp`, `.swp`, `.swo`, or `~`, names `.DS_Store` or `Thumbs.db`, or paths under `.armada/handoff/`
+   are left untracked in the worktree, not deleted. Other `.armada/` paths are not blanket-excluded by this matcher;
+   normal git ignore rules still apply. Tracked files with scratch-like names remain eligible for commit.
+   Existing `Services.GitService` regressions `commit_all_leaves_untracked_scratch_files_out`,
+   `commit_all_with_only_scratch_files_commits_nothing`, and `commit_all_keeps_tracked_files_with_scratch_names`
+   cover real work beside `README.md.backup` and `.orig`, scratch-only leftovers, and tracked-file preservation.
 3. Change `VerifyStageWorkAsync` to return a result that distinguishes passed, failed, skipped (with the reason) and
    could not run, and record it on the mission. Addresses E1.
 4. Record attempt-level provenance: runtime version, model digest, sampling, context, tool configuration, prompt
@@ -558,14 +583,40 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
 1. Durable, versioned handoff artifacts with budgeted delivery suited to the reader (3.1), replacing the
    3000-character output and 4000-character diff excerpts.
 2. Rework prompts built from the artifact, one demand per line. Addresses C2 and C5.
+   Status: done. `ReworkPromptBuilder` replaces the one-paragraph rework instruction. When the rework is scheduled, the
+   description gets a rework section: a findings placeholder, the demands as a numbered list with one demand per line
+   (every demand of the old paragraph is kept), and the output contract. At launch the placeholder becomes the numbered
+   findings (severity, file, line and required fix) that `HandoffRenderer` delivered within the reader's budget. Findings
+   that did not fit stay in the did-not-fit list next to the pointer to the complete artifact. The rest of the rendered
+   handoff follows without its findings section, so the findings are delivered once. The output contract is repeated as
+   the last line. A review without structured findings, or a launch without an artifact, keeps the rendered handoff block
+   or the fallback line. The section is part of the mission description, so it applies to the Current, Lean and Compact
+   variants alike; no template placeholder or migration was added, and non-rework prompts are unchanged. A later rework
+   round replaces the earlier round's section instead of stacking it. The effect on the battery has not been measured.
 3. Safe contract repair (principle 4) for the remaining personas, starting with the Worker's completion line. A
    missing commit is handled by inspecting the repository. Addresses B1.
+   Status: done. A Worker or Test Engineer with a missing or malformed completion line is judged by its dock branch
+   (new commits, or changes committed by `GitService.CommitAllAsync`, which skips untracked scratch files as
+   described in Phase 1 item 2); with nothing there it stays unfinished work.
+   A single Judge verdict in a nearby form and a single valid plan outside an `armada-plan` fence are appended in
+   canonical form below the original output; ambiguous or duplicated verdicts and two plan blocks are refused. Each
+   repair is recorded as a `mission.contract_repaired` event (`ContractRepairRecord` payload with the repair kind),
+   and the attempt's stage outcome carries it too: `StageOutcome.ContractRepairKind` (column `contract_repair_kind`,
+   migration 98) holds the latest repair recorded since the attempt started, or null when none was needed. When one
+   attempt needs two repairs (a leftover-work commit and a completion-line repair) the outcome keeps the last and each
+   repair still has its own event.
 4. Measure each change on the battery, separately from prompt changes.
 
 ### Phase 4: prompts
 
 1. Compare a lean default against Full and Compact variants through the existing persona template-resolution path,
    keeping acceptance criteria and project rules (3.2).
+   Status: variants available. Current (today's default, the Full tier), Lean and Compact are built-in templates
+   (`persona.<name>`, `persona.<name>.lean`, `persona.<name>.compact`) for the Worker, Test Engineer, Judge and
+   Architect; other personas render Current. Selection order: the voyage captain override's `PromptVariant` for the
+   persona (exact, then `*`), the captain's `promptVariant` runtime option, then Current. To compare, run the same
+   captain, packs, run count and seed once per variant, for example `run_battery` with `promptVariant` Current, Lean
+   and Compact; the variant is recorded in each run's configuration (and revision), so compare the runs' counts.
 2. If the lean default does not hurt strong models, replace the default instead of forking it.
 
 ### Phase 5: advisory profiles, scorecard and Evaluate
