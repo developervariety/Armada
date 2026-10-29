@@ -13,6 +13,22 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Optional Windows shell command; falls back to CommandText.</summary>
+        public string? CommandWindows { get; set; }
+        /// <summary>Registered output parser identifier.</summary>
+        public string? OutputParser { get; set; }
+        /// <summary>Source action built-in key (or ID) for {{scan.summary}}.</summary>
+        public string? ScanSourceActionKey { get; set; }
+        /// <summary>Executable names required on the target host PATH.</summary>
+        public System.Collections.Generic.List<string> RequiredTools { get => _RequiredTools; set => _RequiredTools = value ?? new(); }
+        private System.Collections.Generic.List<string> _RequiredTools = new();
+        /// <summary>Whether execution requires network access.</summary>
+        public bool RequiresNetwork { get; set; }
+        /// <summary>Typed runtime input definitions.</summary>
+        public System.Collections.Generic.List<FleetActionInput> Inputs { get => _Inputs; set => _Inputs = value ?? new(); }
+        private System.Collections.Generic.List<FleetActionInput> _Inputs = new();
+
+
         /// <summary>
         /// Unique identifier (fac_ prefix). Defaults to a new identifier; a create backfills an empty value.
         /// </summary>

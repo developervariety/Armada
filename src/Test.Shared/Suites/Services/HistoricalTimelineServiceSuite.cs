@@ -485,6 +485,40 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(ObjectiveRefinementSessionStatusEnum.Completed.ToString(), entry.Status);
             }));
 
+            cases.Add(CaseAsync("enumerate_routes_planning_sessions_to_dispatch_planning_tab", "EnumerateAsync routes planning sessions to the Dispatch Planning tab with the session id", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                string tenantId = "ten_history_planning";
+                string userId = "usr_history_planning";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                PlanningSession session = new PlanningSession
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    CaptainId = "cpt_history_planning",
+                    VesselId = "vsl_history_planning",
+                    Title = "Plan the timeline route",
+                    Status = PlanningSessionStatusEnum.Active
+                };
+                await testDb.Driver.PlanningSessions.CreateAsync(session).ConfigureAwait(false);
+
+                HistoricalTimelineService service = new HistoricalTimelineService(testDb.Driver);
+                EnumerationResult<HistoricalTimelineEntry> result = await service.EnumerateAsync(auth, new HistoricalTimelineQuery
+                {
+                    PageNumber = 1,
+                    PageSize = 25,
+                    SourceTypes = new List<string> { "Planning" }
+                }).ConfigureAwait(false);
+
+                HistoricalTimelineEntry? entry = result.Objects.Find(e => e.SourceId == session.Id);
+                AssertNotNull(entry, "planning session appears in the timeline");
+                // Planning is a tab of Dispatch since v1.2.0; /planning/{id} only survives as a dashboard redirect.
+                AssertEqual("/dispatch?tab=planning&session=" + session.Id, entry!.Route);
+            }));
+
             // Audit addition: null auth is rejected (confirmed against source).
 
             cases.Add(CaseAsync("event_severity_from_action_segment", "Event severity comes from the event type's action segment, not a substring", TestTags.Positive, () =>
