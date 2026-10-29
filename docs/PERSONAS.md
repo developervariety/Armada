@@ -580,8 +580,10 @@ the distinct pending review roles on its owned dependency path to the pending
 Judge; revising Workers are not review roles. Every intervening stage must still
 be Pending. The Judge
 must decide final acceptance. An unrelated, missing, cancelled or foreign stage
-does not excuse an unmet criterion. Separate unfinished current work or earlier
-review duties still block, even when future reviews are pending.
+does not excuse an unmet criterion. Numbered unmet-criterion statements can use an explicit future-only explanation
+for that same criterion. Named duties must exist on the verified Pending path,
+including a separately named revising Worker. Separate unfinished current work
+or earlier review duties still block, even when future reviews are pending.
 
 Only the final outcome `[ARMADA:RESULT] COMPLETE` counts, and the sentence must
 say the acceptance criteria themselves are not met; a finding that some code

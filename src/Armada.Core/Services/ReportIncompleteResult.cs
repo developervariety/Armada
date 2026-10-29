@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Text.RegularExpressions;
 
     /// <summary>
@@ -35,7 +37,7 @@ namespace Armada.Core.Services
         private const string _CompleteWord = "COMPLETE";
 
         private static readonly Regex _CriteriaNotMet = new Regex(
-            @"\b(?:acceptance\s+criteri(?:a|on)|criterion\s+\d+)\b[^.;\n]{0,60}?\b(?:are|is|were|was|remain|remains)\b[^.;\n]{0,40}?\bnot\s+(?:met|satisfied)\b",
+            @"\b(?:(?:acceptance\s+)?criterion\s+(?<number>\d+)|acceptance\s+criteri(?:a|on))\b[^.;\n]{0,60}?\b(?:are|is|were|was|remain|remains)\b[^.;\n]{0,40}?\bnot\s+(?:met|satisfied)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
@@ -50,6 +52,28 @@ namespace Armada.Core.Services
             TimeSpan.FromSeconds(1));
 
         #endregion
+
+        internal sealed class PendingReviewObligations
+        {
+            internal string CurrentPersona { get; }
+            internal IReadOnlyDictionary<string, string> Duties { get; }
+            internal int ReviewCount => Duties.Values.Where(IsReviewRole).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+
+            internal PendingReviewObligations(string? currentPersona, IDictionary<string, string> duties)
+            {
+                CurrentPersona = PersonaCatalog.NormalizeName(currentPersona);
+                Duties = new Dictionary<string, string>(duties, StringComparer.Ordinal);
+            }
+
+            internal bool Contains(string persona) => Duties.Values.Any(value => PersonaCatalog.Matches(value, persona));
+
+            private static bool IsReviewRole(string persona) => PersonaCatalog.Matches(persona, "PortingReferenceAnalyst")
+                || PersonaCatalog.Matches(persona, PersonaCatalog.TestEngineer)
+                || PersonaCatalog.Matches(persona, PersonaCatalog.Linter)
+                || PersonaCatalog.Matches(persona, PersonaCatalog.Judge);
+        }
+
+        private enum ObligationKind { Blocking, FutureOnly, BareStage }
 
         #region Public-Methods
 
@@ -83,6 +107,18 @@ namespace Armada.Core.Services
         /// <returns>True when an unmet criterion is not solely awaiting the verified future reviews.</returns>
         public static bool TryRead(string? agentOutput, bool hasPendingDownstreamJudge, int pendingDownstreamReviewCount, out string statement)
         {
+            return TryRead(agentOutput, hasPendingDownstreamJudge, pendingDownstreamReviewCount, null, out statement);
+        }
+
+        internal static bool TryRead(string? agentOutput, PendingReviewObligations? obligations, out string statement)
+        {
+            return TryRead(agentOutput, obligations?.Contains(PersonaCatalog.Judge) == true,
+                obligations?.ReviewCount ?? 0, obligations, out statement);
+        }
+
+        private static bool TryRead(string? agentOutput, bool hasPendingDownstreamJudge, int pendingDownstreamReviewCount,
+            PendingReviewObligations? obligations, out string statement)
+        {
             statement = String.Empty;
             if (String.IsNullOrEmpty(agentOutput)) return false;
             if (!ProgressParser.TryFindFinalOutcome(agentOutput, out ProgressParser.ProgressSignal signal, out ProgressParser.MarkerLine finalOutcome))
@@ -104,22 +140,51 @@ namespace Armada.Core.Services
             {
                 return false;
             }
+            List<(string Number, string Text, ObligationKind Kind)> assertions = new List<(string, string, ObligationKind)>();
             for (int matchIndex = 0; matchIndex < matches.Count; matchIndex++)
             {
                 Match match = matches[matchIndex];
                 int start = SentenceStart(text, match.Index);
                 int nextCriterion = matchIndex + 1 < matches.Count ? matches[matchIndex + 1].Index : text.Length;
                 int end = SentenceEnd(text, match.Index + match.Length, nextCriterion, resultIndex);
+                ObligationKind kind = ObligationKind.Blocking;
                 if (hasPendingDownstreamJudge)
                 {
                     string reason = text.Substring(match.Index + match.Length, end - match.Index - match.Length);
                     try
                     {
-                        if (_PendingJudgeOnly.IsMatch(reason)) continue;
-                        Match futureReviews = _PendingRoleReviewsOnly.Match(reason);
-                        if (futureReviews.Success && pendingDownstreamReviewCount > 0
-                            && (!futureReviews.Groups["count"].Success
-                                || ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount)) continue;
+                        if (obligations == null)
+                        {
+                            if (_PendingJudgeOnly.IsMatch(reason)) kind = ObligationKind.FutureOnly;
+                            Match futureReviews = _PendingRoleReviewsOnly.Match(reason);
+                            if (futureReviews.Success && pendingDownstreamReviewCount > 0
+                                && (!futureReviews.Groups["count"].Success
+                                    || ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount)) kind = ObligationKind.FutureOnly;
+                        }
+                        else
+                        {
+                            kind = ClassifyObligation(reason, obligations);
+                            if (kind == ObligationKind.BareStage)
+                            {
+                                int tailEnd = AssociatedParagraphEnd(text, end, nextCriterion, resultIndex);
+                                string tail = text.Substring(end, tailEnd - end).Trim();
+                                if (tail.Length > 0)
+                                {
+                                    bool future = false;
+                                    foreach (string clause in Regex.Split(tail, @"(?<=[.!?])\s+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                                    {
+                                        if (IsFutureClause(clause, obligations)) future = true;
+                                        else if (!Regex.IsMatch(clause, @"\A(?:The\s+)?parent\s+objective\s+(?:is|remains)\s+open[.!]?\s*\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                                        {
+                                            kind = ObligationKind.Blocking;
+                                            break;
+                                        }
+                                    }
+                                    if (kind != ObligationKind.Blocking && future) kind = ObligationKind.FutureOnly;
+                                    end = tailEnd;
+                                }
+                            }
+                        }
                     }
                     catch (RegexMatchTimeoutException)
                     {
@@ -129,7 +194,15 @@ namespace Armada.Core.Services
                     }
                 }
                 string sentence = text.Substring(start, end - start).Trim();
-                statement = sentence.Length <= MaxStatementLength ? sentence : sentence.Substring(0, MaxStatementLength) + "...";
+                assertions.Add((match.Groups["number"].Value, sentence, kind));
+            }
+            HashSet<string> explained = assertions.Where(item => item.Kind == ObligationKind.FutureOnly && item.Number.Length > 0)
+                .Select(item => item.Number).ToHashSet(StringComparer.Ordinal);
+            foreach (var assertion in assertions)
+            {
+                if (assertion.Kind == ObligationKind.FutureOnly) continue;
+                if (assertion.Kind == ObligationKind.BareStage && assertion.Number.Length > 0 && explained.Contains(assertion.Number)) continue;
+                statement = assertion.Text.Length <= MaxStatementLength ? assertion.Text : assertion.Text.Substring(0, MaxStatementLength) + "...";
                 return true;
             }
             return false;
@@ -163,6 +236,71 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static ObligationKind ClassifyObligation(string reason, PendingReviewObligations obligations)
+        {
+            string value = reason.Trim();
+            Match stage = Regex.Match(value, @"\Aat\s+(?:this|the)\s+(?<role>(?:[A-Za-z]+\s+){0,3})stage\b\s*",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (stage.Success)
+            {
+                string role = Regex.Replace(stage.Groups["role"].Value, @"\b(?:current|precursor)\b", String.Empty,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)).Trim();
+                if (role.Length > 0 && !PersonaCatalog.Matches(role, obligations.CurrentPersona)) return ObligationKind.Blocking;
+                value = value.Substring(stage.Length).Trim();
+            }
+            if (value.Trim('.', '!', '?', ' ', '\r', '\n').Length == 0) return ObligationKind.BareStage;
+            if (_PendingJudgeOnly.IsMatch(value)) return ObligationKind.FutureOnly;
+            value = Regex.Replace(value, @"\A(?:only\s+)?because\s+", String.Empty,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            return IsFutureClause(value, obligations) ? ObligationKind.FutureOnly : ObligationKind.Blocking;
+        }
+
+        private static bool IsFutureClause(string clause, PendingReviewObligations obligations)
+        {
+            Match pending = Regex.Match(clause.Trim(), @"\A(?<subject>.+?)\s+(?:do\s+not\s+(?:yet\s+)?exist|have\s+not\s+(?:yet\s+)?run|(?:are|remain)\s+(?:still\s+)?pending)[.!]?\s*\z",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (!pending.Success) return false;
+            string subject = pending.Groups["subject"].Value;
+            Match revision = Regex.Match(subject, @"\s+and\s+(?:the\s+)?(?:additional\s+)?Revising\s*Worker\s+stage\z",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (revision.Success)
+            {
+                if (!obligations.Contains(PersonaCatalog.Worker)) return false;
+                subject = subject.Substring(0, revision.Index);
+            }
+            Match generic = Regex.Match(subject, @"\A(?:the\s+)?(?:(?<count>[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:later|downstream|future)\s+(?:role\s+)?reviews\z",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (generic.Success) return obligations.ReviewCount > 0
+                && (!generic.Groups["count"].Success || ReadReviewCount(generic.Groups["count"].Value) == obligations.ReviewCount);
+            Match named = Regex.Match(subject, @"\A(?:the\s+)?(?<roles>[A-Za-z ,]+?)\s+reviews\z",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (!named.Success) return false;
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string item in Regex.Split(named.Groups["roles"].Value, @"\s*,\s*|\s+and\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+            {
+                string role = item.Trim();
+                if (String.Equals(role.Replace(" ", String.Empty), "RevisingWorker", StringComparison.OrdinalIgnoreCase)) role = PersonaCatalog.Worker;
+                else if (!PersonaCatalog.Matches(role, "PortingReferenceAnalyst") && !PersonaCatalog.Matches(role, PersonaCatalog.TestEngineer)
+                    && !PersonaCatalog.Matches(role, PersonaCatalog.Linter) && !PersonaCatalog.Matches(role, PersonaCatalog.Judge)) return false;
+                role = PersonaCatalog.NormalizeName(role);
+                if (!seen.Add(role) || !obligations.Contains(role)) return false;
+            }
+            return seen.Count > 0;
+        }
+
+        private static int AssociatedParagraphEnd(string text, int start, int nextCriterion, int resultIndex)
+        {
+            int end = text.IndexOf("\n\n", start, StringComparison.Ordinal);
+            if (end < 0) end = text.Length;
+            foreach (int boundary in new[] { nextCriterion, resultIndex })
+            {
+                if (boundary < start || boundary >= end) continue;
+                int lineStart = text.LastIndexOf('\n', boundary);
+                end = lineStart >= start && text.Substring(lineStart, boundary - lineStart).Trim(' ', '\t', '\r', '\n', '-', '*', '+').Length == 0 ? lineStart : boundary;
+            }
+            return end;
+        }
 
         private static int ReadReviewCount(string value)
         {

@@ -9,7 +9,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Report completion
 
-- A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain and still blocks unfinished work, unavailable reviewers and mismatched counts.
+- A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.
 ### Attempt provenance
 
 - Each captain process launch now records a row in the new `mission_attempt_provenance` table: the captain, persona, runtime, model, runtime version, process id, start and end times, and the outcome (`Running`, `Completed`, `Failed` or `Interrupted`) with an exit code and a reason code. A relaunch closes any row of the mission still running as `Interrupted` with reason `superseded_by_relaunch`. The attempt facts stay the record of what Armada did next; they hold none of these fields.
