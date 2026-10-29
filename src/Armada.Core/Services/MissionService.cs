@@ -3720,7 +3720,8 @@ namespace Armada.Core.Services
                 if (acceptanceFormatMiss)
                 {
                     string priorReview = mission.AgentOutput ?? String.Empty;
-                    mission.Description = AppendAcceptanceFormatCorrection(mission.Description, verdictFailureReason, priorReview);
+                    mission.Description = AppendAcceptanceFormatCorrection(mission.Description, verdictFailureReason, priorReview,
+                        await ReadIntermediateSliceCriteriaAsync(mission, token).ConfigureAwait(false));
                     await AppendMissionActivityAsync(mission.Id,
                         "Judge PASS acceptance criteria rejected on format (" + (verdictFailureReason ?? String.Empty) +
                         "); re-running the Judge once with the accepted line form", token).ConfigureAwait(false);
@@ -4903,9 +4904,15 @@ namespace Armada.Core.Services
                     return String.Empty;
                 }
 
+                IReadOnlyList<string>? sliceCriteria = String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase)
+                    ? await ReadIntermediateSliceCriteriaAsync(mission, token).ConfigureAwait(false)
+                    : null;
                 System.Text.StringBuilder sb = new System.Text.StringBuilder();
                 sb.Append("## Objective Scope (Definition of Done)\n\n");
-                sb.Append("This mission belongs to a linked objective. The objective below is the definition of done; work that does not meet it is not complete, and the Judge reviews against these acceptance criteria and non-goals:\n\n");
+                if (sliceCriteria != null)
+                    sb.Append("This mission belongs to a linked objective. The objective below is the definition of done for the whole plan; this Judge reviews one intermediate slice of it:\n\n");
+                else
+                    sb.Append("This mission belongs to a linked objective. The objective below is the definition of done; work that does not meet it is not complete, and the Judge reviews against these acceptance criteria and non-goals:\n\n");
                 sb.Append("**Title:** ").Append(linked.Title).Append("\n\n");
                 sb.Append("**Objective id:** `").Append(linked.Id).Append("` (`get_objective` with no id returns the complete objective)\n\n");
                 if (!String.IsNullOrWhiteSpace(linked.ParentObjectiveId))
@@ -4920,7 +4927,14 @@ namespace Armada.Core.Services
                 {
                     sb.Append("**Scope:** ").Append(linked.Description.Trim()).Append("\n\n");
                 }
-                if (linked.AcceptanceCriteria != null && linked.AcceptanceCriteria.Count > 0)
+                if (sliceCriteria != null)
+                {
+                    sb.Append("This Judge reviews an intermediate slice of the plan that serves this objective. Its acceptance walk is measured against the slice's own criteria below, not the objective's. The objective's criteria are owned by the Judge of the final slice, and an intermediate PASS does not complete the objective.\n\n");
+                    sb.Append("**Slice acceptance criteria (this Judge's walk):**\n");
+                    foreach (string ac in sliceCriteria) sb.Append("- ").Append(ac.Trim()).Append("\n");
+                    sb.Append("\n");
+                }
+                else if (linked.AcceptanceCriteria != null && linked.AcceptanceCriteria.Count > 0)
                 {
                     sb.Append("**Acceptance Criteria:**\n");
                     foreach (string ac in linked.AcceptanceCriteria)
@@ -11182,15 +11196,21 @@ namespace Armada.Core.Services
         /// the dispatch-time brief still lists. A linked objective always yields the authoritative set (even
         /// when empty, which means no walk is required). Null only when the mission has no linked objective,
         /// so the walk falls back to the criteria in the mission description. Best effort: a resolver miss
-        /// returns null and the description snapshot stands.
+        /// returns null and the description snapshot stands. A Judge that reviews an intermediate Architect
+        /// slice is measured against that slice's own task-local criteria instead (see
+        /// <see cref="ResolveIntermediateSliceCriteria"/>); the linked objective's criteria are owned by the
+        /// Judge of the final scope, and any slice whose scope cannot be determined stays on them.
         /// </summary>
         /// <param name="mission">The Judge mission.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The live criteria, or null to read the mission description.</returns>
+        /// <returns>The criteria to measure, or null to read the mission description.</returns>
         private async Task<IReadOnlyList<string>?> ReadCurrentAcceptanceCriteriaAsync(Mission mission, CancellationToken token)
         {
             Objective? linked = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
             if (linked == null) return null;
+
+            IReadOnlyList<string>? sliceCriteria = await ReadIntermediateSliceCriteriaAsync(mission, token).ConfigureAwait(false);
+            if (sliceCriteria != null) return sliceCriteria;
 
             List<string> criteria = new List<string>();
             if (linked.AcceptanceCriteria != null)
@@ -13183,8 +13203,11 @@ namespace Armada.Core.Services
         /// <param name="description">Mission description.</param>
         /// <param name="failureReason">The walk's failure reason.</param>
         /// <param name="priorReview">The rejected review output.</param>
+        /// <param name="sliceCriteria">The slice-local criteria the review is measured against, or null when it is
+        /// measured against the criteria the brief lists.</param>
         /// <returns>The description with the correction section at its end.</returns>
-        internal static string AppendAcceptanceFormatCorrection(string? description, string? failureReason, string priorReview)
+        internal static string AppendAcceptanceFormatCorrection(string? description, string? failureReason, string priorReview,
+            IReadOnlyList<string>? sliceCriteria = null)
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder((description ?? String.Empty).TrimEnd());
             sb.Append("\n\n").Append(_AcceptanceFormatCorrectionHeading).Append('\n');
@@ -13192,6 +13215,12 @@ namespace Armada.Core.Services
                 .Append(String.IsNullOrEmpty(failureReason) ? "the section did not match the accepted form" : failureReason)
                 .Append(". Review again and give your verdict. If you still find PASS, write the acceptance criteria exactly in this form.\n\n");
             sb.Append(AcceptanceCriteriaLineForm).Append("\n\n");
+            if (sliceCriteria != null && sliceCriteria.Count > 0)
+            {
+                sb.Append("This review is measured against exactly these criteria of this slice, each copied exactly:\n");
+                foreach (string criterion in sliceCriteria) sb.Append("- ").Append(criterion).Append('\n');
+                sb.Append('\n');
+            }
             sb.Append("Do not use a table, do not put the evidence on the next line, and do not put the criterion in backticks or quotes. ")
                 .Append("The heading line is exactly `## ").Append(JudgeAcceptanceWalk.SectionName).Append("`, at the start of the line, and appears once in your response.\n");
 

@@ -563,7 +563,34 @@ objective after dispatch is no longer required and a PASS that covers the
 current criteria is not refused on the removed ones. A mission with no linked
 objective reads its criteria from the description. An objective that now lists
 no criteria requires no walk; a live criterion the review never walks is still
-refused. Control markers in narrative fields render as literal text.
+refused.
+
+An Architect plan block carries its own acceptance criteria in the description
+of its first stage (the Worker the Architect fan-out marks with
+`<!-- ARMADA:ARCHITECT-HANDOFF -->`). The criteria are read from that block text
+in the forms the Architect plan defines: the bullets under the `**Acceptance:**`
+label (the list ends at the next bold label, heading, or non-bullet line;
+indented continuation lines are not criteria), the bullets under an
+`## Acceptance Criteria` heading, and the items of a versioned plan's
+`## Acceptance evidence contract` (the item's first line). The Judge's own
+rendered description is never the source, because the brief budget can truncate
+it before the criteria.
+
+The Judge of an intermediate block is measured against those block-local
+criteria, because a criterion that a later block delivers cannot be marked `MET`
+yet. A Judge is intermediate when its chain starts at a marked block root, a
+later block of the same plan follows it (a later block depends on the Judge's
+stage, or the plan ends in an integration mission that waits for the block), and
+the block root declares at least one criterion in a recognized form. The Judge
+brief's Objective Scope section then lists them under "Slice acceptance criteria
+(this Judge's walk)", states that the objective's criteria belong to the Judge of
+the final block, and the acceptance-format correction repeats the same list. The
+Judge of the final block, the integration mission, and every other Judge owns
+the whole objective and walks every live criterion of the linked objective. A
+block whose scope cannot be determined stays on the objective's criteria: a
+missing block marker, a block root with no recognized criteria, an unreadable
+integration record, or a failed lookup never relaxes the walk. An intermediate
+PASS does not complete the objective or waive any later stage. Control markers in narrative fields render as literal text.
 Operator-supplied handoff marker lines render as literal text before the objective
 brief is appended. A same-objective retry is idempotent only when the complete
 rendered brief is the last complete objective frame before the first generated
