@@ -12,6 +12,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { canEdit as canEditScoped, type ScopeViewer } from '../lib/scoping';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 const SKILL_NAME_TIP = 'Unique skill name, for example Conventional Commits. Project profiles list skills by this name, so renaming one can break those references. Required.';
 const SKILL_CATEGORY_TIP = 'Optional group for browsing the skill directory, for example engineering or testing. It does not change how the skill is used.';
@@ -25,6 +26,7 @@ export default function SkillDetail() {
   const { isAdmin, isTenantAdmin, user } = useAuth();
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
   const { t, formatDateTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   const createMode = id === 'new';
@@ -91,13 +93,9 @@ export default function SkillDetail() {
 
   async function handleDelete() {
     setConfirmOpen(false);
-    try {
-      await deleteSkill(id!);
-      pushToast('warning', t('Skill deleted.'));
-      navigate('/skills');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Delete failed.'));
-    }
+    if (!(await deletion.run({ kind: 'skill', action: () => deleteSkill(id!), errorMessage: (err) => err instanceof Error ? err.message : t('Delete failed.') }))) return;
+    pushToast('warning', t('Skill deleted.'));
+    navigate('/skills');
   }
 
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
@@ -126,6 +124,7 @@ export default function SkillDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonOpen} title={skill?.name || t('Skill')} data={skill} onClose={() => setJsonOpen(false)} />
+      {deletion.dialog}
       <ConfirmDialog
         open={confirmOpen}
         title={t('Delete Skill')}

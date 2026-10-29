@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
+  apiErrorMessage,
   createCaptain,
   getCaptain,
   getCaptainTools,
@@ -37,6 +38,7 @@ import { supportsAutoApproveSwitch } from '../lib/captainApproval';
 import { CAPTAIN_AUTO_APPROVE_TOOLTIP, CAPTAIN_CLI_POLICY_TOOLTIP, CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP, CAPTAIN_NAME_TOOLTIP, CAPTAIN_REASONING_EFFORT_TOOLTIP, CAPTAIN_RUNTIME_TOOLTIP, CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP, CAPTAIN_TIER_TOOLTIP, buildCaptainPayload, captainDetailActions, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged } from '../lib/captainForm';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 import ModelProbeEvaluate from '../components/ModelProbeEvaluate';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 const ALLOWED_PERSONAS_TOOLTIP = 'Personas this captain may take on, as a JSON array of persona names, for example ["Worker", "Judge"]. Blank lets it fill any persona.';
 const PREFERRED_PERSONA_TOOLTIP = 'A persona name, for example Worker. When several captains could take a mission, dispatch prefers this captain for work of this persona. Blank means no preference.';
@@ -60,6 +62,7 @@ type CaptainDetailFormState = {
 export default function CaptainDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const { isAdmin, isTenantAdmin } = useAuth();
   const canManageCliPolicy = !!isAdmin || !!isTenantAdmin;
   const { id } = useParams<{ id: string }>();
@@ -227,11 +230,9 @@ export default function CaptainDetail() {
       message: t('Remove captain "{{name}}"? This cannot be undone.', { name: captain.name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await deleteCaptain(captain.id);
-          pushToast('warning', t('Captain "{{name}}" removed.', { name: captain.name }));
-          navigate('/captains');
-        } catch { setError(t('Remove failed.')); }
+        if (!(await deletion.run({ kind: 'captain', action: () => deleteCaptain(captain.id), errorMessage: (err) => apiErrorMessage(err, t('Remove failed.')) }))) return;
+        pushToast('warning', t('Captain "{{name}}" removed.', { name: captain.name }));
+        navigate('/captains');
       },
     });
   }
@@ -425,6 +426,7 @@ export default function CaptainDetail() {
       />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+      {deletion.dialog}
 
       {/* Captain Info */}
       <div className="detail-grid">

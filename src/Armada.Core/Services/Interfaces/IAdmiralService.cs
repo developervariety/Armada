@@ -181,10 +181,31 @@ namespace Armada.Core.Services.Interfaces
         Task RecallCaptainAsync(string captainId, CancellationToken token = default);
 
         /// <summary>
+        /// Stop a specific captain on an operator's request, recording who stopped it and through which surface on the
+        /// mission it was running.
+        /// </summary>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="stop">Who stopped the captain and how; null records a generic recall.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A task.</returns>
+        Task RecallCaptainAsync(string captainId, OperatorStopContext? stop, CancellationToken token = default)
+            => RecallCaptainAsync(captainId, token);
+
+        /// <summary>
         /// Emergency stop all captains.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         Task RecallAllAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Emergency stop all captains on an operator's request, recording who stopped them and through which surface
+        /// on each mission they were running.
+        /// </summary>
+        /// <param name="stop">Who stopped the captains and how; null records a generic recall.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A task.</returns>
+        Task RecallAllAsync(OperatorStopContext? stop, CancellationToken token = default)
+            => RecallAllAsync(token);
 
         /// <summary>
         /// Stop Admiral-local agent processes without altering mission or dock state.
