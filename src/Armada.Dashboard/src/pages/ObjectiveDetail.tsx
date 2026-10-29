@@ -7,10 +7,10 @@ import {
   deleteBacklogItem,
   deleteObjectiveRefinementSession,
   getBacklogItem,
-  getObjectiveRefinementSession,
   importObjectiveFromGitHub,
   listBacklog,
   listBacklogRefinementSessions,
+  listObjectiveRefinementMessages,
   listCaptains,
   listFleets,
   listPipelines,
@@ -30,7 +30,7 @@ import type {
   ObjectiveKind,
   ObjectivePriority,
   ObjectiveRefinementSession,
-  ObjectiveRefinementSessionDetail,
+  ObjectiveRefinementSessionView,
   ObjectiveRefinementSummaryResponse,
   ObjectiveStatus,
   ObjectiveUpsertRequest,
@@ -79,9 +79,16 @@ import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
 import { refinementSummaryFromEvent } from '../lib/refinementSummary';
-import { mergeSessionDetail, newerOf } from '../lib/liveMerge';
+import { newerOf } from '../lib/liveMerge';
+import { loadNewestTranscript, loadOlderTranscript, mergeTranscript } from '../lib/pagedTranscript';
+import { asRefinementView, loadRefinementSessionView as loadRefinementView, withStoppedSession } from '../lib/sessionViews';
+
+/** Refinement sessions read per page of the session list. */
+const REFINEMENT_SESSION_PAGE_SIZE = 100;
+
 import { sortByName } from '../lib/sortByName';
 import { PLANNING_PATH, planningHref } from '../lib/navTargets';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 /** Fields the backlog editor hydrates. A live event uses this to tell an unsaved edit from the last loaded copy. */
 interface ObjectiveEditorSnapshot {
@@ -184,6 +191,7 @@ export default function ObjectiveDetail() {
   const { isAdmin, isTenantAdmin } = useAuth();
   const { subscribe } = useWebSocket();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   const createMode = id === 'new';
@@ -245,7 +253,9 @@ export default function ObjectiveDetail() {
 
   const [refinementSessions, setRefinementSessions] = useState<ObjectiveRefinementSession[]>([]);
   const [selectedRefinementSessionId, setSelectedRefinementSessionId] = useState('');
-  const [refinementDetail, setRefinementDetail] = useState<ObjectiveRefinementSessionDetail | null>(null);
+  const [refinementDetail, setRefinementDetail] = useState<ObjectiveRefinementSessionView | null>(null);
+  const [refinementSessionsTotal, setRefinementSessionsTotal] = useState(0);
+  const [loadingOlderRefinement, setLoadingOlderRefinement] = useState(false);
   const [refinementCaptainId, setRefinementCaptainId] = useState('');
   const [refinementFleetId, setRefinementFleetId] = useState('');
   const [refinementVesselId, setRefinementVesselId] = useState('');
@@ -461,16 +471,54 @@ export default function ObjectiveDetail() {
     setFleetIds('');
   }
 
+  async function refreshRefinementTranscript(sessionId: string) {
+    try {
+      const transcript = await loadNewestTranscript((query) => listObjectiveRefinementMessages(sessionId, query));
+      setRefinementDetail((current) => (current && current.session.id === sessionId
+        ? { ...current, messages: mergeTranscript(current.messages, transcript.messages), messageCount: Math.max(transcript.total, current.messageCount ?? 0) }
+        : current));
+    } catch { /* the socket delivers new messages; this is only reconciliation */ }
+  }
+
+  async function loadOlderRefinementMessages() {
+    if (!refinementDetail || loadingOlderRefinement) return;
+    const sessionId = refinementDetail.session.id;
+    try {
+      setLoadingOlderRefinement(true);
+      const transcript = await loadOlderTranscript((query) => listObjectiveRefinementMessages(sessionId, query), refinementDetail.messages);
+      setRefinementDetail((current) => (current && current.session.id === sessionId
+        ? { ...current, messages: mergeTranscript(current.messages, transcript.messages), messageCount: Math.max(transcript.total, current.messageCount ?? 0) }
+        : current));
+    } finally {
+      setLoadingOlderRefinement(false);
+    }
+  }
+
+  async function loadMoreRefinementSessions(objectiveId: string) {
+    const page = await listBacklogRefinementSessions(objectiveId, {
+      pageNumber: Math.floor(refinementSessions.length / REFINEMENT_SESSION_PAGE_SIZE) + 1,
+      pageSize: REFINEMENT_SESSION_PAGE_SIZE,
+    });
+    setRefinementSessions((current) => {
+      let next = current;
+      for (const session of page?.objects ?? []) if (!next.some((item) => item.id === session.id)) next = [...next, session];
+      return next;
+    });
+    setRefinementSessionsTotal(page?.totalRecords ?? refinementSessionsTotal);
+  }
+
   async function loadRefinementSessions(objectiveId: string, preferredSessionId?: string) {
-    const sessions = await listBacklogRefinementSessions(objectiveId);
+    const page = await listBacklogRefinementSessions(objectiveId, { pageNumber: 1, pageSize: REFINEMENT_SESSION_PAGE_SIZE });
+    const sessions = page?.objects ?? [];
     setRefinementSessions(sessions);
+    setRefinementSessionsTotal(page?.totalRecords ?? sessions.length);
     const selectedId = preferredSessionId
       || (sessions.some((session) => session.id === selectedRefinementSessionId) ? selectedRefinementSessionId : '')
       || sessions[0]?.id
       || '';
     setSelectedRefinementSessionId(selectedId);
     if (selectedId) {
-      const detail = await getObjectiveRefinementSession(selectedId);
+      const detail = await loadRefinementView(selectedId);
       setRefinementDetail(detail);
     } else {
       setRefinementDetail(null);
@@ -543,7 +591,7 @@ export default function ObjectiveDetail() {
   useEffect(() => {
     if (!selectedRefinementSessionId) return;
     let cancelled = false;
-    getObjectiveRefinementSession(selectedRefinementSessionId)
+    loadRefinementView(selectedRefinementSessionId)
       .then((detail) => {
         if (!cancelled) setRefinementDetail(detail);
       })
@@ -609,13 +657,15 @@ export default function ObjectiveDetail() {
       }
 
       if (msg.type === 'objective-refinement-session.message.created' || msg.type === 'objective-refinement-session.message.updated') {
-        const payload = msg.data as { sessionId?: string; objectiveId?: string; message?: ObjectiveRefinementSessionDetail['messages'][number] } | undefined;
+        const payload = msg.data as { sessionId?: string; objectiveId?: string; message?: ObjectiveRefinementSessionView['messages'][number] } | undefined;
         if (!payload?.sessionId || payload.objectiveId !== objective?.id || !payload.message) return;
         setRefinementDetail((current) => {
           if (!current || current.session.id !== payload.sessionId) return current;
+          const known = current.messages.some((message) => message.id === payload.message!.id);
           return {
             ...current,
             messages: upsertRefinementMessage(current.messages, payload.message!),
+            messageCount: known ? current.messageCount : (current.messageCount ?? 0) + 1,
           };
         });
         return;
@@ -708,13 +758,9 @@ export default function ObjectiveDetail() {
       message: t('Delete "{{title}}"? This removes the backlog item and its objective snapshot history only.', { title: objective.title }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteBacklogItem(objective.id);
-          pushToast('warning', t('Backlog item "{{title}}" deleted.', { title: objective.title }));
-          navigate(canonicalListPath);
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'backlogItem', action: () => deleteBacklogItem(objective.id), errorMessage: (err) => err instanceof Error ? err.message : t('Delete failed.') }))) return;
+        pushToast('warning', t('Backlog item "{{title}}" deleted.', { title: objective.title }));
+        navigate(canonicalListPath);
       },
     });
   }
@@ -747,7 +793,9 @@ export default function ObjectiveDetail() {
       });
       setRefinementSessions((current) => upsertRefinementSession(current, detail.session));
       setSelectedRefinementSessionId(detail.session.id);
-      setRefinementDetail(detail);
+      setRefinementSessionsTotal((total) => total + 1);
+      setRefinementDetail({ ...detail, messages: [] });
+      void refreshRefinementTranscript(detail.session.id);
       setRefinementInitialMessage('');
       setRefinementTitle('');
       setRefinementSummaryDraft(null);
@@ -768,7 +816,8 @@ export default function ObjectiveDetail() {
       const detail = await sendObjectiveRefinementMessage(refinementDetail.session.id, { content: refinementComposer.trim() });
       setRefinementComposer('');
       // A fast captain can finish the turn (over the WebSocket) before this response arrives; keep the newer state.
-      setRefinementDetail((current) => mergeSessionDetail(current, detail));
+      setRefinementDetail((current) => asRefinementView(detail, current));
+      void refreshRefinementTranscript(detail.session.id);
       setRefinementSessions((current) => {
         const existing = current.find((item) => item.id === detail.session.id);
         return upsertRefinementSession(current, existing ? newerOf(existing, detail.session) : detail.session);
@@ -825,7 +874,7 @@ export default function ObjectiveDetail() {
     try {
       setStoppingRefinement(true);
       const detail = await stopObjectiveRefinementSession(refinementDetail.session.id);
-      setRefinementDetail(detail);
+      setRefinementDetail((current) => withStoppedSession(current, detail));
       setRefinementSessions((current) => upsertRefinementSession(current, detail.session));
       pushToast('warning', t('Refinement session is stopping.'));
     } catch (err: unknown) {
@@ -838,17 +887,23 @@ export default function ObjectiveDetail() {
   async function handleDeleteRefinementSession() {
     if (!refinementDetail || !objective) return;
 
+    const sessionId = refinementDetail.session.id;
+    const objectiveId = objective.id;
     try {
       setDeletingRefinement(true);
-      await deleteObjectiveRefinementSession(refinementDetail.session.id);
-      setRefinementSessions((current) => removeRefinementSession(current, refinementDetail.session.id));
+      const done = await deletion.run({
+        kind: 'refinementSession',
+        action: () => deleteObjectiveRefinementSession(sessionId),
+        errorMessage: (err) => (err instanceof Error ? err.message : t('Failed to delete refinement session.')),
+      });
+      if (!done) return;
+      setRefinementSessions((current) => removeRefinementSession(current, sessionId));
+      setRefinementSessionsTotal((total) => Math.max(0, total - 1));
       setSelectedRefinementSessionId('');
       setRefinementDetail(null);
       setRefinementSummaryDraft(null);
       pushToast('warning', t('Refinement session deleted.'));
-      await loadRefinementSessions(objective.id);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to delete refinement session.'));
+      await loadRefinementSessions(objectiveId);
     } finally {
       setDeletingRefinement(false);
     }
@@ -1038,6 +1093,7 @@ export default function ObjectiveDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      {deletion.dialog}
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}
@@ -1517,6 +1573,11 @@ export default function ObjectiveDetail() {
                   formatRelativeTime={formatRelativeTime}
                   onSelect={setSelectedRefinementSessionId}
                 />
+                {refinementSessionsTotal > refinementSessions.length && objective && (
+                  <button type="button" className="btn btn-sm" onClick={() => void loadMoreRefinementSessions(objective.id)} title={t('Load the next page of refinement sessions.')}>
+                    {t('Load more ({{shown}} of {{total}})', { shown: refinementSessions.length, total: refinementSessionsTotal })}
+                  </button>
+                )}
               </div>
 
               <div className="backlog-refinement-column backlog-refinement-main">
@@ -1568,6 +1629,11 @@ export default function ObjectiveDetail() {
                         </div>
                       </div>
 
+                      {(refinementDetail.messageCount ?? 0) > refinementDetail.messages.length && (
+                        <button type="button" className="btn btn-sm" onClick={() => void loadOlderRefinementMessages()} disabled={loadingOlderRefinement} title={t('Load the next older page of the transcript.')}>
+                          {loadingOlderRefinement ? t('Loading earlier messages...') : t('Load earlier messages ({{shown}} of {{total}})', { shown: refinementDetail.messages.length, total: refinementDetail.messageCount })}
+                        </button>
+                      )}
                       <div ref={refinementTranscriptRef} className="backlog-refinement-transcript">
                         {refinementDetail.messages.map((message) => (
                           <button

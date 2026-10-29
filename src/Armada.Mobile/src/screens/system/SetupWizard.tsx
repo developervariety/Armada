@@ -157,7 +157,7 @@ export function SetupWizard() {
       setMuxHint(t('Loading saved Mux endpoints...'));
       const r = await listMuxEndpoints(muxDir || undefined);
       if (!r.success) throw new Error(r.errorMessage || r.errorCode || t('Mux endpoint discovery failed.'));
-      const list = r.endpoints ?? [];
+      const list = r.objects ?? [];
       setMuxEndpoints(list);
       setMuxHint(list.length === 0 ? t('No saved Mux endpoints were found for this config directory.') : t('{{count}} saved Mux endpoint(s) available.', { count: list.length }));
     } catch (e: unknown) {

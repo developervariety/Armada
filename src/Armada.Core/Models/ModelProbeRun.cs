@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System;
     using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// One probe-only (Quick) Evaluate of a captain or model endpoint: the configuration it ran with (provenance), the
@@ -171,6 +172,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Per-probe results (filled on read by id; empty in list pages).
         /// </summary>
+        [CollectionBound(ModelProbeCatalog.ProbeCount, Reason = "One result per probe; ModelProbeService runs the fixed six-probe set once per run")]
         public List<ModelProbeResult> Results
         {
             get => _Results;

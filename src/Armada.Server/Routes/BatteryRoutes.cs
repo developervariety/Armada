@@ -13,8 +13,8 @@ namespace Armada.Server.Routes
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
-    /// REST routes for the fixture battery: GET /api/v1/battery/packs, POST /api/v1/battery/runs and
-    /// GET /api/v1/battery/runs/{id}. Rules live in <see cref="BatteryAccessService"/>, shared with MCP.
+    /// REST routes for the fixture battery: GET /api/v1/battery/packs, POST /api/v1/battery/runs,
+    /// GET /api/v1/battery/runs/{id} and its paged results (GET .../results, POST .../results/enumerate). Rules live in <see cref="BatteryAccessService"/>, shared with MCP.
     /// </summary>
     public class BatteryRoutes
     {
@@ -70,7 +70,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Battery")
                 .WithSummary("List battery packs")
-                .WithDescription("One page of fixture battery packs (each a fixture repository plus its tasks, defined as data in battery/<pack>/battery-pack.json), ordered by identifier, with each task's persona, grader and toolchain. Malformed packs are listed with valid false and their validation errors; only valid packs can run.")
+                .WithDescription("One page of fixture battery packs (each a fixture repository plus its tasks, defined as data in battery/<pack>/battery-pack.json), ordered by pack directory name (only the page's manifests are read), with each task's persona, grader and toolchain. Malformed packs are listed with valid false and their validation errors; only valid packs can run.")
                 .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Page number (default 1)", false, OpenApiSchemaMetadata.Integer()))
                 .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size (1-1000, default 100)", false, OpenApiSchemaMetadata.Integer()))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<BatteryPackInfo>>("One page of packs"))
@@ -151,9 +151,74 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Battery")
                 .WithSummary("Get a battery run")
-                .WithDescription("The run with its provenance (seed, sampling settings, battery version, configuration revision) and one result per task attempt (Passed, Failed, CouldNotRun or PendingEvaluation, with the grader's evidence and the captain's raw output). 404 when the run does not exist or belongs to another tenant.")
+                .WithDescription("The run with its provenance (seed, sampling settings, battery version, configuration revision) and outcome counts. The per-task results are not embedded: page them with GET /api/v1/battery/runs/{id}/results or POST /api/v1/battery/runs/{id}/results/enumerate. 404 when the run does not exist or belongs to another tenant.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Run ID (bat_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<BatteryRun>("The run"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/battery/runs/{id}/results", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    EnumerationQuery query = EnumerationRequestReader.Read(req, _JsonOptions);
+                    return await _Service.EnumerateResultsAsync(ctx, req.Parameters["id"], query).ConfigureAwait(false);
+                }
+                catch (JsonException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid request body: " + ex.Message };
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("Battery")
+                .WithSummary("List a battery run's results")
+                .WithDescription("One page of the run's per-task results (Passed, Failed, CouldNotRun or PendingEvaluation, with the grader's evidence and the captain's raw output), paged in the database. status filters by outcome; order is CreatedDescending (default) or CreatedAscending, with the id as the tie-break. pageSize 1-1000 (default 10). 404 when the run does not exist or belongs to another tenant.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Run ID (bat_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Page number (default 1)", false, OpenApiSchemaMetadata.Integer()))
+                .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size (1-1000, default 10)", false, OpenApiSchemaMetadata.Integer()))
+                .WithParameter(OpenApiParameterMetadata.Query("status", "Outcome filter: Passed, Failed, CouldNotRun or PendingEvaluation", false))
+                .WithParameter(OpenApiParameterMetadata.Query("order", "CreatedDescending (default) or CreatedAscending", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<BatteryTaskResult>>("One page of results"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post<EnumerationQuery>("/api/v1/battery/runs/{id}/results/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    EnumerationQuery query = EnumerationRequestReader.Read(req, _JsonOptions);
+                    return await _Service.EnumerateResultsAsync(ctx, req.Parameters["id"], query).ConfigureAwait(false);
+                }
+                catch (JsonException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid request body: " + ex.Message };
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("Battery")
+                .WithSummary("Enumerate a battery run's results")
+                .WithDescription("One page of the run's per-task results (Passed, Failed, CouldNotRun or PendingEvaluation, with the grader's evidence and the captain's raw output), paged in the database. status filters by outcome; order is CreatedDescending (default) or CreatedAscending, with the id as the tie-break. pageSize 1-1000 (default 10). 404 when the run does not exist or belongs to another tenant." + " The JSON body is an EnumerationQuery; querystring values override it.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Run ID (bat_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging, order and outcome filter (Status)", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<BatteryTaskResult>>("One page of results"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
         }

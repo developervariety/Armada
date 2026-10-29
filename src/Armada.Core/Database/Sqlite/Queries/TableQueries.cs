@@ -2326,7 +2326,45 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE fleet_action_runs ADD COLUMN inputs_json TEXT NULL;",
                     @"ALTER TABLE fleet_action_runs ADD COLUMN input_values_json TEXT NULL;",
                     @"ALTER TABLE fleet_action_runs ADD COLUMN findings_count INT NOT NULL DEFAULT 0;",
-                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary TEXT NULL;")
+                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary TEXT NULL;"),
+                new SchemaMigration(102, "Add incidents and runbook_executions: one row per incident and per runbook execution holding its current state, so their lists page and count in the database (the snapshot events stay as history)",
+                    @"CREATE TABLE IF NOT EXISTS incidents (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        title TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        vessel_id TEXT,
+                        environment_id TEXT,
+                        deployment_id TEXT,
+                        release_id TEXT,
+                        mission_id TEXT,
+                        voyage_id TEXT,
+                        failure_kind TEXT,
+                        search_text TEXT,
+                        payload TEXT NOT NULL,
+                        detected_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_incidents_tenant_user ON incidents(tenant_id, user_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_incidents_last_update ON incidents(last_update_utc DESC, id DESC);",
+                    @"CREATE TABLE IF NOT EXISTS runbook_executions (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        runbook_id TEXT NOT NULL,
+                        deployment_id TEXT,
+                        incident_id TEXT,
+                        status TEXT NOT NULL,
+                        search_text TEXT,
+                        payload TEXT NOT NULL,
+                        started_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_runbook_executions_tenant_user ON runbook_executions(tenant_id, user_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_runbook_executions_runbook ON runbook_executions(runbook_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_runbook_executions_last_update ON runbook_executions(last_update_utc DESC, id DESC);")
 
 
 

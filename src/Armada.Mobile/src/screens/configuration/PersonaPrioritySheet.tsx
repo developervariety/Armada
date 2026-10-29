@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { CAPTAIN_TIERS } from '@dashboard/lib/captainForm';
 import { personaRoutingForm, validatePersonaPriorities, personaPriorityTargets, priorityTarget, priorityTargetPatch, type PersonaRoutingForm } from '@dashboard/lib/personaPriorities';
-import { listModelEndpoints } from '@dashboard/api/client';
+import { enumerateModelEndpoints } from '@dashboard/api/client';
+import { listAll } from '@dashboard/api/paging';
 import type { ModelEndpoint, Persona, PersonaCaptainPriority } from '@dashboard/types/models';
 import { BottomSheet } from '../../components/ui/BottomSheet';
 import { AppText } from '../../components/ui/AppText';
@@ -22,7 +23,7 @@ export function PersonaPrioritySheet({ persona, onClose, onSave }: Props) {
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
   useEffect(() => {
     let active = true;
-    Promise.resolve().then(() => listModelEndpoints()).then(items => { if (active) setEndpoints(items ?? []); })
+    Promise.resolve().then(() => listAll(enumerateModelEndpoints)).then(page => { if (active) setEndpoints(page?.objects ?? []); })
       .catch(err => { if (active) setError(errorText(err, t('Failed to load endpoints.'))); });
     return () => { active = false; };
   }, [t]);

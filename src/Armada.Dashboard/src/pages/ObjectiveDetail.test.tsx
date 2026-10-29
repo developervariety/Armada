@@ -140,7 +140,7 @@ describe('ObjectiveDetail live updates', () => {
   beforeEach(() => {
     socket.handlers.clear();
     vi.mocked(getBacklogItem).mockResolvedValue(objective());
-    vi.mocked(listBacklogRefinementSessions).mockResolvedValue([]);
+    vi.mocked(listBacklogRefinementSessions).mockResolvedValue(page([]) as never);
     vi.mocked(listFleets).mockResolvedValue(page([]) as never);
     vi.mocked(listVessels).mockResolvedValue(page([]) as never);
     vi.mocked(listCaptains).mockResolvedValue(page([]) as never);

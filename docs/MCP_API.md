@@ -63,6 +63,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
   - **Voyages**
     - [dispatch](#dispatch)
     - [voyage_status](#voyage_status)
+    - [list_voyage_progress](#list_voyage_progress)
     - [cancel_voyage](#cancel_voyage)
     - [purge_voyage](#purge_voyage)
     - [delete_voyages](#delete_voyages)
@@ -155,6 +156,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [list_battery_packs](#list_battery_packs)
     - [run_battery](#run_battery)
     - [get_battery_run](#get_battery_run)
+    - [list_battery_results](#list_battery_results)
   - **Ask Armada**
     - [list_ask_threads](#list_ask_threads)
     - [get_ask_thread](#get_ask_thread)
@@ -172,6 +174,11 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [approve_ask_proposal](#approve_ask_proposal)
     - [reject_ask_proposal](#reject_ask_proposal)
     - [get_ask_work](#get_ask_work)
+    - [list_ask_work](#list_ask_work)
+    - [list_ask_work_missions](#list_ask_work_missions)
+    - [list_ask_work_targets](#list_ask_work_targets)
+    - [list_ask_proposals](#list_ask_proposals)
+    - [list_ask_tool_calls](#list_ask_tool_calls)
   - **Merge Queue**
     - [get_merge_entry](#get_merge_entry)
     - [enqueue_merge](#enqueue_merge)
@@ -419,9 +426,11 @@ handler is registered through the Ask gate, which checks that claim:
   `get_prompt_template`, `get_release`, `get_runbook`, `get_runbook_execution`, `get_vessel`, `get_workflow_profile`), the
   workflow profile readers (`validate_workflow_profile`, `resolve_workflow_profile`, `preview_workflow_profile`; validate
   saves nothing), and the `list_*` readers
-  (`list_backlog`, `list_backlog_refinement_sessions`, `list_objectives`, `list_prompt_templates`,
+  (`list_backlog`, `list_backlog_refinement_sessions`, `list_backlog_refinement_session_messages`,
+  `list_backlog_planning_session_messages`, `list_objectives`, `list_prompt_templates`,
   plus `get_cli_permission_request`), and the Ask Armada
-  readers (`list_ask_threads`, `get_ask_thread`, `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`). The list lives in
+  readers (`list_ask_threads`, `get_ask_thread`, `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`,
+  `list_ask_work`, `list_ask_work_missions`, `list_ask_work_targets`, `list_ask_proposals`, `list_ask_tool_calls`). The list lives in
   `AskToolPolicy`; any tool not on it (including tools added later) is treated as state-changing.
 - **`cli_permission_prompt`** (the captain CLI's own permission prompt) runs without becoming a proposal: an approver
   answers it as a [CLI permission request](#cli-permissions).
@@ -503,8 +512,9 @@ The stdio transport has no network attack surface -- the only caller is the pare
 
 ### status
 
-Get aggregate status of active work in Armada: captain counts by state, mission counts by status, active voyages with
-progress, and recent signals. A global administrator sees every tenant; any other caller sees only its own tenant (the
+Get aggregate status of active work in Armada: captain counts by state, mission counts by status, active voyage counts
+(`ActiveVoyages`, `InProgressVoyages`, `OpenVoyages`), and the 10 most recent signals. It embeds no voyage list; page the
+active voyages with progress through [list_voyage_progress](#list_voyage_progress). A global administrator sees every tenant; any other caller sees only its own tenant (the
 same scoping as `GET /api/v1/status`).
 
 **Input Schema:**
@@ -527,6 +537,8 @@ No parameters required.
   "WorkingCaptains": 2,
   "StalledCaptains": 1,
   "ActiveVoyages": 2,
+  "InProgressVoyages": 1,
+  "OpenVoyages": 1,
   "MemoryPressureDeferrals": 0,
   "MissionsByStatus": {
     "Pending": 3,
@@ -534,16 +546,6 @@ No parameters required.
     "Complete": 10,
     "Failed": 1
   },
-  "Voyages": [
-    {
-      "Voyage": { "Id": "vyg_...", "Title": "Feature batch 1", "...": "..." },
-      "TotalMissions": 5,
-      "CompletedMissions": 3,
-      "FailedMissions": 0,
-      "InProgressMissions": 2,
-      "VesselIds": ["vsl_..."]
-    }
-  ],
   "RecentSignals": [],
   "TimestampUtc": "2026-03-07T12:34:56.789Z",
   "RemoteTunnel": {
@@ -579,6 +581,8 @@ Summarize model token usage over a time window. Returns time buckets (each with 
 
 Counts are normalized across providers: `input` covers prompt tokens, `output` covers completion tokens, `cached` is the cache-read subset of input (informational), and `total` is input + output. Counts are measured where the runtime reports usage (for example Claude Code) and estimated from text length otherwise; `EstimatedCount` reports how many aggregated records were estimated.
 
+Bounded (see [ENUMERATION.md](ENUMERATION.md)): at most 1000 buckets, so a window and `bucketMinutes` that would produce more fail with `ErrorCode` `InvalidArgument` and `Code` `CollectionLimitExceeded` before any record is read; `bucketMinutes` is at most 527040. `ByModel` and each bucket's `Models` list the `modelLimit` most-used models; the rest are summed into `OtherModels` (model `(other)`), `OtherModelCount` says how many, and `ModelCount` is the distinct model count, so totals always add up.
+
 **Input Schema:**
 
 ```json
@@ -588,7 +592,8 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
     "sinceHours": { "type": "integer", "description": "Only include usage newer than this many hours (default 24; ignored when fromUtc is set)" },
     "fromUtc": { "type": "string", "description": "Explicit UTC window start (ISO-8601); overrides sinceHours" },
     "toUtc": { "type": "string", "description": "Explicit UTC window end (ISO-8601; default now)" },
-    "bucketMinutes": { "type": "number", "description": "Time-bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 60)" },
+    "bucketMinutes": { "type": "number", "description": "Time-bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 60, at most 527040)" },
+    "modelLimit": { "type": "integer", "description": "Most models broken out by name (default 10, 1 to 100); the rest are summed into otherModels" },
     "model": { "type": "string", "description": "Filter to one model" },
     "runtime": { "type": "string", "description": "Filter to one runtime (for example claudecode, codex, mux)" },
     "source": { "type": "string", "description": "Filter to one source: mission, chat, planning, or synthetic" },
@@ -600,7 +605,7 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
 }
 ```
 
-**Response:** grand totals plus `Buckets` (time series) and `ByModel` (most-used first).
+**Response:** grand totals plus `Buckets` (time series), `ByModel` (the top `ModelLimit` models, most-used first), and `OtherModels` (the sum of the rest, or null).
 
 ```json
 {
@@ -613,6 +618,10 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
   "OutputTokens": 340000,
   "CachedTokens": 90000,
   "TotalTokens": 1540000,
+  "ModelLimit": 10,
+  "ModelCount": 2,
+  "OtherModelCount": 0,
+  "OtherModels": null,
   "ByModel": [
     { "Model": "claude-sonnet-4", "InputTokens": 900000, "OutputTokens": 250000, "CachedTokens": 80000, "TotalTokens": 1150000 },
     { "Model": "gpt-5", "InputTokens": 300000, "OutputTokens": 90000, "CachedTokens": 10000, "TotalTokens": 390000 }
@@ -624,7 +633,9 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
       "InputTokens": 20000, "OutputTokens": 5000, "CachedTokens": 1000, "TotalTokens": 25000,
       "Models": [
         { "Model": "claude-sonnet-4", "InputTokens": 20000, "OutputTokens": 5000, "CachedTokens": 1000, "TotalTokens": 25000 }
-      ]
+      ],
+      "OtherModelCount": 0,
+      "OtherModels": null
     }
   ]
 }
@@ -717,7 +728,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
   "properties": {
     "entityType": { "type": "string", "description": "Entity type to enumerate (inbox [the needs-you items, most urgent first], cli_permission_rules [vesselId and captainId filter], cli_permission_requests [newest first; status, missionId, threadId, captainId, vesselId filter], objectives [aliases backlog, backlog_item, backlog_items], fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health)" },
     "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
-    "pageSize": { "type": "integer", "description": "Results per page (default 10, max 1000)" },
+    "pageSize": { "type": "integer", "description": "Results per page (default 10, normalized into 1..1000; a few entity types apply their REST route's lower maximum, and the result's PageSize reports the size used)" },
     "order": { "type": "string", "description": "Sort order: CreatedAscending, CreatedDescending" },
     "createdAfter": { "type": "string", "description": "ISO 8601 timestamp filter" },
     "createdBefore": { "type": "string", "description": "ISO 8601 timestamp filter" },
@@ -733,7 +744,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
     "signalType": { "type": "string", "description": "Filter by signal type (signals only)" },
     "toCaptainId": { "type": "string", "description": "Filter by recipient captain (signals only)" },
     "unreadOnly": { "type": "boolean", "description": "Unread only (signals only)" },
-    "includeDescription": { "type": "boolean", "description": "Include full Description on missions/voyages (default false). Returns descriptionLength hint when false." },
+    "includeDescription": { "type": "boolean", "description": "Add the full Description to mission/voyage rows (default false). Returns descriptionLength hint when false. Rows stay scalar: use get_mission / voyage_status for the full model." },
     "includeContext": { "type": "boolean", "description": "Include ProjectContext and StyleGuide on vessels (default false). Returns length hints when false." },
     "includeTestOutput": { "type": "boolean", "description": "Include TestOutput on merge queue entries (default false). Returns testOutputLength hint when false." },
     "includePayload": { "type": "boolean", "description": "Include full Payload on events (default false). Returns payloadLength hint when false." },
@@ -749,7 +760,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `entityType` value | Supported filters |
 |---|---|
 | `inbox` | Paging only; most urgent first (see [Inbox items](#inbox-items-entitytype-inbox)) |
-| `cli_permission_rules` | `vesselId`, `captainId` |
+| `cli_permission_rules` | `vesselId`, `captainId`. Counted and paged in the database (caller's tenant plus every-tenant rules), newest first. |
 | `cli_permission_requests` (alias `cli-permission-requests`) | `status` (Pending/Allowed/Denied/Expired/Cancelled), `missionId`, `threadId`, `captainId`, `vesselId`; newest first (see [CLI permission requests](#cli-permission-requests-entitytype-cli_permission_requests)) |
 | `objectives` (aliases `backlog`, `backlog_item`, `backlog_items`) | `status`, `vesselId`, `voyageId`, `missionId`, `search` |
 | `fleets` | `createdAfter`, `createdBefore` |
@@ -761,8 +772,8 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `signals` | `signalType`, `captainId`, `toCaptainId`, `unreadOnly`, `createdAfter`, `createdBefore` |
 | `events` | `eventType`, `captainId`, `missionId`, `vesselId`, `voyageId`, `createdAfter`, `createdBefore` |
 | `merge_queue` | `status` (Queued/Testing/Passed/Failed/Landed/Cancelled), `createdAfter`, `createdBefore` |
-| `harbors` | paginated browse only (no filters) |
-| `personas` | `createdAfter`, `createdBefore` |
+| `harbors` | `createdAfter`, `createdBefore`, `order`. Counted and paged in the database within the caller's tenant, newest first, ties by id. |
+| `personas` | `createdAfter`, `createdBefore`, `order`. Visibility (tenant-wide plus own) applies in the database before counting, so `TotalRecords` is exact. |
 | `playbooks` | `createdAfter`, `createdBefore` |
 | `prompt_templates` | `createdAfter`, `createdBefore` |
 | `pipelines` | `createdAfter`, `createdBefore` |
@@ -774,19 +785,33 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `runbooks` | `search` (current MCP enumeration is primarily paginated browse) |
 | `runbook_executions` (aliases `runbook-executions`, `runbookexecution`) | `search` (current MCP enumeration is primarily paginated browse) |
 | `project_profiles` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
-| `skills` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
+| `skills` | paginated browse ordered by name; visibility (tenant-wide plus own) applies in the database before counting. |
 | `memories` | `search` (content, topic, tags), `vesselId` (vessel or source vessel), `voyageId`, `missionId`, `createdAfter`, `createdBefore`, `order`. Filtered, sorted and paged in the database within the caller's visibility. Without `order`, salience descending then newest first; with `order`, by created time. |
 | `jobs` | (paginated browse only) |
-| `model_endpoints` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
+| `model_endpoints` | `createdAfter`, `createdBefore`, `order`. Counted and paged in the database within the caller's visibility (tenant-wide endpoints plus the caller's own), newest first, ties by id. |
 | `vessel_import_batch` (aliases `vessel_import_batches`, `vessel-import-batch`, `import_batches`) | `status` (Discovered/Importing/Completed/CompletedWithFailures/Failed/Discovering), `createdAfter`, `createdBefore`, `order`. Scoped to the caller's tenant. Items are not included; read a batch with items through `GET /api/v1/vessels/import/batches/{id}`. |
 | `fleet_action` | `includeInactive`, `createdAfter`, `createdBefore` |
 | `fleet_action_run` | `status` (Pending/Running/Completed/CompletedWithFailures/Cancelled/Failed), `createdAfter`, `createdBefore` |
 | `fleet_action_run_target` | `runId` (required), `status` (Pending/Skipped/Running/Succeeded/Failed/Cancelled/TimedOut) |
 | `vessel_health` (aliases `vessel-health`, `health`) | `status` (overall status: Pass/Warn/Fail/NotApplicable/Unknown), `fleetId`, `search` (vessel name substring). Every active vessel appears, including never-evaluated ones. Rows are sorted by vessel name; for richer filters and sorting use `POST /api/v1/vessel-health/enumerate` |
 
+**Page contract (docs/ENUMERATION.md):** every `entityType` returns the same page shape as the REST enumerate routes:
+`PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `Objects` (plus `Success` and `TotalMs`). `pageSize` defaults to
+10 and is normalized into 1..1000; a few entity types apply a lower documented maximum from their REST twin, and the
+result's `PageSize` always reports the size used. A page past the end returns an empty `Objects` with accurate totals.
+The caller's visibility is applied before counting, so `TotalRecords` is exact for the caller: for `pipelines`,
+`playbooks`, `prompt_templates`, `workflow_profiles`, `project_profiles` and `skills` a regular user sees the
+tenant-wide rows plus their own, a tenant admin the whole tenant, and the filter runs in the database before the page is
+cut (previously the page was cut first and invisible rows were dropped afterwards, so pages came back short and the
+totals counted rows the caller could not see). Objects never embed growing child lists: `missions` and `voyages` rows
+(with or without `includeDescription`) carry scalar fields only; read a mission's playbook snapshots and assignment
+blocker with `get_mission` / `mission_status`, and a voyage's missions with `voyage_status`. Configuration lists on
+`pipelines` (`Stages`) and `workflow_profiles` / `project_profiles` (`LanguageHints`, `RequiredInputs`, `ExpectedArtifacts`,
+`Environments`, `PersonaOverrides`, `Skills`) hold at most 256 entries each (every write path rejects more).
+
 | Include flag | Applies to | Default | Description |
 |---|---|---|---|
-| `includeDescription` | missions, voyages | `false` | Include full Description. Returns `descriptionLength` hint when false. |
+| `includeDescription` | missions, voyages | `false` | Add the full Description to the scalar row fields. Returns `descriptionLength` hint when false. The row never embeds the full Mission or Voyage model. |
 | `includeContext` | vessels | `false` | Include ProjectContext and StyleGuide. Returns length hints when false. |
 | `includeTestOutput` | merge_queue | `false` | Include TestOutput. Returns `testOutputLength` hint when false. |
 | `includePayload` | events | `false` | Include full Payload. Returns `payloadLength` hint when false. |
@@ -924,6 +949,11 @@ Create a reusable action.
 | `timeoutSeconds` | int | No | Per-target timeout, 5-7200 (default from settings) |
 | `defaultConcurrency` | int | No | 1-32, default 4 |
 | `requiresCleanWorkingTree` | bool | No | Skip dirty working trees; default true for Command |
+| `requiredTools` | string[] | No | Executable names required on the host (at most 256) |
+| `inputs` | object[] | No | Typed runtime inputs (at most 256; each `allowedValues` at most 256) |
+
+A list over its limit is `InvalidArgument` with `Code` `CollectionLimitExceeded` (also on `update_fleet_action` and
+`run_fleet_action`, where `vesselIds` may hold at most 1000 entries and `inputValues` at most 256).
 
 **Response:** the created [FleetAction](REST_API.md#fleet-action-models).
 
@@ -949,7 +979,7 @@ Start a run. Pass `actionId` for a saved action, or the inline definition fields
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `vesselIds` | string[] | Yes | Target vessel IDs in the caller's tenant (1-500). One unknown or cross-tenant vessel rejects the whole request (404). |
+| `vesselIds` | string[] | Yes | Target vessel IDs in the caller's tenant (1-500; more than 1000 entries is `CollectionLimitExceeded`). One unknown or cross-tenant vessel rejects the whole request (404). |
 | `actionId` | string | No | Saved action ID (`fac_`). Omit for ad hoc. |
 | `concurrency` | int | No | 1-32; defaults to the action's `defaultConcurrency` |
 | `name`, `kind`, `commandText`, `promptTemplate` | string | Ad hoc | Inline definition |
@@ -967,7 +997,7 @@ Start a run. Pass `actionId` for a saved action, or the inline definition fields
 |---|---|---|---|
 | `runId` | string | Yes | Run ID (`far_`) |
 
-**Response:** `{ "Run": FleetActionRun, "Targets": [FleetActionRunTargetSummary, ...] }`. Target summaries carry `Status`, `SkipReason`, `FailureReason`, `ExitCode`, `VoyageId`, `DurationMs`, and `OutputLength` / `ErrorLength` / `RenderedLength` hints instead of text.
+**Response:** `{ "Run": FleetActionRun }` with the target counts (`TargetCount`, `SucceededCount`, `FailedCount`, `SkippedCount`, `CancelledCount`). Targets are not embedded: page them with `enumerate` (`entityType` `fleet_action_run_target`, `runId`, `pageNumber`, `pageSize`, optional `status`). Target summaries carry `Status`, `SkipReason`, `FailureReason`, `ExitCode`, `VoyageId`, `DurationMs`, and `OutputLength` / `ErrorLength` / `RenderedLength` hints instead of text.
 
 ### cancel_fleet_action_run
 
@@ -1001,7 +1031,7 @@ Read one memory (full content). Args: `memoryId` (required).
 
 ### create_memory
 
-Create a memory, or update it in place when a memory with the same `key` already exists (idempotent consolidation). Args: `content` (required); optional `type` (default `Semantic`), `topic`, `key`, `summary`, `salience` (0.0-1.0, default 0.5), `tags`, `sourceKind`, `sourceVoyageId`, `sourceMissionId`, `sourceVesselId`, `sourceDetail`, `vesselId`, `scope`.
+Create a memory, or update it in place when a memory with the same `key` already exists (idempotent consolidation). Args: `content` (required); optional `type` (default `Semantic`), `topic`, `key`, `summary`, `salience` (0.0-1.0, default 0.5), `tags` (at most 256; more is `InvalidArgument` with `code` `CollectionLimitExceeded`), `sourceKind`, `sourceVoyageId`, `sourceMissionId`, `sourceVesselId`, `sourceDetail`, `vesselId`, `scope`.
 
 ### update_memory
 
@@ -1222,7 +1252,9 @@ it to `create_failure_cause_rule`. `Conflict` when the outcome's cause is `None`
 |---|---|---|---|
 | `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 100) |
 
-**Response:** `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name), built-in rules included.
+**Response:** `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name, then id), built-in rules
+included, paged in the database. Each `match` list holds at most 256 entries; `create_failure_cause_rule` and
+`update_failure_cause_rule` reject more with `InvalidArgument`, `Code` `CollectionLimitExceeded`.
 
 ### get_failure_cause_rule
 
@@ -1284,7 +1316,10 @@ Errors are `McpToolError`s: `NotFound` (missing or out of scope), `Forbidden` (a
 |---|---|---|---|
 | `artifactId` | string | Yes | Artifact ID (`hoa_`) |
 
-**Response:** the complete HandoffArtifact, with `output` and `diff`.
+**Response:** the complete HandoffArtifact, with `output` and `diff`. `findings`, `acceptanceCriteria` and
+`completionLines` hold at most 256 entries: a longer list keeps its first 255 and ends with a marker entry naming how
+many more there were (a `completionLines` marker starts with `[ARMADA:TRUNCATED]`); the full text stays in `output`.
+`requiredActions` holds at most 8, `checkResults` at most 1 and `commitReferences` at most 20.
 
 ### list_handoff_artifacts
 
@@ -1364,14 +1399,14 @@ Errors are `McpToolError`s:
   `createFixtureVessel`.
 - `Unavailable`: on the stdio server.
 
-`list_battery_packs` and `get_battery_run` are on the Ask read-only list. `run_battery` becomes a proposal inside an
+`list_battery_packs`, `get_battery_run` and `list_battery_results` are on the Ask read-only list. `run_battery` becomes a proposal inside an
 Ask conversation.
 
 | Tool | Caller |
 |---|---|
 | `list_battery_packs` | Any authenticated person |
 | `run_battery` | Global admin, or a tenant admin of the captain's tenant |
-| `get_battery_run` | Any authenticated person: global admins every tenant, everyone else their own tenant |
+| `get_battery_run`, `list_battery_results` | Any authenticated person: global admins every tenant, everyone else their own tenant |
 
 ### list_battery_packs
 
@@ -1379,14 +1414,16 @@ Ask conversation.
 |---|---|---|---|
 | `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 100) |
 
-**Response:** `EnumerationResult<BatteryPackInfo>`, ordered by id. Malformed packs are listed with `valid: false` and
-their `errors`.
+**Response:** `EnumerationResult<BatteryPackInfo>`, ordered by pack directory name; only the page's manifests are read.
+Malformed packs are listed with `valid: false` and their `errors` (at most 256). Every manifest list holds at most 256
+entries; a pack with more is malformed and lists the first 256 tasks and toolchain entries with `taskCount` and
+`toolchainCount`.
 
 ### run_battery
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `packs` | string[] | Yes | Pack ids, for example `["csharp"]` |
+| `packs` | string[] | Yes | Pack ids, for example `["csharp"]` (at most 256) |
 | `captainId` | string | Yes | Captain to run the tasks (`cpt_`) |
 | `runCount` | integer | No | Runs of each task (1-10, default 3) |
 | `seed` | integer | No | Seed to record (default: picked at random) |
@@ -1400,7 +1437,21 @@ their `errors`.
 |---|---|---|---|
 | `id` | string | Yes | Run ID (`bat_`) |
 
-**Response:** the BatteryRun with `results` (one per task attempt, with the grader's evidence and the raw output).
+**Response:** the BatteryRun with its outcome counts. The per-task results are not embedded; page them with
+`list_battery_results`.
+
+### list_battery_results
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `runId` | string | Yes | Run ID (`bat_`) |
+| `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 10) |
+| `status` | string | No | Outcome filter: `Passed`, `Failed`, `CouldNotRun`, `PendingEvaluation` |
+| `order` | string | No | `CreatedDescending` (default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<BatteryTaskResult>` paged in the database: one result per task attempt, with the
+grader's evidence (the first 256 false positives, with `falsePositiveCount`) and the raw output. `NotFound` for a
+missing run or another tenant's run.
 
 ---
 
@@ -1415,8 +1466,9 @@ Errors are `McpToolError`s: `InvalidArgument` (a required field is missing), `No
 turn is already running, or the proposal was already decided), and `Unavailable` (the turn could not be started, or the
 server cannot run conversations: the stdio server lists these tools but answers every call with `Unavailable`).
 
-A captain answering inside a conversation may call the five readers (`list_ask_threads`, `get_ask_thread`,
-`list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`); every other tool here is refused with `Forbidden` and
+A captain answering inside a conversation may call the readers (`list_ask_threads`, `get_ask_thread`,
+`list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`, `list_ask_work`, `list_ask_work_missions`,
+`list_ask_work_targets`, `list_ask_proposals`, `list_ask_tool_calls`); every other tool here is refused with `Forbidden` and
 never proposed, so a captain cannot approve its own proposals, start turns, or change conversations (see
 [Ask Armada thread-scoped calls](#ask-armada-thread-scoped-calls)).
 
@@ -1437,7 +1489,10 @@ never proposed, so a captain cannot approve its own proposals, start turns, or c
 |---|---|---|---|
 | `threadId` | string | Yes | Conversation ID (`ath_`) |
 
-**Response:** `AskThreadDetail`: the conversation, its recent messages, its action proposals, and its tracked work.
+**Response:** `AskThreadDetail`: the conversation, `trackedWorkCount`, `pendingProposalCount`,
+`pendingCliPermissionCount`, and `activeTurn` (the running turn's progress with `toolCallCount`, or null). It embeds no
+collections: read them with [list_ask_work](#list_ask_work), [list_ask_proposals](#list_ask_proposals),
+[list_ask_tool_calls](#list_ask_tool_calls), and [list_ask_messages](#list_ask_messages).
 
 ### create_ask_thread
 
@@ -1479,10 +1534,11 @@ Permanently deletes the conversation and its messages, stopping its turn if one 
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `threadIds` | string[] | Yes | Conversation IDs |
+| `threadIds` | string[] | Yes | Conversation IDs, at most 1000 |
 
 **Response:** `{ "status": "Deleted", "deletedCount": 2, "deleted": [...], "notFound": [...] }`. IDs that do not exist
-or belong to someone else are listed under `notFound` and left alone.
+or belong to someone else are listed under `notFound` and left alone. More than 1000 IDs is `InvalidArgument` with
+`code` `CollectionLimitExceeded`, and nothing is deleted.
 
 ### list_ask_messages
 
@@ -1492,7 +1548,8 @@ or belong to someone else are listed under `notFound` and left alone.
 | `beforeSequence` | integer | No | Return messages before this sequence number (pass the lowest one you have to page back) |
 | `pageSize` | integer | No | Messages per page (default 50) |
 
-**Response:** `AskMessagePage { Messages, HasMore }`, newest page first.
+**Response:** `AskMessagePage { Messages, HasMore }`, newest page first. Each message carries `toolCallCount`; read the
+calls with [list_ask_tool_calls](#list_ask_tool_calls).
 
 ### send_ask_message
 
@@ -1576,7 +1633,70 @@ The proposed tool never runs. **Response:** the rejected proposal.
 | `threadId` | string | Yes | Conversation ID |
 | `workId` | string | Yes | Tracked work ID (a voyage, mission, or fleet action run the conversation started) |
 
-**Response:** the current snapshot of that work.
+**Response:** the current snapshot of that work: status and counts, with `missionCount` and `targetCount`. It embeds no
+rows; read them with [list_ask_work_missions](#list_ask_work_missions) and [list_ask_work_targets](#list_ask_work_targets).
+
+### list_ask_work
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `status` | string | No | State filter: `Active`, `Succeeded`, `Failed`, `Cancelled` (anything else is `InvalidArgument`) |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+| `order` | string | No | `CreatedDescending` (newest first, default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<AskTrackedWork>`, paged in the database; each item carries a counts-only snapshot.
+`NotFound` for another user's conversation.
+
+### list_ask_work_missions
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `workId` | string | Yes | Tracked work ID (`atw_`) |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+| `order` | string | No | `CreatedDescending` (newest first, default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<AskWorkMissionSnapshot>`: a voyage's missions paged in the database, or the single row
+of tracked mission work. Fleet action runs answer `InvalidArgument`; use [list_ask_work_targets](#list_ask_work_targets).
+
+### list_ask_work_targets
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `workId` | string | Yes | Tracked work ID of a fleet action run |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+
+**Response:** `EnumerationResult<AskWorkTargetSnapshot>`, one row per vessel by vessel name. Other work types answer
+`InvalidArgument`.
+
+### list_ask_proposals
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `status` | string | No | Proposal status filter, for example `Pending` (anything unknown is `InvalidArgument`) |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+| `order` | string | No | `CreatedDescending` (newest first, default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<AskActionProposal>`, paged in the database.
+
+### list_ask_tool_calls
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `messageId` | string | No | Message ID (`amg_`); omit it for the calls the running turn has made so far |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+| `order` | string | No | `CreatedDescending` (newest first, default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<AskMessageToolCall>`. `NotFound` when the message is not in the conversation.
 
 ### dispatch
 
@@ -1709,7 +1829,8 @@ Optional `approvalOptions` has `approveAll` (default false), `timeoutSeconds` (1
 
 ### voyage_status
 
-Get status of a specific voyage. Returns summary with mission counts by default; opt-in to full mission details.
+Get status of a specific voyage: the voyage with its mission counts. Missions are never embedded; read them one page at a
+time with [enumerate](#enumerate) (`entityType` `missions`, `voyageId`).
 
 **Input Schema:**
 
@@ -1719,27 +1840,11 @@ Get status of a specific voyage. Returns summary with mission counts by default;
   "properties": {
     "voyageId": {
       "type": "string",
-      "description": "Voyage ID"
+      "description": "Voyage ID (vyg_ prefix)"
     },
     "summary": {
       "type": "boolean",
-      "description": "Return summary with mission counts only (default true)"
-    },
-    "includeMissions": {
-      "type": "boolean",
-      "description": "Include full mission objects in response (default false)"
-    },
-    "includeDescription": {
-      "type": "boolean",
-      "description": "Include full Description on voyage and missions (default false)"
-    },
-    "includeDiffs": {
-      "type": "boolean",
-      "description": "Include DiffSnapshot on missions (default false)"
-    },
-    "includeLogs": {
-      "type": "boolean",
-      "description": "Include session logs on missions (default false)"
+      "description": "Return a trimmed voyage with the counts (default true). Set false for the full voyage object with the counts."
     }
   },
   "required": ["voyageId"]
@@ -1749,14 +1854,12 @@ Get status of a specific voyage. Returns summary with mission counts by default;
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `voyageId` | string | Yes | -- | Voyage ID (prefix `vyg_`) |
-| `summary` | boolean | No | `true` | Return the summary shape with mission counts by status. Set `false` for the full voyage |
-| `includeMissions` | boolean | No | `false` | Include full mission objects. Only used when `summary` is `false` |
-| `includeDescription` | boolean | No | `false` | Include `Description` on the embedded missions |
-| `includeDiffs` | boolean | No | `false` | Include `DiffSnapshot` on the embedded missions |
-| `includeLogs` | boolean | No | `false` | Reserved; currently has no effect (logs live in files, use `get_mission_log`) |
+| `summary` | boolean | No | `true` | Trimmed voyage (`Id`, `Title`, `Description`, `Status`, `CreatedUtc`, `LastUpdateUtc`, `ApprovalOptions`, `IsEvaluation`) with the counts; `false` returns the full voyage with the counts |
 
-**Response (default summary mode):** the voyage's `Id`, `Title`, `Description`, `Status`, `CreatedUtc`, and
-`LastUpdateUtc`, the mission total, and counts by mission status.
+`includeMissions: true` is rejected with `ErrorCode` `InvalidArgument` naming the replacement; the former
+`includeDescription`, `includeDiffs` and `includeLogs` flags are gone.
+
+**Response:**
 
 ```json
 {
@@ -1777,43 +1880,39 @@ Get status of a specific voyage. Returns summary with mission counts by default;
 }
 ```
 
-**Response (`summary: false`):** `{ "Voyage": <full Voyage>, "TotalMissions": 5 }`.
-
-**Response (`summary: false, includeMissions: true`):**
-
-```json
-{
-  "Voyage": {
-    "Id": "vyg_abc123def456ghi789jk",
-    "Title": "Implement authentication",
-    "Status": "InProgress",
-    "...": "..."
-  },
-  "Missions": [
-    {
-      "Id": "msn_abc123def456ghi789jk",
-      "Title": "Add JWT middleware",
-      "Status": "Complete",
-      "...": "..."
-    },
-    {
-      "Id": "msn_def456ghi789jkl012mn",
-      "Title": "Add login endpoint",
-      "Status": "InProgress",
-      "...": "..."
-    }
-  ]
-}
-```
-
 | Field | Type | Description |
 |---|---|---|
 | `Voyage` | object | [Voyage](#voyage) object (a subset of its fields in summary mode) |
-| `TotalMissions` | int | Total number of missions in this voyage (absent when `Missions` is returned) |
-| `MissionCountsByStatus` | object | Map of status string to count (summary mode only) |
-| `Missions` | array | List of [Mission](#mission) objects (only with `summary: false` and `includeMissions: true`) |
+| `TotalMissions` | int | Total number of missions in this voyage |
+| `MissionCountsByStatus` | object | Map of status string to count (at most one entry per mission status) |
 
 An unknown voyage, or one outside the caller's scope, returns `{ "Error": "Voyage not found", "ErrorCode": "NotFound" }`.
+
+---
+
+### list_voyage_progress
+
+Page through voyages with their mission counts. With no `status` the view is the active voyages (the ones `status`
+counts in `ActiveVoyages`): InProgress first, then Open, newest first within each. A `status` selects one voyage status.
+Same scope as `enumerate` voyages.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
+    "pageSize": { "type": "integer", "description": "Page size (1 to 1000, default 10; out-of-range values are normalized)" },
+    "status": { "type": "string", "description": "Open, InProgress, Complete, Failed, or Cancelled" },
+    "order": { "type": "string", "description": "CreatedDescending (default) or CreatedAscending" }
+  }
+}
+```
+
+**Response:** `{ "PageNumber", "PageSize", "TotalPages", "TotalRecords", "Objects": [VoyageProgress] }`, each object the
+voyage with `TotalMissions`, `CompletedMissions`, `FailedMissions`, `InProgressMissions`, `MissionCountsByStatus`,
+`VesselId` and `VesselCount` (as `GET /api/v1/voyages/{id}`). An unknown `status` or `order` returns `InvalidArgument`.
 
 ---
 
@@ -1868,7 +1967,8 @@ Dry-run the vessel's auto-land predicate against a mission's captured diff witho
 
 ### get_fleet
 
-Get details of a specific fleet including all its vessels.
+Get one fleet and the number of vessels it holds in the caller's scope (`VesselCount`). The vessels are not embedded:
+page them with [`enumerate`](#enumerate) (`entityType` `vessels`, `fleetId`).
 
 **Input Schema:**
 
@@ -1898,14 +1998,7 @@ Get details of a specific fleet including all its vessels.
     "Name": "Backend Services",
     "...": "..."
   },
-  "Vessels": [
-    {
-      "Id": "vsl_abc123def456ghi789jk",
-      "Name": "auth-service",
-      "RepoUrl": "git@github.com:org/auth-service.git",
-      "...": "..."
-    }
-  ]
+  "VesselCount": 12
 }
 ```
 
@@ -1914,7 +2007,7 @@ Returns `{ "Error": "Fleet not found", "ErrorCode": "NotFound" }` if the ID does
 | Field | Type | Description |
 |---|---|---|
 | `fleet` | object | [Fleet](#fleet) object |
-| `vessels` | array | List of [Vessel](#vessel) objects in this fleet |
+| `vesselCount` | number | Vessels in this fleet visible to the caller |
 
 ---
 
@@ -2045,7 +2138,7 @@ Requires a tenant admin caller. Every path must lie inside `import.allowedRoots`
 { "roots": ["/Users/alex/Code"], "maxDepth": 3 }
 ```
 
-**Response:** `VesselImportDiscoverResponse`: `BatchId`, `Batch` (a [VesselImportBatch](#vesselimportbatch)), `Candidates` (array of [VesselImportItem](#vesselimportitem)), `Truncated` (true when the 5,000-candidate cap was reached), and `Hints` (`{Code, Message}`; codes `PathNotVisibleToAdmiral`, `CandidateLimitReached`).
+**Response:** `VesselImportDiscoverResponse`: `BatchId`, `Batch` (a [VesselImportBatch](#vesselimportbatch)), `Candidates` (array of [VesselImportItem](#vesselimportitem)), `Truncated` (true when the 1,000-candidate cap was reached; `directories` and `roots` together hold at most 1,000 paths, more is `InvalidArgument` with `Code` `CollectionLimitExceeded`), and `Hints` (`{Code, Message}`; codes `PathNotVisibleToAdmiral`, `CandidateLimitReached`).
 
 On failure returns `{ "Error": "...", "ErrorCode": "...", "Code": "..." }` with `Code` one of `InvalidRequest` (no paths, too many paths, or a relative path), `PathNotAllowed` (`ErrorCode` `Forbidden`), or `HarborNotSupported`, or `{ "Error": "discover_vessels requires a tenant admin", "ErrorCode": "Forbidden" }`.
 
@@ -2256,6 +2349,8 @@ Delete multiple events by ID. Returns a summary of deleted and skipped entries.
 |---|---|---|---|
 | `ids` | string[] | Yes | List of event IDs to delete (prefix `evt_`) |
 
+At most 1000 ids; more returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing, so `Skipped` holds at most 1000 entries.
+
 **Response:**
 
 ```json
@@ -2326,6 +2421,8 @@ Soft-delete multiple signals by marking them as read. Returns a summary of delet
 |---|---|---|---|
 | `ids` | string[] | Yes | List of signal IDs to soft-delete (prefix `sig_`) |
 
+At most 1000 ids; more returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing, so `Skipped` holds at most 1000 entries.
+
 **Response:**
 
 ```json
@@ -2345,6 +2442,8 @@ Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "Inval
 ### stop_captain
 
 Stop a specific captain agent.
+
+The mission the captain was running is set to `Cancelled` with failure kind `OperatorAction`, and its failure reason records who stopped it, through which surface, and when (for example `Stopped by operator (usr_...) via stop_captain (MCP) at 2026-10-28T02:37:59Z.`). A `mission.stopped_by_operator` event carries the same data. Before the dock is reclaimed, uncommitted work in it is committed to the mission branch as `WIP: preserved on operator stop` and pushed, best effort; the commit hash is added to the failure reason and the event. `stop_all` does the same for every captain it stops.
 
 **Input Schema:**
 
@@ -2515,7 +2614,7 @@ Retry landing for a mission in `LandingFailed` status. Rebases the mission branc
 
 ### cancel_voyage
 
-Cancel an entire voyage and its `Pending`, `Assigned`, and `Blocked` missions, each the same way `cancel_mission` does (a running agent is stopped first). In-progress missions and missions that are already `Complete` or `Cancelled` are not affected. A mission whose agent did not confirm it stopped is left unchanged and listed in the response's `NotCancelled`.
+Cancel an entire voyage and its `Pending`, `Assigned`, and `Blocked` missions, each the same way `cancel_mission` does (a running agent is stopped first). In-progress missions and missions that are already `Complete` or `Cancelled` are not affected. A mission whose agent did not confirm it stopped is left unchanged and counted in `NotCancelledMissions`; read which missions remain with `enumerate` (missions, `voyageId`, `status`).
 
 **Input Schema:**
 
@@ -2548,14 +2647,18 @@ Returns `{ "Error": "Voyage not found", "ErrorCode": "NotFound" }` if the ID doe
     "Status": "Cancelled",
     "...": "..."
   },
-  "CancelledMissions": 3
+  "CancelledMissions": 3,
+  "NotCancelledMissions": 0,
+  "FirstNotCancelledReason": null
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `voyage` | object | The updated [Voyage](#voyage) object with status `Cancelled` |
-| `cancelledMissions` | int | Number of missions that were cancelled |
+| `Voyage` | object | The updated [Voyage](#voyage) object with status `Cancelled` |
+| `CancelledMissions` | int | Number of missions that were cancelled |
+| `NotCancelledMissions` | int | Number of Pending, Assigned, or Blocked missions that could not be cancelled |
+| `FirstNotCancelledReason` | string | The first such mission and why, or null |
 
 ---
 
@@ -2602,6 +2705,8 @@ Permanently delete multiple voyages and their associated missions from the datab
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `ids` | string[] | Yes | List of voyage IDs to delete (prefix `vyg_`) |
+
+At most 1000 ids; more returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing, so `Skipped` holds at most 1000 entries.
 
 **Response:**
 
@@ -2719,7 +2824,7 @@ Permanently delete multiple fleets from the database by ID. Returns a summary of
 }
 ```
 
-Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided.
+Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided. `ids` holds at most 1000 entries; a longer list returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing. `Skipped` is bounded by the request.
 
 ---
 
@@ -2840,8 +2945,11 @@ Delete a vessel by ID.
 **Response:**
 
 ```json
-{ "Status": "deleted", "VesselId": "vsl_..." }
+{ "Status": "deleted", "VesselId": "vsl_...", "WarningCount": 0, "Warnings": null }
 ```
+
+When a cleanup step could not complete (a mission that could not be stopped or deleted, a dock that could not be purged,
+a directory left in place), `WarningCount` counts them and `Warnings` lists the first 50.
 
 ---
 
@@ -2877,13 +2985,13 @@ Permanently delete multiple vessels from the database by ID. Returns a summary o
 }
 ```
 
-Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided.
+Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided. `ids` holds at most 1000 entries; a longer list returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing. `Skipped` is bounded by the request.
 
 ---
 
 ### vessel_health
 
-Get one vessel's health: the row with effective (override-aware) statuses, the raw findings, and the manual overrides. Dependency rows are excluded by default to conserve context; `DependencyCount` is always returned. The row and finding fields, enum spellings, and detail codes match `GET /api/v1/vessels/{id}/health` in [REST_API.md](REST_API.md#vessel-health). To list vessels by health, use [`enumerate`](#enumerate) with `entityType` `vessel_health`.
+Get one vessel's health: the row with effective (override-aware) statuses, the raw findings, the manual overrides, and `DependencyCount`. Dependency rows are not embedded; page them with [`list_vessel_dependencies`](#list_vessel_dependencies). The former `includeDependencies` argument was removed. The row and finding fields, enum spellings, and detail codes match `GET /api/v1/vessels/{id}/health` in [REST_API.md](REST_API.md#vessel-health). To list vessels by health, use [`enumerate`](#enumerate) with `entityType` `vessel_health`.
 
 **Input Schema:**
 
@@ -2891,8 +2999,7 @@ Get one vessel's health: the row with effective (override-aware) statuses, the r
 {
   "type": "object",
   "properties": {
-    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" },
-    "includeDependencies": { "type": "boolean", "description": "Include outdated/vulnerable dependency rows (default false)" }
+    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" }
   },
   "required": ["vesselId"]
 }
@@ -2901,7 +3008,6 @@ Get one vessel's health: the row with effective (override-aware) statuses, the r
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `vesselId` | string | Yes | Vessel ID (prefix `vsl_`) |
-| `includeDependencies` | boolean | No | Include the `Dependencies` list (default `false`) |
 
 **Response:**
 
@@ -2911,6 +3017,41 @@ Get one vessel's health: the row with effective (override-aware) statuses, the r
   "Findings": [ { "Criterion": "Dependencies", "Status": "Fail", "DetailCode": "OutdatedPackages", "ValueA": 23, "ValueB": 5, "...": "..." } ],
   "Overrides": [],
   "DependencyCount": 30
+}
+```
+
+Returns `{ "Error": "Vessel not found", "ErrorCode": "NotFound" }` when the vessel is not in the caller's tenant.
+
+---
+
+### list_vessel_dependencies
+
+List one page of a vessel's outdated or vulnerable dependency rows from its last health evaluation, cut in the database
+and ordered by ecosystem, package name, then project path. Same rows as `GET /api/v1/vessels/{id}/health/dependencies`.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" },
+    "pageNumber": { "type": "integer", "description": "Page number (default 1)" },
+    "pageSize": { "type": "integer", "description": "Page size, 1 to 1000 (default 10)" }
+  },
+  "required": ["vesselId"]
+}
+```
+
+**Response:** the standard page shape.
+
+```json
+{
+  "PageNumber": 1,
+  "PageSize": 10,
+  "TotalPages": 3,
+  "TotalRecords": 30,
+  "Objects": [ { "Ecosystem": "NuGet", "PackageName": "Newtonsoft.Json", "CurrentVersion": "12.0.1", "LatestVersion": "13.0.4", "Drift": "Major", "IsVulnerable": true, "Severity": "High", "...": "..." } ]
 }
 ```
 
@@ -3118,6 +3259,8 @@ Permanently delete multiple missions from the database by ID. Returns a summary 
 |---|---|---|---|
 | `ids` | string[] | Yes | List of mission IDs to delete (prefix `msn_`) |
 
+At most 1000 ids; more returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing, so `Skipped` holds at most 1000 entries.
+
 **Response:**
 
 ```json
@@ -3176,7 +3319,7 @@ generated from the same source.
 | PullRequestOpen | Complete, LandingFailed, Cancelled |
 | Testing | Review, InProgress, Complete, Failed |
 | Review | Complete, InProgress, Failed |
-| LandingFailed | WorkProduced, Failed, Cancelled |
+| LandingFailed | WorkProduced, Complete, Failed, Cancelled |
 
 **Input Schema:**
 
@@ -3336,7 +3479,10 @@ Get details of a specific captain (AI agent).
 
 ### get_captain_tools
 
-Describe the Armada MCP tools available to a specific captain.
+Describe the tool sources (`Servers`, at most 256) and tool counts of a specific captain, with one page of its named
+tools (`Tools`: an `EnumerationResult` ordered by source kind, source, and name). The runtime is probed once and the
+snapshot is reused for 60 seconds so further pages do not probe again; `refresh: true` probes again. Same contract as
+`GET /api/v1/captains/{id}/tools`.
 
 **Input Schema:**
 
@@ -3344,13 +3490,17 @@ Describe the Armada MCP tools available to a specific captain.
 {
   "type": "object",
   "properties": {
-    "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" }
+    "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" },
+    "pageNumber": { "type": "integer", "description": "One-based page of tools (default 1)" },
+    "pageSize": { "type": "integer", "description": "Tools per page, 1 to 1000 (default 10)" },
+    "sourceKind": { "type": "string", "description": "Only tools of this source kind: McpServer, RuntimeBuiltIn, or Internal" },
+    "refresh": { "type": "boolean", "description": "true to probe the runtime again instead of reusing the recent snapshot" }
   },
   "required": ["captainId"]
 }
 ```
 
-**Response:** [CaptainToolAccessResult](#captaintoolaccessresult) object, or `{ "Error": "Captain not found", "ErrorCode": "NotFound" }`.
+**Response:** [CaptainToolAccessResult](#captaintoolaccessresult) object, `{ "Error": "Captain not found", "ErrorCode": "NotFound" }`, `InvalidArgument` for an unknown `sourceKind`, or `InvalidArgument` with `Code` `CollectionLimitExceeded` when the runtime reports more than 256 tool sources.
 
 ---
 
@@ -3439,7 +3589,7 @@ Delete a captain. If working, the captain is recalled first.
 
 ### delete_captains
 
-Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. `ids` may hold at most 1000 entries; more is `InvalidArgument` with `Code` `CollectionLimitExceeded` and nothing is deleted. **This cannot be undone.**
 
 **Input Schema:**
 
@@ -3681,7 +3831,7 @@ Permanently delete multiple docks and their git worktrees from the database by I
 }
 ```
 
-Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided.
+Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided. `ids` holds at most 1000 entries; a longer list returns `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes nothing. `Skipped` is bounded by the request.
 
 ---
 
@@ -3808,7 +3958,9 @@ Create a workflow profile in the caller's tenant (a global admin may pass `tenan
 REST uses): at least one command is required, `Fleet` scope needs `fleetId`, `Vessel` scope needs `vesselId`, environment
 names must be unique, and required inputs must name known environments. A `fleetId` or `vesselId` outside the caller's
 tenant is refused as `InvalidArgument` "... not found". Setting `isDefault` clears the default flag on the other profiles
-at the same scope.
+at the same scope. `languageHints`, `requiredInputs`, `expectedArtifacts` and `environments` hold at most 256
+entries each; more is `InvalidArgument` with `Code` `CollectionLimitExceeded` (also on `update_workflow_profile` and
+`validate_workflow_profile`).
 
 **Input Schema:**
 
@@ -3942,7 +4094,8 @@ Delete a workflow profile by ID. Requires TenantAdmin. This cannot be undone.
 
 Permanently delete several workflow profiles by ID (the MCP form of `POST /api/v1/workflow-profiles/delete/multiple`).
 Requires TenantAdmin. Ids that are empty, missing, in another tenant, or not editable by the caller are skipped with a
-reason instead of failing the batch.
+reason instead of failing the batch. More than 1000 ids is `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes
+nothing, so `Skipped` holds at most 1000 entries.
 
 **Input Schema:**
 
@@ -3950,7 +4103,7 @@ reason instead of failing the batch.
 {
   "type": "object",
   "properties": {
-    "ids": { "type": "array", "items": { "type": "string" }, "description": "List of workflow profile IDs to delete (wfp_ prefix)" }
+    "ids": { "type": "array", "items": { "type": "string" }, "description": "List of workflow profile IDs to delete (wfp_ prefix), at most 1000" }
   },
   "required": ["ids"]
 }
@@ -4248,7 +4401,7 @@ Permanently delete multiple terminal merge queue entries from the database by ID
 {
   "type": "object",
   "properties": {
-    "entryIds": { "type": "array", "items": { "type": "string" }, "description": "List of merge entry IDs to purge (mrg_ prefix)" }
+    "entryIds": { "type": "array", "items": { "type": "string" }, "description": "List of merge entry IDs to purge (mrg_ prefix), at most 1000" }
   },
   "required": ["entryIds"]
 }
@@ -4256,7 +4409,7 @@ Permanently delete multiple terminal merge queue entries from the database by ID
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `entryIds` | string[] | Yes | List of merge entry IDs to purge (prefix `mrg_`) |
+| `entryIds` | string[] | Yes | List of merge entry IDs to purge (prefix `mrg_`), at most 1000; more is `InvalidArgument` with `Code` `CollectionLimitExceeded` and nothing is purged |
 
 **Response:**
 
@@ -4309,7 +4462,10 @@ finished and failed per bucket (missions and other launches apart), slot usage (
 against capacity), launch speed per runtime (median and p95 time to first output and total runtime), link health
 (connected, reconnecting, and down stretches, and heartbeat round trips), and token usage by runtime and model. See
 [REST_API.md](REST_API.md#get-apiv1harborsidmetrics) for the response shape and [HARBOR.md](HARBOR.md#harbor-metrics)
-for how the numbers are recorded. Visibility and token scoping are the same as over REST.
+for how the numbers are recorded. Visibility and token scoping are the same as over REST. Every list is bounded: per-bucket
+series at most 60 entries, `LaunchSpeed` at most 16 (the 15 busiest runtimes plus one `IsOther` aggregate), token
+`Series` at most 20 (the top 19 runtime and model pairs plus one `IsOther` aggregate), and `Link.Segments` at most 1000
+(coalesced to bucket resolution with `SegmentsCoalesced` above that).
 
 **Input Schema:**
 
@@ -4578,7 +4734,7 @@ Core CRUD and reorder tools (`*` marks a required argument):
 | `create_backlog_item` | TenantAdmin | Same as `create_objective` | Preferred user-facing alias |
 | `update_objective` | TenantAdmin | `objectiveId`* plus any `create_objective` field to change (`title` is optional here) | Only supplied fields change |
 | `update_backlog_item` | TenantAdmin | Same as `update_objective` | Preferred user-facing alias; identical schema |
-| `reorder_objectives` | TenantAdmin | `items`* (`[{ objectiveId*, rank* }]`) | Apply explicit rank updates |
+| `reorder_objectives` | TenantAdmin | `items`* (`[{ objectiveId*, rank* }]`, at most 1000) | Apply explicit rank updates. Returns `ObjectiveReorderResult { updated, items: [{ objectiveId, rank }] }` (not the objectives) |
 | `reorder_backlog_items` | TenantAdmin | Same as `reorder_objectives` | Preferred user-facing alias |
 | `delete_objective` | TenantAdmin | `objectiveId`* | Removes the normalized row and snapshot-backed current-state chain |
 | `delete_backlog_item` | TenantAdmin | `objectiveId`* | Preferred user-facing alias |
@@ -4587,9 +4743,10 @@ Refinement tools:
 
 | Tool | Permission | Arguments | Notes |
 |---|---|---|---|
-| `list_backlog_refinement_sessions` | Authenticated | `objectiveId`*, `pageNumber` (default 1), `pageSize` (default 25, max 100) | Lightweight, paginated list for one backlog item |
+| `list_backlog_refinement_sessions` | Authenticated | `objectiveId`*, `pageNumber` (default 1), `pageSize` (default 25, max 1000) | One page of session metadata for one backlog item, paged in the database, most recently updated first |
 | `create_backlog_refinement_session` | TenantAdmin | `objectiveId`*, `captainId`*, `fleetId`, `vesselId`, `title`, `initialMessage` | Start captain-backed refinement; `vesselId` is optional |
-| `get_backlog_refinement_session` | Authenticated | `sessionId`* (`ors_`) | Returns session, messages, captain, vessel, and linked backlog item |
+| `get_backlog_refinement_session` | Authenticated | `sessionId`* (`ors_`) | Returns session, `messageCount`, captain, vessel, and linked backlog item (no transcript) |
+| `list_backlog_refinement_session_messages` | Authenticated | `sessionId`* (`ors_`), `pageNumber`, `pageSize` (1 to 1000, default 10), `order` | One page of the transcript, newest first by default; `totalRecords` is the transcript length |
 | `send_backlog_refinement_message` | TenantAdmin | `sessionId`*, `content`* | Append one user message; launches the next refinement turn |
 | `summarize_backlog_refinement_session` | TenantAdmin | `sessionId`*, `messageId` | Create/select a structured summary (latest assistant turn when `messageId` is omitted) |
 | `apply_backlog_refinement_summary` | TenantAdmin | `sessionId`*, `messageId`, `markMessageSelected` (default `true`), `promoteBacklogState` (default `true`), `endSession` (default `true`) | Apply the summary back to the backlog item. Ends the session and releases its captain unless `endSession` is `false`. Returns `{ Summary, Objective, Session }` |
@@ -4600,12 +4757,16 @@ Planning handoff tools:
 | Tool | Permission | Arguments | Notes |
 |---|---|---|---|
 | `create_backlog_planning_session` | TenantAdmin | `objectiveId`*, `captainId`*, `vesselId`*, `fleetId`, `pipelineId`, `title`, `selectedPlaybooks` | Start a repository-aware planning session from one backlog item |
-| `get_backlog_planning_session` | Authenticated | `sessionId`* (`psn_`) | Returns transcript plus linked backlog items |
-| `dispatch_backlog_planning_session` | TenantAdmin | `sessionId`*, `messageId`, `title`, `description` | Dispatch a voyage from the planning session; keeps the backlog/objective linkage on the resulting voyage |
+| `get_backlog_planning_session` | Authenticated | `sessionId`* (`psn_`) | Returns `PlanningSessionDetail`: session, captain, vessel, `messageCount`, and `linkedObjectiveCount` (no transcript or linked items; list the items with `list_backlog` filtered by `planningSessionId`) |
+| `list_backlog_planning_session_messages` | Authenticated | `sessionId`* (`psn_`), `pageNumber`, `pageSize` (1 to 1000, default 10), `order` | One page of the transcript, newest first by default |
+| `dispatch_backlog_planning_session` | TenantAdmin | `sessionId`*, `messageId`, `title`, `description` | Dispatch a voyage from the planning session and link it to every linked backlog item. Returns `PlanningSessionDispatchResult { voyage, linkedObjectiveCount }` |
 
 Shared input notes:
 
 - `create_backlog_item` mirrors `create_objective` but uses backlog terminology in the tool name and descriptions
+- list fields are bounded: `tags`, `acceptanceCriteria`, `nonGoals`, `rolloutConstraints`, `evidenceLinks`, and
+  `suggestedPlaybooks` at 256 entries, every id list at 1000; a larger list is `InvalidArgument` with `code`
+  `CollectionLimitExceeded` naming the field, and nothing is stored
 - refinement sessions are lighter than planning and do not provision a dock/worktree by default
 - planning handoff tools are repository-aware and require an explicit vessel
 
@@ -4793,7 +4954,7 @@ Approve a pending deployment and begin execution.
 
 ### verify_deployment
 
-Run post-deploy verification for an existing deployment.
+Run post-deploy verification for an existing deployment. `CheckRunIds` holds at most 1000 ids; a verification whose runs could not all be linked fails with `InvalidArgument` (`Code` `CollectionLimitExceeded`) before any check runs.
 
 **Input Schema:**
 
@@ -4853,7 +5014,7 @@ Inspect one release record, including linked voyages, missions, checks, versions
 
 ### create_release
 
-Create a first-class release record from linked voyages, missions, and structured checks, with derived version, notes, and artifacts when available.
+Create a first-class release record from linked voyages, missions, and structured checks, with derived version, notes, and artifacts when available. Each link list holds at most 1000 ids, and the voyages' missions plus the explicit missions (and the derived artifacts) at most 1000 in all; more fails with `InvalidArgument` (`Code` `CollectionLimitExceeded`).
 
 **Input Schema:**
 
@@ -4922,7 +5083,7 @@ Inspect one runbook execution including completed steps, notes, and deployment o
 
 ### start_runbook_execution
 
-Start a guided runbook execution with optional parameter overrides and deployment or incident context.
+Start a guided runbook execution with optional parameter overrides and deployment or incident context. `parameterValues` (with the runbook's defaults) holds at most 256 entries; more fails with `InvalidArgument` (`Code` `CollectionLimitExceeded`).
 
 **Input Schema:**
 
@@ -4965,7 +5126,7 @@ List prompt templates (lightweight, paginated), optionally filtered by category.
   "properties": {
     "category": { "type": "string", "description": "Optional category filter such as 'persona' or 'mission'" },
     "pageNumber": { "type": "integer", "description": "1-based page number (default 1)" },
-    "pageSize": { "type": "integer", "description": "Results per page (default 25, max 100)" }
+    "pageSize": { "type": "integer", "description": "Results per page (default 10, min 1, max 1000; out-of-range values are normalized)" }
   }
 }
 ```
@@ -4974,9 +5135,9 @@ List prompt templates (lightweight, paginated), optionally filtered by category.
 |---|---|---|---|
 | `category` | string | No | Optional category filter |
 | `pageNumber` | integer | No | 1-based page number (default 1) |
-| `pageSize` | integer | No | Results per page (default 25, max 100) |
+| `pageSize` | integer | No | Results per page (default 10, min 1, max 1000; out-of-range values are normalized and the result's `pageSize` reports the size used) |
 
-**Response:** a paginated envelope `{ success, pageNumber, pageSize, totalPages, totalRecords, objects }`, where each item in `objects` carries `name`, `category`, `description`, `active`, `isBuiltIn`, `contentLength`, and `lastUpdateUtc`. The template body is intentionally omitted -- retrieve it per-template via [get_prompt_template](#get_prompt_template).
+**Response:** a paginated envelope `{ success, pageNumber, pageSize, totalPages, totalRecords, objects }`, where each item in `objects` carries `name`, `category`, `description`, `active`, `isBuiltIn`, `contentLength`, and `lastUpdateUtc`. The template body is intentionally omitted -- retrieve it per-template via [get_prompt_template](#get_prompt_template). Rows are ordered by category, then name, then id, and the page is cut in the database with the caller's visibility (tenant-wide templates, the caller's own, and shared templates stored without a tenant) applied before counting, so `totalRecords` is exact.
 
 ---
 
@@ -5226,7 +5387,8 @@ Returns `{ "Error": "Built-in personas cannot be deleted", "ErrorCode": "Invalid
 
 ### create_pipeline
 
-Create a custom pipeline with stages.
+Create a custom pipeline with stages. `stages` holds at most 256 entries (also on `update_pipeline`); more is `InvalidArgument` with
+`Code` `CollectionLimitExceeded` and stores nothing.
 
 **Input Schema:**
 
@@ -5719,10 +5881,11 @@ Personas can carry a default captain, and a dispatch can dictate which captain r
 | `IdleCaptains` | int | Captains in Idle state |
 | `WorkingCaptains` | int | Captains in Working state |
 | `StalledCaptains` | int | Captains in Stalled state |
-| `ActiveVoyages` | int | Number of active (non-complete) voyages |
+| `ActiveVoyages` | int | Number of active (Open or InProgress) voyages; page them with `list_voyage_progress` |
+| `InProgressVoyages` | int | InProgress voyages |
+| `OpenVoyages` | int | Open voyages |
 | `MissionsByStatus` | object | Map of status string to count (e.g., `{"Pending": 3}`) |
-| `Voyages` | array | List of [VoyageProgress](#voyageprogress) objects |
-| `RecentSignals` | array | List of recent [Signal](#signal) objects |
+| `RecentSignals` | array | The 10 most recent [Signal](#signal) objects |
 | `RemoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `TimestampUtc` | string | ISO 8601 UTC timestamp |
 | `MemoryPressureDeferrals` | long | Cumulative number of dispatch attempts deferred because the host was under memory pressure (the resource-pressure admission gate declined to launch a captain). |
@@ -5754,7 +5917,9 @@ Personas can carry a default captain, and a dispatch can dictate which captain r
 | `CompletedMissions` | int | Missions with status Complete |
 | `FailedMissions` | int | Missions with status Failed |
 | `InProgressMissions` | int | Missions currently in progress |
-| `VesselIds` | array | Distinct vessel identifiers referenced by this voyage's missions. |
+| `MissionCountsByStatus` | object | Count per mission status (only statuses with missions) |
+| `VesselId` | string | Vessel of the earliest mission, or null |
+| `VesselCount` | int | Distinct vessels the missions target |
 
 #### EnumerationResult
 

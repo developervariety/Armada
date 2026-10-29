@@ -22,6 +22,7 @@ import {
   listPipelines,
   listVessels,
   enumerateFleetActionRuns,
+  enumerateVoyageProgress,
 } from '../api/client';
 import { translateTemplate } from '../i18n/runtime';
 
@@ -37,6 +38,7 @@ vi.mock('../api/client', () => ({
   getFleet: vi.fn(), listFleets: vi.fn(), listVessels: vi.fn(), listPipelines: vi.fn(), createFleet: vi.fn(), updateFleet: vi.fn(), deleteFleet: vi.fn(),
   createPipeline: vi.fn(), getPipeline: vi.fn(), updatePipeline: vi.fn(), deletePipeline: vi.fn(), listPersonas: vi.fn(), createVoyage: vi.fn(),
   getStatus: vi.fn(), listCaptains: vi.fn(), listSignals: vi.fn(), deleteMission: vi.fn(), restartMission: vi.fn(), enumerateFleetActionRuns: vi.fn(),
+  enumerateVoyageProgress: vi.fn(),
 }));
 
 const localeValue = {
@@ -186,10 +188,9 @@ describe('CaptainDetail missions table', () => {
 
 describe('Dashboard (home) tables', () => {
   it('migrates voyage progress and recent missions; voyage ID gets its own column and progress stays on one line', async () => {
-    vi.mocked(getStatus).mockResolvedValue({
-      voyages: [{ voyage: { id: 'vyg_1', title: 'Gateway hardening', status: 'InProgress' }, vesselIds: [], totalMissions: 4, completedMissions: 1, failedMissions: 1 }],
-      recentSignals: [],
-    } as never);
+    vi.mocked(getStatus).mockResolvedValue({ activeVoyages: 1, recentSignals: [] } as never);
+    // The status snapshot carries counts only; Home reads the active voyages from the paged progress enumeration.
+    vi.mocked(enumerateVoyageProgress).mockResolvedValue(page([{ voyage: { id: 'vyg_1', title: 'Gateway hardening', status: 'InProgress' }, vesselId: null, vesselCount: 0, totalMissions: 4, completedMissions: 1, failedMissions: 1 }]) as never);
     vi.mocked(enumerateFleetActionRuns).mockResolvedValue(page([]) as never);
     render(<MemoryRouter><Dashboard /></MemoryRouter>);
     await screen.findByText('Gateway hardening');
@@ -215,7 +216,8 @@ describe('Dashboard (home) tables', () => {
 
 describe('Dashboard (home) recent missions filters', () => {
   it('sends the vessel filter to the server so older missions of that vessel are found', async () => {
-    vi.mocked(getStatus).mockResolvedValue({ voyages: [], recentSignals: [] } as never);
+    vi.mocked(getStatus).mockResolvedValue({ recentSignals: [] } as never);
+    vi.mocked(enumerateVoyageProgress).mockResolvedValue(page([]) as never);
     vi.mocked(enumerateFleetActionRuns).mockResolvedValue(page([]) as never);
     vi.mocked(listVessels).mockResolvedValue(page([{ id: 'vsl_9', name: 'old-repo' }]) as never);
     render(<MemoryRouter><Dashboard /></MemoryRouter>);

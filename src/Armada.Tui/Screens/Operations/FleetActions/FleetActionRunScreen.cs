@@ -385,16 +385,30 @@ namespace Armada.Tui.Screens.Operations
             }
         }
 
+        private static async Task<List<FleetActionRunTargetSummary>> ReadAllTargetsAsync(Armada.Client.ArmadaClient client, string runId, FleetActionTargetStatusEnum status, CancellationToken token)
+        {
+            // Walk the bounded pages: a run can have more targets in one status than a single page holds.
+            List<FleetActionRunTargetSummary> all = new List<FleetActionRunTargetSummary>();
+            for (int pageNumber = 1; ; pageNumber++)
+            {
+                FleetActionRunTargetEnumerateQuery query = new FleetActionRunTargetEnumerateQuery { PageNumber = pageNumber, PageSize = 500, Status = status };
+                EnumerationResult<FleetActionRunTargetSummary>? page = await client.EnumerateFleetActionRunTargetsAsync(runId, query, token).ConfigureAwait(false);
+                if (page == null || page.Objects.Count == 0) break;
+                all.AddRange(page.Objects);
+                if (pageNumber >= page.TotalPages) break;
+            }
+
+            return all;
+        }
+
         private void RerunFailed()
         {
             FleetActionRun? run = CurrentRun;
             if (run == null) return;
             Call(async (c, t) =>
             {
-                FleetActionRunTargetEnumerateQuery failed = new FleetActionRunTargetEnumerateQuery { PageNumber = 1, PageSize = 500, Status = FleetActionTargetStatusEnum.Failed };
-                FleetActionRunTargetEnumerateQuery timedOut = new FleetActionRunTargetEnumerateQuery { PageNumber = 1, PageSize = 500, Status = FleetActionTargetStatusEnum.TimedOut };
-                List<FleetActionRunTargetSummary> a = (await c.EnumerateFleetActionRunTargetsAsync(run.Id, failed, t).ConfigureAwait(false))?.Objects ?? new List<FleetActionRunTargetSummary>();
-                List<FleetActionRunTargetSummary> b = (await c.EnumerateFleetActionRunTargetsAsync(run.Id, timedOut, t).ConfigureAwait(false))?.Objects ?? new List<FleetActionRunTargetSummary>();
+                List<FleetActionRunTargetSummary> a = await ReadAllTargetsAsync(c, run.Id, FleetActionTargetStatusEnum.Failed, t).ConfigureAwait(false);
+                List<FleetActionRunTargetSummary> b = await ReadAllTargetsAsync(c, run.Id, FleetActionTargetStatusEnum.TimedOut, t).ConfigureAwait(false);
                 List<string> ids = a.Concat(b).Select(x => x.VesselId).Distinct().ToList();
                 string? actionId = null;
                 if (ids.Count > 0 && !String.IsNullOrEmpty(run.ActionId))
