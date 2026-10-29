@@ -3264,7 +3264,7 @@ namespace Armada.Core.Services
                 {
                     GitProcessResult result = await RunGitCapturingAsync(worktreePath, ct, args).ConfigureAwait(false);
                     return new ChangelogGitOutput(result.ExitCode, result.StandardOutput);
-                }, token).ConfigureAwait(false);
+                }, token, message => _Logging.Warn(_Header + message)).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

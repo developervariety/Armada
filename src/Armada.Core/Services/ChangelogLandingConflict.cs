@@ -32,8 +32,9 @@ namespace Armada.Core.Services
         /// <param name="worktree">Worktree with a merge in progress.</param>
         /// <param name="git">Runs git in the worktree with the given arguments and returns its exit code and standard output.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="warn">Receives a message when a temporary stage file cannot be removed.</param>
         /// <returns>True when the merge was completed with both sides of CHANGELOG.md kept.</returns>
-        public static async Task<bool> TryResolveAsync(string worktree, Func<string[], CancellationToken, Task<ChangelogGitOutput>> git, CancellationToken token = default)
+        public static async Task<bool> TryResolveAsync(string worktree, Func<string[], CancellationToken, Task<ChangelogGitOutput>> git, CancellationToken token = default, Action<string>? warn = null)
         {
             if (String.IsNullOrEmpty(worktree)) throw new ArgumentNullException(nameof(worktree));
             if (git == null) throw new ArgumentNullException(nameof(git));
@@ -67,8 +68,10 @@ namespace Armada.Core.Services
                 foreach (string file in temporaryFiles)
                 {
                     try { if (File.Exists(file)) File.Delete(file); }
-                    catch (IOException) { }
-                    catch (UnauthorizedAccessException) { }
+                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                    {
+                        warn?.Invoke("could not remove temporary stage file " + file + ": " + ex.Message);
+                    }
                 }
             }
         }

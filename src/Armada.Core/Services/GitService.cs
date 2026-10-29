@@ -1830,7 +1830,7 @@ namespace Armada.Core.Services
                     {
                         return new ChangelogGitOutput(1, String.Empty);
                     }
-                }, token).ConfigureAwait(false);
+                }, token, message => _Logging.Warn(_Header + message)).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

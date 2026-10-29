@@ -30,6 +30,7 @@ upstream integrations and excludes changes already present at that baseline.
 ### Test waits
 
 - Shared test waits that poll until a deadline use a monotonic clock, so a wall-clock jump does not shorten the wait. The budgets are unchanged.
+
 ### Container base images
 
 - The Dashboard image builds on `node:22.23.4-alpine3.24` and serves from `nginx:1.31.8-alpine3.24`. The proxy image uses the same Node tag for its dashboard build, and its default .NET images are `mcr.microsoft.com/dotnet/sdk:10.0.403-noble` and `mcr.microsoft.com/dotnet/runtime:10.0.14-noble`. A proxy build argument still overrides a pin. The default runtime stage stays root, and the dashboard image has no non-root stage. See [Pinning base images](docs/DOCKER.md#pinning-base-images).
@@ -60,6 +61,7 @@ upstream integrations and excludes changes already present at that baseline.
 ### Orphan recovery and operator review
 
 - The orphaned-mission sweep no longer collects `Review` missions. A mission awaiting operator review keeps its mission-to-captain link with a released captain and no process, and the sweep used to complete it again and reset it to `WorkProduced`.
+
 ### History filter and order
 
 - The History timeline accepts `excludeReadRequests` to leave out request entries for `GET`, `HEAD` and `OPTIONS`, and `order` (`CreatedDescending` or `CreatedAscending`). The request-history query applies the exclusion in SQL on every provider, before the per-source read limit, so polling no longer fills the request source or marks it truncated. The History page hides read-only requests until `Show read requests` is checked, and its export reads at most 10 pages and says when more entries match. The whole-list routes are unchanged.
