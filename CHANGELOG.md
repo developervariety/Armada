@@ -18,6 +18,10 @@ upstream integrations and excludes changes already present at that baseline.
 - Compact voyage status reads omit unrequested mission descriptions and report previews. Explicit description and output requests retain bounded previews.
 - Captain briefs name configured validation commands and input environment names without copying their values, and distinguish manual validation from native Check proof.
 
+### Lost merge-queue handoff
+
+- A mission whose merge-queue enqueue throws or returns no durable entry, and that has no active merge entry, becomes `LandingFailed` with the reason `merge_queue_handoff_lost: <cause>` (`landing_handoff_failed: <cause>` when the landing handler itself throws) and a `mission.landing_failed` event, instead of staying `WorkProduced` with a log line. The landing drain also enqueues a produced mission that has no voyage, on a merge-queue vessel, after five minutes without a merge entry. See [Merging](docs/MERGING.md).
+
 ### Orphan recovery and operator review
 
 - The orphaned-mission sweep no longer collects `Review` missions. A mission awaiting operator review keeps its mission-to-captain link with a released captain and no process, and the sweep used to complete it again and reset it to `WorkProduced`.

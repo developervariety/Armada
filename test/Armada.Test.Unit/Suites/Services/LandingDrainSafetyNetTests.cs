@@ -430,6 +430,49 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, page.Objects.Count, "Healthy mid-handoff voyage must not open a stuck-voyage incident.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_VoyagelessWorkProducedOnMergeQueueVessel_EnqueuesBranch", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                vessel.LandingMode = LandingModeEnum.MergeQueue;
+                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                Mission lost = await CreateVoyagelessWorkProducedMissionAsync(testDb, vessel, "armada/lost-handoff", TimeSpan.FromMinutes(10)).ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "A produced mission with no voyage and no merge entry must be enqueued.");
+                AssertEqual(lost.Id, mergeQueue.EnqueueCalls[0].MissionId, "Enqueue should target the voyage-less mission.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_VoyagelessWorkProduced_WithinGraceOrOffMergeQueue_IsNotEnqueued", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel mergeQueueVessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                mergeQueueVessel.LandingMode = LandingModeEnum.MergeQueue;
+                await testDb.Driver.Vessels.UpdateAsync(mergeQueueVessel).ConfigureAwait(false);
+                await CreateVoyagelessWorkProducedMissionAsync(testDb, mergeQueueVessel, "armada/fresh-handoff", TimeSpan.Zero).ConfigureAwait(false);
+
+                Vessel localVessel = await CreateVesselAsync(testDb, "Drain Local Vessel").ConfigureAwait(false);
+                localVessel.LandingMode = LandingModeEnum.LocalMerge;
+                await testDb.Driver.Vessels.UpdateAsync(localVessel).ConfigureAwait(false);
+                await CreateVoyagelessWorkProducedMissionAsync(testDb, localVessel, "armada/local-landing", TimeSpan.FromMinutes(10)).ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, mergeQueue.EnqueueCalls.Count,
+                    "A mission whose landing handoff may still be running, or whose vessel does not land through the merge queue, is left alone.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_LiveMissionPresent_SkipsDrain", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1948,13 +1991,13 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb)
+        private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb, string name = "Drain Vessel")
         {
             Vessel vessel = new Vessel
             {
                 TenantId = "ten_drain",
                 UserId = "usr_drain",
-                Name = "Drain Vessel",
+                Name = name,
                 RepoUrl = "file:///tmp/drain.git",
                 LocalPath = "C:\\tmp\\drain",
                 WorkingDirectory = "C:\\tmp\\drain",
@@ -1994,6 +2037,26 @@ namespace Armada.Test.Unit.Suites.Services
                 LastUpdateUtc = DateTime.UtcNow
             };
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        private static async Task<Mission> CreateVoyagelessWorkProducedMissionAsync(
+            TestDatabase testDb,
+            Vessel vessel,
+            string branchName,
+            TimeSpan age)
+        {
+            Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                VesselId = vessel.Id,
+                Persona = "Worker",
+                Title = "Voyage-less Worker mission",
+                BranchName = branchName,
+                Status = MissionStatusEnum.WorkProduced
+            }).ConfigureAwait(false);
+            await SetMissionLastUpdateUtcAsync(testDb, mission.Id, DateTime.UtcNow - age).ConfigureAwait(false);
+            return mission;
         }
 
         private static async Task<Mission> CreateInProgressMissionAsync(
