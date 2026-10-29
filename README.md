@@ -33,7 +33,7 @@
 
 ---
 
-Armada is a self-hosted coordinator for the coding agents you already use: Claude Code, Codex, Gemini CLI, Cursor, Mux, OpenCode, and any model behind an API endpoint. You describe the work. Armada hands it to agents, gives each one its own git worktree and branch, runs it through the stages you choose (plan, implement, test, review), lands the result the way you choose (merge, pull request, or merge queue), and records every log, diff, and decision in a database you can query later.
+Armada is a self-hosted coordinator for the coding agents you already use: Claude Code, Codex, Gemini CLI, Cursor, Mux, OpenCode, pi, and any model behind an API endpoint. You describe the work. Armada hands it to agents, gives each one its own git worktree and branch, runs it through the stages you choose (plan, implement, test, review), lands the result the way you choose (merge, pull request, or merge queue), and records every log, diff, and decision in a database you can query later.
 
 - **The problem.** One agent in one terminal is easy. Five agents across twelve repositories is not: you juggle branches and worktrees, babysit sessions, lose track of what landed and what failed, and rebuild context every time you switch projects.
 - **What Armada does.** It turns agent work into durable, tracked units (missions) that run in parallel, in isolation, through review gates, with automatic recovery when an agent stalls or fails.
@@ -120,7 +120,7 @@ Run the Admiral in Docker or on a server and install the [Harbor](#harbor-run-ag
 
 ### Let AI manage AI
 
-Connect Claude Code, Codex, Gemini, Cursor, Mux, or OpenCode to Armada's MCP server and let it act as the orchestrator: decompose a goal into missions, dispatch them, monitor progress, and redispatch failures. See [AI-Powered Orchestration](#ai-powered-orchestration).
+Connect Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, or pi to Armada's MCP server and let it act as the orchestrator: decompose a goal into missions, dispatch them, monitor progress, and redispatch failures. See [AI-Powered Orchestration](#ai-powered-orchestration).
 
 ---
 
@@ -131,7 +131,7 @@ Armada does not replace your agent. It runs it. The comparison is with the work 
 | You want to... | Agent CLIs by hand (optionally in tmux or terminal tabs) | With Armada |
 |---|---|---|
 | Run several tasks at once | Create worktrees and branches yourself, one terminal each | One command or form; each mission gets its own dock and branch |
-| Use several runtimes | Separate tools, flags, and logins per CLI | One dispatch model across Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, and API endpoints |
+| Use several runtimes | Separate tools, flags, and logins per CLI | One dispatch model across Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi, and API endpoints |
 | Get tests and review every time | Remember to ask for them | Pipelines with persona stages and optional human review gates |
 | Land the work | Merge, push, or open PRs by hand | Landing modes: local merge, merge and push, pull request, merge queue, or none |
 | Recover from a stalled or failed agent | Notice it, then restart it | Stall detection, dock repair, relaunch, and bounded rescue missions |
@@ -149,6 +149,13 @@ Armada does not replace your agent. It runs it. The comparison is with the work 
 
 ## What's New in v1.2.0
 
+- **pi runtime support.** [pi](https://pi.dev) (the pi coding agent) is a first-class captain runtime: missions, Ask turns, and planning sessions run `pi -p --mode json` with exact token usage and cost, provider-error detection (pi exits 0 on provider errors in JSON mode), and the scoped Armada MCP binding. `armada mcp install` configures pi's `~/.pi/agent/mcp.json`; Approve in Armada works through a shipped pi extension that sends each shell command to the Approvals center and Ask (it fails closed); Refuse removes both of pi's shell tools (`bash` and Windows `powershell`). Add one with:
+
+  ```bash
+  armada captain add pi-1 --runtime pi
+  ```
+
+  See [docs/INSTRUCTIONS_FOR_PI.md](docs/INSTRUCTIONS_FOR_PI.md) (captain setup, permissions) and [docs/PI_AS_ORCHESTRATOR.md](docs/PI_AS_ORCHESTRATOR.md) (pi driving Armada over MCP).
 - **Model evaluation.** Every stage attempt is recorded as a stage outcome with its provenance (runtime version, model digest, escalation record) and a suspected cause, with editable failure-cause rules over REST, MCP, and the clients.
 - **Evaluate a captain or model endpoint.** Quick probes check served context, output contract, format rules, tool calling, speed, and determinism; the fixture battery runs data-defined task packs (starting with C#) through real dispatch and grades the results.
 - **Reader-aware handoffs.** Work is handed to the next stage in a form suited to the model that reads it.
@@ -206,7 +213,7 @@ Every change is in [CHANGELOG.md](CHANGELOG.md#v110-2026-10-15).
 - [CLI](#cli-reference), [REST API](#rest-api) with OpenAPI, WebSocket events, and an [MCP server](#mcp-integration).
 
 **Models and runtimes**
-- CLI runtimes: Claude Code, Codex, Gemini, Cursor, Mux, and OpenCode, plus a `Custom` runtime, behind one pluggable `IAgentRuntime` interface.
+- CLI runtimes: Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, and pi, plus a `Custom` runtime, behind one pluggable `IAgentRuntime` interface.
 - `ApiEndpoint` captains: an in-process tool-calling loop against a registered inference endpoint, also usable for Ask Armada.
 - Managed model endpoints for inference and embeddings (Ollama, OpenAI, OpenAI-compatible, Azure OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, VoyageAI, Ollama Cloud, xAI Grok) with health checks and write-only API keys.
 
@@ -241,6 +248,7 @@ Every change is in [CHANGELOG.md](CHANGELOG.md#v110-2026-10-15).
   - [Cursor](https://docs.cursor.com/cli) (`cursor-agent`)
   - Mux (`mux`)
   - [OpenCode](https://opencode.ai) (`opencode`)
+  - [pi](https://pi.dev) (`pi`; install with `curl -fsSL https://pi.dev/install.sh | sh` or `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, sign in to a provider or set its API key, and confirm with `pi auth check --provider <name>`). See [docs/INSTRUCTIONS_FOR_PI.md](docs/INSTRUCTIONS_FOR_PI.md).
 - Optional: Node.js to rebuild the dashboard (without it, the install uses the prebuilt bundle committed in the repository).
 
 ### Install
@@ -269,13 +277,13 @@ armada watch   # live progress
 
 Prefer to talk it through? Open Ask Armada at `http://localhost:7890/dashboard/ask` or run `armada tui`, describe the change, and approve the dispatch card the captain proposes. See [Ask Armada](#ask-armada).
 
-To let Claude Code (or Codex, Gemini, Cursor, Mux, OpenCode) drive Armada, run `armada mcp install`. See [MCP Integration](#mcp-integration). For a longer walkthrough, see the [Getting Started Guide](GETTING_STARTED.md); to onboard many repositories through an agent, see [FAST_TRACK_SETUP.md](FAST_TRACK_SETUP.md).
+To let Claude Code (or Codex, Gemini, Cursor, Mux, OpenCode, pi) drive Armada, run `armada mcp install`. See [MCP Integration](#mcp-integration). For a longer walkthrough, see the [Getting Started Guide](GETTING_STARTED.md); to onboard many repositories through an agent, see [FAST_TRACK_SETUP.md](FAST_TRACK_SETUP.md).
 
 ### Planning Before Dispatch
 
-To negotiate a plan with a captain first, open **Planning** in the dashboard, choose a captain, vessel, optional pipeline, and playbooks, and chat until the plan is ready. Select a reply and summarize it into a dispatch draft, open it on the Dispatch page, or dispatch directly.
+To negotiate a plan with a captain first, open **Dispatch > Planning** in the dashboard (`/dispatch?tab=planning`), choose a captain, vessel, optional pipeline, and playbooks, and chat until the plan is ready. Select a reply and summarize it into a dispatch draft, open it on the Dispatch tab, or dispatch directly.
 
-- Planning supports the `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, and `OpenCode` runtimes (not `ApiEndpoint` or `Custom`).
+- Planning supports the `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, and `Pi` runtimes (not `ApiEndpoint` or `Custom`).
 - A session reserves its captain and a dock on the vessel. The captain can read and modify the repository while planning; treat it as tool-capable, not read-only.
 - Each turn relaunches the runtime against the saved transcript and repository context. The chat shows Markdown replies, live tool calls, per-turn metrics, and a Stop button.
 - Planning-session persistence is implemented for SQLite; other database backends answer `501 Not Supported`.
@@ -297,9 +305,9 @@ The default password is flagged, not blocked: the API keeps working, the TUI sig
 
 ### Running Agents Safely
 
-Captains run as CLI agents with your account's permissions, and by default with their auto-approve flags (Claude Code `--dangerously-skip-permissions`, Codex `--sandbox workspace-write`, or `--dangerously-bypass-approvals-and-sandbox` on Windows, Gemini `--approval-mode yolo`, Cursor `--force`, Mux `--yolo`, OpenCode `--auto`), so they can read, write, and execute without confirmation. To run a captain without them, untick **Auto-approve agent tool use** when editing the captain (or pass `autoApprove: false` to the `create_captain` / `update_captain` MCP tools); the runtime then uses its safer mode (for example Claude Code `--permission-mode acceptEdits`, Codex `--sandbox workspace-write`).
+Captains run as CLI agents with your account's permissions, and by default with their auto-approve flags (Claude Code `--dangerously-skip-permissions`, Codex `--sandbox workspace-write`, or `--dangerously-bypass-approvals-and-sandbox` on Windows, Gemini `--approval-mode yolo`, Cursor `--force`, Mux `--yolo`, OpenCode `--auto`, pi by default since it never prompts), so they can read, write, and execute without confirmation. To run a captain without them, untick **Auto-approve agent tool use** when editing the captain (or pass `autoApprove: false` to the `create_captain` / `update_captain` MCP tools); the runtime then uses its safer mode (for example Claude Code `--permission-mode acceptEdits`, Codex `--sandbox workspace-write`, pi `--exclude-tools bash,powershell`).
 
-Which of a captain's own tools may run is set by its CLI tool permission policy: `Refuse`, `ApproveInArmada` (permission prompts become approval cards in Ask, the Approvals center, Needs You, and the mobile app, with remembered allow and deny rules; available for Claude Code, Mux 1.5.0 or later, and `ApiEndpoint` captains), or `Bypass`. See [CLI tool permissions](docs/ASK_ARMADA_HOME_BASE.md#cli-tool-permissions) and the `Permissions` settings.
+Which of a captain's own tools may run is set by its CLI tool permission policy: `Refuse`, `ApproveInArmada` (permission prompts become approval cards in Ask, the Approvals center, Needs You, and the mobile app, with remembered allow and deny rules; available for Claude Code, Mux 1.5.0 or later, pi (through Armada's pi permission gate extension), and `ApiEndpoint` captains), or `Bypass`. See [CLI tool permissions](docs/ASK_ARMADA_HOME_BASE.md#cli-tool-permissions) and the `Permissions` settings.
 
 Run Armada under a dedicated account, keep it on localhost unless you need remote access (then follow [docs/REMOTE_SERVER.md](docs/REMOTE_SERVER.md): a non-default admin password, TLS in front, and one bearer token per user or machine), and review `audit.command` events for commands run through workspace exec, fleet actions, and check runs. See [Running agents safely](docs/SECURITY_REVIEW.md#running-agents-safely) and [SECURITY.md](SECURITY.md).
 
@@ -334,7 +342,7 @@ flowchart LR
 
     endpoints["Model endpoints<br/>Ollama, OpenAI, Anthropic,<br/>Bedrock, ..."]
     harbor["Harbor<br/>host runner, split mode"]
-    captains["CLI captains<br/>Claude Code, Codex, Gemini,<br/>Cursor, Mux, OpenCode"]
+    captains["CLI captains<br/>Claude Code, Codex, Gemini,<br/>Cursor, Mux, OpenCode, pi"]
     docks["Docks<br/>one git worktree per mission"]
     repos[("Vessels<br/>your git repositories")]
 
@@ -449,7 +457,7 @@ Armada recovers from these kinds of trouble without you:
 | Term | Plain language | What it is |
 |------|---------------|-------------|
 | **Admiral** | Coordinator | The server process (`Armada.Server`): REST API and WebSocket (built on [Watson](https://github.com/jchristn/watson)), the MCP server (built on [Voltaic](https://github.com/jchristn/voltaic)), the embedded dashboard, and the orchestration logic. It owns the database. The CLI starts it when needed. |
-| **Captain** | Agent | A worker agent backed by a runtime (`Armada.Runtimes`): a CLI runtime (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, Custom) or an in-process `ApiEndpoint` runtime. Has a model, an optional capability tier, and allowed personas. |
+| **Captain** | Agent | A worker agent backed by a runtime (`Armada.Runtimes`): a CLI runtime (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, Pi, Custom) or an in-process `ApiEndpoint` runtime. Has a model, an optional capability tier, and allowed personas. |
 | **Fleet** | Group of repos | A named group of vessels. A default fleet is created automatically. |
 | **Vessel** | Repository | A git repository registered with Armada, with its own default pipeline, landing mode, project context, style guide, and model-maintained notes. |
 | **Mission** | Task | One atomic unit of work, assigned to one captain, targeting one vessel. |
@@ -596,12 +604,12 @@ armada tui --server http://127.0.0.1:7890  # a specific server (saved as a profi
 armada tui --profile work --route /missions
 ```
 
-Every dashboard screen opens a real TUI screen (Ask Armada, Home, Needs You, Planning, Dispatch, Backlog, Fleet Actions, Missions, Voyages, Merge Queue, Jobs, Vessels, Captains and Docks, Delivery, Configuration, Activity, API Explorer, Settings), plus an Approvals center. Profiles live in `~/.armada/tui.json` with tokens in the OS keychain, and are shared with `armada profile`.
+Every dashboard screen opens a real TUI screen (Ask Armada, Home, Needs You, Dispatch with its Planning and Backlog tabs, Fleet Actions, Missions, Voyages, Merge Queue, Activity with its Jobs tab, Vessels, Captains and Docks, Delivery, Configuration, API Explorer, Settings with its Storage and CLI Tool Permissions tabs), plus an Approvals center. Profiles live in `~/.armada/tui.json` with tokens in the OS keychain, and are shared with `armada profile`.
 
 | Key | Does |
 |-----|------|
 | `Ctrl+K` | Command palette: every screen, tab, and command; type an id (`msn_...`, `vsl_...`) to open it |
-| `g` then a letter | Go to: `g a` Ask, `g h` Home, `g i` Needs You, `g m` Missions, `g v` Vessels, `g c` Captains, `g d` Delivery, `g s` Settings, `g k` CLI Tool Permissions |
+| `g` then a letter | Go to: `g a` Ask, `g h` Home, `g i` Needs You, `g m` Missions, `g v` Vessels, `g c` Captains, `g d` Delivery, `g s` Settings, `g k` Settings > CLI Tool Permissions |
 | `Ctrl+A` | Approvals center |
 | `Ctrl+J` | Ask dock on any screen |
 | `Alt+A` | Ask about this: a new conversation about the current screen's subject |
@@ -620,23 +628,23 @@ Dark, Light, High contrast, and Auto themes; Unicode or ASCII icons; works from 
 |> Ask Armada          ||----------------------------------------------------------------------------------------------|
 |- OPERATIONS          ||  You                                                                                   1m ago|
 |   Needs You          ||    What is left before we cut the 1.0 release?                                               |
-|   Planning           ||                                                                                              |
-|   Dispatch           ||  claude-1  3.8s                                                                        1m ago|
-|   Fleet Actions      ||  Two things are open:                                                                        |
-|   Missions           ||                                                                                              |
-|- DELIVERY            ||  1. Fix column widths is in progress on DemoRepo.                                            |
-|   Delivery           ||  2. Broken failed its tests; I can restart it.                                               |
-|- BUILD               ||                                                                                              |
-|   Vessels            ||  Want me to dispatch a voyage for the remaining docs work?                                   |
-|   Captains           ||                                                                                              |
-|- CONFIGURATION       ||  You                                                                                   1m ago|
-|   Configuration      ||    Yes, one mission for the README.                                                          |
-|- ACTIVITY            ||                                                                                              |
+|   Dispatch           ||                                                                                              |
+|   Fleet Actions      ||  claude-1  3.8s                                                                        1m ago|
+|   Missions           ||  Two things are open:                                                                        |
 |   Activity           ||                                                                                              |
-|   Jobs               ||                                                                                              |
-|- SYSTEM              ||                                                                                              |
+|- BUILD               ||  1. Fix column widths is in progress on DemoRepo.                                            |
+|   Vessels            ||  2. Broken failed its tests; I can restart it.                                               |
+|   Captains           ||                                                                                              |
+|   Delivery           ||  Want me to dispatch a voyage for the remaining docs work?                                   |
+|- CONFIGURATION       ||                                                                                              |
+|   Configuration      ||  You                                                                                   1m ago|
+|- SYSTEM              ||    Yes, one mission for the README.                                                          |
 |   API Explorer       ||                                                                                              |
 |   Settings           ||                                                                                              |
+|                      ||                                                                                              |
+|                      ||                                                                                              |
+|                      ||                                                                                              |
+|                      ||                                                                                              |
 |                      ||                                                                                              |
 |                      ||                                                                                              |
 |                      ||                                                                                              |
@@ -979,12 +987,13 @@ armada voyage create "Pre-review cleanup" --vessel my-api \
 armada vessel add my-api https://github.com/you/my-api
 armada vessel import --root ~/Code --dry-run
 
-# Add more agents (--runtime accepts: claude, codex, gemini, cursor, mux, opencode, api, custom)
+# Add more agents (--runtime accepts: claude, codex, gemini, cursor, mux, opencode, pi, api, custom)
 armada captain add claude-2 --runtime claude
 armada captain add codex-1 --runtime codex
 armada captain add gemini-1 --runtime gemini
 armada captain add cursor-1 --runtime cursor
 armada captain add opencode-1 --runtime opencode
+armada captain add pi-1 --runtime pi
 armada captain add mux-1 --runtime mux --mux-endpoint local-openai
 
 # Emergency stop all agents
@@ -1080,9 +1089,11 @@ See [docs/REST_API.md](docs/REST_API.md), [docs/WEBSOCKET_API.md](docs/WEBSOCKET
 Armada exposes an MCP (Model Context Protocol) server so Claude Code and other MCP clients can call Armada tools directly.
 
 ```bash
-armada mcp install    # Configure Claude Code, Codex, Gemini, Cursor (and Mux, OpenCode when installed) for Armada MCP
+armada mcp install    # Configure Claude Code, Codex, Gemini, Cursor (and Mux, OpenCode, pi when installed) for Armada MCP
 armada mcp remove     # Remove those Armada MCP entries again
 ```
+
+For pi, `armada mcp install` adds an `armada` entry under `mcpServers` in `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`) when `pi` is on PATH, keeping the file's other servers; pi loads Armada's tools through its tool search. See [docs/PI_AS_ORCHESTRATOR.md](docs/PI_AS_ORCHESTRATOR.md).
 
 From a source checkout, the same installer is `scripts/macos/install-mcp.sh` (or the `linux` / `windows` equivalent); it runs `armada mcp install --yes`.
 
@@ -1116,7 +1127,7 @@ Claude Code (orchestrator) --MCP--> Armada Admiral --launches--> Captain agents 
    and dispatch them via Armada. Monitor progress and redispatch failures."
 ```
 
-Setup guides: [Claude Code](docs/CLAUDE_CODE_AS_ORCHESTRATOR.md), [Codex](docs/CODEX_AS_ORCHESTRATOR.md), [Gemini](docs/GEMINI_AS_ORCHESTRATOR.md), [Cursor](docs/CURSOR_AS_ORCHESTRATOR.md), [Mux](docs/MUX_AS_ORCHESTRATOR.md), and [OpenCode](docs/OPENCODE_AS_ORCHESTRATOR.md).
+Setup guides: [Claude Code](docs/CLAUDE_CODE_AS_ORCHESTRATOR.md), [Codex](docs/CODEX_AS_ORCHESTRATOR.md), [Gemini](docs/GEMINI_AS_ORCHESTRATOR.md), [Cursor](docs/CURSOR_AS_ORCHESTRATOR.md), [Mux](docs/MUX_AS_ORCHESTRATOR.md), [OpenCode](docs/OPENCODE_AS_ORCHESTRATOR.md), and [pi](docs/PI_AS_ORCHESTRATOR.md).
 
 ---
 
@@ -1162,7 +1173,7 @@ For test suites, provider parity, and frontend checks, see [docs/TESTING.md](doc
 | Project | Description |
 |---------|-------------|
 | **Armada.Core** | Domain models (including tenants, users, credentials), database interfaces and providers, service interfaces, settings |
-| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint; extensible via `IAgentRuntime`) |
+| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, Pi, ApiEndpoint; extensible via `IAgentRuntime`) |
 | **Armada.Server** | Admiral process: REST API and WebSocket ([Watson](https://github.com/jchristn/watson)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), Harbor link, embedded dashboard |
 | **Armada.Dashboard** | React dashboard (Vite), served by the Admiral at `/dashboard` and also available as a standalone container |
 | **Armada.Helm** | CLI ([Spectre.Console](https://spectreconsole.net/)), thin HTTP client to the Admiral; hosts `armada tui` |
@@ -1258,6 +1269,6 @@ Armada is released under the [MIT License](LICENSE.md). See the LICENSE.md file 
 
 ### Administrator storage inventory
 
-System administrators can open **System > Storage** (also **Settings > Storage**) to inspect managed file sizes, log categories, database allocation and record counts, host coverage, containing volumes, largest-file samples, retention policies and recent growth. Use **Collect now** for a bounded background scan, or **Count records exactly** to opt in to database table scans. Normal page refreshes only read cached data.
+System administrators can open **Settings > Storage** (`/server?tab=storage`; the old `/storage` URL redirects there) to inspect managed file sizes, log categories, database allocation and record counts, host coverage, containing volumes, largest-file samples, retention policies and recent growth. Use **Collect now** for a bounded background scan, or **Count records exactly** to opt in to database table scans. Normal page refreshes only read cached data.
 
 Storage includes configured roots outside the default data directory. Updated Harbors collect on their own machines and attach cached reports to heartbeats; older or offline Harbors show unavailable or stale coverage. File bytes describe logical lengths, database allocation is separate, and volume usage includes unrelated files. Recent history resets on Admiral restart. See [the storage API and configuration](docs/REST_API.md#storage-inventory) and [the implementation plan](archive/STORAGE_MGMT_PLAN.md) for limits and review checks.

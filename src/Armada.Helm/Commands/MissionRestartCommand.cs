@@ -11,9 +11,9 @@ namespace Armada.Helm.Commands
     using Armada.Helm.Rendering;
 
     /// <summary>
-    /// Restart a failed or cancelled mission, resetting it to Pending.
+    /// Restart a failed or cancelled mission, resetting it to Pending, or start a Pending one; the Admiral dispatches it when a captain is free.
     /// </summary>
-    [Description("Restart a failed or cancelled mission")]
+    [Description("Restart a failed or cancelled mission, or start a pending one")]
     public class MissionRestartCommand : BaseCommand<MissionRestartSettings>
     {
         /// <inheritdoc />
@@ -28,9 +28,10 @@ namespace Armada.Helm.Commands
                 return 1;
             }
 
-            if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled)
+            if (mission.Status != MissionStatusEnum.Pending && mission.Status != MissionStatusEnum.Failed
+                && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.LandingFailed)
             {
-                AnsiConsole.MarkupLine($"[gold1]Mission is {mission.Status}, not Failed or Cancelled.[/] Only failed/cancelled missions can be restarted.");
+                AnsiConsole.MarkupLine($"[gold1]Mission is {mission.Status}.[/] Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted.");
                 return 1;
             }
 

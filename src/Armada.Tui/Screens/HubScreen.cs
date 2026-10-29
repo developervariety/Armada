@@ -12,7 +12,10 @@ namespace Armada.Tui.Screens
     /// <summary>
     /// A hub (Missions, Delivery, Vessels, Captains, Configuration, Activity, Settings, Dispatch, Fleet Actions): a tab
     /// strip over the active tab's screen. <c>[</c>/<c>]</c> and <c>Alt+1..9</c> switch tabs from anywhere in the hub;
-    /// the active tab lives in the route query so deep links and history work. Role-gated tabs are hidden.
+    /// the active tab lives in the route query so deep links and history work. Role-gated tabs are hidden. A hub tab can
+    /// host a nested section strip (for example Settings, CLI Tool Permissions with Requests and Rules under the
+    /// <c>section</c> query parameter); a nested strip switches with Left/Right when focused and leaves <c>[</c>/<c>]</c>
+    /// to the outer hub.
     /// </summary>
     public class HubScreen : ScreenBase
     {
@@ -28,10 +31,29 @@ namespace Armada.Tui.Screens
         /// </summary>
         public ScreenBase Content { get; }
 
+        /// <summary>
+        /// The hub whose tabs this screen shows (the route's hub, or the section hub of a nested strip).
+        /// </summary>
+        public HubDefinition Hub { get; }
+
+        /// <summary>
+        /// The selected tab of <see cref="Hub"/>.
+        /// </summary>
+        public HubTab SelectedTab { get; }
+
+        /// <summary>
+        /// True for a nested section strip inside a hub tab.
+        /// </summary>
+        public bool IsNested { get; }
+
         /// <inheritdoc />
         public override string Title
         {
-            get { return Route.Route.Title + (Route.Tab != null ? ": " + Route.Tab.Label : ""); }
+            get
+            {
+                if (IsNested) return SelectedTab.Label;
+                return Route.Route.Title + (Route.Tab != null ? ": " + Route.Tab.Label : "");
+            }
         }
 
         /// <inheritdoc />
@@ -55,6 +77,8 @@ namespace Armada.Tui.Screens
             : base(route, context)
         {
             if (route.Route.Hub == null || route.Tab == null) throw new ArgumentException("Route is not a hub.", nameof(route));
+            Hub = route.Route.Hub;
+            SelectedTab = route.Tab;
             foreach (HubTab tab in VisibleTabs()) Tabs.Add(tab.Key, tab.Label);
             Tabs.SelectKey(route.Tab.Key);
             Tabs.SelectedChanged += (s, e) =>
@@ -71,6 +95,43 @@ namespace Armada.Tui.Screens
             Context.KeepHubTabFocus = false;
         }
 
+        /// <summary>
+        /// Instantiate a nested section strip inside a hub tab. The selected section comes from the route query
+        /// parameter named by <paramref name="sections"/> (its first visible section when absent or unknown).
+        /// </summary>
+        /// <param name="route">Route of the enclosing hub.</param>
+        /// <param name="context">Context.</param>
+        /// <param name="sections">Section hub (query parameter and sections).</param>
+        /// <param name="contentFactory">Builds the section content.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="sections"/> or <paramref name="contentFactory"/> is null.</exception>
+        public HubScreen(RouteMatch route, TuiContext context, HubDefinition sections, Func<RouteMatch, HubTab, ScreenBase> contentFactory)
+            : base(route, context)
+        {
+            Hub = sections ?? throw new ArgumentNullException(nameof(sections));
+            if (contentFactory == null) throw new ArgumentNullException(nameof(contentFactory));
+            IsNested = true;
+            IReadOnlyList<HubTab> visible = VisibleTabs();
+            route.Query.TryGetValue(sections.QueryParam, out string? key);
+            HubTab? selected = visible.FirstOrDefault(t => String.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase));
+            SelectedTab = selected ?? (visible.Count > 0 ? visible[0] : sections.Tabs[0]);
+            foreach (HubTab tab in visible) Tabs.Add(tab.Key, tab.Label);
+            Tabs.SelectKey(SelectedTab.Key);
+            Tabs.SelectedChanged += (s, e) =>
+            {
+                Context.KeepSectionTabFocus = Tabs.IsFocused;
+                RouteMatch? current = Context.Router.Current;
+                if (current == null) return;
+                Dictionary<string, string> query = new Dictionary<string, string>(current.Query, StringComparer.Ordinal);
+                query[sections.QueryParam] = e.NewValue;
+                Context.Router.Navigate(current.Path + RouteMatch.BuildQuery(query), true);
+            };
+            AddChild(Tabs);
+            Content = AddChild(contentFactory(route, SelectedTab));
+            if (Context.KeepSectionTabFocus) Scope.Focus(Tabs);
+            else Scope.Focus(Content);
+            Context.KeepSectionTabFocus = false;
+        }
+
         #endregion
 
         #region Public-Methods
@@ -81,7 +142,7 @@ namespace Armada.Tui.Screens
         /// <returns>Tabs.</returns>
         public IReadOnlyList<HubTab> VisibleTabs()
         {
-            return Route.Route.Hub!.Tabs.Where(t => (!t.GlobalAdminOnly || Context.Session.IsGlobalAdmin) && (!t.TenantAdminOnly || Context.Session.IsTenantAdmin)).ToList();
+            return Hub.Tabs.Where(t => (!t.GlobalAdminOnly || Context.Session.IsGlobalAdmin) && (!t.TenantAdminOnly || Context.Session.IsTenantAdmin)).ToList();
         }
 
         /// <inheritdoc />
@@ -112,7 +173,7 @@ namespace Armada.Tui.Screens
         public override bool HandleKey(KeyEvent key)
         {
             if (Scope.HandleKey(key)) return true;
-            return Tabs.HandleGlobalKey(key);
+            return !IsNested && Tabs.HandleGlobalKey(key);
         }
 
         /// <inheritdoc />
