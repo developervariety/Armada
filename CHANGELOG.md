@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### README
+
+- The README follows upstream's shape: a short introduction, the fork's differences from upstream, the upstream changes imported and not imported, quick start, and links to the reference docs.
+
 ### Saved dock work reports
 
 - A later assignment of a mission that finds a `recover/` ref already applied or reported for that mission records no second `mission.work_snapshot_skipped` event and posts no second `[work not restored]` note.
@@ -511,7 +515,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 This is the fork's first 1.0 release. It includes the changes below since the
 full-merge baseline. Fork and upstream version numbers are independent. The
-[README adoption map](README.md#upstream-adoption-in-v100) identifies imported,
+[README adoption map](README.md#upstream-vs-fork) identifies imported,
 adapted and excluded upstream capabilities. The [upgrade guide](docs/UPGRADING.md)
 covers database protection, client compatibility and rollback.
 

@@ -94,7 +94,7 @@ completion on its own.
 For a premise check's selected fact and unknown identity, use
 [the premise contract](MCP_API.md#armada_check_premise). The default TestEngineer
 role respects explicit objective limits on test changes and preserves required,
-permitted validation; see [pipelines and personas](../README.md#pipelines-and-personas).
+permitted validation; see [pipelines](PIPELINES.md) and [personas](PERSONAS.md).
 
 ## Model evaluation
 
