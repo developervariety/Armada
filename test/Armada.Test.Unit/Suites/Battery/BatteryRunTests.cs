@@ -2,6 +2,8 @@ namespace Armada.Test.Unit.Suites.Battery
 {
     using System.Collections.Generic;
     using System.IO;
+    using System.Reflection;
+    using Armada.Server;
     using System.Linq;
     using System.Text.Json;
     using System.Threading;
@@ -69,9 +71,82 @@ namespace Armada.Test.Unit.Suites.Battery
             }
         }
 
+        /// <summary>Returns the persisted voyage at the native dispatch boundary.</summary>
+        public class BatteryAdmiral : DispatchProxy
+        {
+            /// <summary>Voyage returned by dispatch.</summary>
+            public Voyage? Voyage { get; set; }
+
+            /// <inheritdoc />
+            protected override object? Invoke(MethodInfo? method, object?[]? args)
+            {
+                if (method?.Name == nameof(IAdmiralService.DispatchVoyageQueuedAsync)) return Task.FromResult(Voyage!);
+                throw new NotSupportedException(method?.Name);
+            }
+        }
+
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Dispatcher_WaitsForCompletionAndReadsTheFinalFailure", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("battery", "test")).ConfigureAwait(false);
+                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("battery")).ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("battery", "test")
+                {
+                    VoyageId = voyage.Id, CaptainId = captain.Id, IsEvaluation = true, Status = MissionStatusEnum.WorkProduced
+                }).ConfigureAwait(false);
+                captain.CurrentMissionId = mission.Id;
+                await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                IAdmiralService admiral = DispatchProxy.Create<IAdmiralService, BatteryAdmiral>();
+                ((BatteryAdmiral)(object)admiral).Voyage = voyage;
+                BatteryTaskDispatcher dispatcher = new BatteryTaskDispatcher(admiral, testDb.Driver, new LoggingModule(),
+                    (_, _) => Task.CompletedTask, TimeSpan.FromMilliseconds(5));
+                Task<BatteryDispatchResult> pending = dispatcher.RunAsync(new BatteryDispatchRequest(new Vessel("battery", "/tmp/fixture"), captain, "task", "prompt", 5000));
+                await Task.WhenAny(pending, Task.Delay(100)).ConfigureAwait(false);
+                bool returnedBeforeCompletion = pending.IsCompleted;
+                mission.Status = MissionStatusEnum.Failed;
+                mission.FailureReason = "final checks failed";
+                await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                captain.CurrentMissionId = null;
+                await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                BatteryDispatchResult result = await pending.ConfigureAwait(false);
+                AssertFalse(returnedBeforeCompletion, "WorkProduced must not start grading while the captain is still completing the mission");
+                AssertEqual(MissionStatusEnum.Failed, result.Mission!.Status);
+                AssertEqual("final checks failed", result.Mission.FailureReason);
+            });
+
+            await RunTest("GradingSnapshot_PreservesRecordedCommitAndDoesNotChangeSource", async () =>
+            {
+                string repository = BatteryPackFixtures.NewDirectory("snapshot-source");
+                try
+                {
+                    LocalBatteryWorkspace source = new LocalBatteryWorkspace(repository);
+                    foreach (List<string> args in new[]
+                    {
+                        new List<string> { "init" }, new List<string> { "config", "user.email", "test@example.invalid" },
+                        new List<string> { "config", "user.name", "Battery test" }
+                    }) AssertTrue((await source.RunAsync("git", args, 10000).ConfigureAwait(false)).Succeeded);
+                    await source.WriteTextAsync("result.txt", "accepted result").ConfigureAwait(false);
+                    AssertTrue((await source.RunAsync("git", new List<string> { "add", "." }, 10000).ConfigureAwait(false)).Succeeded);
+                    AssertTrue((await source.RunAsync("git", new List<string> { "commit", "-m", "result" }, 10000).ConfigureAwait(false)).Succeeded);
+                    string commit = (await source.RunAsync("git", new List<string> { "rev-parse", "HEAD" }, 10000).ConfigureAwait(false)).StandardOutput.Trim();
+                    await source.WriteTextAsync("result.txt", "later dock change").ConfigureAwait(false);
+                    string snapshotRoot;
+                    using (LocalBatteryWorkspace snapshot = await LocalBatteryWorkspace.CreateSnapshotAsync(repository, commit).ConfigureAwait(false))
+                    {
+                        snapshotRoot = snapshot.Root;
+                        AssertEqual("accepted result", await snapshot.ReadTextAsync("result.txt").ConfigureAwait(false));
+                        await snapshot.WriteTextAsync("result.txt", "hidden grader overlay").ConfigureAwait(false);
+                        AssertEqual("later dock change", await source.ReadTextAsync("result.txt").ConfigureAwait(false));
+                    }
+                    AssertFalse(Directory.Exists(snapshotRoot), "owned grading checkout is removed");
+                    AssertTrue(Directory.Exists(repository), "source remains available");
+                }
+                finally { Directory.Delete(repository, true); }
+            });
+
             await RunTest("Run_GradesEachTaskAndStoresOneRecord_WithCouldNotRunForUnjudgeableTasks", async () =>
             {
                 string battery = BatteryPackFixtures.NewDirectory("battery");
