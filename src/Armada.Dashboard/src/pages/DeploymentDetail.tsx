@@ -37,6 +37,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { deploymentApprovalLabel } from '../lib/deploymentApprovalLabel';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 interface DeploymentPrefillState {
   prefill?: DeploymentUpsertRequest;
@@ -53,6 +54,7 @@ export default function DeploymentDetail() {
   const { isAdmin, isTenantAdmin } = useAuth();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
 
   const createMode = id === 'new';
   const canManage = isAdmin || isTenantAdmin;
@@ -274,13 +276,9 @@ export default function DeploymentDetail() {
       message: t('Delete "{{title}}"? This removes only the deployment record.', { title: deployment.title }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteDeployment(deployment.id);
-          pushToast('warning', t('Deployment "{{title}}" deleted.', { title: deployment.title }));
-          navigate('/deployments');
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'deployment', action: () => deleteDeployment(deployment.id), errorMessage: (err) => (err instanceof Error ? err.message : t('Delete failed.')) }))) return;
+        pushToast('warning', t('Deployment "{{title}}" deleted.', { title: deployment.title }));
+        navigate('/deployments');
       },
     });
   }
@@ -519,6 +517,7 @@ export default function DeploymentDetail() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+      {deletion.dialog}
 
       <div className="detail-grid">
         <section className="card detail-panel">
