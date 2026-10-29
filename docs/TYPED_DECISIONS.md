@@ -79,7 +79,7 @@ The safety contract holds whenever it is enabled:
   property named as a secret. So egress removes at least every key the display
   removes. An unquoted labelled value stops at a comma, semicolon, closing
   bracket, brace or paren, so punctuation after the value is kept. A keyword
-  matches on a word boundary. A labelled rule can still take a code assignment
+  also matches inside a longer name such as `client_secret`. A labelled rule can still take a code assignment
   such as `token = GetToken();` with it; that loss is accepted, because an
   under-redaction is a leak. The Bearer key is never logged, recorded, stored
   in settings, or returned by any response. The host, hash, and key rules match
