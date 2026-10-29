@@ -2883,17 +2883,18 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Detect and recover orphaned missions — missions stuck in InProgress, Assigned,
-        /// Review, or Testing whose captain has moved on to a different mission. This handles
+        /// or Testing whose captain has moved on to a different mission. This handles
         /// the edge case where a captain was reassigned before the health check could detect
-        /// the old process exit.
+        /// the old process exit. A Review mission is never a candidate: it waits for an operator
+        /// decision with its captain released and its process cleared on purpose, so that shape
+        /// is not an unreported agent exit.
         /// </summary>
         private async Task RecoverOrphanedMissionsAsync(CancellationToken token)
         {
             List<Mission> inProgressMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.InProgress, token).ConfigureAwait(false);
             List<Mission> assignedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Assigned, token).ConfigureAwait(false);
-            List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
             List<Mission> testingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Testing, token).ConfigureAwait(false);
-            List<Mission> activeMissions = inProgressMissions.Concat(assignedMissions).Concat(reviewMissions).Concat(testingMissions).ToList();
+            List<Mission> activeMissions = inProgressMissions.Concat(assignedMissions).Concat(testingMissions).ToList();
 
             foreach (Mission mission in activeMissions)
             {
