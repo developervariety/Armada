@@ -13,6 +13,7 @@ import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
 import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
 import { canEdit as canEditScoped, type ScopeViewer } from '../lib/scoping';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 const PLAYBOOK_FILE_TIP = 'File name for the playbook, which must end in .md, for example CSHARP_BACKEND_ARCHITECTURE.md. Captains see this name when the playbook is attached as a file. Required.';
 const PLAYBOOK_DESCRIPTION_TIP = 'Optional one-line summary shown when people pick playbooks during dispatch. It is not sent to the captain.';
@@ -25,6 +26,7 @@ export default function PlaybookDetail() {
   const { isAdmin, isTenantAdmin, user } = useAuth();
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
   const { t, formatDateTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   const createMode = id === 'new';
@@ -128,13 +130,9 @@ export default function PlaybookDetail() {
       message: t('Delete "{{name}}"? Existing mission snapshots remain immutable, but future dispatches will no longer be able to select it.', { name: playbook.fileName }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deletePlaybook(playbook.id);
-          pushToast('warning', t('Playbook "{{name}}" deleted.', { name: playbook.fileName }));
-          navigate('/playbooks');
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'playbook', action: () => deletePlaybook(playbook.id), errorMessage: (err) => err instanceof Error ? err.message : t('Delete failed.') }))) return;
+        pushToast('warning', t('Playbook "{{name}}" deleted.', { name: playbook.fileName }));
+        navigate('/playbooks');
       },
     });
   }
@@ -188,6 +186,7 @@ export default function PlaybookDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      {deletion.dialog}
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}
