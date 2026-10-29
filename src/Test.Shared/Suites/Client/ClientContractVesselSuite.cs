@@ -209,7 +209,11 @@ namespace Test.Shared.Suites.Client
                 VesselSetup setup = await LiveServerSetup.CreateVesselAsync(c, "workspace");
                 string id = setup.Vessel.Id;
                 AssertTrue((await c.GetWorkspaceStatusAsync(id))?.HasWorkingDirectory == true, "status");
-                AssertTrue((await c.GetWorkspaceTreeAsync(id))!.Entries.Any(e => e.Name == "README.md"), "tree");
+                AssertTrue((await c.ListWorkspaceDirectoryAsync(id)).Any(e => e.Name == "README.md"), "tree");
+                WorkspaceTreeResult? treePage = await c.GetWorkspaceTreeAsync(id, null, new EnumerationQuery { PageNumber = 1, PageSize = 1 });
+                AssertEqual(1, treePage!.Entries.Count, "one entry per page of one");
+                AssertTrue(treePage.TotalRecords >= 1 && treePage.TotalPages == treePage.TotalRecords, "tree totals describe the whole directory");
+                AssertEqual(0, (await c.ListWorkspaceActiveMissionsAsync(id))!.TotalRecords, "no active missions");
                 WorkspaceFileResponse readme = (await c.GetWorkspaceFileAsync(id, "README.md"))!;
                 AssertEqual("hello\n", readme.Content, "file content");
                 AssertTrue((await c.SaveWorkspaceFileAsync(id, new WorkspaceSaveRequest { Path = "README.md", Content = "hello contract\n", ExpectedHash = readme.ContentHash }))?.SizeBytes > 0, "save");

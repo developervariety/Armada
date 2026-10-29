@@ -538,6 +538,8 @@ namespace Armada.Core.Authorization
             Add("GET", "/api/v1/workspace/vessels/{vesselId}/search", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/workspace/vessels/{vesselId}/changes", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/workspace/vessels/{vesselId}/status", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/workspace/vessels/{vesselId}/active-missions", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/workspace/vessels/{vesselId}/active-missions/enumerate", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
         }
 
         #endregion

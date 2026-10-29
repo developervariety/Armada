@@ -786,8 +786,8 @@ namespace Armada.Core.Services
             HashSet<string> rootFiles = new HashSet<string>(StringComparer.Ordinal);
             try
             {
-                WorkspaceTreeResult tree = await host.Files.GetTreeAsync(null, token).ConfigureAwait(false);
-                foreach (WorkspaceTreeEntry entry in tree.Entries)
+                List<WorkspaceTreeEntry> rootEntries = await WorkspaceTreeReader.ReadAllEntriesAsync(host.Files, null, token).ConfigureAwait(false);
+                foreach (WorkspaceTreeEntry entry in rootEntries)
                 {
                     if (!entry.IsDirectory) rootFiles.Add(entry.Name);
                 }

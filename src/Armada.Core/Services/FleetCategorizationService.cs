@@ -1082,8 +1082,8 @@ namespace Armada.Core.Services
         {
             try
             {
-                WorkspaceTreeResult tree = await host.Files.GetTreeAsync(null, token).ConfigureAwait(false);
-                return tree.Entries.Where(e => !e.IsDirectory).Select(e => e.Name).ToList();
+                List<WorkspaceTreeEntry> entries = await WorkspaceTreeReader.ReadAllEntriesAsync(host.Files, null, token).ConfigureAwait(false);
+                return entries.Where(e => !e.IsDirectory).Select(e => e.Name).ToList();
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is UnauthorizedAccessException || ex is IOException)
             {
