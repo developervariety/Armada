@@ -666,9 +666,9 @@ namespace Test.Shared.Suites.E2E
                     }
                 }).ConfigureAwait(false);
                 AssertToolResultValid(reorderResult);
-                List<Objective> reordered = JsonHelper.Deserialize<List<Objective>>(GetToolResultText(reorderResult));
-                AssertEqual(1, reordered.Count);
-                AssertEqual(5, reordered[0].Rank);
+                ObjectiveReorderResult reordered = JsonHelper.Deserialize<ObjectiveReorderResult>(GetToolResultText(reorderResult));
+                AssertEqual(1, reordered.Updated);
+                AssertEqual(5, reordered.Items[0].Rank);
 
                 JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "get_backlog_item", new
                 {

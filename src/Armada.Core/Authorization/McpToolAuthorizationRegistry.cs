@@ -28,7 +28,9 @@ namespace Armada.Core.Authorization
             Add("status", "Status", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_backlog_item", "Objective", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_backlog_planning_session", "PlanningSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_backlog_planning_session_messages", "PlanningSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_backlog_refinement_session", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_backlog_refinement_session_messages", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_captain_log", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_captain_tools", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_captain", "Captain", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
@@ -73,6 +75,11 @@ namespace Armada.Core.Authorization
             Add("approve_ask_proposal", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("reject_ask_proposal", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("get_ask_work", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_work", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_work_missions", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_work_targets", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_proposals", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_ask_tool_calls", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_backlog_refinement_sessions", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_backlog", "Objective", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_objectives", "Objective", ResourceOperationEnum.Read, PermissionLevel.Authenticated);

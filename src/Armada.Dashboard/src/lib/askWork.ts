@@ -51,13 +51,23 @@ function countFor(counts: Record<string, number> | null | undefined, match: (sta
   return total;
 }
 
+/**
+ * The card's child rows when they are every row of the work. A snapshot carries counts only; the rows are read from
+ * their paged enumeration and hold the first page, so when `rowTotal` says more exist the counts are used instead.
+ */
+function completeRows(snapshot: AskWorkSnapshot): Array<{ status: string }> {
+  const rows = (snapshot.missions && snapshot.missions.length > 0) ? snapshot.missions : (snapshot.targets ?? []);
+  if (snapshot.rowTotal != null && snapshot.rowTotal > rows.length) return [];
+  return rows;
+}
+
 /** Progress for the card's bar: from the child rows when present, else the counts, else explicit counters. */
 export function workProgress(snapshot: AskWorkSnapshot | null | undefined): WorkProgress | null {
   if (!snapshot) return null;
   let total = 0;
   let done = 0;
   let failed = 0;
-  const rows = (snapshot.missions && snapshot.missions.length > 0) ? snapshot.missions : (snapshot.targets ?? []);
+  const rows = completeRows(snapshot);
   if (rows.length > 0) {
     total = rows.length;
     for (const row of rows) {
@@ -83,7 +93,7 @@ export function workProgress(snapshot: AskWorkSnapshot | null | undefined): Work
 /** Status counts for the card header, from the rows when present (stable order: first appearance). */
 export function statusCounts(snapshot: AskWorkSnapshot | null | undefined): Array<{ status: string; count: number }> {
   if (!snapshot) return [];
-  const rows = (snapshot.missions && snapshot.missions.length > 0) ? snapshot.missions : (snapshot.targets ?? []);
+  const rows = completeRows(snapshot);
   const map = new Map<string, number>();
   if (rows.length > 0) {
     for (const row of rows) map.set(row.status, (map.get(row.status) ?? 0) + 1);

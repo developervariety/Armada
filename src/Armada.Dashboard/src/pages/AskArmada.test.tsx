@@ -15,7 +15,7 @@ import {
   sendAskMessage,
 } from '../api/client';
 import { translateTemplate } from '../i18n/runtime';
-import type { AskMessage, AskThread, AskThreadDetail, EnumerationResult, WebSocketMessage } from '../types/models';
+import type { AskMessage, AskThread, AskThreadView, EnumerationResult, WebSocketMessage } from '../types/models';
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>();
@@ -53,6 +53,19 @@ const localeValue = {
   formatDate: (v: string | null | undefined) => v ?? '',
   formatRelativeTime: (v: string | null | undefined) => (v ? 'recently' : ''),
 };
+vi.mock('../lib/askPaging', async (importOriginal) => {
+  // The page reads the thread's collections through lib/askPaging (covered by askPaging.test.ts); these tests feed
+  // the composed view straight from the mocked getAskThread.
+  const actual = await importOriginal<typeof import('../lib/askPaging')>();
+  const client = await import('../api/client');
+  return {
+    ...actual,
+    loadAskThreadView: (id: string) => client.getAskThread(id),
+    withToolCalls: async (_id: string, m: unknown) => m,
+    withWorkRows: async (_threadId: string, _workId: string, snapshot: unknown) => snapshot,
+    loadToolCalls: async () => [],
+  };
+});
 vi.mock('../context/LocaleContext', () => ({ useLocale: () => localeValue }));
 
 const handlers = new Set<(msg: WebSocketMessage) => void>();
@@ -93,7 +106,7 @@ const messages: AskMessage[] = [
   { id: 'amg_7', threadId: 'ath_1', sequence: 7, role: 'System', kind: 'Error', contentText: 'Captain runtime crashed.' },
   { id: 'amg_8', threadId: 'ath_1', sequence: 8, role: 'Assistant', kind: 'ActionProposal', proposalId: 'aap_2', proposal: pendingProposal },
 ];
-const detail: AskThreadDetail = {
+const detail: AskThreadView = {
   thread: threads[0],
   trackedWork: [{ id: 'atw_1', threadId: 'ath_1', entityType: 'Voyage', entityId: 'vyg_1', title: 'Billing fix voyage', status: 'InProgress', state: 'Active',
     snapshot: { entityType: 'Voyage', entityId: 'vyg_1', status: 'InProgress', state: 'Active', missions: [

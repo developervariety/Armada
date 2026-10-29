@@ -714,6 +714,12 @@ export interface ObjectiveReorderRequest {
   items: ObjectiveReorderItem[];
 }
 
+/** Result of a reorder: how many objectives changed and each one's new rank (one item per request item). */
+export interface ObjectiveReorderResult {
+  updated: number;
+  items: ObjectiveReorderItem[];
+}
+
 export type GitHubObjectiveSourceType = 'Issue' | 'PullRequest';
 
 export interface GitHubObjectiveImportRequest {
@@ -849,11 +855,28 @@ export interface PlanningSessionMessage {
   metrics?: CaptainChatMetrics | null;
 }
 
+/** Planning session detail as the server returns it: counts instead of the transcript (paged separately). */
 export interface PlanningSessionDetail {
   session: PlanningSession;
-  messages: PlanningSessionMessage[];
+  /** Number of transcript messages; read them with listPlanningSessionMessages. */
+  messageCount: number;
+  /** Number of objectives linked to the session that the caller can see. */
+  linkedObjectiveCount?: number;
   captain: Captain | null;
   vessel: Vessel | null;
+}
+
+/** Client-side view of a planning session: the detail plus the transcript pages loaded so far, oldest first. */
+export interface PlanningSessionView extends PlanningSessionDetail {
+  messages: PlanningSessionMessage[];
+}
+
+/** Paging for the POST .../enumerate routes: page size 1 to 1000 (default 10); newest first unless CreatedAscending. */
+export interface PagedQuery {
+  pageNumber?: number;
+  pageSize?: number;
+  order?: 'CreatedAscending' | 'CreatedDescending';
+  status?: string;
 }
 
 export type ObjectiveRefinementSessionStatus =
@@ -897,12 +920,19 @@ export interface ObjectiveRefinementMessage {
   lastUpdateUtc: string;
 }
 
+/** Refinement session detail as the server returns it: a message count instead of the transcript (paged separately). */
 export interface ObjectiveRefinementSessionDetail {
   session: ObjectiveRefinementSession;
-  messages: ObjectiveRefinementMessage[];
+  /** Number of transcript messages; read them with listObjectiveRefinementMessages. */
+  messageCount: number;
   captain: Captain | null;
   vessel: Vessel | null;
   objective: Objective | null;
+}
+
+/** Client-side view of a refinement session: the detail plus the transcript pages loaded so far, oldest first. */
+export interface ObjectiveRefinementSessionView extends ObjectiveRefinementSessionDetail {
+  messages: ObjectiveRefinementMessage[];
 }
 
 export interface ObjectiveRefinementSessionCreateRequest {
@@ -3606,8 +3636,16 @@ export interface AskWorkSnapshot {
   totalCount?: number | null;
   completedCount?: number | null;
   failedCount?: number | null;
+  /** Number of mission rows (voyage or mission work); the rows are paged with enumerateAskWorkMissions. */
+  missionCount?: number | null;
+  /** Number of target rows (fleet action runs); the rows are paged with enumerateAskWorkTargets. */
+  targetCount?: number | null;
+  /** Client-side: the first page of mission rows, read with enumerateAskWorkMissions (the server never embeds them). */
   missions?: AskMissionSnapshot[] | null;
+  /** Client-side: the first page of target rows, read with enumerateAskWorkTargets (the server never embeds them). */
   targets?: AskTargetSnapshot[] | null;
+  /** Client-side: how many rows exist in all when only the first page is loaded. */
+  rowTotal?: number | null;
   errorText?: string | null;
   startedUtc?: string | null;
   completedUtc?: string | null;
@@ -3644,6 +3682,9 @@ export interface AskMessage {
   /** Telemetry of the captain turn that wrote this reply; null for user messages, cards, and older replies. */
   metrics?: CaptainChatMetrics | null;
   createdUtc?: string;
+  /** Number of tool calls the captain made while writing the message; the calls are paged with enumerateAskToolCalls. */
+  toolCallCount?: number;
+  /** Client-side: every tool call of the message, read from its pages (the server never embeds them). */
   toolCalls?: AskToolCall[] | null;
   proposal?: AskActionProposal | null;
   trackedWork?: AskTrackedWork | null;
@@ -3660,19 +3701,29 @@ export interface AskTurnProgress {
   messageId?: string | null;
   text?: string | null;
   thinkingText?: string | null;
-  /** Tool calls so far; a call still running has a null `ok` and no result. */
+  /** Number of tool calls so far; the calls are paged with enumerateAskTurnToolCalls. */
+  toolCallCount?: number;
+  /** Client-side: the running turn's tool calls read from their pages; a call still running has a null `ok`. */
   toolCalls?: AskToolCall[] | null;
   startedUtc?: string;
 }
 
+/** A thread as the server returns it: counts of its collections, which are paged separately. */
 export interface AskThreadDetail {
   thread: AskThread;
+  trackedWorkCount?: number;
+  pendingProposalCount?: number;
+  pendingCliPermissionCount?: number;
+  /** The running turn's streamed reply, thinking, and tool call count so far; null or absent when no turn is running. */
+  activeTurn?: AskTurnProgress | null;
+}
+
+/** Client-side view of a thread: the detail plus every tracked work item, pending proposal, and pending CLI
+ * permission request, each read from its paged enumeration (see lib/askPaging). */
+export interface AskThreadView extends AskThreadDetail {
   trackedWork?: AskTrackedWork[] | null;
   pendingProposals?: AskActionProposal[] | null;
-  /** Pending CLI permission requests of this thread's captain turns. */
   pendingCliPermissions?: CliPermissionRequest[] | null;
-  /** The running turn's streamed reply, tool calls, and thinking so far; null or absent when no turn is running. */
-  activeTurn?: AskTurnProgress | null;
 }
 
 export interface AskMessagePage {

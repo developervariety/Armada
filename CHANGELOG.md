@@ -87,6 +87,66 @@ Part of the bounded enumeration contract ([docs/ENUMERATION.md](docs/ENUMERATION
 - Cancellation and deletion preserve tenant-scoped mission archives with failure, branch, commit, dock, stage attempts and recent diagnostics. Cascade cleanup retains archives; the receipt explicitly distinguishes stopping recovery from verified resolution.
 - Health reports include the running binary's embedded build version and source commit. Updated landing-mode guidance and translations describe isolated publication.
 
+### Bounded Ask Armada, planning, refinement, objective, and memory collections
+
+Reads in these areas no longer embed child collections whose size has no limit. The parent returns counts, and the
+children are read one page at a time (`PageNumber`, `PageSize` 1 to 1000, `TotalRecords`), paged in the database.
+Request lists over their limit are a typed `CollectionLimitExceeded` error (REST `400` with `Data.Code`, MCP
+`InvalidArgument` with `code`), and nothing is stored.
+
+#### Changed (breaking)
+
+- `GET /api/v1/ask/threads/{id}` and MCP `get_ask_thread` return `TrackedWorkCount`, `PendingProposalCount`, and
+  `PendingCliPermissionCount` in place of `TrackedWork`, `PendingProposals`, and `PendingCliPermissions`.
+  `ActiveTurn.ToolCalls` is replaced by `ActiveTurn.ToolCallCount`.
+- `AskMessage.ToolCalls` is removed (messages pages, `ask.message` events, and send results). Each message carries
+  `ToolCallCount`.
+- `AskWorkSnapshot` (`GET .../work/{workId}`, `get_ask_work`, `ask.work` events, embedded tracked-work snapshots) returns
+  `MissionCount` and `TargetCount` in place of `Missions` and `Targets`.
+- `GET /api/v1/planning-sessions/{id}` (and the create, message, stop, and stop-turn responses) and
+  `get_backlog_planning_session` return `PlanningSessionDetail { Session, MessageCount, Captain, Vessel, LinkedObjectiveCount }`
+  with no `Messages`. MCP `get_backlog_planning_session` no longer embeds the linked backlog items; list them with
+  `list_backlog` filtered by `planningSessionId`.
+- `ObjectiveRefinementSessionDetail` (`GET /api/v1/objective-refinement-sessions/{id}`, the create, message, and stop
+  responses, `get_backlog_refinement_session`) returns `MessageCount` in place of `Messages`.
+- MCP `dispatch_backlog_planning_session` returns `PlanningSessionDispatchResult { voyage, linkedObjectiveCount }`.
+- `POST /api/v1/objectives/reorder`, `POST /api/v1/backlog/reorder`, `reorder_objectives`, and `reorder_backlog_items`
+  return `ObjectiveReorderResult { Updated, Items: [{ ObjectiveId, Rank }] }` instead of the reordered objectives.
+- `list_backlog_refinement_sessions` accepts `pageSize` up to 1000 (it was 100).
+- .NET clients: `ArmadaClient.ListPlanningSessionsAsync`, `ListObjectiveRefinementSessionsAsync`, and
+  `ListBacklogRefinementSessionsAsync` keep their names (the dashboard parity manifest) but take an `EnumerationQuery`
+  and return one page (`EnumerationResult<T>`) instead of a whole list. In `ArmadaApiClient` the refinement
+  readers are `EnumerateObjectiveRefinementSessionsAsync`, `EnumerateBacklogRefinementSessionsAsync`, and
+  `EnumerateObjectiveRefinementMessagesAsync`. New: `ListPlanningSessionMessagesAsync`, `ListObjectiveRefinementMessagesAsync`,
+  `EnumerateAskWorkAsync`, `EnumerateAskWorkMissionsAsync`, `EnumerateAskWorkTargetsAsync`,
+  `EnumerateAskProposalsAsync`, `EnumerateAskToolCallsAsync`, and `EnumerateAskTurnToolCallsAsync`. The reorder methods
+  return `ObjectiveReorderResult`. `Armada.Client.Models.PlanningSessionDetail` moved to `Armada.Core.Models`.
+
+#### Limits
+
+- Objectives and backlog items (create, update, refinement apply, and the voyage and session links Armada adds):
+  `Tags`, `AcceptanceCriteria`, `NonGoals`, `RolloutConstraints`, `EvidenceLinks`, and `SuggestedPlaybooks` at 256;
+  every id list at 1000. A refinement summary with a longer list is refused before it is broadcast or applied.
+- Reorder requests: at most 1000 items. `POST /api/v1/ask/threads/delete/multiple` and `delete_ask_threads`: at most
+  1000 IDs.
+- Memory `Tags` at 256 on create and update. Planning `SelectedPlaybooks` at 256. Quick action `Arguments` at 256.
+- Planning dispatch fails with `CollectionLimitExceeded` naming the dispatched voyage when linking it would push an
+  objective's id lists over 1000.
+
+#### Added
+
+- REST: `POST /api/v1/ask/threads/{id}/work/enumerate`, `.../work/{workId}/missions/enumerate`,
+  `.../work/{workId}/targets/enumerate`, `.../proposals/enumerate`, `.../messages/{messageId}/tool-calls/enumerate`,
+  `.../turn/tool-calls/enumerate`, `POST /api/v1/planning-sessions/{id}/messages/enumerate`, and
+  `POST /api/v1/objective-refinement-sessions/{id}/messages/enumerate`. All are owner-scoped like the parent read.
+- MCP: `list_ask_work`, `list_ask_work_missions`, `list_ask_work_targets`, `list_ask_proposals`, `list_ask_tool_calls`,
+  `list_backlog_planning_session_messages`, and `list_backlog_refinement_session_messages` (read-only, so captains in a
+  conversation may call them).
+- Planning, objective, and refinement session enumeration now page and filter in the database. Planning sessions remain
+  SQLite only.
+- Dashboard, mobile, and TUI load transcripts newest page first, with older pages on request. Work cards show
+  "Showing N of total rows" when a voyage has more missions than the first page.
+
 ### Added
 
 - Vessel **Cleanup** (Vessels and vessel page action menus) opens a read-only inventory of the vessel's docks, orphaned worktrees, and Armada-managed local branches (`armada/` prefix), grouped as Safe to clean up, Still in use, or Unknown disposition, each with its owning voyage/mission/dock, reason, and measured size (none is shown when it cannot be measured). Resources are inspected on the owning Admiral or Harbor host; a disconnected Harbor makes them Unknown. Active, queued, review, LandingFailed, captain-held, voyage-active, and merge-queue (including failed entries) references keep resources in use; dirty worktrees, unmerged work, shared paths, and paths outside Armada's docks stay Unknown. Only Safe resources can be selected; after confirmation each one is revalidated immediately before removal through the existing dock purge and git worktree/branch primitives, with per-item Deleted/Skipped/Failed results and a refreshed inventory. Remote branches, default branches, and the primary checkout are never removed. New routes: `GET` and `POST /api/v1/vessels/{id}/cleanup`; .NET client `GetVesselCleanupInventoryAsync` / `RunVesselCleanupAsync`.
