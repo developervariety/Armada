@@ -47,8 +47,6 @@ They stay, because the reads are single-resource lookups; each large one has a p
 | REST, MCP, WebSocket | Missions in `GET /api/v1/voyages/{id}`, `voyage_status` with `includeMissions`, `get_voyage` | `POST /api/v1/missions/enumerate` with `voyageId`, `enumerate` missions with `voyageId` |
 | REST, MCP, WebSocket | `Voyages` in `GET /api/v1/status`, `status` (one progress row per active voyage) | `POST /api/v1/voyages/enumerate` with `status` |
 | REST, MCP | Targets in `GET /api/v1/fleet-action-runs/{id}`, `fleet_action_run_status` | `POST /api/v1/fleet-action-runs/{id}/targets/enumerate`, `enumerate` fleet_action_run_target |
-| REST, MCP | Tracked work and pending proposals in `GET /api/v1/ask/threads/{id}`, `get_ask_thread` | Messages: `POST /api/v1/ask/threads/{id}/messages/enumerate`, `list_ask_messages` |
-| REST, MCP | Transcripts in planning and refinement session reads (`GET /api/v1/planning-sessions/{id}`, `GET /api/v1/objective-refinement-sessions/{id}`, `get_backlog_planning_session`, `get_backlog_refinement_session`) | None (one conversation) |
 | REST, MCP | Items in `GET /api/v1/vessels/import/batches/{id}`; candidates of `POST /api/v1/vessels/import/discover`, `discover_vessels` | None (one import batch or one directory scan) |
 | REST, MCP | `GET /api/v1/captains/{id}/tools`, `get_captain_tools`; directory and change lists of the workspace routes | None (one captain's tool inventory; one directory or working tree) |
 

@@ -286,6 +286,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/battery/runs` | POST | TenantAdmin | Global admin, or a tenant admin of the captain's tenant (`404` for another tenant's captain). Captain sessions get `403` |
 | `/api/v1/battery/runs/{id}` | GET | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
 | `/api/v1/ask/threads/{id}/cli-permission-policy` | PUT | Authenticated | Thread owner only (`404` otherwise); `Bypass` requires a global or tenant admin (`403`) |
+| `/api/v1/ask/threads/{id}/work/enumerate`, `.../work/{workId}/missions/enumerate`, `.../work/{workId}/targets/enumerate`, `.../proposals/enumerate`, `.../messages/{messageId}/tool-calls/enumerate`, `.../turn/tool-calls/enumerate` | POST | Authenticated | Thread owner only (`404` otherwise) |
 | `/api/v1/push/devices`, `/api/v1/push/devices/enumerate` | POST | Authenticated | Register for yourself (captain sessions get `403`); enumerate your own devices, or (`userId`) another user's as a tenant admin of their tenant or a global admin (`403` otherwise) |
 | `/api/v1/push/devices/{id}` | PUT, DELETE | Authenticated | Owner, tenant admins of the device's tenant, global admins; `404` otherwise (also `POST .../test`) |
 | `/api/v1/missions` | GET, POST `.../enumerate` | Authenticated | Tenant-scoped reads. Every create, update, delete, and action route under the prefix is TenantAdmin |
@@ -295,6 +296,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/planning-sessions/enumerate` | POST | Authenticated | One page of planning sessions in caller scope |
 | `/api/v1/planning-sessions` | POST | TenantAdmin | Create one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}` | GET | Authenticated | Read one planning session in caller scope |
+| `/api/v1/planning-sessions/{id}/messages/enumerate` | POST | Authenticated | One page of one planning session's transcript in caller scope |
 | `/api/v1/planning-sessions/{id}` | DELETE | TenantAdmin | Delete one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}/messages` | POST | TenantAdmin | Send one planning turn |
 | `/api/v1/planning-sessions/{id}/summarize` | POST | TenantAdmin | Generate a dispatch draft without launching |
@@ -317,7 +319,8 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/objectives/{id}/refinement-sessions` | POST | TenantAdmin | Create one refinement session for one objective |
 | `/api/v1/backlog/{id}/refinement-sessions/enumerate` | POST | Authenticated | One page of the refinement sessions linked to one backlog item (`EnumerationResult<ObjectiveRefinementSession>`) |
 | `/api/v1/backlog/{id}/refinement-sessions` | POST | TenantAdmin | Create one refinement session for one backlog item |
-| `/api/v1/objective-refinement-sessions/{id}` | GET | Authenticated | Read one refinement session with transcript detail |
+| `/api/v1/objective-refinement-sessions/{id}` | GET | Authenticated | Read one refinement session with its transcript's message count |
+| `/api/v1/objective-refinement-sessions/{id}/messages/enumerate` | POST | Authenticated | One page of one refinement session's transcript |
 | `/api/v1/objective-refinement-sessions/{id}/messages` | POST | TenantAdmin | Append one refinement transcript message |
 | `/api/v1/objective-refinement-sessions/{id}/summarize` | POST | TenantAdmin | Generate a structured refinement summary |
 | `/api/v1/objective-refinement-sessions/{id}/apply` | POST | TenantAdmin | Apply a refinement summary back to the linked backlog item |
@@ -4116,7 +4119,7 @@ WEBSOCKET_API.md). Retention: threads are kept until deleted; there is no automa
 | GET | `/api/v1/ask/threads/{id}` | | `200` `AskThreadDetail` |
 | PUT | `/api/v1/ask/threads/{id}` | `AskThreadUpdateRequest` | `200` `AskThread` |
 | DELETE | `/api/v1/ask/threads/{id}` | | `204` (stops a running turn; deletes messages, tool calls, proposals, tracked-work rows; the work itself is untouched) |
-| POST | `/api/v1/ask/threads/delete/multiple` | `DeleteMultipleRequest` | `200` `AskThreadDeleteMultipleResult` (`Status`, `Deleted`, `DeletedIds`, `Skipped` with `Id` and `Reason`); `400` when `Ids` is missing or empty. Another user's or an unknown ID is skipped, never deleted |
+| POST | `/api/v1/ask/threads/delete/multiple` | `DeleteMultipleRequest` | `200` `AskThreadDeleteMultipleResult` (`Status`, `Deleted`, `DeletedIds`, `Skipped` with `Id` and `Reason`); `400` when `Ids` is missing or empty, and `400` `CollectionLimitExceeded` (nothing deleted) when it holds more than 1000 IDs. Another user's or an unknown ID is skipped, never deleted |
 | POST | `/api/v1/ask/threads/{id}/messages/enumerate` | `AskMessageEnumerateRequest` | `200` `AskMessagePage` |
 | POST | `/api/v1/ask/threads/{id}/messages` | `AskMessageSendRequest` | `202` `AskMessageSendResponse`; `409` while a turn runs |
 | POST | `/api/v1/ask/threads/{id}/cancel` | | `200` `{ "Cancelled": true }`; `409` when no turn runs |
@@ -4126,7 +4129,13 @@ WEBSOCKET_API.md). Retention: threads are kept until deleted; there is no automa
 | POST | `/api/v1/ask/threads/{id}/actions` | `AskActionRequest` | `200` `AskActionProposal` (executed or failed); `400` unknown tool |
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/approve` | | `200` `AskActionProposal` (`Executed` or `Failed`); `409` when not pending or expired |
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/reject` | | `200` `AskActionProposal` (`Rejected`); `409` when not pending |
-| GET | `/api/v1/ask/threads/{id}/work/{workId}` | | `200` `AskWorkSnapshot` |
+| GET | `/api/v1/ask/threads/{id}/work/{workId}` | | `200` `AskWorkSnapshot` (counts; rows are paged below) |
+| POST | `/api/v1/ask/threads/{id}/work/enumerate` | `EnumerationQuery` (`Status`: `Active`, `Succeeded`, `Failed`, `Cancelled`) | `200` `EnumerationResult<AskTrackedWork>`, newest first by default; `400` for an unknown `Status` |
+| POST | `/api/v1/ask/threads/{id}/work/{workId}/missions/enumerate` | `EnumerationQuery` | `200` `EnumerationResult<AskWorkMissionSnapshot>`: a voyage's missions paged in the database, or the one row of tracked Mission work; `400` for other work types (fleet action runs use `targets`) |
+| POST | `/api/v1/ask/threads/{id}/work/{workId}/targets/enumerate` | `EnumerationQuery` | `200` `EnumerationResult<AskWorkTargetSnapshot>` for tracked FleetActionRun work; `400` for other work types |
+| POST | `/api/v1/ask/threads/{id}/proposals/enumerate` | `EnumerationQuery` (`Status`: `Pending`, `Approved`, `Rejected`, `Expired`, `Executed`, `Failed`) | `200` `EnumerationResult<AskActionProposal>`; `400` for an unknown `Status` |
+| POST | `/api/v1/ask/threads/{id}/messages/{messageId}/tool-calls/enumerate` | `EnumerationQuery` | `200` `EnumerationResult<AskMessageToolCall>`: one message's tool calls; `404` when the message is not in the thread |
+| POST | `/api/v1/ask/threads/{id}/turn/tool-calls/enumerate` | `EnumerationQuery` | `200` `EnumerationResult<AskMessageToolCall>`: the calls the running turn has made so far (empty when no turn runs) |
 | PUT | `/api/v1/ask/threads/{id}/cli-permission-policy` | `CliPermissionPolicyUpdateRequest` | `200` `AskThread` (with `CliPermission`); `403` when a non-admin sets `Bypass` |
 | GET | `/api/v1/ask/quick-actions` | | `200` `AskQuickAction[]` |
 
@@ -4186,11 +4195,13 @@ for the next turn, or null without a captain), `SummaryText`, `SummaryUtc`, `Pin
 `MessageCount`, `UnreadCount`, `ActiveWorkCount` (computed), `ActiveTurnId` (computed; set while a turn runs),
 `CreatedUtc`, `LastUpdateUtc`.
 
-`AskThreadDetail`: `{ Thread, TrackedWork: AskTrackedWork[] (each with Snapshot), PendingProposals: AskActionProposal[],
-PendingCliPermissions: CliPermissionRequest[] (pending requests of the thread's captain, newest first),
-ActiveTurn: AskTurnProgress | null }`. `ActiveTurn` is set only while a captain turn runs (its `TurnId` equals the thread's
-`ActiveTurnId`): `{ TurnId, MessageId (the reserved reply), Text, ThinkingText, ToolCalls: AskMessageToolCall[], StartedUtc }`
-with what the turn has streamed so far (a call still running has a null `Ok` and no `ResultText`). The reply and its tool
+`AskThreadDetail`: `{ Thread, TrackedWorkCount, PendingProposalCount, PendingCliPermissionCount, ActiveTurn: AskTurnProgress | null }`.
+The collections are read page by page: tracked work with `POST .../work/enumerate`, pending proposals with
+`POST .../proposals/enumerate` (`Status: Pending`), and the thread's pending CLI requests with
+`POST /api/v1/cli-permissions/requests/enumerate` (`ThreadId`, `Status: Pending`). `ActiveTurn` is set only while a captain turn runs (its `TurnId` equals the thread's
+`ActiveTurnId`): `{ TurnId, MessageId (the reserved reply), Text, ThinkingText, ToolCallCount, StartedUtc }` with what
+the turn has streamed so far; its calls are read with `POST .../turn/tool-calls/enumerate` (a call still running has a
+null `Ok` and no `ResultText`). The reply and its tool
 calls are persisted only when the turn ends, so a client that opens the thread mid-turn restores the live reply from it.
 A turn that is stopped or fails keeps the tool calls it already made on its `Error` message.
 
@@ -4198,9 +4209,10 @@ A turn that is stopped or fails keeps the tool calls it already made on its `Err
 `System`), `Kind` (`Text`, `ActionProposal`, `ActionResult`, `WorkUpdate`, `Summary`, `Error`, `CliPermission`,
 `WorkReport` (the captain's automatic report of finished work; clients that do not know it render it as assistant text)),
 `ContentText`, `ThinkingText`, `ProposalId`, `TrackedWorkId`, `CaptainId`, `DurationMs`, `Metrics`, `CreatedUtc`,
-`LastUpdateUtc`, plus embedded `ToolCalls` (`AskMessageToolCall`: `Id` atc_, `CallId`, `ToolName`, `ArgumentsText`, `ResultText`, `Ok`,
+`LastUpdateUtc`, `ToolCallCount` (the calls themselves are read with `POST .../messages/{messageId}/tool-calls/enumerate`;
+`AskMessageToolCall`: `Id` atc_, `CallId`, `ToolName`, `ArgumentsText`, `ResultText`, `Ok`,
 `ElapsedMs`, `PermissionDenied` (true when the CLI refused the call because the turn's CLI tool permission policy did not
-grant it; null when unknown)), `Proposal`, `TrackedWork` (with `Snapshot`), and `CliPermissionRequest` (on a
+grant it; null when unknown)), plus embedded `Proposal`, `TrackedWork` (with `Snapshot`), and `CliPermissionRequest` (on a
 `CliPermission` card, a `System` message whose `ContentText` is `<Tool>: <summary>`; refreshed through `ask.message` when
 the request is decided).
 
@@ -4230,11 +4242,12 @@ only), `CreatedUtc`, `LastUpdateUtc`.
 
 `AskWorkSnapshot` (flat): `TrackedWorkId`, `ThreadId`, `EntityType`, `EntityId`, `Title`, `Status`, `State`, `Found`,
 `TotalCount`, `CompletedCount`, `FailedCount`, `ActiveCount`, `Progress` (0-100), `Counts` (status -> count),
-`Missions[]` (`Id`, `Title`, `Status`, `VoyageId`, `VesselId`, `Persona`, `PipelineStage`, `CaptainId`, `CaptainName`,
+`MissionCount`, `TargetCount`. The rows are paged: mission rows (`AskWorkMissionSnapshot`: `Id`, `Title`, `Status`, `VoyageId`, `VesselId`, `Persona`, `PipelineStage`, `CaptainId`, `CaptainName`,
 `BranchName`, `CheckRunId`, `CheckRunStatus`, `MergeEntryId`, `MergeQueueStatus` (alias `MergeStatus`), `PrUrl`,
 `LandingOutcome` (`Landed`, `PullRequestOpen`, `PullRequestMerged`, `LandingFailed`), `FailureReason`, `StartedUtc`,
-`CompletedUtc`), `Targets[]` for fleet action runs (`Id`, `VesselId`, `VesselName`, `Status`, `Reason`, `VoyageId`,
-`MissionId`, `ExitCode`), `ErrorText`, `StartedUtc`, `CompletedUtc`, `CapturedUtc`.
+`CompletedUtc`) with `POST .../work/{workId}/missions/enumerate`, and fleet action run targets (`AskWorkTargetSnapshot`:
+`Id`, `VesselId`, `VesselName`, `Status`, `Reason`, `VoyageId`, `MissionId`, `ExitCode`) with
+`POST .../work/{workId}/targets/enumerate`. Remaining fields: `ErrorText`, `StartedUtc`, `CompletedUtc`, `CapturedUtc`.
 
 `AskQuickAction`: `Name`, `Command`, `Title`, `Description`, `ToolName`, `ReadOnly`, `RequiresTenantAdmin`,
 `Arguments[]` (`Name`, `Label`, `Type`, `Required`, `Description`, `DefaultValue`), `ArgumentsSchema` (JSON schema). The
@@ -6815,8 +6828,9 @@ deletes follow the same ownership rules (see [Data Scoping](#data-scoping-who-se
 (`Episodic`\|`Semantic`\|`Procedural`, default `Semantic`), `Topic`, `Key` (stable idempotency slug), `Summary`
 (one-line recall hook), `Content`, `Salience` (0.0-1.0, default 0.5, orders recall), `Version` (starts at 1),
 `SourceKind` (`Voyage`\|`Mission`\|`Vessel`\|`Conversation`\|`Manual`\|`Other`, default `Manual`), `SourceVoyageId`,
-`SourceMissionId`, `SourceVesselId`, `SourceDetail`, `VesselId`, `Tags`, `CreatedUtc`, `LastUpdateUtc`. Only tenant
-and global admins can change `Scope` on update.
+`SourceMissionId`, `SourceVesselId`, `SourceDetail`, `VesselId`, `Tags` (at most 256 on create and update; more is
+`400` `CollectionLimitExceeded`), `CreatedUtc`, `LastUpdateUtc`. Only tenant and global admins can change `Scope` on
+update.
 
 #### Memory enumeration
 
@@ -7180,25 +7194,40 @@ Create a planning session, reserve the selected captain, and provision a plannin
 }
 ```
 
+`SelectedPlaybooks` holds at most 256 entries (`400` `CollectionLimitExceeded` otherwise).
+
 - Response: `201 Created`
-- Response shape:
+- Response shape (`PlanningSessionDetail`):
 
 ```json
 {
   "Session": { "...": "PlanningSession" },
-  "Messages": [],
+  "MessageCount": 0,
   "Captain": { "...": "Captain" },
-  "Vessel": { "...": "Vessel" }
+  "Vessel": { "...": "Vessel" },
+  "LinkedObjectiveCount": 0
 }
 ```
 
 #### GET /api/v1/planning-sessions/{id}
 
-Read one planning session with transcript, captain, and vessel context.
+Read one planning session with its captain and vessel, the transcript's `MessageCount`, and `LinkedObjectiveCount`. The
+detail no longer embeds `Messages`; read the transcript with `POST /api/v1/planning-sessions/{id}/messages/enumerate`.
 
 **Permission:** Authenticated
 
-- Response: `200 OK`
+- Response: `200 OK` - `PlanningSessionDetail`
+- Errors: `404 Not Found`
+
+#### POST /api/v1/planning-sessions/{id}/messages/enumerate
+
+One page of the session's transcript, paged in the database: newest first (`CreatedDescending`, the default) or oldest
+first (`CreatedAscending`), by sequence with the id as the tie-break. `TotalRecords` is the transcript length. Paging
+comes from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000) or the matching querystring parameters.
+
+**Permission:** Authenticated (caller scope)
+
+- Response: `200 OK` - `EnumerationResult<PlanningSessionMessage>`
 - Errors: `404 Not Found`
 
 #### POST /api/v1/planning-sessions/{id}/messages
@@ -7245,6 +7274,8 @@ Create a voyage directly from planning output.
 ```
 
 - Response: `200 OK` - `Voyage`
+- The voyage is linked to every objective linked to the session. When that would push an objective's id lists over 1000
+  the call fails with `400` `CollectionLimitExceeded`, naming the voyage that was dispatched.
 
 #### POST /api/v1/planning-sessions/{id}/stop
 
@@ -7338,6 +7369,11 @@ Create one scoped objective or backlog item.
 - Request body: `ObjectiveUpsertRequest`
 - Response: `201 Created` - `Objective`
 - Notes: `POST /api/v1/backlog` is the preferred user-facing alias; both routes persist the same underlying `Objective`
+- Limits: `Tags`, `AcceptanceCriteria`, `NonGoals`, `RolloutConstraints`, `EvidenceLinks`, and `SuggestedPlaybooks` hold
+  at most 256 entries each, and every id list (`FleetIds`, `VesselIds`, `PlanningSessionIds`, `RefinementSessionIds`,
+  `VoyageIds`, `MissionIds`, `CheckRunIds`, `ReleaseIds`, `DeploymentIds`, `IncidentIds`, `BlockedByObjectiveIds`) at
+  most 1000. A larger list is `400` with `Data.Code` `CollectionLimitExceeded` naming the field; nothing is stored. The
+  same limits apply to updates and to refinement summaries applied to the item.
 
 #### POST /api/v1/objectives/reorder and POST /api/v1/backlog/reorder
 
@@ -7354,8 +7390,9 @@ Apply one or more explicit backlog rank updates.
 }
 ```
 
-- Request body: `ObjectiveReorderRequest`
-- Response: `200 OK` - `List<Objective>`
+- Request body: `ObjectiveReorderRequest` (at most 1000 `Items`; more is `400` `CollectionLimitExceeded`)
+- Response: `200 OK` - `ObjectiveReorderResult`: `{ Updated, Items: [{ ObjectiveId, Rank }] }`, the ranks that were
+  applied (it no longer returns the reordered objectives; read them with `POST /api/v1/backlog/enumerate`)
 
 #### POST /api/v1/objectives/import/github
 
@@ -7448,11 +7485,24 @@ Create one captain-backed refinement session for an objective or backlog item.
 
 #### GET /api/v1/objective-refinement-sessions/{id}
 
-Read one refinement session with transcript, captain, vessel, and linked objective/backlog detail.
+Read one refinement session with its captain, vessel, and linked objective/backlog item, and the transcript's
+`MessageCount`. The detail no longer embeds `Messages`; read the transcript with
+`POST /api/v1/objective-refinement-sessions/{id}/messages/enumerate`.
 
 **Permission:** Authenticated
 
-- Response: `200 OK` - `ObjectiveRefinementSessionDetail`
+- Response: `200 OK` - `ObjectiveRefinementSessionDetail` (`Session`, `MessageCount`, `Captain`, `Vessel`, `Objective`)
+- Errors: `404 Not Found`, `501 Not Implemented`
+
+#### POST /api/v1/objective-refinement-sessions/{id}/messages/enumerate
+
+One page of the session's transcript, paged in the database: newest first (`CreatedDescending`, the default) or oldest
+first (`CreatedAscending`), by sequence with the id as the tie-break. Paging comes from the JSON body
+(`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000) or the matching querystring parameters.
+
+**Permission:** Authenticated
+
+- Response: `200 OK` - `EnumerationResult<ObjectiveRefinementMessage>`
 - Errors: `404 Not Found`, `501 Not Implemented`
 
 #### POST /api/v1/objective-refinement-sessions/{id}/messages

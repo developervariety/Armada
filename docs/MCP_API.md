@@ -172,6 +172,11 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [approve_ask_proposal](#approve_ask_proposal)
     - [reject_ask_proposal](#reject_ask_proposal)
     - [get_ask_work](#get_ask_work)
+    - [list_ask_work](#list_ask_work)
+    - [list_ask_work_missions](#list_ask_work_missions)
+    - [list_ask_work_targets](#list_ask_work_targets)
+    - [list_ask_proposals](#list_ask_proposals)
+    - [list_ask_tool_calls](#list_ask_tool_calls)
   - **Merge Queue**
     - [get_merge_entry](#get_merge_entry)
     - [enqueue_merge](#enqueue_merge)
@@ -419,9 +424,11 @@ handler is registered through the Ask gate, which checks that claim:
   `get_prompt_template`, `get_release`, `get_runbook`, `get_runbook_execution`, `get_vessel`, `get_workflow_profile`), the
   workflow profile readers (`validate_workflow_profile`, `resolve_workflow_profile`, `preview_workflow_profile`; validate
   saves nothing), and the `list_*` readers
-  (`list_backlog`, `list_backlog_refinement_sessions`, `list_objectives`, `list_prompt_templates`,
+  (`list_backlog`, `list_backlog_refinement_sessions`, `list_backlog_refinement_session_messages`,
+  `list_backlog_planning_session_messages`, `list_objectives`, `list_prompt_templates`,
   plus `get_cli_permission_request`), and the Ask Armada
-  readers (`list_ask_threads`, `get_ask_thread`, `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`). The list lives in
+  readers (`list_ask_threads`, `get_ask_thread`, `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`,
+  `list_ask_work`, `list_ask_work_missions`, `list_ask_work_targets`, `list_ask_proposals`, `list_ask_tool_calls`). The list lives in
   `AskToolPolicy`; any tool not on it (including tools added later) is treated as state-changing.
 - **`cli_permission_prompt`** (the captain CLI's own permission prompt) runs without becoming a proposal: an approver
   answers it as a [CLI permission request](#cli-permissions).
@@ -1001,7 +1008,7 @@ Read one memory (full content). Args: `memoryId` (required).
 
 ### create_memory
 
-Create a memory, or update it in place when a memory with the same `key` already exists (idempotent consolidation). Args: `content` (required); optional `type` (default `Semantic`), `topic`, `key`, `summary`, `salience` (0.0-1.0, default 0.5), `tags`, `sourceKind`, `sourceVoyageId`, `sourceMissionId`, `sourceVesselId`, `sourceDetail`, `vesselId`, `scope`.
+Create a memory, or update it in place when a memory with the same `key` already exists (idempotent consolidation). Args: `content` (required); optional `type` (default `Semantic`), `topic`, `key`, `summary`, `salience` (0.0-1.0, default 0.5), `tags` (at most 256; more is `InvalidArgument` with `code` `CollectionLimitExceeded`), `sourceKind`, `sourceVoyageId`, `sourceMissionId`, `sourceVesselId`, `sourceDetail`, `vesselId`, `scope`.
 
 ### update_memory
 
@@ -1415,8 +1422,9 @@ Errors are `McpToolError`s: `InvalidArgument` (a required field is missing), `No
 turn is already running, or the proposal was already decided), and `Unavailable` (the turn could not be started, or the
 server cannot run conversations: the stdio server lists these tools but answers every call with `Unavailable`).
 
-A captain answering inside a conversation may call the five readers (`list_ask_threads`, `get_ask_thread`,
-`list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`); every other tool here is refused with `Forbidden` and
+A captain answering inside a conversation may call the readers (`list_ask_threads`, `get_ask_thread`,
+`list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`, `list_ask_work`, `list_ask_work_missions`,
+`list_ask_work_targets`, `list_ask_proposals`, `list_ask_tool_calls`); every other tool here is refused with `Forbidden` and
 never proposed, so a captain cannot approve its own proposals, start turns, or change conversations (see
 [Ask Armada thread-scoped calls](#ask-armada-thread-scoped-calls)).
 
@@ -1437,7 +1445,10 @@ never proposed, so a captain cannot approve its own proposals, start turns, or c
 |---|---|---|---|
 | `threadId` | string | Yes | Conversation ID (`ath_`) |
 
-**Response:** `AskThreadDetail`: the conversation, its recent messages, its action proposals, and its tracked work.
+**Response:** `AskThreadDetail`: the conversation, `trackedWorkCount`, `pendingProposalCount`,
+`pendingCliPermissionCount`, and `activeTurn` (the running turn's progress with `toolCallCount`, or null). It embeds no
+collections: read them with [list_ask_work](#list_ask_work), [list_ask_proposals](#list_ask_proposals),
+[list_ask_tool_calls](#list_ask_tool_calls), and [list_ask_messages](#list_ask_messages).
 
 ### create_ask_thread
 
@@ -1479,10 +1490,11 @@ Permanently deletes the conversation and its messages, stopping its turn if one 
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `threadIds` | string[] | Yes | Conversation IDs |
+| `threadIds` | string[] | Yes | Conversation IDs, at most 1000 |
 
 **Response:** `{ "status": "Deleted", "deletedCount": 2, "deleted": [...], "notFound": [...] }`. IDs that do not exist
-or belong to someone else are listed under `notFound` and left alone.
+or belong to someone else are listed under `notFound` and left alone. More than 1000 IDs is `InvalidArgument` with
+`code` `CollectionLimitExceeded`, and nothing is deleted.
 
 ### list_ask_messages
 
@@ -1492,7 +1504,8 @@ or belong to someone else are listed under `notFound` and left alone.
 | `beforeSequence` | integer | No | Return messages before this sequence number (pass the lowest one you have to page back) |
 | `pageSize` | integer | No | Messages per page (default 50) |
 
-**Response:** `AskMessagePage { Messages, HasMore }`, newest page first.
+**Response:** `AskMessagePage { Messages, HasMore }`, newest page first. Each message carries `toolCallCount`; read the
+calls with [list_ask_tool_calls](#list_ask_tool_calls).
 
 ### send_ask_message
 
@@ -1576,7 +1589,70 @@ The proposed tool never runs. **Response:** the rejected proposal.
 | `threadId` | string | Yes | Conversation ID |
 | `workId` | string | Yes | Tracked work ID (a voyage, mission, or fleet action run the conversation started) |
 
-**Response:** the current snapshot of that work.
+**Response:** the current snapshot of that work: status and counts, with `missionCount` and `targetCount`. It embeds no
+rows; read them with [list_ask_work_missions](#list_ask_work_missions) and [list_ask_work_targets](#list_ask_work_targets).
+
+### list_ask_work
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `status` | string | No | State filter: `Active`, `Succeeded`, `Failed`, `Cancelled` (anything else is `InvalidArgument`) |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+| `order` | string | No | `CreatedDescending` (newest first, default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<AskTrackedWork>`, paged in the database; each item carries a counts-only snapshot.
+`NotFound` for another user's conversation.
+
+### list_ask_work_missions
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `workId` | string | Yes | Tracked work ID (`atw_`) |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+| `order` | string | No | `CreatedDescending` (newest first, default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<AskWorkMissionSnapshot>`: a voyage's missions paged in the database, or the single row
+of tracked mission work. Fleet action runs answer `InvalidArgument`; use [list_ask_work_targets](#list_ask_work_targets).
+
+### list_ask_work_targets
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `workId` | string | Yes | Tracked work ID of a fleet action run |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+
+**Response:** `EnumerationResult<AskWorkTargetSnapshot>`, one row per vessel by vessel name. Other work types answer
+`InvalidArgument`.
+
+### list_ask_proposals
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `status` | string | No | Proposal status filter, for example `Pending` (anything unknown is `InvalidArgument`) |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+| `order` | string | No | `CreatedDescending` (newest first, default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<AskActionProposal>`, paged in the database.
+
+### list_ask_tool_calls
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `messageId` | string | No | Message ID (`amg_`); omit it for the calls the running turn has made so far |
+| `pageNumber` | integer | No | 1-based page number (default 1) |
+| `pageSize` | integer | No | Items per page, 1 to 1000 (default 10; larger values are clamped to 1000) |
+| `order` | string | No | `CreatedDescending` (newest first, default) or `CreatedAscending` |
+
+**Response:** `EnumerationResult<AskMessageToolCall>`. `NotFound` when the message is not in the conversation.
 
 ### dispatch
 
@@ -4578,7 +4654,7 @@ Core CRUD and reorder tools (`*` marks a required argument):
 | `create_backlog_item` | TenantAdmin | Same as `create_objective` | Preferred user-facing alias |
 | `update_objective` | TenantAdmin | `objectiveId`* plus any `create_objective` field to change (`title` is optional here) | Only supplied fields change |
 | `update_backlog_item` | TenantAdmin | Same as `update_objective` | Preferred user-facing alias; identical schema |
-| `reorder_objectives` | TenantAdmin | `items`* (`[{ objectiveId*, rank* }]`) | Apply explicit rank updates |
+| `reorder_objectives` | TenantAdmin | `items`* (`[{ objectiveId*, rank* }]`, at most 1000) | Apply explicit rank updates. Returns `ObjectiveReorderResult { updated, items: [{ objectiveId, rank }] }` (not the objectives) |
 | `reorder_backlog_items` | TenantAdmin | Same as `reorder_objectives` | Preferred user-facing alias |
 | `delete_objective` | TenantAdmin | `objectiveId`* | Removes the normalized row and snapshot-backed current-state chain |
 | `delete_backlog_item` | TenantAdmin | `objectiveId`* | Preferred user-facing alias |
@@ -4587,9 +4663,10 @@ Refinement tools:
 
 | Tool | Permission | Arguments | Notes |
 |---|---|---|---|
-| `list_backlog_refinement_sessions` | Authenticated | `objectiveId`*, `pageNumber` (default 1), `pageSize` (default 25, max 100) | Lightweight, paginated list for one backlog item |
+| `list_backlog_refinement_sessions` | Authenticated | `objectiveId`*, `pageNumber` (default 1), `pageSize` (default 25, max 1000) | One page of session metadata for one backlog item, paged in the database, most recently updated first |
 | `create_backlog_refinement_session` | TenantAdmin | `objectiveId`*, `captainId`*, `fleetId`, `vesselId`, `title`, `initialMessage` | Start captain-backed refinement; `vesselId` is optional |
-| `get_backlog_refinement_session` | Authenticated | `sessionId`* (`ors_`) | Returns session, messages, captain, vessel, and linked backlog item |
+| `get_backlog_refinement_session` | Authenticated | `sessionId`* (`ors_`) | Returns session, `messageCount`, captain, vessel, and linked backlog item (no transcript) |
+| `list_backlog_refinement_session_messages` | Authenticated | `sessionId`* (`ors_`), `pageNumber`, `pageSize` (1 to 1000, default 10), `order` | One page of the transcript, newest first by default; `totalRecords` is the transcript length |
 | `send_backlog_refinement_message` | TenantAdmin | `sessionId`*, `content`* | Append one user message; launches the next refinement turn |
 | `summarize_backlog_refinement_session` | TenantAdmin | `sessionId`*, `messageId` | Create/select a structured summary (latest assistant turn when `messageId` is omitted) |
 | `apply_backlog_refinement_summary` | TenantAdmin | `sessionId`*, `messageId`, `markMessageSelected` (default `true`), `promoteBacklogState` (default `true`), `endSession` (default `true`) | Apply the summary back to the backlog item. Ends the session and releases its captain unless `endSession` is `false`. Returns `{ Summary, Objective, Session }` |
@@ -4600,12 +4677,16 @@ Planning handoff tools:
 | Tool | Permission | Arguments | Notes |
 |---|---|---|---|
 | `create_backlog_planning_session` | TenantAdmin | `objectiveId`*, `captainId`*, `vesselId`*, `fleetId`, `pipelineId`, `title`, `selectedPlaybooks` | Start a repository-aware planning session from one backlog item |
-| `get_backlog_planning_session` | Authenticated | `sessionId`* (`psn_`) | Returns transcript plus linked backlog items |
-| `dispatch_backlog_planning_session` | TenantAdmin | `sessionId`*, `messageId`, `title`, `description` | Dispatch a voyage from the planning session; keeps the backlog/objective linkage on the resulting voyage |
+| `get_backlog_planning_session` | Authenticated | `sessionId`* (`psn_`) | Returns `PlanningSessionDetail`: session, captain, vessel, `messageCount`, and `linkedObjectiveCount` (no transcript or linked items; list the items with `list_backlog` filtered by `planningSessionId`) |
+| `list_backlog_planning_session_messages` | Authenticated | `sessionId`* (`psn_`), `pageNumber`, `pageSize` (1 to 1000, default 10), `order` | One page of the transcript, newest first by default |
+| `dispatch_backlog_planning_session` | TenantAdmin | `sessionId`*, `messageId`, `title`, `description` | Dispatch a voyage from the planning session and link it to every linked backlog item. Returns `PlanningSessionDispatchResult { voyage, linkedObjectiveCount }` |
 
 Shared input notes:
 
 - `create_backlog_item` mirrors `create_objective` but uses backlog terminology in the tool name and descriptions
+- list fields are bounded: `tags`, `acceptanceCriteria`, `nonGoals`, `rolloutConstraints`, `evidenceLinks`, and
+  `suggestedPlaybooks` at 256 entries, every id list at 1000; a larger list is `InvalidArgument` with `code`
+  `CollectionLimitExceeded` naming the field, and nothing is stored
 - refinement sessions are lighter than planning and do not provision a dock/worktree by default
 - planning handoff tools are repository-aware and require an explicit vessel
 

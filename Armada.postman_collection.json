@@ -285,6 +285,12 @@
             "description": "Ask tracked work ID (atw_ prefix)."
         },
         {
+            "key": "askMessageId",
+            "value": "",
+            "type": "string",
+            "description": "Ask message ID (amg_ prefix), for reading one message's tool calls."
+        },
+        {
             "key": "promptTemplateName",
             "value": "",
             "type": "string"
@@ -4627,7 +4633,7 @@
                                 "{{askThreadId}}"
                             ]
                         },
-                        "description": "Thread detail: the thread, tracked work with embedded snapshots, and pending proposals. Another user's thread returns 404."
+                        "description": "Thread detail: the thread, TrackedWorkCount, PendingProposalCount, PendingCliPermissionCount, and the running turn (ToolCallCount). The collections are paged with the work, proposals, and tool-call enumerate requests below. Another user's thread returns 404."
                     }
                 },
                 {
@@ -4688,7 +4694,7 @@
                                 "multiple"
                             ]
                         },
-                        "description": "Bulk delete the caller's conversations. Returns the deleted IDs and the skipped IDs with a reason; another user's or an unknown thread is skipped."
+                        "description": "Bulk delete the caller's conversations (at most 1000 IDs; more is 400 CollectionLimitExceeded and nothing is deleted). Returns the deleted IDs and the skipped IDs with a reason; another user's or an unknown thread is skipped."
                     }
                 },
                 {
@@ -4994,7 +5000,206 @@
                                 "{{askTrackedWorkId}}"
                             ]
                         },
-                        "description": "Current work-card snapshot of one tracked item."
+                        "description": "Current work-card snapshot of one tracked item: status and counts with MissionCount and TargetCount. The rows are paged with Enumerate Work Missions and Enumerate Work Targets."
+                    }
+                },
+                {
+                    "name": "Enumerate Tracked Work",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/work/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "work",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the work the thread tracks, newest first by default, each with a counts-only snapshot. Status filters by state (Active, Succeeded, Failed, Cancelled). Owner only."
+                    }
+                },
+                {
+                    "name": "Enumerate Work Missions",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/work/{{askTrackedWorkId}}/missions/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "work",
+                                "{{askTrackedWorkId}}",
+                                "missions",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of mission rows of tracked voyage or mission work, paged in the database. Fleet action runs answer 400; use Enumerate Work Targets."
+                    }
+                },
+                {
+                    "name": "Enumerate Work Targets",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/work/{{askTrackedWorkId}}/targets/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "work",
+                                "{{askTrackedWorkId}}",
+                                "targets",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of target rows of a tracked fleet action run. Other work types answer 400."
+                    }
+                },
+                {
+                    "name": "Enumerate Proposals",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Status\": \"Pending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/proposals/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "proposals",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the thread's action proposals. Status filters by proposal status (for example Pending)."
+                    }
+                },
+                {
+                    "name": "Enumerate Message Tool Calls",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/messages/{{askMessageId}}/tool-calls/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "messages",
+                                "{{askMessageId}}",
+                                "tool-calls",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the tool calls the captain made while writing one message. 404 when the message is not in the thread."
+                    }
+                },
+                {
+                    "name": "Enumerate Turn Tool Calls",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/turn/tool-calls/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "turn",
+                                "tool-calls",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the tool calls the running turn has made so far (empty when no turn runs)."
                     }
                 },
                 {
@@ -9029,9 +9234,40 @@
                                 "{{planningSessionId}}"
                             ]
                         },
-                        "description": "Read one planning session with transcript, captain, and vessel context."
+                        "description": "Read one planning session (PlanningSessionDetail): the session, captain, vessel, MessageCount, and LinkedObjectiveCount. The transcript is paged with Enumerate Planning Session Messages."
                     },
                     "response": []
+                },
+                {
+                    "name": "Enumerate Planning Session Messages",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/planning-sessions/{{planningSessionId}}/messages/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "planning-sessions",
+                                "{{planningSessionId}}",
+                                "messages",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the planning transcript, newest first (CreatedDescending, the default) or oldest first (CreatedAscending). TotalRecords is the transcript length."
+                    }
                 },
                 {
                     "name": "Send Planning Message",
@@ -9527,7 +9763,7 @@
                                 "reorder"
                             ]
                         },
-                        "description": "Apply explicit rank updates to one or more backlog items.",
+                        "description": "Apply explicit rank updates to one or more backlog items (at most 1000 items). Returns ObjectiveReorderResult { Updated, Items: [{ ObjectiveId, Rank }] }.",
                         "body": {
                             "mode": "raw",
                             "raw": "{\n  \"Items\": [\n    {\n      \"ObjectiveId\": \"{{objectiveId}}\",\n      \"Rank\": 5\n    }\n  ]\n}"
@@ -9627,7 +9863,38 @@
                                 "{{objectiveRefinementSessionId}}"
                             ]
                         },
-                        "description": "Read one backlog refinement session and transcript."
+                        "description": "Read one backlog refinement session with its captain, vessel, objective, and MessageCount. The transcript is paged with Enumerate Refinement Session Messages."
+                    }
+                },
+                {
+                    "name": "Enumerate Refinement Session Messages",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/objective-refinement-sessions/{{objectiveRefinementSessionId}}/messages/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "objective-refinement-sessions",
+                                "{{objectiveRefinementSessionId}}",
+                                "messages",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the refinement transcript, newest first (CreatedDescending, the default) or oldest first (CreatedAscending)."
                     }
                 },
                 {
@@ -9816,7 +10083,7 @@
                                 "reorder"
                             ]
                         },
-                        "description": "Applies one or more explicit backlog rank updates to objectives."
+                        "description": "Applies one or more explicit backlog rank updates to objectives (at most 1000 items). Returns ObjectiveReorderResult { Updated, Items: [{ ObjectiveId, Rank }] }."
                     }
                 },
                 {
