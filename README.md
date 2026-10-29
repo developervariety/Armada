@@ -68,10 +68,10 @@ For release changes, see the [changelog](CHANGELOG.md#v100-2026-10-26). Read the
 [v1.0.0 upgrade guide](docs/UPGRADING.md) before replacing an existing server.
 Docker and local publish scripts remain the supported release paths.
 
-### Upstream adoption in v1.0.0
+### Upstream adoption
 
-The selected integration pass includes these capabilities. The sections below
-explain the fork behavior and link to its subsystem guides.
+The fork includes these upstream capabilities. The sections below explain the
+fork behavior and link to its subsystem guides.
 
 | Upstream capability | Included behavior |
 | --- | --- |
@@ -96,24 +96,35 @@ explain the fork behavior and link to its subsystem guides.
 | Mission and captain reporting | MCP `create_mission` takes an optional minimum captain tier. A refused captain model returns a typed reason. The setup wizard shows mission failure details. Lists link voyage titles and memory vessel names. |
 | Attempt provenance and rework prompts | Adapted: one provenance row per captain launch (captain, persona, runtime, model, runtime version, times, outcome) read through the caller-scoped `GET /api/v1/missions/{id}/attempts` and MCP. Rework prompts number the Judge findings with one demand each and drop whole findings over budget. Personas offer fork-written Lean and Compact prompt variants. Upstream's stage-outcome store and failure classifier are not adopted. |
 | Evaluation work and model probes | Missions and voyages carry `IsEvaluation`, which keeps them out of the production summary. A global administrator can probe a captain's model with one small prompt and no mission. |
+| Landing and stop recovery | Adapted: a sweep proposes `LandingFailed` missions whose work is already on the default branch, and an operator confirms each through the completion gates; nothing completes by itself. An operator stop ends the mission `Cancelled` with an `operator_stopped:` reason and its recovery ref. Autonomous rescue skips a failure that an active operator recovery mission names. Completion records whether the branch holds the captured commit, every dock reclaim is audited, and the Needs You inbox offers Retry Landing and Confirm Landed. |
+| Incident reads and page order | Adapted: incident lists and reads use a projection table written in the same transaction as each `incident.snapshot` event, which stays the record. Every paged `created_utc` order breaks ties by id on all four providers. |
+| Assignment and failure reporting | Adapted: a Judge prefers an admitted captain that wrote no earlier stage of its chain and falls back to an author. One eligibility rule builds the candidate pool and explains a `no_eligible_captain` hold with a reason for each captain. Mission reads derive `failureKind` from the latest attempt. Scope directives ignore `./` and trailing periods. |
+| Ask proposals, deletion and tool approval | Adapted: Ask proposes `armada_dispatch` or `armada_create_mission` with a ready brief only when the operator asks for a repository change. Archived conversations can be deleted singly or in bulk over REST and the Dashboard, with per-thread refusal reasons and no MCP delete tool. An opt-in setting routes the native tool calls of a saved Claude Code Ask turn to the owner for approval; missions keep their launch policy. Slow Dashboard deletes show progress. |
+| Endpoint options and request limits | Adapted: an inference endpoint stores tool enablement, read-only tools, an allowed-tool list, `maxTokens` and `maxIterations`, validated on save and applied at launch. Bulk-id, dispatch, chat-history and playbook lists, and summary bucket counts, are capped and refused with `CollectionLimitExceeded` ([request limits](docs/REQUEST_LIMITS.md)). |
+| Fixture battery | Reduced: C# and JavaScript packs. A run gives one captain each task as an evaluation voyage with landing `None` on a fixture vessel, grades it on the host and stores one run record. Runs start over REST only. See [Fixture Battery](docs/BATTERY.md). |
 | Route authorization and toolchain suggestions | A test walks every registered REST route and fails on an anonymous route outside a short allow list; the OpenAPI document and Swagger UI need a credential. A vessel toolchain read suggests build, test and lint commands without writing a profile. Workflow profiles store an optional abbreviated unit-test command. |
 
 ### Upstream features not imported
 
-| Capability | v1.0.0 decision |
+| Capability | Decision |
 | --- | --- |
 | TUI and mobile app with server push | Deferred; Dashboard and Helm remain the supported clients. |
-| Central CLI permission requests and rules | Requires a separate design; saved Ask approvals do not provide this tool-permission workflow. Ask launches use the fixed read-only native policy described in [saved conversations](docs/ASK_CONVERSATIONS.md#native-tool-access) instead. |
+| CLI permission requests for missions and other runtimes | Not adopted; missions keep their launch policy. Only saved Claude Code Ask turns can route tool calls for approval. |
 | Hosted CI workflow publication | Held. Local verification and the Linux gate remain available. |
 | Signed installers, package-service publishing and A/B-slot rebuilds | Excluded from this release scope; keep Docker and local scripts. |
 | Arbitrary shell Fleet Actions | Excluded; saved actions dispatch missions through existing Checks and landing rules. |
 | Upstream routing, blocked-stage and recovery replacements | Keep fork Smart Routing, exact-commit verification, incidents and bounded rescue rules. |
-| Upstream retention and bulk permanent deletion | Keep the fork archive and retention rules. |
-| Cloud model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) | Not ported. |
-| Ask pane interface refinements | Adapted in part: tool-call cards that survive a reload, server-side unread state, per-conversation drafts, a resizable conversation list, prompt history and work-card links. The per-reply copy button, the thread-list refresh control and the dispatch-first prompt are not adopted. |
-| Upstream's other developer conveniences (automatic workflow profiles, bulk checkout history, token heatmap, proxy-build and endpoint options, SDK and Harbor desktop) | Deferred. |
-| Stage-outcome store, failure-cause classifier, escalation records and handoff artifact store | Not adopted; the fork's attempt facts, Judge, incidents and rescue rules stay the record. |
-| pi coding-agent runtime, fixture battery, Ask dispatch-first prompt, Ask hard and bulk delete | Held for an owner decision. |
+| Automatic retention, an MCP delete tool, and deletion outside Ask conversations | Keep the fork archive and retention rules. |
+| Native cloud model-endpoint providers (xAI, Ollama Cloud, Azure OpenAI, Vertex AI, Bedrock) | Not ported; OpenAI-compatible endpoints cover xAI, Ollama Cloud and Azure. |
+| Endpoint custom headers and authentication, sampling and concurrency options | Not adopted. |
+| Ask pane interface refinements | Adapted in part: tool-call cards that survive a reload, server-side unread state, per-conversation drafts, a resizable conversation list, prompt history and work-card links. The per-reply copy button and the thread-list refresh control are not adopted. |
+| Upstream's other developer conveniences (automatic workflow profiles, bulk checkout history, token heatmap, proxy-build, SDK and Harbor desktop) | Deferred. |
+| Stage-outcome store, regex failure-cause classifier, escalation records and handoff artifact store | Not adopted; the fork's attempt facts, Judge, incidents and rescue rules stay the record. |
+| pi coding-agent runtime | Not adopted. |
+| WIP commit and push when an operator stops a mission | Not adopted; the stop keeps a local `recover/<mission>-<n>` ref and pushes nothing. |
+| Hard Judge exclusion of chain authors and the upstream blocked-stage model | Not adopted; the Judge preference is soft. |
+| Fixture battery languages beyond C# and JavaScript, rubric graders and repeated sampling | Deferred until the reduced battery proves useful. |
+| Voyage-size limits | Deferred; live voyages stay small. |
 | Removal of whole-list routes and a deprecation registry | Not adopted; the whole-list routes stay beside the paged routes. |
 
 This table records selected integration decisions. It is not an inventory of
@@ -129,7 +140,7 @@ so a retry cannot launch the same turn twice. Interrupted turns remain explicit
 and block replacement. Saved-turn MCP access proposes supported changes for exact
 human approval. Durable execution claims prevent replay, and work cards use recorded
 landing and rescue facts. Ask turns launch CLI runtimes with read-only native shell and
-file tools unless an operator widens the setting. See [saved conversations](docs/ASK_CONVERSATIONS.md).
+file tools unless an operator widens the setting or turns on owner approval. See [saved conversations](docs/ASK_CONVERSATIONS.md).
 
 Both versions offer saved Fleet Actions. The fork supports [Mission actions](docs/FLEET_ACTIONS.md)
 through its existing dispatch, checks and landing rules. Definitions and run
@@ -152,18 +163,11 @@ Both versions use salted PBKDF2-HMAC-SHA256 password storage. The fork keeps
 the SHA-256 API input and upgrades legacy rows with conditional password-only
 writes, so a concurrent password reset is preserved.
 
-Both versions refuse a non-loopback start while the seeded default admin
-password or `default` bearer token is active, deactivate that token once the
-password changes, and accept `ARMADA_INITIAL_ADMIN_PASSWORD` on the first start.
-The fork names its override `AllowDefaultCredentialsOnNetwork`, reports the
-default-password state on `whoami` and `authenticate` without blocking the
-session, and keeps its strict MCP authentication and caller scopes.
-
-Both versions seed a new tenant's admin with an explicit or one-time generated
-password and require the current password for a self-service password change.
-The fork applies that rule to `PUT /api/v1/users/{id}` and
-`PUT /api/v1/account/password`. An administrative reset of another user, and a
-request that uses the configured `ApiKey`, do not need it.
+The fork names its default-credential override `AllowDefaultCredentialsOnNetwork`
+and reports the default-password state on `whoami` and `authenticate` without
+blocking the session. The current-password rule applies to
+`PUT /api/v1/users/{id}` and `PUT /api/v1/account/password`; an administrative
+reset of another user and a request with the configured `ApiKey` do not need it.
 
 Both versions protect cancelled missions from stale full-row writes. The fork
 keeps explicit status-conditioned transitions and restart to `Pending`, and stops
@@ -263,9 +267,6 @@ captain, dock and process attempt before launch. Restart adoption requires the
 same authenticated owner and enrollment, process start identity and complete
 output replay. Uncertain writers retain their assignment and dock; a confirmed
 terminal result is acknowledged after the mission exit handler completes.
-
-The table above records the features outside this release scope. Supervised
-self-deploy remains disabled pending its separate safety integration.
 
 ---
 
