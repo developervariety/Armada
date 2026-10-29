@@ -10,6 +10,12 @@ namespace Armada.Core.Models
     public class LandingPreviewResult
     {
         /// <summary>
+        /// Most issues a preview carries: the number of distinct checks LandingPreviewService runs, each adding at most
+        /// one issue.
+        /// </summary>
+        public const int MaxIssues = 12;
+
+        /// <summary>
         /// Vessel identifier.
         /// </summary>
         public string VesselId { get; set; } = string.Empty;
@@ -119,7 +125,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Landing preview issues and warnings.
         /// </summary>
-        [CollectionBound(16, Reason = "One per fixed AddIssue site in LandingPreviewService (13 sites, none in a loop)")]
+        [CollectionBound(LandingPreviewResult.MaxIssues, Reason = "LandingPreviewService adds each of its MaxIssues checks at most once")]
         public List<LandingPreviewIssue> Issues { get; set; } = new List<LandingPreviewIssue>();
     }
 }

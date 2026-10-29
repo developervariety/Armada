@@ -43,8 +43,6 @@ They stay, because the reads are single-resource lookups; each large one has a p
 
 | Surface | Item | Paged alternative |
 |---|---|---|
-| REST, MCP, WebSocket | Missions in `GET /api/v1/voyages/{id}`, `voyage_status` with `includeMissions`, `get_voyage` | `POST /api/v1/missions/enumerate` with `voyageId`, `enumerate` missions with `voyageId` |
-| REST, MCP, WebSocket | `Voyages` in `GET /api/v1/status`, `status` (one progress row per active voyage) | `POST /api/v1/voyages/enumerate` with `status` |
 | REST, MCP | Targets in `GET /api/v1/fleet-action-runs/{id}`, `fleet_action_run_status` | `POST /api/v1/fleet-action-runs/{id}/targets/enumerate`, `enumerate` fleet_action_run_target |
 | REST, MCP | Tracked work and pending proposals in `GET /api/v1/ask/threads/{id}`, `get_ask_thread` | Messages: `POST /api/v1/ask/threads/{id}/messages/enumerate`, `list_ask_messages` |
 | REST, MCP | Transcripts in planning and refinement session reads (`GET /api/v1/planning-sessions/{id}`, `GET /api/v1/objective-refinement-sessions/{id}`, `get_backlog_planning_session`, `get_backlog_refinement_session`) | None (one conversation) |
@@ -79,6 +77,12 @@ REST route is answered with HTTP 410 Gone and a message naming the replacement, 
 | D-016 | REST | `GET /api/v1/signals/recent` | `POST /api/v1/signals/enumerate` | Unreleased |
 | D-017 | MCP | `list_cli_permission_requests` | `enumerate with entityType cli_permission_requests` | Unreleased |
 | D-018 | Behavior | WebSocket `list_cli_permission_requests` returned up to 100 rows as a bare list | It returns one page (`query.pageNumber`, `query.pageSize`) as an enumeration result | Unreleased |
+| D-019 | Behavior | `Voyages` (one progress row per Open or InProgress voyage) in `GET /api/v1/status`, MCP `status`, WebSocket `status` | The snapshot keeps `ActiveVoyages` and adds `InProgressVoyages` and `OpenVoyages`; the voyages are paged with `POST /api/v1/voyages/progress/enumerate`, MCP `list_voyage_progress`, WebSocket `list_voyage_progress` | Unreleased |
+| D-020 | Behavior | `Missions` embedded in `GET /api/v1/voyages/{id}` and WebSocket `get_voyage` | Both return `VoyageProgress` (the voyage with `TotalMissions`, `MissionCountsByStatus`, `VesselId`, `VesselCount`); missions are paged with `GET /api/v1/missions?voyageId=` or `POST /api/v1/missions/enumerate` | Unreleased |
+| D-021 | Behavior | MCP `voyage_status` with `includeMissions` (and `includeDescription`, `includeDiffs`, `includeLogs`) | `includeMissions: true` is rejected with InvalidArgument; use `enumerate` with entityType missions and `voyageId` | Unreleased |
+| D-022 | Behavior | `NotCancelled` (one entry per mission that could not be cancelled) in `DELETE /api/v1/voyages/{id}`, MCP `cancel_voyage`, WebSocket `cancel_voyage` | `VoyageCancelResult`: `CancelledMissions`, `NotCancelledMissions`, `FirstNotCancelledReason`; the remaining missions are read with the missions enumeration (`voyageId`, `status`) | Unreleased |
+| D-023 | Behavior | `Reviews`, `Comments`, `Checks` in `GET /api/v1/missions/{id}/github/pull-request` (one unpaged GitHub page each) | `ReviewCount`, `CommentCount`, `CheckCount` with `POST /api/v1/missions/{id}/github/pull-request/reviews/enumerate`, `.../comments/enumerate`, `.../checks/enumerate` (GitHub-paged, page size 1 to 100) | Unreleased |
+| D-024 | Behavior | `VoyageProgress.VesselIds` (every distinct vessel of a voyage) | `VesselId` (the vessel of the earliest mission) and `VesselCount` | Unreleased |
 
 Paged `POST .../enumerate` forms added alongside existing paged `GET` lists (the `GET` forms stay, because they already
 page): `/api/v1/tenants/enumerate`, `/api/v1/users/enumerate`, `/api/v1/credentials/enumerate`,

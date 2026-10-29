@@ -22,7 +22,8 @@ namespace Armada.Core.Models
         public int Deleted { get; set; }
 
         /// <summary>
-        /// Entities that were skipped (not found, actively in use, etc.).
+        /// Entities that were skipped (not found, actively in use, etc.). At most one per requested id, so bounded by
+        /// the request limit.
         /// </summary>
         [CollectionBound(CollectionLimits.MaxRequestItems, Reason = "One entry per requested id at most; request ids are limited by CollectionLimits.RequireRequestItems")]
         public List<DeleteMultipleSkipped> Skipped { get; set; } = new List<DeleteMultipleSkipped>();

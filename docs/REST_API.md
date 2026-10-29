@@ -1141,7 +1141,9 @@ If the credential is protected, the server returns `403 Forbidden`.
 
 #### GET /api/v1/status
 
-Returns aggregate status including captain counts, mission breakdown, active voyages, and recent signals. A global
+Returns aggregate status including captain counts, mission breakdown, active voyage counts (`ActiveVoyages`,
+`InProgressVoyages`, `OpenVoyages`), and the 10 most recent signals. The snapshot embeds no voyage list: page the active
+voyages with progress through [POST /api/v1/voyages/progress/enumerate](#post-apiv1voyagesprogressenumerate). A global
 administrator sees every tenant; any other caller (tenant admin or user) sees only its own tenant's captains, missions,
 voyages, and signals. The same scoping applies to the MCP `status` tool and the WebSocket `status.snapshot`.
 
@@ -1156,12 +1158,13 @@ voyages, and signals. The same scoping applies to the MCP `status` tool and the 
   "WorkingCaptains": 3,
   "StalledCaptains": 0,
   "ActiveVoyages": 1,
+  "InProgressVoyages": 1,
+  "OpenVoyages": 0,
   "MissionsByStatus": {
     "Pending": 3,
     "InProgress": 2,
     "Complete": 10
   },
-  "Voyages": [],
   "RecentSignals": [],
   "RemoteTunnel": {
     "Enabled": false,
@@ -3058,6 +3061,24 @@ Paginated enumeration of voyages with optional filtering and sorting.
 
 ---
 
+#### POST /api/v1/voyages/progress/enumerate
+
+One page of voyages with mission counts ([VoyageProgress](#voyageprogress)), paged in the database. With no `Status`
+filter the view is the active voyages (the ones `GET /api/v1/status` counts in `ActiveVoyages`): InProgress first, then
+Open, newest first within each (`Order` CreatedAscending reverses the time order). A `Status` filter selects one voyage
+status. The caller's tenant and user scope applies before counting, as for `POST /api/v1/voyages/enumerate`.
+
+**Permission:** Authenticated
+
+**Request Body:** [EnumerationQuery](#enumerationquery) (optional; `pageNumber`, `pageSize` 1 to 1000 default 10,
+`status`, `order`, `createdAfter`, `createdBefore`; querystring values override the body)
+
+**Response:** `200 OK` - [EnumerationResult](#enumerationresultt)\<[VoyageProgress](#voyageprogress)\>
+
+**Error:** `400` - Unknown status or malformed body
+
+---
+
 #### POST /api/v1/voyages
 
 Create a new voyage with optional missions. Missions are automatically dispatched to the target vessel.
@@ -3081,7 +3102,8 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 **Response:** `201 Created` - [Voyage](#voyage)
 
 **Errors:** `404` when `ObjectiveId`, `PipelineId`, or `Pipeline` names something that does not exist (an unknown
-pipeline is not replaced by the vessel or fleet default); `400` for other validation failures.
+pipeline is not replaced by the vessel or fleet default); `400` for other validation failures, including more than 1000
+`Missions` or more than 256 `SelectedPlaybooks` (`Data.Code` `CollectionLimitExceeded`).
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/voyages \
@@ -3104,7 +3126,9 @@ curl -X POST http://localhost:7890/api/v1/voyages \
 
 #### GET /api/v1/voyages/{id}
 
-Get a voyage and all its associated missions.
+Get a voyage with counts of its missions. The missions are not embedded: page them with `GET /api/v1/missions?voyageId=`
+or `POST /api/v1/missions/enumerate` with `VoyageId`; a Pending mission's `AssignmentBlocker` comes from
+`GET /api/v1/missions/{id}`.
 
 **Permission:** Authenticated
 
@@ -3113,16 +3137,22 @@ Get a voyage and all its associated missions.
 |---|---|
 | `id` | Voyage ID (`vyg_` prefix) |
 
-**Response:** `200 OK` - [VoyageDetail](#voyagedetail)
+**Response:** `200 OK` - [VoyageProgress](#voyageprogress)
 
 ```json
 {
-  "Voyage": { ... },
-  "Missions": [ ... ]
+  "Voyage": { "Id": "vyg_abc123", "Status": "InProgress", "SelectedPlaybooks": [], "..." : "..." },
+  "TotalMissions": 3,
+  "CompletedMissions": 1,
+  "FailedMissions": 0,
+  "InProgressMissions": 1,
+  "MissionCountsByStatus": { "Complete": 1, "InProgress": 1, "Pending": 1 },
+  "VesselId": "vsl_abc123",
+  "VesselCount": 1
 }
 ```
 
-`Pending` missions in `Missions` carry `AssignmentBlocker` (see `GET /api/v1/missions/{id}`). A voyage stays `InProgress`
+A voyage stays `InProgress`
 while any of its `WorkProduced` missions still has a merge-queue entry that is `Queued`, `Testing`, or `Passed`; it
 completes once the entry lands (or fails, or is cancelled).
 
@@ -3132,7 +3162,7 @@ completes once the entry lands (or fails, or is cancelled).
 
 #### DELETE /api/v1/voyages/{id}
 
-Cancel a voyage. Sets the voyage status to `Cancelled` and cancels its `Pending`, `Assigned`, and `Blocked` missions the same way `DELETE /api/v1/missions/{id}` does (a running agent is stopped first). In-progress missions are not affected. A mission whose agent did not confirm it stopped is left unchanged and listed in `NotCancelled`.
+Cancel a voyage. Sets the voyage status to `Cancelled` and cancels its `Pending`, `Assigned`, and `Blocked` missions the same way `DELETE /api/v1/missions/{id}` does (a running agent is stopped first). In-progress missions are not affected. A mission whose agent did not confirm it stopped is left unchanged and counted in `NotCancelledMissions` (the first reason is in `FirstNotCancelledReason`); read which missions remain with the missions enumeration filtered by `voyageId` and `status`.
 
 **Permission:** TenantAdmin
 
@@ -3141,13 +3171,14 @@ Cancel a voyage. Sets the voyage status to `Cancelled` and cancels its `Pending`
 |---|---|
 | `id` | Voyage ID (`vyg_` prefix) |
 
-**Response:** `200 OK`
+**Response:** `200 OK` - `VoyageCancelResult`
 
 ```json
 {
   "Voyage": { "Id": "vyg_abc123", "Status": "Cancelled", "..." : "..." },
   "CancelledMissions": 3,
-  "NotCancelled": [ { "MissionId": "msn_def456", "Reason": "The mission was not cancelled because its agent process ..." } ]
+  "NotCancelledMissions": 1,
+  "FirstNotCancelledReason": "msn_def456: The mission was not cancelled because its agent process ..."
 }
 ```
 
@@ -3183,6 +3214,8 @@ Permanently delete a voyage and all its associated missions from the database. *
 #### `POST /api/v1/voyages/delete/multiple`
 
 Batch delete multiple voyages and their associated missions from the database by ID. Voyages that are Open/InProgress or have active missions are skipped. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+
+`Ids` holds at most 1000 ids; more is rejected with `400` and `Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit` 1000, `Actual`), and nothing is deleted. `Skipped` therefore holds at most 1000 entries.
 
 **Permission:** TenantAdmin
 
@@ -3281,7 +3314,11 @@ Paginated enumeration of lightweight mission summaries with optional filtering a
 
 #### GET /api/v1/missions/history
 
-Return aggregated mission counts by time bucket for dashboard history charts.
+Return aggregated mission counts by time bucket for dashboard history charts. Missions are counted per bucket and
+status in the database (vessel and fleet filters included), never loaded one row each. The window divided by
+`bucketMinutes` may produce at most 1000 buckets; a request that would produce more is rejected with `400` and
+`Data.Code` `CollectionLimitExceeded` (use a larger bucket or a shorter window). Default: the last 7 days in 60-minute
+buckets (169 buckets at most).
 
 **Permission:** Authenticated
 
@@ -3348,9 +3385,11 @@ yet. `Reason` is one of `AwaitingDispatch`, `VesselMissing`, `VesselMisconfigure
 `DependencyHandoffPending`, `WaitingForVoyageWorkers`, `VesselBroadScopeMissionActive`, `BroadScopeWaitingForVessel`,
 `VesselConcurrencyLimit`, `NoCaptains`, `NoIdleCaptain`, or `NoEligibleCaptain`; `Summary` is an English sentence;
 `UntilUtc` is when it clears on its own (for example when the only captain's quarantine ends); `DependsOnMissionId` and
-`BlockingMissionIds` name the missions it waits for; and `Captains` lists what each captain in the tenant is doing
-(`State`, `Detail`, and the `MissionId`, `PlanningSessionId`, `RefinementSessionId`, `ObjectiveId`, or
+`BlockingMissionIds` name the missions it waits for (the first 25; `BlockingMissionCount` is the full count); and
+`Captains` lists what each captain in the tenant is doing (the first 25 by name; `CaptainCount` is the full count:
+`State`, `Detail`, and the `MissionId`, `PlanningSessionId`, `RefinementSessionId`, `ObjectiveId`, or
 `QuarantineUntilUtc` and `QuarantineReason` that hold it). The field is absent for other statuses and in list responses.
+`PlaybookSnapshots` holds one snapshot per selected playbook (at most 256, the dispatch limit on `SelectedPlaybooks`).
 
 A mission whose captain is running also carries `Activity` when its runtime streams structured output (Claude Code and
 Codex missions; see [Mission progress streaming](CAPTAINS.md#mission-progress-streaming)): the captain's latest tool
@@ -3366,6 +3405,8 @@ when the captain is not running and in list responses; the `mission.activity` We
   "UntilUtc": null,
   "DependsOnMissionId": null,
   "BlockingMissionIds": [],
+  "BlockingMissionCount": 0,
+  "CaptainCount": 1,
   "Captains": [
     { "CaptainId": "cpt_abc", "CaptainName": "Setup Captain", "State": "Refining", "Detail": "refining backlog item 'Add retries' (stop the refinement session to free it)", "RefinementSessionId": "ors_abc", "ObjectiveId": "obj_abc" }
   ],
@@ -3390,7 +3431,24 @@ Read normalized GitHub pull-request evidence for one mission when that mission h
 **Error:** `400` - Mission is missing a PR URL or GitHub repository context
 **Error:** `404` - Mission not found
 
-> **Note:** The response includes PR state, requested reviewers, reviews, issue comments, and commit check-run evidence. Token resolution follows `GitHubTokenOverride` first, then the global `GitHubToken`.
+> **Note:** The response includes PR state, review status, the first 100 requested reviewers and labels with their full counts (`RequestedReviewerCount`, `LabelCount`), and `ReviewCount`, `CommentCount`, and `CheckCount`. It embeds no review, comment, or check list. `ReviewStatus` is computed over every review (read from GitHub in pages of 100, up to 1000; `ReviewStatusComplete` is false beyond that). Token resolution follows `GitHubTokenOverride` first, then the global `GitHubToken`.
+
+#### POST /api/v1/missions/{id}/github/pull-request/reviews/enumerate
+
+One page of the reviews on the mission's pull request, paged by GitHub (`per_page`/`page`), with an exact `TotalRecords`.
+The same shape is served by `.../comments/enumerate` (issue comments, `GitHubPullRequestComment`) and
+`.../checks/enumerate` (provider checks on the head commit, `GitHubPullRequestCheck`; an empty page when there is no
+head commit).
+
+**Permission:** Authenticated (same scope as `GET /api/v1/missions/{id}`)
+
+**Request Body:** [EnumerationQuery](#enumerationquery) (optional): `PageNumber`, `PageSize` 1 to 100 (GitHub's largest
+page; a larger value is normalized to 100), default 10, and `Order` (`CreatedAscending` is GitHub's order, oldest first;
+`CreatedDescending`, the default, is newest first). Querystring values override the body.
+
+**Response:** `200 OK` - [EnumerationResult](#enumerationresultt)\<`GitHubPullRequestReview`\>
+**Error:** `400` - Mission is missing a PR URL or GitHub fails
+**Error:** `404` - Mission not found
 
 ---
 
@@ -3582,6 +3640,8 @@ Permanently delete a mission from the database, removing telemetry events that r
 #### `POST /api/v1/missions/delete/multiple`
 
 Batch delete multiple missions from the database by ID. Returns a summary of deleted and skipped entries. **This cannot be undone.**
+
+`Ids` holds at most 1000 ids; more is rejected with `400` and `Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit` 1000, `Actual`), and nothing is deleted. `Skipped` therefore holds at most 1000 entries.
 
 **Permission:** TenantAdmin
 
@@ -4837,6 +4897,8 @@ Permanently delete a signal by ID.
 
 Batch soft-delete multiple signals by marking them as read. Returns a summary of deleted and skipped entries.
 
+`Ids` holds at most 1000 ids; more is rejected with `400` and `Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit` 1000, `Actual`), and nothing is deleted. `Skipped` therefore holds at most 1000 entries.
+
 **Permission:** TenantAdmin
 
 **Request Body:**
@@ -4942,6 +5004,8 @@ Delete a single event by ID.
 #### `POST /api/v1/events/delete/multiple`
 
 Batch delete multiple events by ID. Returns a summary of deleted and skipped entries.
+
+`Ids` holds at most 1000 ids; more is rejected with `400` and `Data.Code` `CollectionLimitExceeded` (`Field` `Ids`, `Limit` 1000, `Actual`), and nothing is deleted. `Skipped` therefore holds at most 1000 entries.
 
 **Permission:** TenantAdmin
 
@@ -5885,7 +5949,7 @@ decide only when `Permissions.AllowOwnerApproval` is on, otherwise `Detail` ends
 
 #### POST /api/v1/inbox/enumerate
 
-One page of the needs-you inbox items, most urgent first (`TotalRecords` is the whole count). Paging comes from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of the needs-you inbox items (`TotalRecords` is the exact count). Each kind is read from its own source one page at a time (missions, merge entries, and deployments are paged and counted in the database under the caller's scope), and kinds follow a fixed urgency order: `review`, `landing_failed`, `merge_failed`, `deployment_failed`, `deployment_approval`, `ask_proposal`, `cli_permission`, `failed`, `stalled_captain`, newest first within a kind. Paging comes from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
 
 **Permission:** Authenticated (scoped as described above; this replaces the removed `GET /api/v1/inbox`)
 
@@ -9135,7 +9199,7 @@ An atomic unit of work assigned to a captain.
 | `ReviewDeadlineUtc` | datetime? | null | When a mission parked in `Review` is escalated and its dock and captain freed |
 | `ReviewedUtc` | datetime? | null | When the latest review decision was made |
 | `AgentOutput` | string? | null | Accumulated agent stdout (architect marker parsing and pipeline handoff) |
-| `AssignmentBlocker` | object? | null | Why a `Pending` mission is still waiting for a captain; computed on single-mission and voyage reads, absent otherwise (see [GET /api/v1/missions/{id}](#get-apiv1missionsid)) |
+| `AssignmentBlocker` | object? | null | Why a `Pending` mission is still waiting for a captain; computed on single-mission reads, absent otherwise (see [GET /api/v1/missions/{id}](#get-apiv1missionsid)) |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
 | `StartedUtc` | datetime? | null | Work start timestamp (UTC) |
 | `CompletedUtc` | datetime? | null | Completion timestamp (UTC) |
@@ -9395,20 +9459,13 @@ Aggregate status summary returned by the status endpoint.
   "WorkingCaptains": 3,
   "StalledCaptains": 0,
   "ActiveVoyages": 1,
+  "InProgressVoyages": 1,
+  "OpenVoyages": 0,
   "MissionsByStatus": {
     "Pending": 3,
     "InProgress": 2,
     "Complete": 10
   },
-  "Voyages": [
-    {
-      "Voyage": { ... },
-      "TotalMissions": 5,
-      "CompletedMissions": 3,
-      "FailedMissions": 0,
-      "InProgressMissions": 2
-    }
-  ],
   "RecentSignals": [],
   "RemoteTunnel": {
     "Enabled": false,
@@ -9440,10 +9497,11 @@ Aggregate status summary returned by the status endpoint.
 | `IdleCaptains` | int | Number of idle captains |
 | `WorkingCaptains` | int | Number of working captains |
 | `StalledCaptains` | int | Number of stalled captains |
-| `ActiveVoyages` | int | Total active voyages |
-| `MissionsByStatus` | dict\<string, int\> | Mission counts grouped by status |
-| `Voyages` | array | Active [VoyageProgress](#voyageprogress) objects |
-| `RecentSignals` | array | Recent [Signal](#signal) objects |
+| `ActiveVoyages` | int | Total active (Open or InProgress) voyages; page them with `POST /api/v1/voyages/progress/enumerate` |
+| `InProgressVoyages` | int | InProgress voyages |
+| `OpenVoyages` | int | Open voyages |
+| `MissionsByStatus` | dict\<string, int\> | Mission counts grouped by status (at most one entry per status) |
+| `RecentSignals` | array | The 10 most recent [Signal](#signal) objects |
 | `RemoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `TimestampUtc` | datetime | Snapshot timestamp (UTC) |
 | `MemoryPressureDeferrals` | long | 0 | Dispatch attempts deferred because the host was under memory pressure |
@@ -9472,12 +9530,7 @@ Current outbound remote tunnel status and telemetry.
 
 ---
 
-#### VoyageProgress
-
-Progress information for an active voyage, nested in ArmadaStatus.
-
-| Field | Type | Description |
-|---|---|---|
+---|---|---|
 | `Voyage` | [Voyage](#voyage) | Voyage details |
 | `TotalMissions` | int | Total missions in voyage |
 | `CompletedMissions` | int | Number of completed missions |
@@ -10260,21 +10313,21 @@ Paginated result wrapper returned by all list and enumerate endpoints.
 
 ---
 
-#### VoyageDetail
+#### VoyageProgress
 
-Response from `GET /api/v1/voyages/{id}`.
-
-```json
-{
-  "Voyage": { ... },
-  "Missions": [ ... ]
-}
-```
+Response from `GET /api/v1/voyages/{id}` and each row of `POST /api/v1/voyages/progress/enumerate`: a voyage with counts
+of its missions (missions are never embedded).
 
 | Field | Type | Description |
 |---|---|---|
 | `Voyage` | [Voyage](#voyage) | Voyage details |
-| `Missions` | array\<[Mission](#mission)\> | All missions in this voyage |
+| `TotalMissions` | int | Missions in the voyage |
+| `CompletedMissions` | int | Complete or WorkProduced missions |
+| `FailedMissions` | int | Failed or LandingFailed missions |
+| `InProgressMissions` | int | Assigned, InProgress, Verifying, Testing, Review, or PullRequestOpen missions |
+| `MissionCountsByStatus` | object | Count per mission status (only statuses with missions; at most one entry per status) |
+| `VesselId` | string | Vessel of the earliest mission, or null |
+| `VesselCount` | int | Distinct vessels the missions target |
 
 ---
 

@@ -71,7 +71,8 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(0, status.IdleCaptains);
                     AssertEqual(0, status.WorkingCaptains);
                     AssertEqual(0, status.ActiveVoyages);
-                    AssertEqual(0, status.Voyages.Count);
+                    AssertEqual(0, status.InProgressVoyages);
+                    AssertEqual(0, status.OpenVoyages);
                 }
             }));
 
@@ -153,10 +154,12 @@ namespace Test.Shared.Suites.Services
                     ArmadaStatus status = await service.GetStatusAsync();
 
                     AssertEqual(1, status.ActiveVoyages);
-                    AssertEqual(1, status.Voyages.Count);
-                    AssertEqual(2, status.Voyages[0].TotalMissions);
-                    AssertEqual(1, status.Voyages[0].CompletedMissions);
-                    AssertEqual(1, status.Voyages[0].InProgressMissions);
+                    AssertEqual(1, status.InProgressVoyages);
+                    EnumerationResult<VoyageProgress> page = await VoyageProgressReader.EnumerateAsync(db, AuthContext.Authenticated(null!, null!, true, false, "Test"), new EnumerationQuery());
+                    AssertEqual(1L, page.TotalRecords);
+                    AssertEqual(2, page.Objects[0].TotalMissions);
+                    AssertEqual(1, page.Objects[0].CompletedMissions);
+                    AssertEqual(1, page.Objects[0].InProgressMissions);
                 }
             }));
 

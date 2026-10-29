@@ -279,6 +279,8 @@ aggregate that `GET /api/v1/status` returns for the socket's identity: a global 
     "workingCaptains": 2,
     "stalledCaptains": 1,
     "activeVoyages": 2,
+    "inProgressVoyages": 1,
+    "openVoyages": 1,
     "memoryPressureDeferrals": 0,
     "missionsByStatus": {
       "Pending": 3,
@@ -286,15 +288,6 @@ aggregate that `GET /api/v1/status` returns for the socket's identity: a global 
       "Complete": 10,
       "Failed": 1
     },
-    "voyages": [
-      {
-        "voyage": { "...": "Voyage object" },
-        "totalMissions": 5,
-        "completedMissions": 3,
-        "failedMissions": 0,
-        "inProgressMissions": 2
-      }
-    ],
     "recentSignals": [],
     "remoteTunnel": {
       "enabled": false,
@@ -1038,7 +1031,8 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `update_vessel_context` | Update vessel project context and style guide | `id`, `data` |
 | | `delete_vessel` | Delete vessel | `id` |
 | **Voyage** | `list_voyages` | List/enumerate voyages | optional `query` |
-| | `get_voyage` | Get voyage by ID | `id` |
+| | `list_voyage_progress` | One page of voyages with mission counts (active by default) | optional `query`, `status` |
+| | `get_voyage` | Get voyage by ID (with mission counts) | `id` |
 | | `create_voyage` | Create voyage | `data` |
 | | `cancel_voyage` | Cancel voyage | `id` |
 | | `purge_voyage` | Permanently delete voyage and all missions | `id` |
@@ -1115,8 +1109,9 @@ Get the current Armada status.
     "workingCaptains": 2,
     "stalledCaptains": 1,
     "activeVoyages": 2,
+    "inProgressVoyages": 1,
+    "openVoyages": 1,
     "missionsByStatus": { "Pending": 3, "InProgress": 2 },
-    "voyages": [],
     "recentSignals": [],
     "timestampUtc": "2026-03-07T12:34:56.789Z"
   }
@@ -1620,9 +1615,31 @@ List or enumerate voyages with optional pagination and filtering.
 
 ---
 
+#### list_voyage_progress
+
+One page of voyages with mission counts ([VoyageProgress](#voyageprogress)), the same view as REST
+`POST /api/v1/voyages/progress/enumerate`: with no status, the active voyages (InProgress first, then Open, newest first
+within each); `status` (or `query.status`) selects one voyage status. Scoped to the connection's identity; needs an
+authenticated connection.
+
+**Request:**
+
+```json
+{
+  "Route": "command",
+  "action": "list_voyage_progress",
+  "query": { "pageNumber": 1, "pageSize": 10 }
+}
+```
+
+**Response:** `data` is an [EnumerationResult](#enumerationresult) of [VoyageProgress](#voyageprogress).
+
+---
+
 #### get_voyage
 
-Get a voyage by ID. Returns the voyage object along with its missions.
+Get a voyage by ID. Returns the voyage with counts of its missions ([VoyageProgress](#voyageprogress)); the missions are
+not embedded: page them with `list_missions` and `query.voyageId`.
 
 **Request:**
 
@@ -1647,9 +1664,13 @@ Get a voyage by ID. Returns the voyage object along with its missions.
   "action": "get_voyage",
   "data": {
     "voyage": { "id": "vyg_abc123", "title": "Feature batch", "...": "..." },
-    "missions": [
-      { "id": "msn_abc123", "title": "Task 1", "status": "Complete", "...": "..." }
-    ]
+    "totalMissions": 3,
+    "completedMissions": 1,
+    "failedMissions": 0,
+    "inProgressMissions": 1,
+    "missionCountsByStatus": { "Complete": 1, "InProgress": 1, "Pending": 1 },
+    "vesselId": "vsl_abc123",
+    "vesselCount": 1
   }
 }
 ```
@@ -1706,8 +1727,8 @@ Create a new voyage. When `data` includes both a `VesselId` and a non-empty `Mis
 
 Cancel a voyage. Its `Pending`, `Assigned`, and `Blocked` missions are also cancelled the same way `cancel_mission`
 cancels one (a running agent is stopped first; an assigned captain with no other active mission returns to `Idle`);
-`InProgress` missions keep running. A mission whose agent did not confirm it stopped is left unchanged and listed in
-the reply's `NotCancelled`.
+`InProgress` missions keep running. A mission whose agent did not confirm it stopped is left unchanged and counted in
+the reply's `notCancelledMissions`.
 
 **Request:**
 
@@ -1724,7 +1745,7 @@ the reply's `NotCancelled`.
 | `action` | string | Yes | `"cancel_voyage"` |
 | `id` | string | Yes | Voyage ID (prefix `vyg_`) |
 
-**Response:** `data` is `{ "voyage": { ... }, "cancelledMissions": 2 }`.
+**Response:** `data` is `{ "voyage": { ... }, "cancelledMissions": 2, "notCancelledMissions": 0, "firstNotCancelledReason": null }`.
 
 ---
 
@@ -2950,10 +2971,11 @@ recognize.
 | `idleCaptains` | int | Captains in Idle state |
 | `workingCaptains` | int | Captains in Working state |
 | `stalledCaptains` | int | Captains in Stalled state |
-| `activeVoyages` | int | Number of active (non-complete) voyages |
+| `activeVoyages` | int | Number of active (Open or InProgress) voyages; page them with `list_voyage_progress` |
+| `inProgressVoyages` | int | Number of InProgress voyages |
+| `openVoyages` | int | Number of Open voyages |
 | `memoryPressureDeferrals` | int | Cumulative dispatch attempts deferred because the host was under memory pressure |
 | `missionsByStatus` | object | Map of status string to count (e.g., `{"Pending": 3, "InProgress": 2}`) |
-| `voyages` | array | List of [VoyageProgress](#voyageprogress) objects |
 | `recentSignals` | array | List of recent [Signal](#signal) objects |
 | `remoteTunnel` | [RemoteTunnelStatus](#remotetunnelstatus) | Current outbound remote tunnel status |
 | `timestampUtc` | string | ISO 8601 UTC timestamp of the snapshot |
@@ -2985,7 +3007,9 @@ recognize.
 | `completedMissions` | int | Missions with status Complete |
 | `failedMissions` | int | Missions with status Failed |
 | `inProgressMissions` | int | Missions currently in progress |
-| `vesselIds` | string[] | Distinct vessel IDs referenced by the voyage's missions |
+| `missionCountsByStatus` | object | Count per mission status (only statuses with missions) |
+| `vesselId` | string | Vessel of the earliest mission, or null |
+| `vesselCount` | int | Distinct vessels the missions target |
 
 #### Voyage
 

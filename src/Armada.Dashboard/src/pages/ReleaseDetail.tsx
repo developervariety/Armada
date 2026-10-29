@@ -730,8 +730,8 @@ export default function ReleaseDetail() {
                       </div>
                     </div>
                     <div className="detail-grid" style={{ marginTop: '0.75rem' }}>
-                      <div className="detail-field" title={t('Number of GitHub status checks on the pull request.')}><span className="detail-label">{t('Checks')}</span><span>{pullRequest.checks.length}</span></div>
-                      <div className="detail-field" title={t('Number of reviews submitted on the pull request.')}><span className="detail-label">{t('Reviews')}</span><span>{pullRequest.reviews.length}</span></div>
+                      <div className="detail-field" title={t('Number of GitHub status checks on the pull request.')}><span className="detail-label">{t('Checks')}</span><span>{pullRequest.checkCount}</span></div>
+                      <div className="detail-field" title={t('Number of reviews submitted on the pull request.')}><span className="detail-label">{t('Reviews')}</span><span>{pullRequest.reviewCount}</span></div>
                       <div className="detail-field" title={t('Reviewers whose review is still requested.')}><span className="detail-label">{t('Reviewers')}</span><span>{pullRequest.requestedReviewers.length > 0 ? pullRequest.requestedReviewers.join(', ') : '-'}</span></div>
                       <div className="detail-field" title={t('When the pull request last changed on GitHub.')}><span className="detail-label">{t('Updated')}</span><span>{pullRequest.updatedUtc ? formatRelativeTime(pullRequest.updatedUtc) : '-'}</span></div>
                     </div>

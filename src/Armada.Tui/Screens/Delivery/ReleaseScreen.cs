@@ -254,8 +254,8 @@ namespace Armada.Tui.Screens.Delivery
             PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("repo", "Repository", p => p.Repository + " #" + p.Number.ToString(CultureInfo.InvariantCulture)) { Weight = 2 });
             PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("state", "State", p => StatusBadge.Label(p.State)) { Width = 12, Style = (p, t) => StatusBadge.Style(p.State, t) });
             PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("review", "Review", p => StatusBadge.Label(p.ReviewStatus)) { Width = 18, Style = (p, t) => StatusBadge.Style(p.ReviewStatus, t) });
-            PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("checks", "Checks", p => p.Checks.Count.ToString(CultureInfo.InvariantCulture)) { Width = 7 });
-            PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("reviews", "Reviews", p => p.Reviews.Count.ToString(CultureInfo.InvariantCulture)) { Width = 8 });
+            PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("checks", "Checks", p => p.CheckCount.ToString(CultureInfo.InvariantCulture)) { Width = 7 });
+            PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("reviews", "Reviews", p => p.ReviewCount.ToString(CultureInfo.InvariantCulture)) { Width = 8 });
             PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("reviewers", "Reviewers", p => p.RequestedReviewers.Count > 0 ? String.Join(", ", p.RequestedReviewers) : "-") { Weight = 2 });
             PullRequests.AddColumn(new GridColumn<GitHubPullRequestDetail>("updated", "Updated", p => EntityUi.When(Context, p.UpdatedUtc)) { Width = 12 });
             PullRequests.Activated += (s, p) => Context.External.OpenUrl(p.Url);

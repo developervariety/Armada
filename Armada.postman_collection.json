@@ -3113,6 +3113,36 @@
                     }
                 },
                 {
+                    "name": "Enumerate Voyage Progress",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10,\n  \"Status\": null\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/voyages/progress/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "voyages",
+                                "progress",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of voyages with mission counts (VoyageProgress). With no Status, the active voyages: InProgress first, then Open, newest first. The status snapshot carries only the counts."
+                    }
+                },
+                {
                     "name": "Create Voyage",
                     "event": [
                         {
@@ -3573,6 +3603,105 @@
                             ]
                         },
                         "description": "Read GitHub pull-request review, comment, and required-check evidence for one mission."
+                    }
+                },
+                {
+                    "name": "Enumerate Mission GitHub Pull Request Reviews",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10,\n  \"Order\": \"CreatedDescending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/github/pull-request/reviews/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "missions",
+                                "{{missionId}}",
+                                "github",
+                                "pull-request",
+                                "reviews",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the mission pull request's reviews, paged by GitHub (page size 1 to 100) with an exact TotalRecords. The pull-request detail carries only the counts."
+                    }
+                },
+                {
+                    "name": "Enumerate Mission GitHub Pull Request Comments",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10,\n  \"Order\": \"CreatedDescending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/github/pull-request/comments/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "missions",
+                                "{{missionId}}",
+                                "github",
+                                "pull-request",
+                                "comments",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the mission pull request's comments, paged by GitHub (page size 1 to 100) with an exact TotalRecords. The pull-request detail carries only the counts."
+                    }
+                },
+                {
+                    "name": "Enumerate Mission GitHub Pull Request Checks",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10,\n  \"Order\": \"CreatedDescending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/github/pull-request/checks/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "missions",
+                                "{{missionId}}",
+                                "github",
+                                "pull-request",
+                                "checks",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the mission pull request's checks, paged by GitHub (page size 1 to 100) with an exact TotalRecords. The pull-request detail carries only the counts."
                     }
                 },
                 {

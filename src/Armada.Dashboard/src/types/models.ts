@@ -404,8 +404,12 @@ export interface MissionAssignmentBlocker {
   summary: string;
   untilUtc: string | null;
   dependsOnMissionId: string | null;
+  /** The first 25 holding missions; blockingMissionCount is the full count. */
   blockingMissionIds: string[];
+  blockingMissionCount?: number;
+  /** The first 25 captains by name; captainCount is the full count. */
   captains: MissionAssignmentCaptainStatus[];
+  captainCount?: number;
   computedUtc: string;
 }
 
@@ -534,6 +538,32 @@ export interface Voyage {
   captainOverridesJson?: string | null;
   /** True for evaluation work (fixture battery, model evaluation); its stage outcomes never count as production data. */
   isEvaluation?: boolean;
+}
+
+/**
+ * GET /api/v1/voyages/{id} and each row of POST /api/v1/voyages/progress/enumerate: the voyage with counts of its
+ * missions. Missions are never embedded; page them with listMissions({ filters: { voyageId } }).
+ */
+export interface VoyageProgress {
+  voyage: Voyage;
+  totalMissions: number;
+  completedMissions: number;
+  failedMissions: number;
+  inProgressMissions: number;
+  /** Mission counts keyed by status name (only statuses with missions appear). */
+  missionCountsByStatus: Record<string, number>;
+  /** Vessel of the voyage's earliest mission, or null. */
+  vesselId: string | null;
+  /** Distinct vessels the voyage's missions target. */
+  vesselCount: number;
+}
+
+/** DELETE /api/v1/voyages/{id}: the cancelled voyage with counts. */
+export interface VoyageCancelResult {
+  voyage: Voyage;
+  cancelledMissions: number;
+  notCancelledMissions: number;
+  firstNotCancelledReason: string | null;
 }
 
 /** Capability tier used for fallback routing when a preferred captain is busy. */
@@ -763,15 +793,22 @@ export interface GitHubPullRequestDetail {
   headSha: string | null;
   authorLogin: string | null;
   mergedByLogin: string | null;
+  /** The first 100 requested reviewers; requestedReviewerCount is the full count. */
   requestedReviewers: string[];
+  requestedReviewerCount: number;
+  /** The first 100 labels; labelCount is the full count. */
   labels: string[];
+  labelCount: number;
   changedFiles: number;
   additions: number;
   deletions: number;
   commitCount: number;
-  reviews: GitHubPullRequestReview[];
-  comments: GitHubPullRequestComment[];
-  checks: GitHubPullRequestCheck[];
+  /** Totals; the items are paged with enumerateMissionPullRequestReviews / Comments / Checks. */
+  reviewCount: number;
+  commentCount: number;
+  checkCount: number;
+  /** False when the review status was computed from the first 1000 reviews only. */
+  reviewStatusComplete: boolean;
   createdUtc: string | null;
   updatedUtc: string | null;
   mergedUtc: string | null;

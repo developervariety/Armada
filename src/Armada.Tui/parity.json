@@ -2025,6 +2025,30 @@
     },
     {
       "kind": "api",
+      "key": "enumerateMissionPullRequestChecks",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMissionPullRequestChecksAsync",
+      "workstream": "W0.2",
+      "notes": "Missions"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateMissionPullRequestComments",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMissionPullRequestCommentsAsync",
+      "workstream": "W0.2",
+      "notes": "Missions"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateMissionPullRequestReviews",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMissionPullRequestReviewsAsync",
+      "workstream": "W0.2",
+      "notes": "Missions"
+    },
+    {
+      "kind": "api",
       "key": "enumerateModelEndpoints",
       "status": "implemented",
       "tui": "ArmadaClient.EnumerateModelEndpointsAsync",
@@ -2086,6 +2110,14 @@
       "tui": "ArmadaClient.EnumerateVesselImportBatchesAsync",
       "workstream": "W0.2",
       "notes": "Vessel Import"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateVoyageProgress",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateVoyageProgressAsync",
+      "workstream": "W0.2",
+      "notes": "Voyages"
     },
     {
       "kind": "api",

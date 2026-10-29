@@ -644,9 +644,10 @@ namespace Test.Shared.Suites.E2E
                 string voyageId = await CreateVoyageViaRestAsync(authClient, "ws-get-voyage").ConfigureAwait(false);
                 JsonElement resp = await WsCommandAsync(restPort, "get_voyage", new { id = voyageId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
-                VoyageDetailResponse data = DeserializeData<VoyageDetailResponse>(resp);
+                VoyageProgress data = DeserializeData<VoyageProgress>(resp);
                 AssertNotNull(data.Voyage);
-                AssertNotNull(data.Missions);
+                AssertTrue(data.TotalMissions >= 0, "get_voyage carries mission counts");
+                AssertFalse(resp.GetProperty("data").TryGetProperty("missions", out JsonElement _) || resp.GetProperty("data").TryGetProperty("Missions", out JsonElement _), "get_voyage embeds no missions");
             }));
 
             cases.Add(CaseAsync("get_voyage_non_existent_returns_error", "GetVoyage_NonExistent_ReturnsError", TestTags.Negative, async () =>

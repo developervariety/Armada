@@ -138,6 +138,13 @@ namespace Armada.Core.Database.Interfaces
         Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(MissionHistoryQuery query, CancellationToken token = default);
 
         /// <summary>
+        /// Count missions by history bucket and status in the database (one row per bucket and status that has
+        /// missions), over the query's window, vessel, and fleet filters. The bucket index counts whole buckets from
+        /// <see cref="MissionHistoryQuery.AlignedStartUtc"/>.
+        /// </summary>
+        Task<List<MissionHistoryBucketCount>> CountHistoryBucketsAsync(MissionHistoryQuery query, CancellationToken token = default);
+
+        /// <summary>
         /// Check if a mission exists by identifier.
         /// </summary>
         Task<bool> ExistsAsync(string id, CancellationToken token = default);
@@ -218,6 +225,13 @@ namespace Armada.Core.Database.Interfaces
         Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(string tenantId, MissionHistoryQuery query, CancellationToken token = default);
 
         /// <summary>
+        /// Count tenant-scoped missions by history bucket and status in the database (one row per bucket and status that has
+        /// missions), over the query's window, vessel, and fleet filters. The bucket index counts whole buckets from
+        /// <see cref="MissionHistoryQuery.AlignedStartUtc"/>.
+        /// </summary>
+        Task<List<MissionHistoryBucketCount>> CountHistoryBucketsAsync(string tenantId, MissionHistoryQuery query, CancellationToken token = default);
+
+        /// <summary>
         /// Check if a mission exists by tenant and identifier (tenant-scoped).
         /// </summary>
         Task<bool> ExistsAsync(string tenantId, string id, CancellationToken token = default);
@@ -261,5 +275,12 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate lightweight user-scoped mission history points in the supplied time range.
         /// </summary>
         Task<List<MissionHistoryPoint>> EnumerateHistoryPointsAsync(string tenantId, string userId, MissionHistoryQuery query, CancellationToken token = default);
+
+        /// <summary>
+        /// Count user-scoped missions by history bucket and status in the database (one row per bucket and status that has
+        /// missions), over the query's window, vessel, and fleet filters. The bucket index counts whole buckets from
+        /// <see cref="MissionHistoryQuery.AlignedStartUtc"/>.
+        /// </summary>
+        Task<List<MissionHistoryBucketCount>> CountHistoryBucketsAsync(string tenantId, string userId, MissionHistoryQuery query, CancellationToken token = default);
     }
 }

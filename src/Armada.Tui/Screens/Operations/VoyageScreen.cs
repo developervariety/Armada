@@ -3,6 +3,8 @@ namespace Armada.Tui.Screens.Operations
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Client;
     using Armada.Client.Models;
     using Armada.Core.Enums;
@@ -35,9 +37,24 @@ namespace Armada.Tui.Screens.Operations
         public Voyage? Voyage { get; private set; } = null;
 
         /// <summary>
-        /// Missions of the voyage.
+        /// Mission counts of the voyage, or null before the first load.
+        /// </summary>
+        public VoyageProgress? Progress { get; private set; } = null;
+
+        /// <summary>
+        /// Missions on the page the table shows (the table pages the voyage's missions from the server).
         /// </summary>
         public List<Mission> Missions { get; private set; } = new List<Mission>();
+
+        /// <summary>
+        /// Playbook snapshots of the voyage's first mission (read from that mission's detail), or empty.
+        /// </summary>
+        public List<MissionPlaybookSnapshot> Snapshots { get; private set; } = new List<MissionPlaybookSnapshot>();
+
+        /// <summary>
+        /// Missions per page in the table.
+        /// </summary>
+        public const int MissionPageSize = 25;
 
         /// <summary>
         /// Overview panel.
@@ -73,8 +90,8 @@ namespace Armada.Tui.Screens.Operations
 
             MissionGrid = new ArmadaGrid<Mission>(m => m.Id);
             MissionGrid.MultiSelect = false;
-            MissionGrid.ShowPagingBar = false;
-            MissionGrid.PageSize = 10000;
+            MissionGrid.PageSize = MissionPageSize;
+            MissionGrid.Loader = LoadMissionsAsync;
             MissionGrid.EmptyText = "No missions in this voyage.";
             MissionGrid.ModalHost = context.Modals;
             MissionGrid.AddColumn(new GridColumn<Mission>("title", "Mission", m => m.Title + "  " + m.Id) { Weight = 4 });
@@ -116,7 +133,15 @@ namespace Armada.Tui.Screens.Operations
         /// </summary>
         public int CompletedCount
         {
-            get { return Missions.Count(m => m.Status == MissionStatusEnum.Complete); }
+            get { return CountOf(MissionStatusEnum.Complete); }
+        }
+
+        /// <summary>
+        /// Missions in the voyage.
+        /// </summary>
+        public int TotalCount
+        {
+            get { return Progress?.TotalMissions ?? 0; }
         }
 
         /// <summary>
@@ -124,7 +149,7 @@ namespace Armada.Tui.Screens.Operations
         /// </summary>
         public int FailedCount
         {
-            get { return Missions.Count(m => m.Status == MissionStatusEnum.Failed); }
+            get { return CountOf(MissionStatusEnum.Failed); }
         }
 
         /// <inheritdoc />
@@ -140,8 +165,8 @@ namespace Armada.Tui.Screens.Operations
                 }
 
                 Voyage = d.Voyage;
-                Missions = d.Missions ?? new List<Mission>();
-                MissionGrid.SetLocalRows(Missions);
+                Progress = d;
+                MissionGrid.Reload();
                 Loaded = true;
                 LoadError = null;
                 Heading = String.IsNullOrEmpty(Voyage.Title) ? Voyage.Id : Voyage.Title;
@@ -157,6 +182,43 @@ namespace Armada.Tui.Screens.Operations
         #endregion
 
         #region Private-Methods
+
+        private int CountOf(MissionStatusEnum status)
+        {
+            if (Progress == null) return 0;
+            return Progress.MissionCountsByStatus.TryGetValue(status.ToString(), out int n) ? n : 0;
+        }
+
+        private async Task<GridPage<Mission>> LoadMissionsAsync(GridQuery query, CancellationToken token)
+        {
+            ArmadaPageQuery page = new ArmadaPageQuery(query.PageNumber, query.PageSize).With("voyageId", VoyageId).With("order", EnumerationOrderEnum.CreatedAscending.ToString());
+            EnumerationResult<Mission>? result = await Context.Client.ListMissionsAsync(page, token).ConfigureAwait(false);
+            List<Mission> rows = result?.Objects ?? new List<Mission>();
+            long total = result?.TotalRecords ?? rows.Count;
+            List<MissionPlaybookSnapshot> snapshots = new List<MissionPlaybookSnapshot>();
+            if (query.PageNumber == 1 && rows.Count > 0)
+            {
+                // List reads carry no playbook snapshots; the first mission's detail does (every mission of a voyage
+                // gets the voyage's playbook selections).
+                try
+                {
+                    Mission? first = await Context.Client.GetMissionAsync(rows[0].Id, token).ConfigureAwait(false);
+                    snapshots = first?.PlaybookSnapshots ?? new List<MissionPlaybookSnapshot>();
+                }
+                catch (ArmadaApiException)
+                {
+                    // The table still shows when the snapshot read fails.
+                }
+            }
+
+            Context.Dispatcher.Post(() =>
+            {
+                Missions = rows;
+                if (query.PageNumber == 1) Snapshots = snapshots;
+                Overview.Invalidate();
+            });
+            return new GridPage<Mission>(rows, total);
+        }
 
         private static bool IsActive(VoyageStatusEnum status)
         {
@@ -179,7 +241,7 @@ namespace Armada.Tui.Screens.Operations
             Dictionary<string, string> q = new Dictionary<string, string>(StringComparer.Ordinal);
             q["tab"] = "checks";
             q["prefill"] = "1";
-            q["vesselId"] = Missions.FirstOrDefault()?.VesselId ?? "";
+            q["vesselId"] = Progress?.VesselId ?? Missions.FirstOrDefault()?.VesselId ?? "";
             q["voyageId"] = Voyage.Id;
             string? branch = Missions.FirstOrDefault()?.BranchName;
             if (!String.IsNullOrEmpty(branch)) q["branchName"] = branch!;
@@ -192,10 +254,10 @@ namespace Armada.Tui.Screens.Operations
             if (Voyage == null) return;
             Dictionary<string, string> q = new Dictionary<string, string>(StringComparer.Ordinal);
             q["prefill"] = "1";
-            string? vessel = Missions.FirstOrDefault()?.VesselId;
+            string? vessel = Progress?.VesselId ?? Missions.FirstOrDefault()?.VesselId;
             if (!String.IsNullOrEmpty(vessel)) q["vesselId"] = vessel!;
+            // The release links the voyage; its missions follow from it, so the URL never lists every mission id.
             q["voyageIds"] = Voyage.Id;
-            q["missionIds"] = String.Join(",", Missions.Select(m => m.Id));
             q["title"] = String.IsNullOrEmpty(Voyage.Title) ? "Voyage Release" : Voyage.Title + " Release";
             Context.Navigate("/releases/new" + RouteMatch.BuildQuery(q));
         }
@@ -230,12 +292,24 @@ namespace Armada.Tui.Screens.Operations
 
         private void RetryFailed()
         {
-            List<Mission> failed = Missions.Where(m => m.Status == MissionStatusEnum.Failed).ToList();
-            if (failed.Count == 0) return;
-            Confirm("Retry Failed Missions", Tr("Retry {{count}} failed mission(s)? New missions will be created with the same parameters.", LocalizationArgs.Of("count", failed.Count)), () =>
+            int failedCount = FailedCount;
+            if (failedCount == 0) return;
+            Confirm("Retry Failed Missions", Tr("Retry {{count}} failed mission(s)? New missions will be created with the same parameters.", LocalizationArgs.Of("count", failedCount)), () =>
             {
                 Run(async (c, t) =>
                 {
+                    // Read every failed mission explicitly, one bounded page at a time, before creating the retries
+                    // (the new missions are Pending, so they never join the Failed pages being read).
+                    List<Mission> failed = new List<Mission>();
+                    for (int pageNumber = 1; ; pageNumber++)
+                    {
+                        ArmadaPageQuery fq = new ArmadaPageQuery(pageNumber, 100).With("voyageId", VoyageId).With("status", MissionStatusEnum.Failed.ToString());
+                        EnumerationResult<Mission>? page = await c.ListMissionsAsync(fq, t).ConfigureAwait(false);
+                        if (page == null || page.Objects.Count == 0) break;
+                        failed.AddRange(page.Objects);
+                        if (pageNumber >= page.TotalPages) break;
+                    }
+
                     foreach (Mission m in failed)
                     {
                         Mission retry = new Mission(m.Title, m.Description);
@@ -246,7 +320,7 @@ namespace Armada.Tui.Screens.Operations
                     }
                 }, () =>
                 {
-                    Toast(NotificationSeverityEnum.Success, Tr("Retried {{count}} failed mission(s).", LocalizationArgs.Of("count", failed.Count)));
+                    Toast(NotificationSeverityEnum.Success, Tr("Retried {{count}} failed mission(s).", LocalizationArgs.Of("count", failedCount)));
                     Load();
                 }, null, ex => ShowMessage(Tr("Retry failed: {{message}}", LocalizationArgs.Of("message", ex.Message))));
             }, "Retry");
@@ -289,17 +363,17 @@ namespace Armada.Tui.Screens.Operations
             doc.Time("Created", v.CreatedUtc, now);
             if (v.CompletedUtc.HasValue) doc.Time("Completed", v.CompletedUtc, now);
 
-            if (Missions.Count > 0)
+            if (TotalCount > 0)
             {
                 doc.Section("Progress");
-                int pct = (int)Math.Round(CompletedCount * 100.0 / Missions.Count);
+                int pct = (int)Math.Round(CompletedCount * 100.0 / TotalCount);
                 int barWidth = 40;
                 int filled = pct * barWidth / 100;
                 doc.Add(StyledText.From("[" + new string('#', filled), doc.Theme.Accent).Append(StyledText.From(new string('-', barWidth - filled) + "] " + pct + "%", doc.Theme.Muted)));
-                doc.Text(Tr("{{completed}}/{{total}} complete, {{failed}} failed", LocalizationArgs.Of("completed", CompletedCount, "total", Missions.Count, "failed", FailedCount)), doc.Theme.Muted);
+                doc.Text(Tr("{{completed}}/{{total}} complete, {{failed}} failed", LocalizationArgs.Of("completed", CompletedCount, "total", TotalCount, "failed", FailedCount)), doc.Theme.Muted);
             }
 
-            List<MissionPlaybookSnapshot> snapshots = Missions.FirstOrDefault()?.PlaybookSnapshots ?? new List<MissionPlaybookSnapshot>();
+            List<MissionPlaybookSnapshot> snapshots = Snapshots;
             List<SelectedPlaybook> selections = v.SelectedPlaybooks ?? new List<SelectedPlaybook>();
             if (snapshots.Count > 0 || selections.Count > 0)
             {
@@ -325,8 +399,8 @@ namespace Armada.Tui.Screens.Operations
                 }
             }
 
-            doc.Section("Missions", " (" + Missions.Count + ")");
-            doc.Note(Missions.Count == 0 ? "No missions in this voyage." : "] " + Tr("Missions") + ": d " + Tr("Diff") + "  l " + Tr("Log") + "  Enter " + Tr("Detail"));
+            doc.Section("Missions", " (" + TotalCount + ")");
+            doc.Note(TotalCount == 0 ? "No missions in this voyage." : "] " + Tr("Missions") + ": d " + Tr("Diff") + "  l " + Tr("Log") + "  Enter " + Tr("Detail"));
             return doc;
         }
 

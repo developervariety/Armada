@@ -222,6 +222,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            RequireDispatchLimits(missionDescriptions, selectedPlaybooks);
 
             // Verify vessel exists
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
@@ -324,6 +325,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            RequireDispatchLimits(missionDescriptions, selectedPlaybooks);
 
             // Verify vessel exists
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
@@ -439,6 +441,7 @@ namespace Armada.Core.Services
         public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
+            CollectionBounds.Validate(mission);
             if (mission.SelectedPlaybooks != null && mission.SelectedPlaybooks.Count > 0 && !String.IsNullOrEmpty(mission.TenantId))
             {
                 await _Playbooks.ResolveSelectionsAsync(mission.TenantId, mission.SelectedPlaybooks, token).ConfigureAwait(false);
@@ -480,6 +483,12 @@ namespace Armada.Core.Services
             }
 
             return mission;
+        }
+
+        private static void RequireDispatchLimits(List<MissionDescription> missionDescriptions, List<SelectedPlaybook>? selectedPlaybooks)
+        {
+            CollectionLimits.RequireRequestItems(missionDescriptions, "Missions");
+            CollectionLimits.RequireConfigItems(selectedPlaybooks, "SelectedPlaybooks");
         }
 
         private List<SelectedPlaybook> ClonePlaybookSelections(List<SelectedPlaybook>? selections)
@@ -862,6 +871,9 @@ namespace Armada.Core.Services
             bool allowBareVoyage,
             CancellationToken token = default)
         {
+            // One dispatch request carries at most MaxRequestItems missions (REST, MCP, and every other caller).
+            CollectionLimits.RequireCount(missionCount, "Missions", CollectionLimits.MaxRequestItems);
+
             // Objective link must exist when supplied.
             if (!String.IsNullOrWhiteSpace(objectiveId))
             {
@@ -1332,26 +1344,17 @@ namespace Armada.Core.Services
                 if (kvp.Value > 0) status.MissionsByStatus[kvp.Key.ToString()] = kvp.Value;
             }
 
-            // Active voyages
-            List<Voyage> activeVoyages = scoped
-                ? await _Database.Voyages.EnumerateByStatusAsync(tenantId!, VoyageStatusEnum.InProgress, token).ConfigureAwait(false)
-                : await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false);
-            List<Voyage> openVoyages = scoped
-                ? await _Database.Voyages.EnumerateByStatusAsync(tenantId!, VoyageStatusEnum.Open, token).ConfigureAwait(false)
-                : await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false);
-            status.ActiveVoyages = activeVoyages.Count + openVoyages.Count;
+            // Active voyage counts, counted in the database (a one-row page carries the exact total). The voyages
+            // themselves are read one page at a time through IVoyageService.EnumerateProgressAsync.
+            status.InProgressVoyages = await CountVoyagesAsync(tenantId, VoyageStatusEnum.InProgress, token).ConfigureAwait(false);
+            status.OpenVoyages = await CountVoyagesAsync(tenantId, VoyageStatusEnum.Open, token).ConfigureAwait(false);
+            status.ActiveVoyages = status.InProgressVoyages + status.OpenVoyages;
             status.MemoryPressureDeferrals = System.Threading.Interlocked.Read(ref _MemoryPressureDeferrals);
-
-            foreach (Voyage voyage in activeVoyages.Concat(openVoyages))
-            {
-                VoyageProgress? progress = await _Voyages.GetProgressAsync(voyage.Id, tenantId, token).ConfigureAwait(false);
-                if (progress != null) status.Voyages.Add(progress);
-            }
 
             // Recent signals
             status.RecentSignals = scoped
-                ? await _Database.Signals.EnumerateRecentAsync(tenantId!, 10, token).ConfigureAwait(false)
-                : await _Database.Signals.EnumerateRecentAsync(10, token).ConfigureAwait(false);
+                ? await _Database.Signals.EnumerateRecentAsync(tenantId!, ArmadaStatus.RecentSignalCount, token).ConfigureAwait(false)
+                : await _Database.Signals.EnumerateRecentAsync(ArmadaStatus.RecentSignalCount, token).ConfigureAwait(false);
 
             if (OnGetRemoteTunnelStatus != null)
             {
@@ -1359,6 +1362,15 @@ namespace Armada.Core.Services
             }
 
             return status;
+        }
+
+        private async Task<int> CountVoyagesAsync(string? tenantId, VoyageStatusEnum voyageStatus, CancellationToken token)
+        {
+            EnumerationQuery query = new EnumerationQuery { PageNumber = 1, PageSize = CollectionLimits.MinPageSize, Status = voyageStatus.ToString() };
+            EnumerationResult<Voyage> page = !String.IsNullOrEmpty(tenantId)
+                ? await _Database.Voyages.EnumerateAsync(tenantId!, query, token).ConfigureAwait(false)
+                : await _Database.Voyages.EnumerateAsync(query, token).ConfigureAwait(false);
+            return (int)Math.Min(int.MaxValue, page.TotalRecords);
         }
 
         /// <summary>
