@@ -3339,7 +3339,7 @@ Force purge a dock and its git worktree, even if a mission references it. **This
 
 #### `POST /api/v1/docks/{id}/repair`
 
-Runs git worktree repair on the dock. Non-destructive: no work is removed.
+Runs git worktree repair on the dock. Non-destructive: no work is removed. When the worktree directory is absent, repair recreates it from the dock's exact local branch under the managed dock root, and refuses when the branch is missing or the path is owned by another worktree.
 
 **Path Parameters:**
 

@@ -3660,7 +3660,8 @@ namespace Armada.Core.Services
                     .HandleAsync(mission, captain, refusal, policyPresent: false, token).ConfigureAwait(false);
                 if (decision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue)
                 {
-                    await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+                    // The continuation resumes the saved branch, so the dock that authorizes it stays active.
+                    await RetainRetryDockAsync(captain, mission, token).ConfigureAwait(false);
                     await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                     if (!String.IsNullOrEmpty(mission.VesselId))
                     {

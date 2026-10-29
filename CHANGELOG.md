@@ -11,6 +11,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Every pipeline expansion of a mission description stamps its stages with one persisted stage chain identity (SQLite migration 143, PostgreSQL 148, MySQL 136, SQL Server 139). The parallel-stage barrier waits only on siblings of the same chain, so a cancelled or failed independent root no longer holds another description's Judge in `parallel_stages_running`; unfinished, Failed, LandingFailed and Cancelled siblings of the same chain, and rows without an identity, still hold it.
 
+### Provider-failure retry docks
+
+- A provider safeguard block that continues a mission on an alternate runtime keeps the mission's active dock and saved branch, as credential and quota requeues already do, so the continuation resumes the saved work instead of cutting a fresh branch. A provider credential rejection (401) requeue has a regression test for the retained dock and worktree.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.
