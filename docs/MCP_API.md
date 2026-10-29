@@ -1111,8 +1111,8 @@ branches, terminal-voyage reconciliation, disk lifecycle, and a process stop for
 `armada_stop_captain`. Services that exist only inside the running admiral (the
 dispatch hold, the objective scheduler, planning and refinement session
 coordinators, the coordination board, harbor jobs, the context index, saved Ask
-conversations and the captain model probe) are not built, so their tools are not
-registered on stdio or report the service as unavailable.
+conversations, the captain model probe and the fixture battery) are not built, so
+their tools are not registered on stdio or report the service as unavailable.
 
 **SSH stdio bridge.** `scripts/mcp-ssh-http-bridge.mjs` requires
 `ARMADA_MCP_AUTH_HEADER_FILE`, an absolute path on the server to a file that

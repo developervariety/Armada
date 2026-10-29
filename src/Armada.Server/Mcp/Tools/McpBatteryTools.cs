@@ -47,12 +47,11 @@ namespace Armada.Server.Mcp.Tools
         /// Register the battery tools.
         /// </summary>
         /// <param name="register">Tool registration delegate.</param>
-        /// <param name="service">Battery run service.</param>
+        /// <param name="service">Battery run service, or null on a host without one; the packs tool then reports itself unavailable.</param>
         /// <param name="database">Database driver.</param>
-        public static void Register(RegisterToolDelegate register, BatteryRunService service, DatabaseDriver database)
+        public static void Register(RegisterToolDelegate register, BatteryRunService? service, DatabaseDriver database)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
-            if (service == null) throw new ArgumentNullException(nameof(service));
             if (database == null) throw new ArgumentNullException(nameof(database));
 
             register(
@@ -62,6 +61,7 @@ namespace Armada.Server.Mcp.Tools
                 (args) =>
                 {
                     if (!McpCallerContext.Require().IsAdmin) return Task.FromResult(Refused());
+                    if (service == null) return Task.FromResult(McpToolUnavailable.Create("fixture battery"));
                     return Task.FromResult((object)service.ListPacks());
                 });
 

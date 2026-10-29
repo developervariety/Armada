@@ -63,6 +63,7 @@ namespace Armada.Server.Mcp
         /// <param name="askActions">Optional saved-chat proposal gate. Standalone tools keep their ordinary behavior.</param>
         /// <param name="askThreads">Optional saved Ask conversation service enabling the read-only conversation tools.</param>
         /// <param name="askToolPermissions">Optional native tool permission service enabling the permission prompt tool; a host without one, such as the stdio server, does not register the tool.</param>
+        /// <param name="batteryRuns">Optional fixture battery service; without one the battery packs tool reports itself unavailable.</param>
         /// <param name="vesselCheckoutImportService">Optional local checkout service; its discovery and import tools remain registered with named unavailable results when absent.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
@@ -148,7 +149,7 @@ namespace Armada.Server.Mcp
             // mission evidence, so it sits in the caller-scoped catalogue beside unified recall.
             McpMissionChangeSummaryTools.Register(register, database, effectiveSettings, git, logging);
             McpMissionAttemptTools.Register(register, database);
-            if (batteryRuns != null) McpBatteryTools.Register(register, batteryRuns, database);
+            McpBatteryTools.Register(register, batteryRuns, database);
             if (captainAdministration == null)
             {
                 captainAdministration = new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);
