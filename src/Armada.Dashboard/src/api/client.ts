@@ -13,6 +13,7 @@ import type {
   EnumerationResult,
   Job,
   Fleet,
+  FleetDetailResponse,
   Vessel,
   Captain,
   CaptainToolAccessResult,
@@ -160,6 +161,8 @@ import type {
   VesselHealth,
   VesselHealthCriterion,
   VesselHealthDetail,
+  VesselDependency,
+  WorkspaceActiveMission,
   VesselHealthEnumerateRequest,
   VesselHealthEvaluateRequest,
   VesselHealthEvaluationStart,
@@ -803,11 +806,25 @@ export const deleteCredential = (id: string) => del<void>(`/api/v1/credentials/$
 // ==================== Fleets ====================
 export const listFleets = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Fleet>>(`/api/v1/fleets${buildQuery(params)}`);
-export const getFleet = (id: string) => get<Fleet>(`/api/v1/fleets/${id}`);
+/** The fleet and its vessel count; the vessels themselves are paged with listVessels and a fleetId filter. */
+export const getFleetDetail = (id: string) => get<FleetDetailResponse>(`/api/v1/fleets/${id}`);
+export const getFleet = async (id: string): Promise<Fleet> => (await getFleetDetail(id)).fleet;
 export const createFleet = (data: Partial<Fleet>) => post<Fleet>('/api/v1/fleets', data);
 export const updateFleet = (id: string, data: Partial<Fleet>) => put<Fleet>(`/api/v1/fleets/${id}`, data);
 export const deleteFleet = (id: string) => del<void>(`/api/v1/fleets/${id}`);
-export const deleteFleetsBatch = (ids: string[]) => post<BatchDeleteResult>('/api/v1/fleets/delete/multiple', { Ids: ids });
+/** The server accepts at most 1000 ids per bulk delete; larger selections are sent in chunks and the results merged. */
+export const BULK_DELETE_CHUNK = 1000;
+export async function deleteInChunks(ids: string[], send: (chunk: string[]) => Promise<BatchDeleteResult>): Promise<BatchDeleteResult> {
+  const merged: BatchDeleteResult = { deleted: 0, skipped: [] };
+  for (let i = 0; i < ids.length; i += BULK_DELETE_CHUNK) {
+    const result = await send(ids.slice(i, i + BULK_DELETE_CHUNK));
+    merged.deleted += result?.deleted ?? 0;
+    merged.skipped.push(...(result?.skipped ?? []));
+  }
+  return merged;
+}
+export const deleteFleetsBatch = (ids: string[]) =>
+  deleteInChunks(ids, chunk => post<BatchDeleteResult>('/api/v1/fleets/delete/multiple', { Ids: chunk }));
 
 // ==================== Vessels ====================
 export const listVessels = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
@@ -908,7 +925,8 @@ export interface VesselCleanupInventory {
   vesselId: string;
   vesselName: string;
   scannedUtc: string;
-  resources: VesselCleanupResource[];
+  /** Resources are not embedded; page them with listVesselCleanupResources. */
+  resourceCount: number;
   safeCount: number;
   inUseCount: number;
   unknownCount: number;
@@ -936,9 +954,34 @@ export interface VesselCleanupResult {
 export const getVesselCleanupInventory = (id: string) =>
   get<VesselCleanupInventory>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { timeout: 300000 });
 
-/** Clean up the selected inventory keys; the server revalidates each one and returns per-item outcomes plus a fresh inventory. */
-export const runVesselCleanup = (id: string, keys: string[]) =>
-  post<VesselCleanupResult>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { Keys: keys }, { timeout: 600000 });
+/** One page of a vessel's cleanup resources, optionally filtered by disposition. Deletes nothing. */
+export const listVesselCleanupResources = (id: string, params?: { pageNumber?: number; pageSize?: number; status?: VesselCleanupDisposition }) =>
+  post<EnumerationResult<VesselCleanupResource>>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup/resources/enumerate`,
+    { PageNumber: params?.pageNumber ?? 1, PageSize: params?.pageSize ?? 10, Status: params?.status ?? null }, { timeout: 300000 });
+
+/** Most keys one cleanup request may carry. */
+export const CLEANUP_KEY_CHUNK = 1000;
+
+/**
+ * Clean up the selected inventory keys; the server revalidates each one and returns per-item outcomes plus a fresh
+ * inventory summary. More than 1000 keys are sent in chunks of 1000 and the outcomes merged.
+ */
+export async function runVesselCleanup(id: string, keys: string[]): Promise<VesselCleanupResult> {
+  let merged: VesselCleanupResult | null = null;
+  for (let i = 0; i < keys.length || (i === 0 && keys.length === 0); i += CLEANUP_KEY_CHUNK) {
+    const result = await post<VesselCleanupResult>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { Keys: keys.slice(i, i + CLEANUP_KEY_CHUNK) }, { timeout: 600000 });
+    if (!merged) merged = { ...result, results: [...(result.results ?? [])] };
+    else {
+      merged.results.push(...(result.results ?? []));
+      merged.deleted += result.deleted;
+      merged.skipped += result.skipped;
+      merged.failed += result.failed;
+      merged.inventory = result.inventory;
+    }
+    if (keys.length === 0) break;
+  }
+  return merged!;
+}
 
 // ==================== Vessel History ====================
 /** Per-day commit counts for a vessel branch (heatmap). A missing repo or branch returns 200 with `error` set. */
@@ -970,8 +1013,27 @@ function encodeWorkspaceQueryPath(path: string) {
 
 export const getWorkspaceStatus = (vesselId: string) =>
   get<WorkspaceStatusResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/status`);
-export const getWorkspaceTree = (vesselId: string, path?: string) =>
-  get<WorkspaceTreeResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/tree${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
+/** One page of one workspace directory (the server default page size is 10; pass pageSize up to 1000). */
+export const getWorkspaceTree = (vesselId: string, path?: string, page?: { pageNumber?: number; pageSize?: number }) => {
+  const parts: string[] = [];
+  if (path) parts.push(`path=${encodeWorkspaceQueryPath(path)}`);
+  if (page?.pageNumber) parts.push(`pageNumber=${page.pageNumber}`);
+  if (page?.pageSize) parts.push(`pageSize=${page.pageSize}`);
+  return get<WorkspaceTreeResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/tree${parts.length ? `?${parts.join('&')}` : ''}`);
+};
+/** Every entry of one workspace directory, read in explicit pages of 1000 (bounded by MAX_WORKSPACE_PAGES). */
+export const MAX_WORKSPACE_PAGES = 100;
+export async function listWorkspaceDirectory(vesselId: string, path?: string): Promise<WorkspaceTreeResult> {
+  const first = await getWorkspaceTree(vesselId, path, { pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  const entries = [...(first.entries ?? [])];
+  const pages = Math.min(first.totalPages ?? 1, MAX_WORKSPACE_PAGES);
+  for (let page = 2; page <= pages; page++) {
+    const next = await getWorkspaceTree(vesselId, path, { pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    if (!next.entries?.length) break;
+    entries.push(...next.entries);
+  }
+  return { ...first, entries };
+}
 export const getWorkspaceFile = (vesselId: string, path: string) =>
   get<WorkspaceFileResponse>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/file?path=${encodeWorkspaceQueryPath(path)}`);
 export const saveWorkspaceFile = (vesselId: string, data: WorkspaceSaveRequest) =>
@@ -984,8 +1046,39 @@ export const deleteWorkspaceEntry = (vesselId: string, path: string) =>
   del<WorkspaceOperationResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/entry?path=${encodeWorkspaceQueryPath(path)}`);
 export const searchWorkspace = (vesselId: string, query: string, maxResults = 200) =>
   get<WorkspaceSearchResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/search?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
-export const getWorkspaceChanges = (vesselId: string) =>
-  get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes`);
+/** Branch state and one page of changed files (server default page size 10; totalRecords counts every change). */
+export const getWorkspaceChanges = (vesselId: string, page?: { pageNumber?: number; pageSize?: number }) => {
+  const parts: string[] = [];
+  if (page?.pageNumber) parts.push(`pageNumber=${page.pageNumber}`);
+  if (page?.pageSize) parts.push(`pageSize=${page.pageSize}`);
+  return get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes${parts.length ? `?${parts.join('&')}` : ''}`);
+};
+/** Every changed file, read in explicit pages of 1000 (bounded by MAX_WORKSPACE_PAGES). */
+export async function listAllWorkspaceChanges(vesselId: string): Promise<WorkspaceChangesResult> {
+  const first = await getWorkspaceChanges(vesselId, { pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  const changes = [...(first.changes ?? [])];
+  const pages = Math.min(first.totalPages ?? 1, MAX_WORKSPACE_PAGES);
+  for (let page = 2; page <= pages; page++) {
+    const next = await getWorkspaceChanges(vesselId, { pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    if (!next.changes?.length) break;
+    changes.push(...next.changes);
+  }
+  return { ...first, changes };
+}
+/** One page of the vessel's active missions with their scoped files (the status carries only activeMissionCount). */
+export const listWorkspaceActiveMissions = (vesselId: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<EnumerationResult<WorkspaceActiveMission>>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/active-missions/enumerate`,
+    { PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
+/** Every active mission on the vessel, read in explicit pages of 1000. */
+export async function listAllWorkspaceActiveMissions(vesselId: string): Promise<WorkspaceActiveMission[]> {
+  const all: WorkspaceActiveMission[] = [];
+  for (let page = 1; page <= MAX_WORKSPACE_PAGES; page++) {
+    const result = await listWorkspaceActiveMissions(vesselId, { pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    all.push(...(result.objects ?? []));
+    if (!result.objects?.length || page >= (result.totalPages ?? 1)) break;
+  }
+  return all;
+}
 /** Open a terminal window at the vessel's checkout on the machine that holds it (its Harbor, or the Admiral host). */
 export const openWorkspaceTerminal = (vesselId: string) =>
   post<WorkspaceOpenTerminalResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/open-terminal`, {});
@@ -1091,6 +1184,10 @@ export const enumerateVesselHealth = (query: VesselHealthEnumerateRequest) =>
 export const getVesselHealthSummary = () => get<VesselHealthSummary>('/api/v1/vessel-health/summary');
 export const getVesselHealth = (vesselId: string) =>
   get<VesselHealthDetail>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/health`);
+/** One page of a vessel's outdated or vulnerable dependency rows (the health detail carries only dependencyCount). */
+export const listVesselDependencies = (vesselId: string, page?: { pageNumber?: number; pageSize?: number }) =>
+  post<EnumerationResult<VesselDependency>>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/health/dependencies/enumerate`,
+    { PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
 /** Starts an evaluation job. 409 (already running) is not an error: it resolves with `alreadyRunning: true` and the running job id. */
 export const evaluateVesselHealth = (body: VesselHealthEvaluateRequest = {}) =>
   post<VesselHealthEvaluationStart>('/api/v1/vessel-health/evaluate', body, { acceptStatuses: [409] });
@@ -1806,9 +1903,29 @@ export function encodeBrowsePath(path: string): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** List browsable subdirectories of a directory on the Admiral host; omit `path` to list the allowed roots. */
-export const browseVesselImport = (path?: string | null) =>
-  get<VesselBrowseResult>(`/api/v1/vessels/import/browse${path ? `?path=${encodeBrowsePath(path)}` : ''}`);
+/**
+ * List one page of browsable subdirectories of a directory on the Admiral host; omit `path` to list the allowed roots.
+ * The server default page size is 10; pass up to 1000 and follow totalPages for the rest.
+ */
+export const browseVesselImport = (path?: string | null, page?: { pageNumber?: number; pageSize?: number }) => {
+  const parts: string[] = [];
+  if (path) parts.push(`path=${encodeBrowsePath(path)}`);
+  if (page?.pageNumber) parts.push(`pageNumber=${page.pageNumber}`);
+  if (page?.pageSize) parts.push(`pageSize=${page.pageSize}`);
+  return get<VesselBrowseResult>(`/api/v1/vessels/import/browse${parts.length ? `?${parts.join('&')}` : ''}`);
+};
+/** Every browsable entry of one directory, read in explicit pages of 1000 (at most 100 pages); `truncated` is kept. */
+export async function browseAllVesselImport(path?: string | null): Promise<VesselBrowseResult> {
+  const first = await browseVesselImport(path, { pageNumber: 1, pageSize: MAX_PAGE_SIZE });
+  const entries = [...(first.entries ?? [])];
+  const pages = Math.min(first.totalPages ?? 1, 100);
+  for (let page = 2; page <= pages; page++) {
+    const next = await browseVesselImport(path, { pageNumber: page, pageSize: MAX_PAGE_SIZE });
+    if (!next.entries?.length) break;
+    entries.push(...next.entries);
+  }
+  return { ...first, entries, truncated: Boolean(first.truncated) || (first.totalPages ?? 1) > pages };
+}
 
 /** Scan directories and roots for git repositories and persist an import batch (creates no vessels). */
 export const discoverVesselImport = (data: VesselDiscoveryRequest) =>
@@ -1919,4 +2036,18 @@ export function getStorage(): Promise<import('../types/storage').StorageSnapshot
 }
 export function refreshStorage(exactCounts = false): Promise<import('../types/storage').StorageSnapshot> {
   return request('POST', '/api/v1/storage/refresh', { exactCounts }, { dictionaryKeys: ['retention', 'categories', 'hosts', 'tables'] });
+}
+/** One page of cached storage host reports (the Admiral first, then each Harbor). */
+export function listStorageHosts(page?: { pageNumber?: number; pageSize?: number }): Promise<EnumerationResult<import('../types/storage').StorageHostReport>> {
+  return post('/api/v1/storage/hosts/enumerate', { PageNumber: page?.pageNumber ?? 1, PageSize: page?.pageSize ?? 10 });
+}
+/** Every cached storage host report, read in explicit pages of 100 (bounded at 200 pages). */
+export async function listAllStorageHosts(): Promise<import('../types/storage').StorageHostReport[]> {
+  const all: import('../types/storage').StorageHostReport[] = [];
+  for (let page = 1; page <= 200; page++) {
+    const result = await listStorageHosts({ pageNumber: page, pageSize: 100 });
+    all.push(...(result.objects ?? []));
+    if (!result.objects?.length || page >= (result.totalPages ?? 1)) break;
+  }
+  return all;
 }

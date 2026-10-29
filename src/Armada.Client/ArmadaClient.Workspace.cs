@@ -173,6 +173,53 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>listAllWorkspaceChanges</c>: every changed file, read in explicit pages of 1000 (at most 100
+        /// pages); the branch fields come from the first page.
+        /// </summary>
+        /// <param name="vesselId">vesselId.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The changes, or null.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public async Task<WorkspaceChangesResult?> ListAllWorkspaceChangesAsync(string vesselId, CancellationToken token = default)
+        {
+            WorkspaceChangesResult? first = await GetWorkspaceChangesAsync(vesselId, new EnumerationQuery { PageNumber = 1, PageSize = 1000 }, token).ConfigureAwait(false);
+            if (first == null) return null;
+            int pages = Math.Min(first.TotalPages, 100);
+            for (int pageNumber = 2; pageNumber <= pages; pageNumber++)
+            {
+                token.ThrowIfCancellationRequested();
+                WorkspaceChangesResult? next = await GetWorkspaceChangesAsync(vesselId, new EnumerationQuery { PageNumber = pageNumber, PageSize = 1000 }, token).ConfigureAwait(false);
+                if (next == null || next.Changes.Count == 0) break;
+                first.Changes.AddRange(next.Changes);
+            }
+
+            return first;
+        }
+
+        /// <summary>
+        /// Dashboard <c>listAllWorkspaceActiveMissions</c>: every active mission on the vessel, read in explicit pages of
+        /// 1000 (at most 100 pages).
+        /// </summary>
+        /// <param name="vesselId">vesselId.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The missions.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public async Task<List<WorkspaceActiveMission>> ListAllWorkspaceActiveMissionsAsync(string vesselId, CancellationToken token = default)
+        {
+            List<WorkspaceActiveMission> all = new List<WorkspaceActiveMission>();
+            for (int pageNumber = 1; pageNumber <= 100; pageNumber++)
+            {
+                token.ThrowIfCancellationRequested();
+                EnumerationResult<WorkspaceActiveMission>? result = await ListWorkspaceActiveMissionsAsync(vesselId, new EnumerationQuery { PageNumber = pageNumber, PageSize = 1000 }, token).ConfigureAwait(false);
+                if (result == null || result.Objects == null || result.Objects.Count == 0) break;
+                all.AddRange(result.Objects);
+                if (pageNumber >= result.TotalPages) break;
+            }
+
+            return all;
+        }
+
+        /// <summary>
         /// Dashboard <c>listWorkspaceActiveMissions</c>: POST `/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/active-missions/enumerate`.
         /// One page of the vessel's active missions with their scoped files (the status read carries only ActiveMissionCount).
         /// </summary>
