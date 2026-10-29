@@ -93,6 +93,27 @@ namespace Test.Shared.Suites.Services
                 AssertContains(oldRule, (await testDb.Driver.PromptTemplates.ReadByNameAsync(template.Name).ConfigureAwait(false))!.Content);
             }));
 
+            cases.Add(CaseAsync("upgrade_progress_signals_adds_blocked_line_preserves_custom_edits", "An untouched built-in progress_signals template gains the blocked outcome line; an edited one is kept", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                await service.SeedDefaultsAsync().ConfigureAwait(false);
+                PromptTemplate template = (await testDb.Driver.PromptTemplates.ReadByNameAsync("mission.progress_signals").ConfigureAwait(false))!;
+                AssertContains(CaptainBlockedContract.SignalLine, template.Content, "seeded with the blocked line");
+                template.Content = template.Content.Replace(CaptainBlockedContract.SignalLine, String.Empty);
+                await testDb.Driver.PromptTemplates.UpdateAsync(template).ConfigureAwait(false);
+                await service.SeedDefaultsAsync().ConfigureAwait(false);
+                template = (await testDb.Driver.PromptTemplates.ReadByNameAsync(template.Name).ConfigureAwait(false))!;
+                AssertContains(CaptainBlockedContract.SignalLine, template.Content, "the previous shipped default is upgraded");
+                template.Content = template.Content.Replace(CaptainBlockedContract.SignalLine, String.Empty) + "Operator customization";
+                await testDb.Driver.PromptTemplates.UpdateAsync(template).ConfigureAwait(false);
+                await service.SeedDefaultsAsync().ConfigureAwait(false);
+                string kept = (await testDb.Driver.PromptTemplates.ReadByNameAsync(template.Name).ConfigureAwait(false))!.Content;
+                AssertContains("Operator customization", kept);
+                AssertFalse(kept.Contains(CaptainBlockedContract.SignalLine, StringComparison.Ordinal), "an edited template is not changed");
+            }));
+
             cases.Add(CaseAsync("resolve_returns_database_template_when_exists", "Resolve returns database template when exists", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

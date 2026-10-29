@@ -24,6 +24,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import { canEdit as canEditScoped, type ScopeViewer } from '../lib/scoping';
 import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
 import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 
 
@@ -74,6 +75,7 @@ export default function WorkflowProfileDetail() {
   const { isAdmin, isTenantAdmin, user } = useAuth();
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
   const { t, formatDateTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   const createMode = id === 'new';
@@ -296,13 +298,9 @@ export default function WorkflowProfileDetail() {
       message: t('Delete "{{name}}"? Existing check runs remain, but future runs will not be able to resolve this profile.', { name: profile.name }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteWorkflowProfile(profile.id);
-          pushToast('warning', t('Workflow profile "{{name}}" deleted.', { name: profile.name }));
-          navigate('/workflow-profiles');
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'workflowProfile', action: () => deleteWorkflowProfile(profile.id), errorMessage: (err) => err instanceof Error ? err.message : t('Delete failed.') }))) return;
+        pushToast('warning', t('Workflow profile "{{name}}" deleted.', { name: profile.name }));
+        navigate('/workflow-profiles');
       },
     });
   }
@@ -368,6 +366,7 @@ export default function WorkflowProfileDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      {deletion.dialog}
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}
