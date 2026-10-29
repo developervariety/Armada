@@ -7,6 +7,27 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Secret redaction
+
+- An unquoted labelled secret value (`token = ...`) stops at a comma, semicolon, closing bracket, brace or paren, so the delimiter and the text after it stay.
+
+### Objective completion time
+
+- Setting an objective to Completed stamps `CompletedUtc` on that transition. Leaving Completed clears it, so a later re-completion records the new time.
+
+### Captain credential rejection
+
+- A captain whose own runtime fails with HTTP 401 or an invalid credential is quarantined instead of remaining Idle.
+
+### Dispatch preflight
+
+- Question 2 matches deliverable phrasing, not a bare `report-only` token that names the code under change.
+- A high Q1 model reading is not raised when the Q1 citation fact passes and the model names no disputed claim.
+
+### SQL Server captain delete
+
+- Captain delete retries SQL Server deadlock error 1205 up to two more times, then surfaces the error.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

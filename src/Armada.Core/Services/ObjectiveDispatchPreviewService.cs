@@ -499,7 +499,7 @@ namespace Armada.Core.Services
             Objective objective, ObjectivePreflight preflight, string description)
         {
             const int question = 2;
-            string[] reportWords = { "report-only", "report only", "a report", "produce a report", "findings report", "report to the owner" };
+            string[] reportWords = { "deliver a report", "deliverable is a report", "report only, no code", "a report", "produce a report", "findings report", "report to the owner" };
             string[] committedWords = { "commit a", "commit the", "committed doc", "committed document", "committed test", "census", "ledger row", "discoveries.d", "write a file", "record a file" };
             string committedPattern = @"\b(?:" + String.Join("|", committedWords.Select(Regex.Escape)) + ")";
             string described = Regex.Replace(description.ToLowerInvariant(),

@@ -77,8 +77,10 @@ The safety contract holds whenever it is enabled:
   `api_key: ...`, `token=...`), Bearer tokens, provider tokens by prefix (`sk-`,
   `gh*_`, `github_pat_`, `AKIA`, `xox*-`, `glpat-`), and the string value of a
   property named as a secret. So egress removes at least every key the display
-  removes. A labelled rule can take a code assignment such as
-  `token = GetToken();` with it; that loss is accepted, because an
+  removes. An unquoted labelled value stops at a comma, semicolon, closing
+  bracket, brace or paren, so punctuation after the value is kept. A keyword
+  matches on a word boundary. A labelled rule can still take a code assignment
+  such as `token = GetToken();` with it; that loss is accepted, because an
   under-redaction is a leak. The Bearer key is never logged, recorded, stored
   in settings, or returned by any response. The host, hash, and key rules match
   by shape, not by any dot, hex run, or long token: a dotted name is a host only
@@ -558,10 +560,11 @@ One decision point reads the objective dispatch preview:
   visible `preflight_q4_model` and `preflight_q13_model` Warning issues. They do
   not block dispatch, and Q13 does not post an owner-addressed note. A high
   reading for another text question adds the Error issue
-  `objective_preflight_model_flag`. A high Q1 reading adds the `preflight_q1_model`
-  Warning instead when the Q1 citation fact passes and no deterministic fact
-  fails: Q1 asks whether the facts contradict the premise, and none do. A high
-  Q9 reading adds the `preflight_q9_model` Warning instead when no
+  `objective_preflight_model_flag`. A high Q1 reading is not raised when the Q1
+  citation fact passes and no deterministic fact fails: the model answers with a
+  number only and cannot name a disputed claim. The same omission applies when
+  the Q1 citation fact fails only on citations outside the target repository.
+  A high Q9 reading adds the `preflight_q9_model` Warning instead when no
   deterministic fact fails and a brief sentence states two different proof
   values for the corrected and the defective code ("freezes 2 after the fix and
   3 at the old commit", "one line before the change and zero after it",

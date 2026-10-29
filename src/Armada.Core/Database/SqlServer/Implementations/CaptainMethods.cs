@@ -169,28 +169,57 @@ namespace Armada.Core.Database.SqlServer.Implementations
         /// cascade paths"), so the signals-to-captains keys are NO ACTION and the null-on-delete that the other
         /// providers declare in the schema is done here. The references are cleared only for captains the scope
         /// matches, and a delete that fails (a referencing row elsewhere) rolls the cleared references back.
+        /// A deadlock victim (error 1205) retries the whole transaction up to two more times, then surfaces.
         /// </summary>
         private async Task DeleteCaptainAndSignalReferencesAsync(string scope, CancellationToken token, params SqlParameter[] parameters)
         {
-            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
+            const int maxAttempts = 3;
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-                using (SqlTransaction transaction = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
+                try
                 {
-                    using (SqlCommand cmd = conn.CreateCommand())
+                    using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
                     {
-                        cmd.Transaction = transaction;
-                        cmd.CommandText =
-                            "UPDATE signals SET from_captain_id = NULL WHERE from_captain_id IN (SELECT id FROM captains WHERE " + scope + "); " +
-                            "UPDATE signals SET to_captain_id = NULL WHERE to_captain_id IN (SELECT id FROM captains WHERE " + scope + "); " +
-                            "DELETE FROM captains WHERE " + scope + ";";
-                        foreach (SqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
-                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        await conn.OpenAsync(token).ConfigureAwait(false);
+                        using (SqlTransaction transaction = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
+                        {
+                            using (SqlCommand cmd = conn.CreateCommand())
+                            {
+                                cmd.Transaction = transaction;
+                                cmd.CommandText =
+                                    "UPDATE signals SET from_captain_id = NULL WHERE from_captain_id IN (SELECT id FROM captains WHERE " + scope + "); " +
+                                    "UPDATE signals SET to_captain_id = NULL WHERE to_captain_id IN (SELECT id FROM captains WHERE " + scope + "); " +
+                                    "DELETE FROM captains WHERE " + scope + ";";
+                                foreach (SqlParameter parameter in parameters)
+                                    cmd.Parameters.Add(CloneParameter(parameter));
+                                await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                            }
+
+                            await transaction.CommitAsync(token).ConfigureAwait(false);
+                        }
                     }
 
-                    await transaction.CommitAsync(token).ConfigureAwait(false);
+                    return;
+                }
+                catch (SqlException exception) when (exception.Number == 1205 && attempt < maxAttempts - 1)
+                {
+                    await Task.Delay(25 * (attempt + 1), token).ConfigureAwait(false);
                 }
             }
+        }
+
+        private static SqlParameter CloneParameter(SqlParameter source)
+        {
+            SqlParameter clone = new SqlParameter
+            {
+                ParameterName = source.ParameterName,
+                SqlDbType = source.SqlDbType,
+                Size = source.Size,
+                Precision = source.Precision,
+                Scale = source.Scale,
+                Value = source.Value ?? DBNull.Value
+            };
+            return clone;
         }
 
         /// <inheritdoc />

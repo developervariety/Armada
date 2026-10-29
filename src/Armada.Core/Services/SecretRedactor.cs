@@ -15,7 +15,7 @@ namespace Armada.Core.Services
         // (github_pat_, xox*-, glpat-) is named here because a word-boundary blob rule never starts inside it.
         private static readonly RedactionRule[] _Redactions = new RedactionRule[]
         {
-            new RedactionRule(new Regex(@"(?i)(api[_\-]?key|apikey|secret|token|password)(\s*[""']?\s*[=:]\s*)(?<q>[""'])(?:\\[\s\S]|(?!\k<q>)[^\\])*(?:\k<q>|$)", RegexOptions.Compiled), "$1$2${q}[REDACTED]${q}"),
+            new RedactionRule(new Regex(@"(?i)\b(api[_\-]?key|apikey|secret|token|password)\b(\s*[""']?\s*[=:]\s*)(?<q>[""'])(?:\\[\s\S]|(?!\k<q>)[^\\])*(?:\k<q>|$)", RegexOptions.Compiled), "$1$2${q}[REDACTED]${q}"),
             new RedactionRule(new Regex(@"(?i)\bBearer\s+[A-Za-z0-9._\-]{8,}", RegexOptions.Compiled), "Bearer [REDACTED]"),
             new RedactionRule(new Regex(@"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_\-]{16,}", RegexOptions.Compiled), "sk-[REDACTED]"),
             new RedactionRule(new Regex(@"\bgh[pousr]_[A-Za-z0-9]{20,}", RegexOptions.Compiled), "gh_[REDACTED]"),
@@ -23,7 +23,7 @@ namespace Armada.Core.Services
             new RedactionRule(new Regex(@"\bxox[abposr]-[A-Za-z0-9\-]{10,}", RegexOptions.Compiled), "xox-[REDACTED]"),
             new RedactionRule(new Regex(@"\bglpat-[A-Za-z0-9_\-]{16,}", RegexOptions.Compiled), "glpat-[REDACTED]"),
             new RedactionRule(new Regex(@"\bAKIA[0-9A-Z]{16}\b", RegexOptions.Compiled), "AKIA[REDACTED]"),
-            new RedactionRule(new Regex(@"(?i)(api[_\-]?key|apikey|secret|token|password)(\s*[=:]\s*)([""']?)[^\s""']{6,}", RegexOptions.Compiled), "$1$2$3[REDACTED]"),
+            new RedactionRule(new Regex(@"(?i)\b(api[_\-]?key|apikey|secret|token|password)\b(\s*[=:]\s*)([""']?)[^\s""'`,;\]\}\)]{6,}", RegexOptions.Compiled), "$1$2$3[REDACTED]"),
         };
 
         private static readonly Regex _JsonStringProperty = new Regex(

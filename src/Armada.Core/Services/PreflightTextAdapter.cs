@@ -33,9 +33,10 @@ namespace Armada.Core.Services
     /// rule-kept event. In Gate mode a blocking question answered at or above the decision threshold becomes
     /// an Error issue <see cref="ModelFlagIssueCode"/> that the autonomous scheduler already skips on. A
     /// Q4 or Q13 model flag never blocks dispatch or posts an owner-addressed board note. When no deterministic
-    /// fact fails, a Q1 flag is a Warning while the Q1 citation fact passes, and a Q9 flag is a Warning while the
+    /// fact fails, a Q1 flag is not raised while the Q1 citation fact passes: the model answers with a number
+    /// only and cannot name a disputed claim. A Q9 flag is a Warning while the
     /// brief states two different proof values for the corrected and the defective code
-    /// (<see cref="ProofValueChangeDetector"/>). A Q1 flag is also a Warning when the Q1 citation fact fails only on
+    /// (<see cref="ProofValueChangeDetector"/>). A Q1 flag is also omitted when the Q1 citation fact fails only on
     /// citations outside the target repository and no other fact fails. The adapter never throws into the caller.
     ///
     /// Answers are cached by the redacted state's hash, the question contract's hash, the configured model
@@ -256,13 +257,14 @@ namespace Armada.Core.Services
             // Keep uncertain dock-observability and owner-question readings visible without letting
             // the classifier block dispatch. Other questions retain the Gate blocking behavior.
             // Q1 asks whether the deterministic facts contradict the premise. When the citation fact passes and no
-            // fact fails, there is no contradiction for the model to report, so its q1 flag stays a warning.
+            // fact fails, there is no contradiction for the model to report. The model answers with a number only,
+            // so a q1 flag cannot name a disputed claim and is not raised.
             // Q9 asks whether the proof value is the same before and after the fix. When the brief itself states two
             // different values for the corrected and the defective code and no fact fails, the question's own contract
             // answers false, so its q9 flag stays a warning.
             bool noFactFails = NoFactFails(result);
             // A citation fact that fails only on paths outside the target repository, with no other fact failing,
-            // is not a contradiction the target tip shows, so its q1 flag stays a warning too.
+            // is not a contradiction the target tip shows, so its q1 flag is not raised either.
             bool premiseProven = (noFactFails && PremiseFactPasses(result)) || PremiseFailsOnlyOutsideTarget(result);
             string? statedChange = noFactFails
                 ? ProofValueChangeDetector.Find(objective.Description, objective.AcceptanceCriteria)
@@ -270,6 +272,8 @@ namespace Armada.Core.Services
             PreflightDemotion demotion = new PreflightDemotion(premiseProven, statedChange != null);
             foreach (PreflightFlag flag in reading.Flags)
             {
+                if (flag.QuestionNumber == _PremiseQuestion && demotion.PremiseProven)
+                    continue;
                 string evidence = flag.QuestionNumber == _ExampleValueQuestion ? ExampleValueEvidence(objective) : String.Empty;
                 if (flag.QuestionNumber == _ExampleValueQuestion && statedChange != null)
                     evidence = " The brief states a proof value that changes with the fix: " + QuoteOne(statedChange) + "." + evidence;
@@ -758,7 +762,7 @@ namespace Armada.Core.Services
             public bool BlocksDispatch { get; }
         }
 
-        // The deterministic evidence that turns a blocking model flag into a warning.
+        // The deterministic evidence that omits a Q1 flag, or that keeps a Q9 flag as a warning.
         private sealed class PreflightDemotion
         {
             public PreflightDemotion(bool premiseProven, bool proofValueChangeStated)

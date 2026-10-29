@@ -1435,6 +1435,11 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreview reportResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     ObjectiveDispatchPreflightFact reportKindFact = reportResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 2);
                     AssertEqual(PreflightFactStatusEnum.Fail, reportKindFact.Status, "a report-only deliverable that is not Research fails question 2");
+                    objective.Kind = ObjectiveKindEnum.Refactor;
+                    objective.Description = "Delete the two report-only measurement benchmarks from the suite.";
+                    ObjectiveDispatchPreview codePhrase = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertNotEqual(PreflightFactStatusEnum.Fail, codePhrase.Preflight.Facts.Single(fact => fact.QuestionNumber == 2).Status,
+                        "a bare report-only token that names the code under change does not fail question 2 as Kind Research");
                     objective.Kind = ObjectiveKindEnum.Research;
                     Dictionary<string, PreflightFactStatusEnum> deniedTests = new Dictionary<string, PreflightFactStatusEnum>
                     {
@@ -2044,6 +2049,9 @@ namespace Armada.Test.Unit.Suites.Services
                         "the prefixed citation is read inside the sibling repository at its tip");
                     AssertFalse(result.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode),
                         "a q1 model reading does not block a premise whose citations all resolve");
+                    AssertFalse(result.Issues.Any(issue => issue.RelatedValue == "q1"
+                        && (issue.Code == PreflightTextAdapter.ModelFlagIssueCode || issue.Code == "preflight_q1_model")),
+                        "a q1 model flag is not raised when the citation fact passes and the model names no disputed claim");
                     AssertTrue(result.IsReady, "the preview is ready");
 
                     // A citation under the sibling's directory that the sibling does not hold still fails, named

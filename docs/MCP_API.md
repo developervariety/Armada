@@ -499,7 +499,10 @@ that must be yes is answered no (including 14), or the open-owner-question
 question (13) is answered yes; the preview reports this as a blocking
 `objective_preflight_incomplete` finding listing the offending question
 numbers, and reports the deterministic questions as facts to check the recorded
-answers against the repository. An `armada_dispatch` call may set
+answers against the repository. Question 2 matches deliverable phrasing
+(`deliver a report`, `report only, no code`), not a bare `report-only` token
+that names the code under change. A high Q1 model reading is not raised when
+the Q1 citation fact passes and the model names no disputed claim. An `armada_dispatch` call may set
 `forcePreflight: true` to override an incomplete preflight or a
 `objective_preflight_model_flag` finding, including question 14. It overrides
 only those preflight-class findings; any other blocking issue still refuses the
@@ -1917,7 +1920,9 @@ template through the caller scope, and require edit rights.
 
 `create_objective`, `create_backlog_item`, `update_objective` and
 `update_backlog_item` share one input schema and call the same service methods
-as `POST` and `PUT /api/v1/objectives` (and `/api/v1/backlog`). The update tools
+as `POST` and `PUT /api/v1/objectives` (and `/api/v1/backlog`). Setting status to
+`Completed` stamps `CompletedUtc` to that transition; leaving `Completed` clears
+it, so a later re-completion records the new time. The update tools
 change only supplied top-level fields, including `autoDispatchEnabled`. A
 top-level field the schema does not list is refused and nothing is written: the
 tools return code `objective_unknown_field` with outcome `Invalid` and the

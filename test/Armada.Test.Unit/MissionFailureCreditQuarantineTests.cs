@@ -255,6 +255,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("HandleProcessExit_OwnRuntimeInvalidCredential401_QuarantinesCaptain", async () =>
+            {
+                using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver database = testDatabase.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(database, settings, logging);
+                    AdmiralService admiral = CreateAdmiralService(database, settings, quarantine);
+
+                    Mission mission = new Mission("Invalid credential mission");
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                    mission.ProcessId = 8105;
+                    mission.StartedUtc = DateTime.UtcNow.AddMinutes(-2);
+                    mission = await database.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Captain captain = new Captain("invalid-credential-captain", AgentRuntimeEnum.OpenCode);
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 8105;
+                    captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await WriteMissionLogAsync(
+                        settings,
+                        mission.Id,
+                        "[ARMADA:ACTIVITY] opencode error Upstream request failed: Invalid credential (status 401)").ConfigureAwait(false);
+
+                    await admiral.HandleProcessExitAsync(8105, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? missionAfter = await database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? captainAfter = await database.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotNull(captainAfter, "the captain remains stored after the 401");
+                    AssertEqual(CaptainStateEnum.Quarantined, captainAfter!.State,
+                        "an own-runtime 401 invalid-credential failure quarantines the captain instead of leaving it Idle");
+                    AssertNotNull(captainAfter.QuarantineReason, "the quarantine names the credential rejection");
+                    AssertNull(captainAfter.CurrentMissionId, "quarantine clears the failed mission assignment");
+                    AssertNotEqual(MissionStatusEnum.Failed, missionAfter!.Status,
+                        "a recoverable credential rejection does not fail the mission on the first attempt");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("HandleProcessExit_AuthenticationFailure_RequeuesAndQuarantinesCaptain", async () =>
             {
                 using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
