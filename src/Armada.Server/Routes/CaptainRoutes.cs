@@ -326,7 +326,7 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                CaptainStopResult stopped = await _captainAdministration.StopAsync(req.Parameters["id"], ctx).ConfigureAwait(false);
+                CaptainStopResult stopped = await _captainAdministration.StopAsync(req.Parameters["id"], ctx, stop: new OperatorStopContext(ctx.UserId, OperatorStopContext.RestSurface)).ConfigureAwait(false);
                 switch (stopped.Outcome)
                 {
                     case CaptainAdministrationOutcomeEnum.NotFound:
@@ -475,7 +475,7 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                CaptainStopAllResult stopAll = await _captainAdministration.StopAllAsync().ConfigureAwait(false);
+                CaptainStopAllResult stopAll = await _captainAdministration.StopAllAsync(stop: new OperatorStopContext(ctx.UserId, OperatorStopContext.RestSurface)).ConfigureAwait(false);
                 return (object)stopAll;
             },
             api => api

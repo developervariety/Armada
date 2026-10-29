@@ -1158,7 +1158,8 @@ Get the current Armada status.
 Stop a specific captain. It runs the same service as REST
 `POST /api/v1/captains/{id}/stop` and MCP `armada_stop_captain`: a Planning or
 Refining captain is stopped through its active planning or objective refinement
-session, and any other captain has its process stopped and is recalled to Idle.
+session, and any other captain has its process stopped and is recalled to Idle;
+the mission it was running ends Cancelled with an `operator_stopped:` reason.
 A captain that is not found, or whose session cannot be resolved, returns
 `command.error` with the reason and the `outcome`.
 

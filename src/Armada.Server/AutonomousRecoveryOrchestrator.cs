@@ -136,6 +136,11 @@ namespace Armada.Server
         private readonly ConcurrentDictionary<string, byte> _ClosedIncidentSkippedMissions =
             new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
+        // A failed mission whose rescue an active operator-dispatched recovery mission suppresses, mapped to that
+        // recovery mission, so the suppression is recorded once and later ticks re-check one mission, not the vessel.
+        private readonly ConcurrentDictionary<string, string> _ActiveRecoverySuppressedMissions =
+            new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
         // Challenge-round events already written, keyed by mission, Challenger and event type, so a
         // challenge deferred across sweep ticks records each outcome once.
         private readonly ConcurrentDictionary<string, byte> _JudgeChallengeEventsRecorded =
@@ -1182,6 +1187,12 @@ namespace Armada.Server
                 // matches its parent's; every other case leaves the classification untouched.
                 RepeatedFailureCheck repeated = await ReadRepeatedIdenticalTestFailureAsync(latest, token).ConfigureAwait(false);
                 RecoveryDecision decision = Classify(latest, repeated.IsRepeated);
+
+                // An operator who already dispatched a recovery mission for this failure owns it; a second,
+                // autonomous rescue would run the same work in parallel.
+                if (decision.DispatchRescue && !latest.IsReadOnlyMode
+                    && await IsSuppressedByActiveRecoveryMissionAsync(latest, token).ConfigureAwait(false))
+                    return false;
 
                 // While a Challenger is still ruling, each sweep tick stops here, before the typed
                 // failure_cause call and any write.
@@ -3374,6 +3385,65 @@ namespace Armada.Server
                 return true;
 
             return await IsOperatorMitigatedDispositionAsync(failedMission, token).ConfigureAwait(false);
+        }
+
+        // An active non-rescue mission on the failed mission's vessel whose description names the failed mission id
+        // is an operator-dispatched recovery of it. It suppresses the autonomous rescue while it is active, and the
+        // suppression is recorded once. The match is a text match on the id, so a false match delays one rescue; the
+        // event names the matching mission.
+        private async Task<bool> IsSuppressedByActiveRecoveryMissionAsync(Mission failedMission, CancellationToken token)
+        {
+            if (_ActiveRecoverySuppressedMissions.TryGetValue(failedMission.Id, out string? knownRecoveryId))
+            {
+                Mission? known = await _Database.Missions.ReadSummaryAsync(knownRecoveryId, token).ConfigureAwait(false);
+                if (known != null && IsActiveRecoveryStatus(known.Status)) return true;
+                _ActiveRecoverySuppressedMissions.TryRemove(failedMission.Id, out string? _);
+            }
+
+            MissionSummary? match = await FindActiveRecoveryMissionAsync(failedMission, token).ConfigureAwait(false);
+            if (match == null) return false;
+
+            if (_ActiveRecoverySuppressedMissions.TryAdd(failedMission.Id, match.Id))
+            {
+                await EmitEventAsync("autonomous_recovery.skipped_active_recovery_mission",
+                    "Autonomous recovery skipped mission " + failedMission.Id + ": active mission " + match.Id
+                    + " names it in its description, so no rescue was created. Cancel or finish that mission to let recovery run again.",
+                    failedMission, null, token).ConfigureAwait(false);
+            }
+
+            return true;
+        }
+
+        private static bool IsActiveRecoveryStatus(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.Pending
+                || status == MissionStatusEnum.Assigned
+                || status == MissionStatusEnum.InProgress
+                || status == MissionStatusEnum.Testing
+                || status == MissionStatusEnum.Review;
+        }
+
+        private async Task<MissionSummary?> FindActiveRecoveryMissionAsync(Mission failedMission, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(failedMission.VesselId)) return null;
+
+            List<MissionSummary> summaries = !String.IsNullOrWhiteSpace(failedMission.TenantId)
+                ? await _Database.Missions.EnumerateMissionSummariesByVesselAsync(failedMission.TenantId, failedMission.VesselId, token).ConfigureAwait(false)
+                : await _Database.Missions.EnumerateMissionSummariesByVesselAsync(failedMission.VesselId, token).ConfigureAwait(false);
+
+            // ParentMissionId is set only by rescue dispatch, so a summary without one is not a rescue.
+            foreach (MissionSummary summary in summaries.Where(item =>
+                IsActiveRecoveryStatus(item.Status)
+                && String.IsNullOrWhiteSpace(item.ParentMissionId)
+                && !String.Equals(item.Id, failedMission.Id, StringComparison.Ordinal)))
+            {
+                Mission? candidate = await ReadMissionAsync(summary.TenantId, summary.Id, token).ConfigureAwait(false);
+                if (candidate == null || IsAutoRescueMission(candidate)) continue;
+                if ((candidate.Description ?? String.Empty).Contains(failedMission.Id, StringComparison.Ordinal))
+                    return summary;
+            }
+
+            return null;
         }
 
         // A Mitigated incident for this mission whose root cause a person wrote, mitigated at or after the

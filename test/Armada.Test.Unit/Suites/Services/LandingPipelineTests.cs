@@ -188,6 +188,27 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Capture records branch_unverified for a branch that lags the captured commit and leaves the branch alone", async () =>
+            {
+                BranchCheckResult result = await CaptureBranchCheckAsync(branchHoldsCommit: false).ConfigureAwait(false);
+
+                AssertEqual(0, result.VerifiedEvents.Count, "A lagging branch records no branch_verified event");
+                AssertEqual(1, result.UnverifiedEvents.Count, "A lagging branch records one branch_unverified event");
+                AssertContains(result.CapturedCommit, result.UnverifiedEvents[0].Payload ?? "", "The event names the captured commit");
+                AssertContains(result.BranchTipBefore, result.UnverifiedEvents[0].Payload ?? "", "The event names the branch tip");
+                AssertEqual(result.BranchTipBefore, result.BranchTipAfter, "The check never moves the branch");
+                AssertNotEqual(result.BranchTipBefore, result.CapturedCommit, "The scenario leaves the branch behind the captured commit");
+            });
+
+            await RunTest("Capture records branch_verified when the mission branch holds the captured commit", async () =>
+            {
+                BranchCheckResult result = await CaptureBranchCheckAsync(branchHoldsCommit: true).ConfigureAwait(false);
+
+                AssertEqual(1, result.VerifiedEvents.Count, "A branch holding the commit records one branch_verified event");
+                AssertEqual(0, result.UnverifiedEvents.Count, "A branch holding the commit records no branch_unverified event");
+                AssertEqual(result.CapturedCommit, result.BranchTipAfter, "The branch tip is the captured commit");
+            });
+
             await RunTest("A landing handoff that throws moves the produced mission to LandingFailed with its reason", async () =>
             {
                 foreach (bool activeMergeEntry in new[] { false, true })
@@ -448,6 +469,33 @@ namespace Armada.Test.Unit.Suites.Services
                     Dock? afterSecond = await testDb.Driver.Docks.ReadAsync(dock.Id);
                     AssertNotNull(afterSecond, "Dock should still exist after second reclaim");
                     Assert(!afterSecond!.Active, "Dock should still be inactive");
+                }
+            });
+
+            await RunTest("Reclaim records dock.reclaimed with the caller, the mission and its status, once per reclaim", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    IDockService dockService = new DockService(logging, testDb.Driver, CreateSettings(), git);
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
+                    Dock dock = entities.Dock;
+                    Mission mission = entities.Mission;
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    await testDb.Driver.Missions.UpdateAsync(mission);
+
+                    await dockService.ReclaimAsync(dock.Id);
+                    await dockService.ReclaimAsync(dock.Id);
+
+                    List<ArmadaEvent> events = (await testDb.Driver.Events.EnumerateByTypeAsync("dock.reclaimed", 50))
+                        .Where(e => e.EntityId == dock.Id).ToList();
+                    AssertEqual(1, events.Count, "The first reclaim records one event and the repeated no-op reclaim records none");
+                    ArmadaEvent recorded = events[0];
+                    AssertEqual(mission.Id, recorded.MissionId, "The event names the mission");
+                    AssertContains("LandingPipelineTests", recorded.Payload ?? "", "The payload names the calling type");
+                    AssertContains("\"MissionStatus\":\"LandingFailed\"", recorded.Payload ?? "", "The payload names the mission status at reclaim");
+                    AssertContains(mission.Id, recorded.Payload ?? "", "The payload names the mission");
                 }
             });
 
@@ -1765,6 +1813,64 @@ namespace Armada.Test.Unit.Suites.Services
                 Armada.Core.Constants.DefaultUserId,
                 new EnumerationQuery { MissionId = missionId, EventType = eventType }).ConfigureAwait(false);
             AssertTrue(scoped.Objects.Count >= 1, "The mission owner's scoped read must find " + eventType);
+        }
+
+        private sealed class BranchCheckResult
+        {
+            public string CapturedCommit { get; set; } = String.Empty;
+            public string BranchTipBefore { get; set; } = String.Empty;
+            public string BranchTipAfter { get; set; } = String.Empty;
+            public List<ArmadaEvent> VerifiedEvents { get; set; } = new List<ArmadaEvent>();
+            public List<ArmadaEvent> UnverifiedEvents { get; set; } = new List<ArmadaEvent>();
+        }
+
+        // A real checkout whose HEAD commit is either on the mission branch or one commit above it (a detached HEAD).
+        private async Task<BranchCheckResult> CaptureBranchCheckAsync(bool branchHoldsCommit)
+        {
+            string rootDir = Path.Combine(Path.GetTempPath(), "armada_branchcheck_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string captainBranch = "armada/test-captain/msn_branchcheck";
+                await InitNoOpRepoAsync(rootDir, captainBranch).ConfigureAwait(false);
+                await RunGitAsync(rootDir, "checkout", branchHoldsCommit ? captainBranch : "--detach").ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(rootDir, "work.txt"), "work\n").ConfigureAwait(false);
+                await RunGitAsync(rootDir, "add", "work.txt").ConfigureAwait(false);
+                await RunGitAsync(rootDir, "commit", "-m", "Captain work").ConfigureAwait(false);
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    GitService git = new GitService(logging);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    MissionLandingHandler handler = new MissionLandingHandler(
+                        logging, testDb.Driver, settings, git, new StubMergeQueueService(), new LandingService(logging, testDb.Driver, settings, git),
+                        new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator(), new MessageTemplateService(logging),
+                        null, dockService, new NoOpRemoteTriggerService(), null);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
+                    Dock dock = entities.Dock;
+                    dock.WorktreePath = rootDir;
+                    dock.BranchName = captainBranch;
+                    await testDb.Driver.Docks.UpdateAsync(dock);
+
+                    BranchCheckResult result = new BranchCheckResult();
+                    result.BranchTipBefore = (await RunGitAsync(rootDir, "rev-parse", captainBranch).ConfigureAwait(false)).Trim();
+                    await handler.HandleCaptureDiffAsync(entities.Mission, dock);
+
+                    Mission stored = (await testDb.Driver.Missions.ReadAsync(entities.Mission.Id))!;
+                    result.CapturedCommit = stored.CommitHash ?? String.Empty;
+                    result.BranchTipAfter = (await RunGitAsync(rootDir, "rev-parse", captainBranch).ConfigureAwait(false)).Trim();
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(entities.Mission.Id, 50);
+                    result.VerifiedEvents = events.Where(e => e.EventType == "mission.branch_verified").ToList();
+                    result.UnverifiedEvents = events.Where(e => e.EventType == "mission.branch_unverified").ToList();
+                    return result;
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("cleanup of " + rootDir + " failed: " + ex.Message); }
+            }
         }
 
         private static async Task<string> InitNoOpRepoAsync(string repoPath, string captainBranch)

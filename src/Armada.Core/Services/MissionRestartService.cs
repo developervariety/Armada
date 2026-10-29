@@ -94,7 +94,8 @@ namespace Armada.Core.Services
         /// Failed (a Complete voyage landed its work and a Cancelled one was stopped by an operator); and the mission is
         /// either a stage that failed on its own (Failed, with no terminal-voyage reconciliation marker and not superseded
         /// by an earlier restart), or a stage Cancelled with the reason the dependency walker records for a stage
-        /// stranded behind a failed upstream stage. A stage that depends on another must reach, through stages that are
+        /// stranded behind a failed upstream stage. A stage an operator stopped is the one exception to the voyage
+        /// status: it is restarted when its voyage ended Failed or Cancelled. A stage that depends on another must reach, through stages that are
         /// Failed or Cancelled, a stage of the same voyage that handed off work with a commit: one that is WorkProduced,
         /// Complete or PullRequestOpen, or one the terminal-voyage rule moved from WorkProduced to Failed or Cancelled
         /// because its work was not landed. A cancelled stage needs at least one skipped stage between it and that stage.
@@ -121,13 +122,18 @@ namespace Armada.Core.Services
             bool failedStage = mission.Status == MissionStatusEnum.Failed
                 && !TerminalVoyageMissionRule.IsReconciledOutcome(mission)
                 && !(mission.FailureReason ?? String.Empty).StartsWith(SupersededByRestartPrefix, StringComparison.Ordinal);
+            // An operator stop ends the stage Cancelled and its voyage Failed or Cancelled; restarting that stage is the
+            // operator's recovery, so it reopens the voyage the same way a failed stage does.
+            bool stoppedStage = mission.Status == MissionStatusEnum.Cancelled
+                && OperatorStop.IsOperatorStopped(mission.FailureReason)
+                && (voyage.Status == VoyageStatusEnum.Failed || voyage.Status == VoyageStatusEnum.Cancelled);
 
-            if (voyage.Status != VoyageStatusEnum.Failed || (!strandedStage && !failedStage))
+            if (!stoppedStage && (voyage.Status != VoyageStatusEnum.Failed || (!strandedStage && !failedStage)))
             {
                 return MissionRestartReopenPlan.Refuse(ended + pointer);
             }
 
-            if (failedStage && String.IsNullOrWhiteSpace(mission.DependsOnMissionId))
+            if ((failedStage || stoppedStage) && String.IsNullOrWhiteSpace(mission.DependsOnMissionId))
             {
                 return MissionRestartReopenPlan.ReopenFromStart();
             }

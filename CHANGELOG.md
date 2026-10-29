@@ -7,6 +7,31 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Landing proposals
+
+- A health-loop sweep checks a bounded rotating page of `LandingFailed` missions per cycle, fetching each vessel once. When a mission's commit is an ancestor of `origin/<default branch>`, or a commit on that branch carries its exact `Armada-Mission-Id` trailer, the sweep records one `mission.landing_reconcile_proposed` event and the Needs You inbox shows one `landing_reconcile` item with the evidence. Landing refusals and a recorded commit equal to the stage start commit are never proposed. The sweep never completes a mission.
+- Confirming the item is a status transition to `Complete` on REST, MCP or WebSocket. It reads the proof again after a fresh fetch, runs the manual completion gates, then records `mission.landing_reconciled`, applies voyage completion and closes the mission's active incidents. `LandingFailed` has no other route to `Complete`.
+
+### Dock reclaim audit
+
+- Every dock reclaim that completes records a `dock.reclaimed` event naming the calling code path, the dock's mission and the mission's status. A reclaim never removes unlanded work: committed work stays on the branch and under the dock, mission and preserved-branch anchor refs, and uncommitted work is saved to a `recover/` ref, whatever the mission status. Reclaim therefore does not refuse by mission status.
+
+### Mission branch check at completion
+
+- When completion captures a mission's commit, it records `mission.branch_verified` when the mission branch holds that commit and `mission.branch_unverified` when it does not or git cannot answer. The event payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch.
+
+### Needs You landing failures
+
+- A `landing_failed` row in the Needs You inbox shows the failure reason preformatted and has a Retry Landing button. The button calls the same retry-landing API as the mission page, reports its error in place and reloads the list.
+
+### Rescue dedupe against operator recovery
+
+- Autonomous recovery dispatches no rescue for a failed mission while an active non-rescue mission on the same vessel names the failed mission id in its description. It records one `autonomous_recovery.skipped_active_recovery_mission` event naming that mission, and evaluates the rescue again once the mission ends.
+
+### Operator stop
+
+- A captain stop from REST, MCP or WebSocket (single and stop-all) ends the running mission Cancelled, not Failed. The reason starts with `operator_stopped:` and names who stopped it, the surface and the UTC time; it also names the `recover/<mission>-<n>` ref when the dock reclaim saved uncommitted work. A `mission.stopped_by_operator` event records the stop. Autonomous rescue and the Needs You failure feed no longer see these missions. Recalls made by the admiral itself (recovery, stall handling) still fail the mission. Restarting a stopped stage reopens its voyage when the voyage ended Failed or Cancelled.
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.

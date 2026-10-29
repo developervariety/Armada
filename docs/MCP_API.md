@@ -735,6 +735,9 @@ The gates are review approval, Judge authority, captain process release, Check
 state, and target ancestry of the mission commit when no active dock will land
 it. The same request on another surface gets the same decision.
 
+A `LandingFailed` mission moves to `Complete` only by confirming a landing
+proposal; see [Landing proposals](MERGING.md#landing-proposals).
+
 Common protocol errors:
 
 | Condition | Result |

@@ -72,8 +72,9 @@ checkout and Git references unchanged. See [Local checkout import](VESSEL_CHECKO
 Single stop, emergency stop, deletion and restart share one captain
 administration service with REST and WebSocket. `armada_stop_captain` stops a
 Planning or Refining captain through its active planning or objective refinement
-session, and stops the process of any other captain and recalls it to Idle.
-`armada_stop_all` stops every working captain, active
+session, and stops the process of any other captain and recalls it to Idle; the
+mission it was running ends Cancelled with an `operator_stopped:` reason (see
+[REST API](REST_API.md)). `armada_stop_all` stops every working captain, active
 planning session and active objective refinement session and returns
 `all_stopped`, or `stopped_with_failures` with stopped and failed counts and each
 failure named. `armada_delete_captain` and `armada_delete_captains` refuse a
@@ -207,7 +208,8 @@ repeat it.
 One ended voyage is reopened instead: a `Failed` voyage whose mission is the
 stage that failed on its own (`Failed`, with no terminal-voyage reconciliation
 marker), or a downstream stage `Cancelled` with `Blocked by failed dependency`.
-A stage with a dependency must reach, through `Failed` or `Cancelled` stages, a
+A stage an operator stopped (`Cancelled` with `operator_stopped:`) reopens a
+`Failed` or `Cancelled` voyage the same way as a failed stage. A stage with a dependency must reach, through `Failed` or `Cancelled` stages, a
 stage of the same voyage that handed off work with a commit: one that is
 `WorkProduced`, `Complete` or `PullRequestOpen`, or one the terminal-voyage
 rule moved to `Failed` or `Cancelled` with `terminal_voyage_work_unlanded`. No
@@ -220,8 +222,8 @@ returns to `WorkProduced`. Each skipped stage is recorded `Cancelled` with
 later stage `Cancelled` with `Blocked by failed dependency` behind the
 restarted stage returns to `Pending`, so the rest of the chain runs again; the
 voyage returns to `InProgress`; its Checks are armed again; and a
-`voyage.reopened` event is written. A `Complete` voyage, a `Cancelled` voyage,
-a stage an operator cancelled, a stage the terminal-voyage rule failed, and a
+`voyage.reopened` event is written. A `Complete` voyage, any other stage of a
+`Cancelled` voyage, a stage an operator cancelled, a stage the terminal-voyage rule failed, and a
 skipped stage that moved the branch stay refused with `voyage_ended`.
 
 `armada_replay_research_voyage` is a separate global-operator operation for an
@@ -758,6 +760,13 @@ incident the lifecycle mitigated over its automatic cause does not stop
 recovery. Restarting the mission runs it again, and a failure newer than the
 mitigation is recovered as usual.
 
+A failure that an active non-rescue mission on the same vessel names by mission
+id in its description is treated as already under recovery by an operator:
+recovery dispatches no rescue and records one
+`autonomous_recovery.skipped_active_recovery_mission` event naming that mission.
+The rescue is evaluated again once that mission is no longer Pending, Assigned,
+InProgress, Testing or in Review.
+
 Automatic Checks obey the same hold. The heartbeat runs no Pending Check while
 the hold is engaged, records one `check.auto_deferred_dispatch_hold` event per
 engagement, and runs the waiting Checks on the first sweep after the hold
@@ -1208,7 +1217,9 @@ dock active, delete returns false, purge and provision fail with the reason,
 the disk lifecycle reports the directory as skipped, and
 `mission.work_snapshot_failed` names the reason. A directory with no git checkout
 in it holds nothing a snapshot can save and is removed as before. Both events
-appear in the mission recovery report.
+appear in the mission recovery report. Every completed reclaim also records
+`dock.reclaimed`, naming the calling code path, the dock's mission and the
+mission's status at that moment.
 
 Both families use one retention rule. The sweep keeps an anchor in these cases:
 

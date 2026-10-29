@@ -189,6 +189,72 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             });
 
+            await RunTest("Every interface ends a stopped captain's mission Cancelled with an operator_stopped reason, names the recover ref and records the stop", async () =>
+            {
+                foreach (string surface in StopSurfaces)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Fixture fx = await Fixture.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                        fx.SnapshotRef = "refs/heads/recover/msn_stopped-1";
+                        Mission mission = await CreateRunningMissionAsync(testDb.Driver, "worker-" + surface).ConfigureAwait(false);
+
+                        await StopThroughAsync(fx, surface, mission.CaptainId!).ConfigureAwait(false);
+
+                        Mission stopped = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Cancelled, stopped.Status, surface + " ends the stopped captain's mission Cancelled, not Failed");
+                        AssertTrue(OperatorStop.IsOperatorStopped(stopped.FailureReason), surface + " marks the reason with the operator_stopped prefix: " + stopped.FailureReason);
+                        AssertContains("via " + surface, stopped.FailureReason!, surface + " names the surface");
+                        AssertContains("refs/heads/recover/msn_stopped-1", stopped.FailureReason!, surface + " names the snapshot ref");
+
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 50).ConfigureAwait(false);
+                        ArmadaEvent? stopEvent = events.FirstOrDefault(e => e.EventType == OperatorStop.StoppedEventType);
+                        AssertTrue(stopEvent != null, surface + " records mission.stopped_by_operator");
+                        AssertContains(surface, stopEvent!.Payload ?? "", surface + " event payload names the surface");
+
+                        InboxService inbox = new InboxService(testDb.Driver, new LoggingModule());
+                        AssertFalse((await inbox.GetInboxAsync().ConfigureAwait(false)).Any(item => item.EntityId == mission.Id),
+                            surface + " leaves the stopped mission out of the inbox failure feed");
+                    }
+                }
+            });
+
+            await RunTest("Stop all ends every working captain's mission Cancelled with an operator_stopped reason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Fixture fx = await Fixture.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                    Mission first = await CreateRunningMissionAsync(testDb.Driver, "first").ConfigureAwait(false);
+                    Mission second = await CreateRunningMissionAsync(testDb.Driver, "second").ConfigureAwait(false);
+
+                    WebSocketCommandHandler handler = CreateWebSocketHandler(fx);
+                    await handler.HandleCommandAsync("stop_all", new WebSocketCommand { Action = "stop_all" }, "", McpTestCaller.Operator).ConfigureAwait(false);
+
+                    foreach (Mission started in new[] { first, second })
+                    {
+                        Mission stopped = (await testDb.Driver.Missions.ReadAsync(started.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Cancelled, stopped.Status, "Stop all cancels " + started.Id);
+                        AssertTrue(OperatorStop.IsOperatorStopped(stopped.FailureReason), "Stop all marks " + started.Id + ": " + stopped.FailureReason);
+                        AssertFalse(stopped.FailureReason!.Contains("recover/"), "No snapshot ref is named when the recall saved none");
+                    }
+                }
+            });
+
+            await RunTest("A captain with no active mission is recalled as before and records no stop event", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Fixture fx = await Fixture.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain idleWorker = await CreateCaptainAsync(testDb.Driver, "no-mission", CaptainStateEnum.Working).ConfigureAwait(false);
+
+                    string json = await StopThroughAsync(fx, "rest", idleWorker.Id).ConfigureAwait(false);
+
+                    AssertContains("stopped", json, "The stop is reported");
+                    AssertTrue(fx.Recalled.SequenceEqual(new[] { idleWorker.Id }), "The captain is recalled");
+                    AssertEqual(0, (await testDb.Driver.Events.EnumerateByTypeAsync(OperatorStop.StoppedEventType, 10).ConfigureAwait(false)).Count, "No stop event without a mission");
+                }
+            });
+
             await RunTest("Every interface refuses to stop a Planning captain whose session cannot be resolved", async () =>
             {
                 foreach (string surface in StopSurfaces)
@@ -357,13 +423,32 @@ namespace Armada.Test.Unit.Suites.Routes
 
         private static readonly string[] StopSurfaces = new[] { "rest", "mcp", "websocket" };
 
+        private static async Task<Mission> CreateRunningMissionAsync(DatabaseDriver database, string name)
+        {
+            Captain captain = await CreateCaptainAsync(database, name, CaptainStateEnum.Working).ConfigureAwait(false);
+            Vessel vessel = await database.Vessels.CreateAsync(new Vessel("vessel-" + name, "https://example.test/" + name + ".git")).ConfigureAwait(false);
+            Voyage voyage = await database.Voyages.CreateAsync(new Voyage("Voyage of " + name) { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+            Mission mission = await database.Missions.CreateAsync(new Mission
+            {
+                Title = "Running " + name,
+                Status = MissionStatusEnum.InProgress,
+                CaptainId = captain.Id,
+                VoyageId = voyage.Id,
+                VesselId = vessel.Id
+            }).ConfigureAwait(false);
+            captain.CurrentMissionId = mission.Id;
+            await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+            return mission;
+        }
+
         private async Task<string> StopThroughAsync(Fixture fx, string surface, string captainId)
         {
             switch (surface)
             {
                 case "rest":
                     // CaptainRoutes maps this result to 200, 404, 409 or 500.
-                    return JsonSerializer.Serialize(await fx.Administration.StopAsync(captainId, McpTestCaller.Operator).ConfigureAwait(false));
+                    return JsonSerializer.Serialize(await fx.Administration.StopAsync(captainId, McpTestCaller.Operator,
+                        stop: new OperatorStopContext(McpTestCaller.Operator.UserId, OperatorStopContext.RestSurface)).ConfigureAwait(false));
                 case "mcp":
                     return JsonSerializer.Serialize(await RegisterMcpTools(fx)["armada_stop_captain"](
                         JsonSerializer.SerializeToElement(new { captainId = captainId })).ConfigureAwait(false));
@@ -538,11 +623,14 @@ namespace Armada.Test.Unit.Suites.Routes
             public List<string> StoppedRefinement { get; } = new List<string>();
             public List<string> StoppedProcesses { get; } = new List<string>();
 
+            /// <summary>Ref the recall reports as holding the dock's uncommitted work; null when the dock held none.</summary>
+            public string? SnapshotRef { get; set; } = null;
+
             public static Task<Fixture> CreateAsync(DatabaseDriver database)
             {
                 Fixture fx = new Fixture();
                 fx.Database = database;
-                fx.Admiral = RecallAdmiralProxy.Create(database, fx.Recalled);
+                fx.Admiral = RecallAdmiralProxy.Create(database, fx.Recalled, () => fx.SnapshotRef);
                 fx.Administration = new CaptainAdministrationService(database, (id, token) => fx.Admiral.RecallCaptainAsync(id, token));
                 fx.Administration.StopProcess = captain =>
                 {
@@ -636,26 +724,30 @@ namespace Armada.Test.Unit.Suites.Routes
         }
 
         /// <summary>
-        /// An admiral double: recall returns the captain to Idle and records it; recall-all recalls every working captain.
-        /// Any other member is not used by these tests and throws.
+        /// An admiral double: recall fails the captain's active mission and returns the captain to Idle, as the real
+        /// recall does, and records it; recall-all recalls every working captain. Any other member is not used by
+        /// these tests and throws.
         /// </summary>
         public class RecallAdmiralProxy : DispatchProxy
         {
             private DatabaseDriver _Database = null!;
             private List<string> _Recalled = null!;
+            private Func<string?>? _SnapshotRef = null;
 
             /// <summary>
             /// Create the double.
             /// </summary>
             /// <param name="database">Database driver.</param>
             /// <param name="recalled">Receives each recalled captain identifier.</param>
+            /// <param name="snapshotRef">Ref a recall records as holding the dock's uncommitted work; null or a null result when none.</param>
             /// <returns>The admiral double.</returns>
-            public static IAdmiralService Create(DatabaseDriver database, List<string> recalled)
+            public static IAdmiralService Create(DatabaseDriver database, List<string> recalled, Func<string?>? snapshotRef = null)
             {
                 IAdmiralService proxy = DispatchProxy.Create<IAdmiralService, RecallAdmiralProxy>();
                 RecallAdmiralProxy self = (RecallAdmiralProxy)(object)proxy;
                 self._Database = database;
                 self._Recalled = recalled;
+                self._SnapshotRef = snapshotRef;
                 return proxy;
             }
 
@@ -677,6 +769,29 @@ namespace Armada.Test.Unit.Suites.Routes
                 _Recalled.Add(captainId);
                 Captain? captain = await _Database.Captains.ReadAsync(captainId).ConfigureAwait(false);
                 if (captain == null) throw new InvalidOperationException("Captain not found: " + captainId);
+
+                Mission? active = String.IsNullOrEmpty(captain.CurrentMissionId)
+                    ? null
+                    : await _Database.Missions.ReadAsync(captain.CurrentMissionId).ConfigureAwait(false);
+                if (active != null && (active.Status == MissionStatusEnum.Assigned || active.Status == MissionStatusEnum.InProgress))
+                {
+                    active.Status = MissionStatusEnum.Failed;
+                    active.ProcessId = null;
+                    active.CompletedUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(active).ConfigureAwait(false);
+
+                    string? snapshotRef = _SnapshotRef?.Invoke();
+                    if (snapshotRef != null)
+                    {
+                        ArmadaEvent saved = new ArmadaEvent(OperatorStop.WorkSnapshotSavedEventType, "saved to " + snapshotRef);
+                        saved.EntityType = "dock";
+                        saved.EntityId = captain.CurrentDockId;
+                        saved.MissionId = active.Id;
+                        saved.Payload = JsonSerializer.Serialize(new { RefName = snapshotRef, Sha = "1111111111111111111111111111111111111111" });
+                        await _Database.Events.CreateAsync(saved).ConfigureAwait(false);
+                    }
+                }
+
                 captain.State = CaptainStateEnum.Idle;
                 captain.ProcessId = null;
                 captain.CurrentMissionId = null;

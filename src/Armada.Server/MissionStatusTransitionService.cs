@@ -5,6 +5,7 @@ namespace Armada.Server
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -47,6 +48,8 @@ namespace Armada.Server
         private readonly IAdmiralService _Admiral;
         private readonly IMissionService _MissionService;
         private readonly ManualCompletionProofService _ManualCompletionProof;
+        private readonly IGitService _Git;
+        private readonly LandingReconcileProof _LandingProof;
         private readonly Func<Mission, CancellationToken, Task<bool>> _IsMissionProcessActive;
         private readonly Func<Mission, Dock, Task> _HandleMissionComplete;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEvent;
@@ -64,6 +67,7 @@ namespace Armada.Server
         /// <param name="handleMissionComplete">Landing handler used when the Admiral seam is unset.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="logging">Logging module.</param>
+        /// <param name="logDirectory">Server log directory that holds the stage start records, or null when none is kept.</param>
         public MissionStatusTransitionService(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -72,16 +76,19 @@ namespace Armada.Server
             Func<Mission, CancellationToken, Task<bool>> isMissionProcessActive,
             Func<Mission, Dock, Task> handleMissionComplete,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
-            LoggingModule logging)
+            LoggingModule logging,
+            string? logDirectory = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _MissionService = missionService ?? throw new ArgumentNullException(nameof(missionService));
-            _ManualCompletionProof = new ManualCompletionProofService(database, git ?? throw new ArgumentNullException(nameof(git)));
+            _Git = git ?? throw new ArgumentNullException(nameof(git));
+            _ManualCompletionProof = new ManualCompletionProofService(database, _Git);
             _IsMissionProcessActive = isMissionProcessActive ?? throw new ArgumentNullException(nameof(isMissionProcessActive));
             _HandleMissionComplete = handleMissionComplete ?? throw new ArgumentNullException(nameof(handleMissionComplete));
             _EmitEvent = emitEvent ?? throw new ArgumentNullException(nameof(emitEvent));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _LandingProof = new LandingReconcileProof(database, _Git, _Logging, logDirectory);
         }
 
         /// <summary>
@@ -113,6 +120,11 @@ namespace Armada.Server
             Func<string, Task<Dock?>> readDock = readDockAsync ?? (dockId => _Database.Docks.ReadAsync(dockId, token));
             Func<string, Task<Captain?>> readCaptain = readCaptainAsync ?? (captainId => _Database.Captains.ReadAsync(captainId, token));
             string id = mission.Id;
+
+            // A LandingFailed mission completes only by confirming a landing proposal; every other transition out of
+            // LandingFailed follows the state machine.
+            if (mission.Status == MissionStatusEnum.LandingFailed && newStatus == MissionStatusEnum.Complete)
+                return await ConfirmLandingProposalAsync(mission, token).ConfigureAwait(false);
 
             if (!MissionStateMachine.IsValidTransition(mission.Status, newStatus))
                 return MissionStatusTransitionResult.InvalidTransition(mission, "Invalid transition from " + mission.Status + " to " + newStatus);
@@ -276,10 +288,156 @@ namespace Armada.Server
             return MissionStatusTransitionResult.Applied(mission);
         }
 
+        /// <summary>
+        /// Completes a LandingFailed mission whose landing the sweep proposed. The proposal only raises the question: the
+        /// proof is read again here against a fresh fetch, the manual completion gates run, and only then is the mission
+        /// written Complete, followed by voyage completion and the close of the mission's incidents.
+        /// </summary>
+        private async Task<MissionStatusTransitionResult> ConfirmLandingProposalAsync(Mission mission, CancellationToken token)
+        {
+            string id = mission.Id;
+            if (await LandingReconcileProposals.ReadAsync(_Database, id, token).ConfigureAwait(false) == null)
+            {
+                return MissionStatusTransitionResult.InvalidTransition(mission,
+                    "Invalid transition from " + mission.Status + " to " + MissionStatusEnum.Complete
+                    + ". A LandingFailed mission completes only after the landing sweep proposes it; use retry-landing otherwise.");
+            }
+
+            Vessel? vessel = String.IsNullOrWhiteSpace(mission.VesselId)
+                ? null
+                : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null || String.IsNullOrWhiteSpace(vessel.LocalPath))
+                return MissionStatusTransitionResult.Refused(mission, "landing_reconcile_repository_unavailable");
+
+            try
+            {
+                await _Git.FetchAsync(vessel.LocalPath, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "fetch before confirming the landing of " + id + " failed: " + ex.Message);
+                return MissionStatusTransitionResult.Refused(mission, "landing_reconcile_fetch_failed");
+            }
+
+            LandingReconcileEvidence? evidence = await _LandingProof.ProveAsync(mission, vessel, token).ConfigureAwait(false);
+            if (evidence == null)
+                return MissionStatusTransitionResult.Refused(mission, "landing_reconcile_proof_unavailable");
+
+            ManualCompletionProofResult proof = await EvaluateManualCompletionAsync(mission, false, token, evidence.EvidenceCommit).ConfigureAwait(false);
+            if (!proof.Allowed)
+                return MissionStatusTransitionResult.Refused(mission, proof.Reason);
+
+            string? previousReason = mission.FailureReason;
+            mission.Status = MissionStatusEnum.Complete;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            mission.FailureReason = null;
+            if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, MissionStatusEnum.LandingFailed, token).ConfigureAwait(false))
+            {
+                Mission? current = await _Database.Missions.ReadAsync(id, token).ConfigureAwait(false);
+                return current == null
+                    ? MissionStatusTransitionResult.MissionMissing()
+                    : MissionStatusTransitionResult.Refused(current, "landing_reconcile_status_changed");
+            }
+
+            evidence.FailureReason = previousReason;
+            ArmadaEvent reconciled = new ArmadaEvent(LandingReconcileProposals.ReconciledEventType,
+                "Mission " + id + " completed from LandingFailed: " + evidence.Describe());
+            reconciled.EntityType = "mission";
+            reconciled.EntityId = id;
+            reconciled.MissionId = id;
+            reconciled.VesselId = mission.VesselId;
+            reconciled.VoyageId = mission.VoyageId;
+            reconciled.Payload = System.Text.Json.JsonSerializer.Serialize(evidence);
+            EventOwnerScope.ApplyFromMission(reconciled, mission);
+            await _Database.Events.CreateAsync(reconciled, token).ConfigureAwait(false);
+
+            _Logging.Info(_Header + "mission " + id + " confirmed landed and completed: " + evidence.Describe());
+            await _EmitEvent("mission.status_changed", "Mission " + id + " transitioned to " + MissionStatusEnum.Complete,
+                "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
+
+            await ApplyVoyageCompletionAsync(mission, token).ConfigureAwait(false);
+            await CloseMissionIncidentsAsync(mission, evidence, token).ConfigureAwait(false);
+
+            _WebSocketHub?.BroadcastMissionChange(mission);
+            return MissionStatusTransitionResult.Applied(mission);
+        }
+
+        private async Task ApplyVoyageCompletionAsync(Mission mission, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VoyageId)) return;
+            try
+            {
+                VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, mission.VoyageId, _Admiral.OnVoyageComplete, token).ConfigureAwait(false);
+                if (result.HookException != null)
+                    _Logging.Warn(_Header + "voyage completion hook failed for voyage " + mission.VoyageId + " after mission " + mission.Id + " completed: " + result.HookException.Message);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not apply voyage completion to voyage " + mission.VoyageId + " after mission " + mission.Id
+                    + " completed; the periodic sweep decides it instead: " + ex.Message);
+            }
+        }
+
+        private async Task CloseMissionIncidentsAsync(Mission mission, LandingReconcileEvidence evidence, CancellationToken token)
+        {
+            try
+            {
+                IncidentService incidents = new IncidentService(_Database);
+                AuthContext auth = AuthContext.Authenticated(
+                    mission.TenantId ?? Constants.DefaultTenantId,
+                    mission.UserId ?? Constants.DefaultUserId,
+                    false,
+                    true,
+                    "LandingReconcile",
+                    principalDisplay: "Armada Landing Reconcile");
+                List<Incident> active = await incidents.EnumerateActiveAsync(auth, new IncidentQuery { MissionId = mission.Id }, token).ConfigureAwait(false);
+                foreach (Incident incident in active)
+                {
+                    try
+                    {
+                        string note = "Closed because the operator confirmed the landing. " + evidence.Describe();
+                        await incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+                        {
+                            Status = IncidentStatusEnum.Closed,
+                            RecoveryNotes = String.IsNullOrWhiteSpace(incident.RecoveryNotes) ? note : incident.RecoveryNotes + "\n" + note,
+                            ClosedUtc = DateTime.UtcNow
+                        }, token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        // The completion stands; the incident stays open for the operator to close.
+                        _Logging.Warn(_Header + "mission " + mission.Id + " completed, but incident " + incident.Id + " could not be closed: " + ex.Message);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " completed, but its incidents could not be read: " + ex.Message);
+            }
+        }
+
         private async Task<ManualCompletionProofResult> EvaluateManualCompletionAsync(
             Mission mission,
             bool activeLandingPipeline,
-            CancellationToken token)
+            CancellationToken token,
+            string? targetEvidenceCommit = null)
         {
             bool processActive;
             try
@@ -298,7 +456,7 @@ namespace Armada.Server
             if (processActive)
                 return ManualCompletionProofResult.Fail("manual_completion_process_active");
 
-            return await _ManualCompletionProof.EvaluateAsync(mission, activeLandingPipeline, token).ConfigureAwait(false);
+            return await _ManualCompletionProof.EvaluateAsync(mission, activeLandingPipeline, targetEvidenceCommit, token).ConfigureAwait(false);
         }
 
         private async Task<bool> HasDependentPipelineStageAsync(Mission mission, CancellationToken token)

@@ -33,6 +33,14 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        /// <remarks>A Harbor checkout has no trailer-search operation, so a Harbor address finds no commit.</remarks>
+        public Task<IReadOnlyList<string>> FindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
+        {
+            if (!IsRemote(repoPath)) return _Local.FindCommitsByTrailerAsync(repoPath, revision, trailerKey, trailerValue, sinceUtc, maxCount, token);
+            return Task.FromResult<IReadOnlyList<string>>(new List<string>());
+        }
+
+        /// <inheritdoc />
         public Task<IReadOnlyList<GitAnchorCommit>> GetCommitsTouchingPathAsync(string worktreePath, string relativePath, int maxCount, CancellationToken token = default)
         {
             if (!IsRemote(worktreePath)) return _Local.GetCommitsTouchingPathAsync(worktreePath, relativePath, maxCount, token);

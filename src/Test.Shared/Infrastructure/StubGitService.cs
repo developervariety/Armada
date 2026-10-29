@@ -108,7 +108,26 @@ namespace Test.Shared.Infrastructure
             OperationCalls.Add("remove-worktree:" + worktreePath);
             return Task.CompletedTask;
         }
-        public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+        public List<string> FetchCalls { get; } = new List<string>();
+
+        public Task FetchAsync(string repoPath, CancellationToken token = default)
+        {
+            FetchCalls.Add(repoPath);
+            return Task.CompletedTask;
+        }
+
+        /// <summary>Commits the trailer search returns, keyed by <c>trailerValue</c>; no entry means no match.</summary>
+        public Dictionary<string, string> TrailerCommits { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+        public List<string> TrailerSearchCalls { get; } = new List<string>();
+
+        public Task<IReadOnlyList<string>> FindCommitsByTrailerAsync(
+            string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
+        {
+            TrailerSearchCalls.Add(repoPath + ":" + revision + ":" + trailerKey + ":" + trailerValue);
+            List<string> commits = new List<string>();
+            if (TrailerCommits.TryGetValue(trailerValue, out string? commit)) commits.Add(commit);
+            return Task.FromResult<IReadOnlyList<string>>(commits);
+        }
 
         public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default)
         {

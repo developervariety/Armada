@@ -354,6 +354,34 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RestartMission_OperatorStoppedStageOfEndedVoyage_ReopensTheVoyageOnEverySurface", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    VoyageStatusEnum[] ended = new[] { VoyageStatusEnum.Failed, VoyageStatusEnum.Cancelled };
+                    foreach (string surface in Surfaces)
+                    {
+                        foreach (VoyageStatusEnum voyageStatus in ended)
+                        {
+                            Mission mission = await SeedAsync(harness, surface + "-stopped-" + voyageStatus, MissionStatusEnum.Cancelled).ConfigureAwait(false);
+                            mission.FailureReason = OperatorStop.FailureReasonPrefix + " stopped by operator via REST at 2026-01-01T00:00:00Z";
+                            await harness.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                            Voyage voyage = await AttachVoyageAsync(harness, mission, voyageStatus).ConfigureAwait(false);
+                            harness.ResetRecordings();
+
+                            SurfaceReply reply = await RestartAsync(harness, surface, mission.Id).ConfigureAwait(false);
+
+                            string label = surface + " (" + voyageStatus + " voyage)";
+                            AssertFalse(reply.Refused, label + ": a stage an operator stopped is restarted: " + reply);
+                            Mission? stored = await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                            AssertEqual(MissionStatusEnum.Pending, stored!.Status, label + ": the stopped stage is Pending");
+                            Voyage? storedVoyage = await harness.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                            AssertEqual(VoyageStatusEnum.InProgress, storedVoyage!.Status, label + ": the voyage is reopened");
+                        }
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RestartMission_FailedStageOfFailedVoyage_ReopensTheVoyageAndRunsTheLaterCancelledStagesAgainOnEverySurface", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
