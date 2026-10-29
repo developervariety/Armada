@@ -472,6 +472,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainModelProbeServiceTests());
             runner.AddSuite(new MissionAttemptFactRecorderTests());
             runner.AddSuite(new MissionAttemptProvenanceTests());
+            runner.AddSuite(new Suites.Battery.BatteryPackTests());
+            runner.AddSuite(new Suites.Battery.BatteryRunTests());
             runner.AddSuite(new ReworkPromptBuilderTests());
             runner.AddSuite(new PreparationClaimObservationRecorderTests());
             runner.AddSuite(new LaneStateRecorderTests());

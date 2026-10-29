@@ -1240,7 +1240,8 @@ $convert$;"),
                 new SchemaMigration(138, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.PostgresqlStatements),
                 new SchemaMigration(139, "Persist the unread reply count of saved Ask threads",
                     @"ALTER TABLE ask_threads ADD COLUMN IF NOT EXISTS unread_count INTEGER NOT NULL DEFAULT 0;"),
-                new SchemaMigration(140, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.PostgresqlStatements)
+                new SchemaMigration(140, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.PostgresqlStatements),
+                new SchemaMigration(144, "Persist fixture battery runs", BatteryRunSchema.PostgresqlStatements)
             };
         }
 

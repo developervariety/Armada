@@ -164,6 +164,11 @@ namespace Armada.Core.Database
         /// </summary>
         public IMissionAttemptProvenanceMethods MissionAttempts { get; protected set; } = null!;
 
+        /// <summary>
+        /// Fixture battery runs.
+        /// </summary>
+        public IBatteryRunMethods BatteryRuns { get; protected set; } = null!;
+
         /// <summary>Atomic full Research replay and immutable prior-attempt history.</summary>
         public IResearchReplayMethods ResearchReplays { get; protected set; } = null!;
 

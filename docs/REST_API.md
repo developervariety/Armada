@@ -46,6 +46,7 @@
   - [Inbox](#inbox)
   - [Incidents](#incidents)
   - [Background Jobs](#background-jobs)
+  - [Fixture Battery](#fixture-battery)
   - [Backup and Restore](#backup-and-restore)
 - [Data Types](#data-types)
   - [Models](#models)
@@ -191,6 +192,7 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/inbox` | GET, POST `/enumerate` | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
 | `/api/v1/jobs` | GET, POST `/enumerate` | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
+| `/api/v1/battery` | GET `/packs`, GET `/runs`, GET `/runs/{id}`, POST `/runs` | AdminOnly | Global admin only. A run dispatches real missions and spends captain tokens, and battery records carry no tenant scope |
 | `/api/v1/storage` | GET | AdminOnly | Global admin only. The inventory lists server-wide paths, sizes and database tables |
 | `/api/v1/storage/refresh` | POST | AdminOnly | Global admin only. Starts a bounded background collection |
 | `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
@@ -4686,6 +4688,60 @@ failed or was lost.
 
 **Response:** `200 OK` — the job. **Errors:** `404` when the job is unknown or
 its journal record has expired.
+
+### Fixture Battery
+
+A battery run gives one captain a pack of small repository tasks and grades the resulting worktrees; see
+[Fixture Battery](BATTERY.md). Every route requires a global administrator: a narrower caller receives `403`.
+
+#### GET /api/v1/battery/packs
+
+List the packs in the battery directory with their tasks, toolchain and validation errors. A malformed pack is listed
+with `Valid` false and cannot run.
+
+#### GET /api/v1/battery/runs
+
+List runs, newest first. Query: `captainId`, `packId`, `limit` (1 to 200, default 50).
+
+**Response:** `200 OK` — an array of runs.
+
+#### GET /api/v1/battery/runs/{id}
+
+Read one run.
+
+```json
+{
+  "Id": "bat_example",
+  "CaptainId": "cpt_example",
+  "CaptainName": "example-captain",
+  "PackId": "csharp",
+  "PackVersion": 1,
+  "Status": "Completed",
+  "StartedUtc": "2026-01-01T00:00:00Z",
+  "CompletedUtc": "2026-01-01T00:10:00Z",
+  "Passed": 1,
+  "Failed": 0,
+  "CouldNotRun": 1,
+  "Results": [
+    { "TaskId": "add-member", "Grade": "Passed", "Score": 1.0, "VoyageId": "vyg_example", "MissionId": "msn_example", "DurationMs": 180000 },
+    { "TaskId": "fix-bug", "Grade": "CouldNotRun", "Reason": "The Admiral host lacks the pack's toolchain: dotnet" }
+  ]
+}
+```
+
+Each result also carries `Title`, `Summary`, `StartedUtc`, `CompletedUtc`, `MissionDurationMs` and `Details` (command
+exits, byte comparisons and mutant results). **Errors:** `404` when the run is unknown.
+
+#### POST /api/v1/battery/runs
+
+Start a run. The route returns before the tasks finish; read the run to follow it.
+
+**Request Body:** `PackId` and `CaptainId` (required) and `CreateFixtureVessel` (default false; create the pack's
+fixture vessel when it does not exist).
+
+**Response:** `202 Accepted` — the queued run. **Errors:** `400` for an unknown or malformed pack or captain, a
+missing fixture vessel that was not asked for, or a fixture vessel that lands work; `409` when the captain already has
+a run in progress.
 
 ### Storage
 

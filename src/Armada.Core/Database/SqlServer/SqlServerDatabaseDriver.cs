@@ -158,6 +158,7 @@ namespace Armada.Core.Database.SqlServer
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttempts = new MissionAttemptProvenanceMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            BatteryRuns = new BatteryRunMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);

@@ -108,6 +108,7 @@ namespace Armada.Core.Database.Mysql
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MissionAttempts = new MissionAttemptProvenanceMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            BatteryRuns = new BatteryRunMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MemoryProposals = new MemoryProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
@@ -741,7 +742,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(127, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.MysqlStatements),
                 new SchemaMigration(128, "Persist the unread reply count of saved Ask threads",
                     @"ALTER TABLE ask_threads ADD COLUMN unread_count INT NOT NULL DEFAULT 0;"),
-                new SchemaMigration(129, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.MysqlStatements)
+                new SchemaMigration(129, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.MysqlStatements),
+                new SchemaMigration(133, "Persist fixture battery runs", BatteryRunSchema.MysqlStatements)
             };
         }
 

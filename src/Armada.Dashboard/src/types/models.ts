@@ -2659,6 +2659,54 @@ export interface LongRunningJobPage extends EnumerationResult<LongRunningJob> {
   unreadableJournalRecords: number;
 }
 
+export type BatteryRunStatus = 'Running' | 'Completed' | 'Failed' | 'Interrupted';
+export type BatteryTaskGrade = 'Passed' | 'Failed' | 'CouldNotRun';
+
+export interface BatteryCommandOutcome { commandLine: string; exitCode: number; timedOut: boolean; passed: boolean; outputExcerpt: string | null; }
+export interface BatteryFileComparison { path: string; matched: boolean; expectedHash: string | null; actualHash: string | null; reason: string | null; }
+export interface BatteryMutantOutcome { id: string; applied: boolean; killed: boolean; reason: string | null; }
+
+/** The evidence behind one grade: command exits, byte comparisons and mutant results. */
+export interface BatteryGradeDetails {
+  commands: BatteryCommandOutcome[];
+  files: BatteryFileComparison[];
+  mutants: BatteryMutantOutcome[];
+}
+
+/** One task of a battery run. The mission's attempts are in its attempt provenance records. */
+export interface BatteryTaskResult {
+  taskId: string;
+  title: string | null;
+  grade: BatteryTaskGrade;
+  score: number | null;
+  summary: string | null;
+  reason: string | null;
+  voyageId: string | null;
+  missionId: string | null;
+  startedUtc: string;
+  completedUtc: string;
+  durationMs: number;
+  missionDurationMs: number | null;
+  details: BatteryGradeDetails;
+}
+
+/** A fixture battery run of one pack against one captain, from GET /api/v1/battery/runs. */
+export interface BatteryRun {
+  id: string;
+  captainId: string | null;
+  captainName: string | null;
+  packId: string;
+  packVersion: number;
+  status: BatteryRunStatus;
+  error: string | null;
+  startedUtc: string;
+  completedUtc: string | null;
+  results: BatteryTaskResult[];
+  passed: number;
+  failed: number;
+  couldNotRun: number;
+}
+
 /** Measurement outcome of one storage location, scan or database. */
 export type StorageStatus = 'Pending' | 'Complete' | 'Partial' | 'Missing' | 'Unavailable';
 

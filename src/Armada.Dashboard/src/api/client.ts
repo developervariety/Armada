@@ -136,6 +136,7 @@ import type {
   ProjectProfileResolutionResult,
   PersonaPromptPreview,
   Skill,
+  BatteryRun,
   LongRunningJob,
   LongRunningJobPage,
   HarborJobsQuery,
@@ -1283,6 +1284,18 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 export const enumerateJobs = (query?: PageParams & { status?: string }) =>
   post<LongRunningJobPage>('/api/v1/jobs/enumerate', query || {});
 export const getJob = (id: string) => get<LongRunningJob>(`/api/v1/jobs/${encodeURIComponent(id)}`);
+
+// ==================== Fixture Battery ====================
+/** Battery runs, newest first. Requires a global administrator. */
+export const listBatteryRuns = (query?: { captainId?: string; packId?: string; limit?: number }) => {
+  const params = new URLSearchParams();
+  if (query?.captainId) params.set('captainId', query.captainId);
+  if (query?.packId) params.set('packId', query.packId);
+  if (query?.limit) params.set('limit', String(query.limit));
+  const text = params.toString();
+  return get<BatteryRun[]>(`/api/v1/battery/runs${text ? `?${text}` : ''}`);
+};
+export const getBatteryRun = (id: string) => get<BatteryRun>(`/api/v1/battery/runs/${encodeURIComponent(id)}`);
 
 // ==================== Storage Inventory ====================
 /** Cached storage inventory; a read never starts a scan. Requires a global administrator. */

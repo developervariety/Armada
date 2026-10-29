@@ -37,3 +37,7 @@
 # .NET solution and project files
 *.sln text eol=crlf
 *.csproj text eol=crlf
+
+# Fixture battery packs are byte-exact data: no line-ending or encoding conversion, so the BOM/CRLF fixture
+# files and their expected results keep every byte.
+battery/** -text

@@ -1691,7 +1691,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(134, "Record whether a mission or voyage is evaluation work", EvaluationFlagSchema.SqliteStatements),
                 new SchemaMigration(135, "Persist the unread reply count of saved Ask threads",
                     @"ALTER TABLE ask_threads ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0;"),
-                new SchemaMigration(136, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.SqliteStatements)
+                new SchemaMigration(136, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.SqliteStatements),
+                new SchemaMigration(140, "Persist fixture battery runs", BatteryRunSchema.SqliteStatements)
             };
         }
 

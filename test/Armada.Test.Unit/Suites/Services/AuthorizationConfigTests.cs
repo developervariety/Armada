@@ -27,6 +27,15 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/storage/refresh"));
             });
 
+            await RunTest("Battery Routes AreAdminOnly", () =>
+            {
+                // A run spends captain tokens and battery records carry no tenant scope.
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/battery/packs"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/battery/runs"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/battery/runs/bat_example"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/battery/runs"));
+            });
+
             await RunTest("StopAll And WholeMergeQueueProcess AreAdminOnly", () =>
             {
                 // Both act on every tenant at once, so a tenant administrator may not run them. Processing one
