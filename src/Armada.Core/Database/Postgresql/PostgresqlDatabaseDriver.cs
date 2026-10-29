@@ -432,6 +432,7 @@ namespace Armada.Core.Database.Postgresql
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MissionAttempts = new MissionAttemptProvenanceMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            BatteryRuns = new BatteryRunMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MemoryProposals = new MemoryProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);

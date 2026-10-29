@@ -1399,6 +1399,17 @@ The tool reads a mission through the caller's scope: an administrator reads any 
 tenant's, and any other user its own. A mission outside that scope answers `{"Error": "Mission not found"}`. It is
 not offered to mission callers. It is read-only and writes no record. Ask threads may call it.
 
+### armada_battery_packs, armada_battery_runs, armada_battery_run
+
+Read the fixture battery (see [Fixture Battery](BATTERY.md)). `armada_battery_packs` lists the packs with their tasks
+and toolchain. `armada_battery_runs` lists runs newest first; args: optional `captainId`, `packId` and `limit`
+(default 50, maximum 200). `armada_battery_run` reads one run by `runId`, with the grade, timings and evidence of each
+task; an unknown run answers `{"Error": "Battery run not found"}`.
+
+The tools are read-only and answer a global administrator only; any other caller, including a mission credential,
+receives a refusal. No MCP tool starts a run, because a run dispatches real missions and spends captain tokens; start
+one with `POST /api/v1/battery/runs`.
+
 ### armada_mission_change_summary
 
 List every path one mission stage committed, with its status. Args: optional

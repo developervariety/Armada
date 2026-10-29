@@ -21,6 +21,8 @@ const Events = lazy(() => import('./pages/Events'));
 const MergeQueue = lazy(() => import('./pages/MergeQueue'));
 const Jobs = lazy(() => import('./pages/Jobs'));
 const Storage = lazy(() => import('./pages/Storage'));
+const BatteryRuns = lazy(() => import('./pages/BatteryRuns'));
+const BatteryRunDetail = lazy(() => import('./pages/BatteryRunDetail'));
 const Docks = lazy(() => import('./pages/Docks'));
 const Doctor = lazy(() => import('./pages/Doctor'));
 const Tenants = lazy(() => import('./pages/admin/Tenants'));
@@ -153,6 +155,8 @@ export default function App() {
 
                       <Route path="jobs" element={<Jobs />} />
                       <Route path="storage" element={<Storage />} />
+                      <Route path="battery" element={<BatteryRuns />} />
+                      <Route path="battery/:id" element={<BatteryRunDetail />} />
 
                       <Route path="configuration" element={<Configuration />} />
                       <Route path="personas" element={<Navigate to="/configuration?tab=personas" replace />} />

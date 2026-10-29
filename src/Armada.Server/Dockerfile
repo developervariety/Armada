@@ -83,6 +83,7 @@ RUN dotnet restore src/Armada.Server/Armada.Server.csproj
 COPY src/Armada.Core/ src/Armada.Core/
 COPY src/Armada.Runtimes/ src/Armada.Runtimes/
 COPY src/Armada.Server/ src/Armada.Server/
+COPY battery/ battery/
 
 # The source-revision embed target runs `git rev-parse` from the build context.
 # The Docker build has no .git and no git, so the caller passes the commit here

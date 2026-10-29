@@ -293,6 +293,11 @@ namespace Armada.Core
         public static readonly string MissionAttemptProvenanceIdPrefix = "mat_";
 
         /// <summary>
+        /// ID prefix for fixture battery runs.
+        /// </summary>
+        public static readonly string BatteryRunIdPrefix = "bat_";
+
+        /// <summary>
         /// Preparation claim observation ID prefix.
         /// </summary>
         public static readonly string PreparationClaimObservationIdPrefix = "pco_";

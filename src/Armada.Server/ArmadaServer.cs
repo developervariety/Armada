@@ -124,6 +124,7 @@ using WatsonWebserver.Core.Routing;
         private ArmadaWebSocketHub _WebSocketHub = null!;
         private MissionStatusTransitionService _StatusTransitions = null!;
         private MissionOperations _MissionOperations = null!;
+        private BatteryRunService _BatteryRuns = null!;
 
         private IMergeQueueService _MergeQueue = null!;
         private IMergeRecoveryHandler _MergeRecoveryHandler = null!;
@@ -859,6 +860,15 @@ using WatsonWebserver.Core.Routing;
                 _Logging);
             _WebSocketHub.SetMissionOperations(_MissionOperations);
 
+            // The fixture battery grades a captain on fixed tasks. Its fixture repositories live under the data
+            // directory; its packs ship next to the server binary.
+            _BatteryRuns = new BatteryRunService(
+                _Database,
+                _Logging,
+                new BatteryPackCatalog(() => null),
+                new BatteryFixtureService(_Database, _Logging, Path.Combine(_Settings.DataDirectory, "battery")),
+                new BatteryTaskDispatcher(_Admiral, _Database, _Logging, (voyage, token) => _MissionOperations.CancelVoyageAsync(voyage, token)));
+
             // WebSocket create_voyage dispatches through the same shared service as REST and MCP. The factory
             // reads the fields when a command runs, so services wired later in startup are included.
             _WebSocketHub.SetVoyageDispatchFactory(() => new VoyageDispatchService(
@@ -1063,6 +1073,11 @@ using WatsonWebserver.Core.Routing;
 
             // Record unfinished background requests as Lost before accepting new requests, so an
             // accepted background job remains discoverable after restart.
+            int interruptedBatteryRuns = await _BatteryRuns.RecoverInterruptedAsync(_TokenSource.Token).ConfigureAwait(false);
+            if (interruptedBatteryRuns > 0)
+                _Logging.Warn(_Header + interruptedBatteryRuns + " battery run" + (interruptedBatteryRuns == 1 ? " was" : "s were")
+                    + " running when the previous process stopped; recorded as Interrupted");
+
             int lostJobs = await _LongRunningJobs.RecoverInterruptedJobsAsync().ConfigureAwait(false);
             if (lostJobs > 0)
                 _Logging.Warn(_Header + lostJobs + " background job" + (lostJobs == 1 ? " was" : "s were")
@@ -1798,6 +1813,10 @@ using WatsonWebserver.Core.Routing;
             new ProductionRoutes(new VerifiedProductionSummaryService(_Database))
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Fixture battery
+            new BatteryRoutes(_BatteryRuns, _Database, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Merge queue
             new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -2276,7 +2295,8 @@ using WatsonWebserver.Core.Routing;
                 vesselCheckoutImportService: _VesselCheckoutImports,
                 captainModelProbe: _CaptainModelProbe,
                 askThreads: _AskThreads,
-                askToolPermissions: _AskToolPermissions);
+                askToolPermissions: _AskToolPermissions,
+                batteryRuns: _BatteryRuns);
 
         }
 

@@ -119,7 +119,8 @@ namespace Armada.Server.Mcp
             VesselCheckoutImportService? vesselCheckoutImportService = null,
             CaptainModelProbeService? captainModelProbe = null,
             AskThreadService? askThreads = null,
-            AskToolPermissionService? askToolPermissions = null)
+            AskToolPermissionService? askToolPermissions = null,
+            BatteryRunService? batteryRuns = null)
         {
             // Every tool's abbreviated id arguments resolve at this one seam before the tool runs.
             register = McpAbbreviatedIdArguments.Wrap(register, database);
@@ -147,6 +148,7 @@ namespace Armada.Server.Mcp
             // mission evidence, so it sits in the caller-scoped catalogue beside unified recall.
             McpMissionChangeSummaryTools.Register(register, database, effectiveSettings, git, logging);
             McpMissionAttemptTools.Register(register, database);
+            if (batteryRuns != null) McpBatteryTools.Register(register, batteryRuns, database);
             if (captainAdministration == null)
             {
                 captainAdministration = new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);

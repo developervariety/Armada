@@ -105,7 +105,7 @@ expiry and offer **Quarantine** and **Lift Quarantine**.
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_mission_change_summary` (caller-scoped; the stage's recorded commit pair, no dock), `armada_mission_attempts` (caller-scoped; captain, runtime, model, runtime version and outcome of each attempt), `armada_get_mission_log` |
+| Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_mission_change_summary` (caller-scoped; the stage's recorded commit pair, no dock), `armada_mission_attempts` (caller-scoped; captain, runtime, model, runtime version and outcome of each attempt), `armada_get_mission_log`, `armada_battery_packs`, `armada_battery_runs`, `armada_battery_run` (global administrators; fixture battery packs and runs) |
 | Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26), `armada_review_hold` (`action=fail`), `armada_handoff_hold` (`action=rescue`) |
 | Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_review_hold` (`action=clear` lands or hands off the held PASS), `armada_handoff_hold` (`action=release` or `mail_release` hands off the held stage) |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |

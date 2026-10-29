@@ -214,6 +214,12 @@
 			"description": "Background job ID for status and cancel requests."
 		},
 		{
+			"key": "batteryRunId",
+			"value": "",
+			"type": "string",
+			"description": "Battery run ID (bat_ prefix) for reading a fixture battery run."
+		},
+		{
 			"key": "modelEndpointId",
 			"value": "",
 			"type": "string",
@@ -11935,6 +11941,102 @@
 							]
 						},
 						"description": "Starts a bounded background collection and returns 202 with the current cache; poll the read route until Collecting is false. Concurrent requests join the running collection. ExactCounts counts every table's rows. Requires a global administrator."
+					}
+				}
+			]
+		},
+		{
+			"name": "Battery",
+			"description": "Fixture battery runs: one captain, one pack of small repository tasks, graded on the Admiral host. Requires a global administrator.",
+			"item": [
+				{
+					"name": "List Battery Packs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/battery/packs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"battery",
+								"packs"
+							]
+						},
+						"description": "Returns every pack in the battery directory with its tasks, toolchain and validation errors. Requires a global administrator."
+					}
+				},
+				{
+					"name": "List Battery Runs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/battery/runs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"battery",
+								"runs"
+							]
+						},
+						"description": "Returns battery runs newest first. Query: captainId, packId, limit (1 to 200, default 50). Requires a global administrator."
+					}
+				},
+				{
+					"name": "Get a Battery Run",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/battery/runs/{{batteryRunId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"battery",
+								"runs",
+								"{{batteryRunId}}"
+							]
+						},
+						"description": "Returns one run with the grade, score, timings and evidence of each task. Per-attempt detail is in GET /api/v1/missions/{id}/attempts. Requires a global administrator."
+					}
+				},
+				{
+					"name": "Start a Battery Run",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/battery/runs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"battery",
+								"runs"
+							]
+						},
+						"description": "Starts a run of one pack against one captain and returns 202 with the queued run. Dispatches real missions and spends captain tokens. CreateFixtureVessel creates the pack's fixture vessel when it does not exist. Returns 409 when the captain already has a run in progress. Requires a global administrator.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"CaptainId\": \"{{captainId}}\",\n  \"PackId\": \"csharp\",\n  \"CreateFixtureVessel\": false\n}"
+						}
 					}
 				}
 			]

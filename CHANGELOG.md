@@ -83,6 +83,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 - A bulk-delete identifier list, a dispatch mission list, a dispatch playbook selection and a captain chat history each have a fixed limit well above ordinary use. A token-usage, request-history or mission-history summary refuses a window that would fill more than 1000 buckets. REST returns HTTP 400 with `data.code` `CollectionLimitExceeded`. MCP and WebSocket return the same code. A successful response is unchanged. See [Request limits](docs/REQUEST_LIMITS.md).
 
+### Fixture battery
+
+- A battery run gives one captain a pack of small repository tasks. It resets a fixture repository, dispatches a voyage on the pack's fixture vessel with landing mode `None` and `IsEvaluation` true, and grades the mission's worktree on the Admiral host. Each task grades `Passed`, `Failed` or `CouldNotRun`; a missing tool on the Admiral host grades `CouldNotRun`, never `Failed`.
+- The pack format has a manifest, fixture files, tasks and three graders: `command`, `byteComparison` and `mutation`. The `csharp` and `javascript` packs ship in `battery/` with five tasks each. See [Fixture Battery](docs/BATTERY.md).
+- `GET /api/v1/battery/packs`, `GET /api/v1/battery/runs`, `GET /api/v1/battery/runs/{id}` and `POST /api/v1/battery/runs` require a global administrator. The MCP tools `armada_battery_packs`, `armada_battery_runs` and `armada_battery_run` read packs and runs. No MCP tool starts a run, because a run spends captain tokens. The dashboard Battery page lists runs and shows each run's tasks.
+- One `battery_runs` row holds a run's captain, pack, per-task grades and timings. The attempts behind a grade stay in the mission attempt provenance records.
+- Migrations: SQLite 140, PostgreSQL 144, MySQL 133, SQL Server 136.
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.

@@ -79,6 +79,8 @@ namespace Armada.Core.Authorization
             // A health sweep probes endpoints across all tenants; individual validation stays caller-scoped.
             if (method == "POST" && path.TrimEnd('/') == "/api/v1/model-endpoints/health-check") return PermissionLevel.AdminOnly;
             if (path.StartsWith("/api/v1/backup")) return PermissionLevel.AdminOnly;
+            // A battery run dispatches real captain work and spends its tokens, and every run reads fleet-wide state.
+            if (path == "/api/v1/battery" || path.StartsWith("/api/v1/battery/")) return PermissionLevel.AdminOnly;
             // The inventory lists server-wide paths, sizes and database tables across every tenant.
             if (path == "/api/v1/storage" || path.StartsWith("/api/v1/storage/")) return PermissionLevel.AdminOnly;
             if (path.StartsWith("/api/v1/restore")) return PermissionLevel.AdminOnly;
