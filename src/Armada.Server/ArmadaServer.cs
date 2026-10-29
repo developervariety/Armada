@@ -157,6 +157,7 @@ using WatsonWebserver.Core.Routing;
         private CoordinationService _CoordinationService = null!;
         private CaptainLogScreenService _CaptainLogScreen = null!;
         private Armada.Core.Services.DispatchHold _DispatchHold = null!;
+        private Armada.Core.Services.DispatchHoldSnapshot? _RestoredDispatchHold = null;
         private IWorkspaceService _Workspace = null!;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
         private WorkflowProfileService _WorkflowProfileService = null!;
@@ -416,11 +417,13 @@ using WatsonWebserver.Core.Routing;
             // and the process-exit OOM classification see the same capacity/cooldown state.
             ResourcePressureAdmission resourcePressureAdmission = new ResourcePressureAdmission(
                 _Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
+            _DispatchHold = new Armada.Core.Services.DispatchHold(_Database.DispatchHolds);
+            // Restore before the scheduler, recovery or any dispatch path runs, so a restart never opens dispatch.
+            _RestoredDispatchHold = await _DispatchHold.RestoreAsync(_TokenSource.Token).ConfigureAwait(false);
             // The context retrieval service is built later, in RegisterMcpTools, and held in
             // _ContextRetrieval. A lazy provider lets MissionService reach it at brief-generation
             // time (well after startup) without reordering startup; it stays null until built,
             // and the brief-slimming path (default off) falls back to the full memory section.
-            _DispatchHold = new Armada.Core.Services.DispatchHold();
             MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission, () => _ContextRetrieval);
             _MissionService = missionService;
             missionService.SetHarborCheckouts(_HarborCheckouts);
@@ -882,6 +885,7 @@ using WatsonWebserver.Core.Routing;
                 _DispatchStalenessAdapter));
 
             _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
+            await PostRestoredDispatchHoldNoteAsync().ConfigureAwait(false);
             _AutonomousRecovery.BoardNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Autonomous Recovery");
             _ObjectiveScheduler.BoardNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Objective Scheduler");
             _DiskLifecycle.BoardNotes = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "History Archive");
@@ -940,6 +944,7 @@ using WatsonWebserver.Core.Routing;
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOwnerNotePoster = ownerNotePoster;
+                missionService.ReassignmentNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Mission Assignment");
                 // D3 runtime_failure reports a fleet-wide provider fault as a broadcast board note. The
                 // adapter was built before the coordination service existed, so the poster is set here.
                 if (admiralService.RuntimeFailureAdapter != null)
@@ -2298,6 +2303,31 @@ using WatsonWebserver.Core.Routing;
                 askToolPermissions: _AskToolPermissions,
                 batteryRuns: _BatteryRuns);
 
+        }
+
+        /// <summary>
+        /// Post one system note naming the reason and setter of a dispatch hold that startup restored,
+        /// so every session sees that the hold survived the restart.
+        /// </summary>
+        private async Task PostRestoredDispatchHoldNoteAsync()
+        {
+            Armada.Core.Services.DispatchHoldSnapshot? restored = _RestoredDispatchHold;
+            if (restored == null) return;
+
+            try
+            {
+                await _CoordinationService.PostMessageAsync(
+                    CoordinationService.DefaultRoomKey,
+                    CoordinationAuthorTypeEnum.System,
+                    authorId: null,
+                    authorName: "armada",
+                    content: Armada.Core.Services.DispatchHold.RestoredNote(restored),
+                    token: _TokenSource.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "restored dispatch hold note not posted: " + ex.Message);
+            }
         }
 
         /// <summary>

@@ -302,8 +302,8 @@ presence default; a deploy with verification finishes well inside that). It
 wakes every active session and posts a board note naming the stale owner, the
 recorded reason, the set time and the measured absence, then clears once and
 persists. An unattributed pause is refused and stays an operator's to clear.
-The dispatch hold is never touched: it clears itself on a successful redeploy,
-so a hold that survives is a deploy that stopped halfway and needs a human.
+The dispatch hold is never touched: only `armada_dispatch_hold action=clear`
+releases it.
 Pass `dryRun=true` to read the decision and evidence without acting. Scheduler dispatches use the same Build and
 UnitTest Check arming path as operator dispatches. A dispatch hold blocks both.
 The Admiral also requests a debounced immediate sweep when an eligible objective
@@ -401,6 +401,14 @@ Pass `includeHandled: true` to list every item, each with its `Handled` marker
 | Read | `armada_get_dock`, `armada_list_papercuts`, `armada_list_memory_proposals` |
 | Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read`, `armada_repair_dock`, `armada_dismiss_memory_proposal`, `armada_promote_memory_proposal` |
 | Destructive | `armada_delete_dock`, `armada_purge_dock`, `armada_unstick_dock`, `armada_delete_docks`, `armada_delete_signals`, `armada_delete_event`, `armada_delete_events` |
+
+`armada_send_signal` takes `captainId`, `missionId`, or both. Mail that names a
+mission goes to the captain that holds the mission when it is sent, and unread
+mail of a mission moves to the next captain when the mission is assigned to a
+different one. A mission with no captain yet leaves the mail without a recipient
+until its next captain takes the mission. When a mission moves to a different
+captain, the Admiral posts one `[reassigned]` system note on the coordination
+board naming the mission and both captains.
 
 #### Coordination Board (Chatroom)
 
@@ -719,8 +727,10 @@ deployment names a different candidate, or when the environment's
 
 The hold is fleet-wide: while it is engaged every new dispatch is refused,
 whichever session or scheduler asks, and in-flight voyages continue. Engage it
-with a reason before an Admiral rebuild; a successful restart clears it by
-design. `setBy` names the session that engaged it; without it the hold takes
+with a reason before an Admiral rebuild. The hold is stored in the database:
+a restart restores it before any dispatch path runs and posts one system note
+on the coordination board naming its reason and setter, and it stays engaged
+until `action=clear`. `setBy` names the session that engaged it; without it the hold takes
 the caller's participant board name, then the name of the credential the call
 authenticated with, and an engage that carries neither is refused. Hold changes require an authorized operator.
 
@@ -1220,6 +1230,17 @@ in it holds nothing a snapshot can save and is removed as before. Both events
 appear in the mission recovery report. Every completed reclaim also records
 `dock.reclaimed`, naming the calling code path, the dock's mission and the
 mission's status at that moment.
+
+A mission that continues a preserved branch -- a stage with an inherited branch, or a
+reassigned root mission -- gets the newest saved work back: after its checkout is
+provisioned and its base is verified, the work is applied as uncommitted changes
+(edits, deletions and new files) and no commit is made. The work is applied only
+when the new checkout is clean and its HEAD is the commit the saved work was made
+on. `mission.work_snapshot_applied` records the resume. When the work is not applied
+-- the checkout is on another commit, or the apply conflicts -- the checkout is left
+unchanged, `mission.work_snapshot_skipped` names the reason, and one `[work not
+restored]` note on the coordination board names the `recover/` ref that still holds
+the work. A mission with no saved work records nothing.
 
 Both families use one retention rule. The sweep keeps an anchor in these cases:
 

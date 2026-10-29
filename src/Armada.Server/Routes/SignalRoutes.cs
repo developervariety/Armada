@@ -111,6 +111,16 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Signal.");
                 signal.TenantId = ctx.TenantId;
                 signal.UserId = ctx.UserId;
+                if (!String.IsNullOrWhiteSpace(signal.MissionId))
+                {
+                    Mission? addressed = await Armada.Core.Authorization.CallerScopedRead.ReadMissionAsync(_database, ctx, signal.MissionId).ConfigureAwait(false);
+                    if (addressed == null)
+                    {
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
+                    }
+                    MissionMailRouting.AddressToMission(signal, addressed);
+                }
                 signal = await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return signal;

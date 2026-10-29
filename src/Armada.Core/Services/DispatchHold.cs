@@ -1,12 +1,17 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Database.Interfaces;
 
     /// <summary>
-    /// A runtime dispatch hold. When engaged, every voyage and mission dispatch
+    /// A dispatch hold. When engaged, every voyage and mission dispatch
     /// through the admiral is rejected until the hold is cleared, so an operator
     /// working on Armada itself can stop new work before a rebuild or redeploy.
-    /// Runtime state only: a restart clears the hold.
+    /// With a store, <see cref="EngageAsync"/> and <see cref="ClearAsync"/> persist the hold and
+    /// <see cref="RestoreAsync"/> reloads it at startup, so a restart keeps the hold.
+    /// Without a store the hold lives in memory only.
     /// In-flight work is not held: later stages of a dispatched voyage are assigned and a stalled captain is
     /// relaunched in its dock while the hold is engaged.
     /// </summary>
@@ -19,13 +24,80 @@ namespace Armada.Core.Services
         private string _Reason = String.Empty;
         private string? _SetBy = null;
         private DateTime _SetByUtc = DateTime.UtcNow;
+        private readonly IDispatchHoldMethods? _Store;
+
+        #endregion
+
+        #region Constructors-and-Factories
+
+        /// <summary>
+        /// Instantiate a hold that lives in memory only.
+        /// </summary>
+        public DispatchHold()
+        {
+        }
+
+        /// <summary>
+        /// Instantiate a hold that persists through the store.
+        /// </summary>
+        /// <param name="store">Store that keeps the engaged hold across a restart.</param>
+        public DispatchHold(IDispatchHoldMethods store)
+        {
+            _Store = store ?? throw new ArgumentNullException(nameof(store));
+        }
 
         #endregion
 
         #region Public-Methods
 
         /// <summary>
-        /// Engage the hold. Reason is required; setBy names who engaged it.
+        /// Engage the hold and persist it when a store is set. The hold is engaged in memory first, so a
+        /// failed write still refuses dispatch; the write failure then reaches the caller.
+        /// </summary>
+        /// <param name="reason">Why the hold is engaged. Required.</param>
+        /// <param name="setBy">Who engaged the hold.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task EngageAsync(string reason, string? setBy = null, CancellationToken token = default)
+        {
+            Engage(reason, setBy);
+            if (_Store == null) return;
+            DispatchHoldSnapshot? snapshot = Snapshot();
+            if (snapshot != null) await _Store.SaveAsync(snapshot, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Clear the hold and remove it from the store when a store is set.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        public async Task ClearAsync(CancellationToken token = default)
+        {
+            Clear();
+            if (_Store != null) await _Store.ClearAsync(token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Reload the stored hold into memory. Startup calls it before any dispatch path runs.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The restored hold, or null when none was stored or no store is set.</returns>
+        public async Task<DispatchHoldSnapshot?> RestoreAsync(CancellationToken token = default)
+        {
+            if (_Store == null) return null;
+            DispatchHoldSnapshot? stored = await _Store.ReadAsync(token).ConfigureAwait(false);
+            if (stored == null) return null;
+            lock (_Lock)
+            {
+                _Active = true;
+                _Reason = stored.Reason;
+                _SetBy = stored.SetBy;
+                _SetByUtc = stored.SetByUtc;
+            }
+            return stored;
+        }
+
+        /// <summary>
+        /// Engage the hold in memory. Reason is required; setBy names who engaged it. Use
+        /// <see cref="EngageAsync"/> to persist the hold.
         /// </summary>
         public void Engage(string reason, string? setBy = null)
         {
@@ -41,7 +113,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Clear the hold.
+        /// Clear the hold in memory. Use <see cref="ClearAsync"/> to remove the stored hold.
         /// </summary>
         public void Clear()
         {
@@ -91,6 +163,19 @@ namespace Armada.Core.Services
                 };
                 throw new DispatchHoldActiveException(snapshot, RefusalMessage(snapshot));
             }
+        }
+
+        /// <summary>
+        /// The board note that reports a hold restored at startup, naming the reason and who set it.
+        /// </summary>
+        /// <param name="hold">The restored hold.</param>
+        /// <returns>The note text.</returns>
+        public static string RestoredNote(DispatchHoldSnapshot hold)
+        {
+            if (hold == null) throw new ArgumentNullException(nameof(hold));
+            string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
+            return "[hold] Dispatch hold restored after an admiral restart. Set by " + holder + " at " +
+                hold.SetByUtc.ToString("u") + ": " + hold.Reason + " Dispatching stays paused until the hold is cleared.";
         }
 
         /// <summary>

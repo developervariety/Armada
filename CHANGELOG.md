@@ -7,6 +7,18 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Mission mail and captain changes
+
+- `armada_send_signal` and `POST /api/v1/signals` accept a `missionId`. Mail that names a mission goes to the captain that holds the mission, and its unread mail moves to the next captain when the mission is assigned to a different one, so mail no longer reaches the wrong mission after a restart swaps captains. Migrations: SQLite 141, PostgreSQL 146, MySQL 134, SQL Server 137 (shared with the dispatch hold table).
+
+- A mission assigned to a different captain than its previous attempt posts one `[reassigned]` system note on the coordination board naming the mission and both captains.
+
+- A mission that continues a preserved branch (a stage with an inherited branch, or a reassigned root mission) gets its newest saved `recover/<missionId>-<n>` work back as uncommitted changes in the rebuilt checkout, with no commit. Work saved on a different commit than the new checkout's HEAD is not applied; `mission.work_snapshot_applied` or `mission.work_snapshot_skipped` records the outcome and a skip posts one `[work not restored]` board note. No migration.
+
+### Dispatch hold across restarts
+
+- The dispatch hold is stored in the database and restored at startup before any dispatch path runs. A restart no longer opens dispatch while a hold is engaged. A restored hold posts one system note on the coordination board naming its reason and setter, and it stays engaged until `armada_dispatch_hold action=clear`. Migrations: SQLite 141, PostgreSQL 146, MySQL 134, SQL Server 137.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

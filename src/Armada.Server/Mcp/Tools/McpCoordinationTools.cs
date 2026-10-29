@@ -527,7 +527,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 register(
                     "armada_dispatch_hold",
-                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. Engaging or clearing posts a system note to the coordination board. Status and engage list UnfinishedJobs: background jobs (dispatches included) accepted but not finished; RunningGates: definition-of-done gates running or waiting for the host command slot, each with a SlotWait (Running, WaitingForSlot with its Position in line, or Queued before its first command) so a queued gate is told from a lost one; GateReruns: interrupted gates being re-run; and HostSlot: who holds and who waits for the host command slot, with MemoryWaitReason when free memory holds the next request. A restart records each unfinished job Lost and kills every running gate and check, so wait for UnfinishedJobs, RunningGates and GateReruns to be empty and HostSlot to have no holder or waiter before restarting.",
+                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. The hold is stored in the database, so it survives an admiral restart and stays engaged until you clear it. Engaging or clearing posts a system note to the coordination board. Status and engage list UnfinishedJobs: background jobs (dispatches included) accepted but not finished; RunningGates: definition-of-done gates running or waiting for the host command slot, each with a SlotWait (Running, WaitingForSlot with its Position in line, or Queued before its first command) so a queued gate is told from a lost one; GateReruns: interrupted gates being re-run; and HostSlot: who holds and who waits for the host command slot, with MemoryWaitReason when free memory holds the next request. A restart records each unfinished job Lost and kills every running gate and check, so wait for UnfinishedJobs, RunningGates and GateReruns to be empty and HostSlot to have no holder or waiter before restarting.",
                     new
                     {
                         type = "object",
@@ -558,7 +558,7 @@ namespace Armada.Server.Mcp.Tools
                             if (coordination == null)
                                 return McpToolUnavailable.Create("coordination board");
                             bool wasActive = dispatchHold.Snapshot() != null;
-                            dispatchHold.Clear();
+                            await dispatchHold.ClearAsync().ConfigureAwait(false);
                             if (wasActive)
                             {
                                 await SafePostAsync(coordination, "[hold] Dispatching resumed. The admiral is clear for new voyages.").ConfigureAwait(false);
@@ -581,7 +581,7 @@ namespace Armada.Server.Mcp.Tools
                             if (String.IsNullOrWhiteSpace(setBy))
                                 return (object)new { Error = "setBy is required when engaging the hold and the call carries no participant key or named credential - name your session so others know who to ask" };
 
-                            dispatchHold.Engage(request.Reason!, setBy);
+                            await dispatchHold.EngageAsync(request.Reason!, setBy).ConfigureAwait(false);
                             await SafePostAsync(coordination, "[hold] Dispatching paused by " + setBy + ": " + request.Reason + " Hold off dispatching new voyages until this is cleared.").ConfigureAwait(false);
                             await coordination.EmitHoldWakeAsync("[hold] Dispatching paused by " + setBy + " (" + request.Reason + "). Hold new voyages; you will be woken on clear.").ConfigureAwait(false);
                             return (object)new { Active = true, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs), RunningGates = RunningGates(), GateReruns = MissionService.GateRerunsInFlight(), HostSlot = HostWideCommandLock.Snapshot() };

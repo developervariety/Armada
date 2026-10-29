@@ -1695,7 +1695,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(137, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.SqliteStatements),
                 new SchemaMigration(138, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.SqliteStatements),
                 new SchemaMigration(139, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.SqliteStatements),
-                new SchemaMigration(140, "Persist fixture battery runs", BatteryRunSchema.SqliteStatements)
+                new SchemaMigration(140, "Persist fixture battery runs", BatteryRunSchema.SqliteStatements),
+                new SchemaMigration(141, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.SqliteStatements.Concat(SignalMissionSchema.SqliteStatements).ToArray())
             };
         }
 

@@ -410,6 +410,7 @@ namespace Armada.Core.Database.Sqlite
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MissionAttempts = new MissionAttemptProvenanceMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             BatteryRuns = new BatteryRunMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            DispatchHolds = new DispatchHoldMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
