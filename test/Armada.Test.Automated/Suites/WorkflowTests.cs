@@ -77,12 +77,11 @@ namespace Armada.Test.Automated.Suites
                 AssertStartsWith("msn_", missionId);
                 AssertEqual("Pending", mission.Status.ToString());
 
-                // Step 5: Transition mission through its lifecycle. A mission in Review completes only
-                // through review approval, so rework returns it to InProgress before completion.
+                // Step 5: Transition mission through its lifecycle. A mission in Review leaves it only
+                // through a review decision, so rework returns from Testing to InProgress before completion.
                 await TransitionMissionStatusAsync(missionId, "Assigned").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(missionId, "InProgress").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(missionId, "Testing").ConfigureAwait(false);
-                await TransitionMissionStatusAsync(missionId, "Review").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(missionId, "InProgress").ConfigureAwait(false);
                 HttpResponseMessage completeResp = await TransitionMissionStatusAsync(missionId, "Complete").ConfigureAwait(false);
                 AssertStatusCode(HttpStatusCode.OK, completeResp);

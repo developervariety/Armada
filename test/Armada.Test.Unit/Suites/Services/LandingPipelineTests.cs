@@ -188,6 +188,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A landing handoff that throws moves the produced mission to LandingFailed with its reason", async () =>
+            {
+                foreach (bool activeMergeEntry in new[] { false, true })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        StubGitService git = new StubGitService();
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                        MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                        LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue);
+                        if (activeMergeEntry)
+                        {
+                            MergeEntry entry = new MergeEntry(entities.Dock.BranchName!, "main") { MissionId = entities.Mission.Id, VesselId = entities.Vessel.Id };
+                            await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+                        }
+
+                        missionService.OnMissionComplete = (produced, dock) => throw new InvalidOperationException("handoff storage unavailable");
+
+                        await missionService.HandleCompletionAsync(entities.Captain).ConfigureAwait(false);
+
+                        Mission? stored = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
+                        if (activeMergeEntry)
+                        {
+                            AssertEqual(MissionStatusEnum.WorkProduced, stored!.Status, "an active merge entry still lands the work, so the mission is not failed");
+                        }
+                        else
+                        {
+                            AssertEqual(MissionStatusEnum.LandingFailed, stored!.Status, "a thrown handoff with no merge entry must not leave the mission WorkProduced");
+                            AssertContains("landing_handoff_failed", stored.FailureReason ?? "", "the reason is recorded on the mission");
+                            AssertContains("handoff storage unavailable", stored.FailureReason ?? "", "the reason carries the failure");
+                            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(stored.Id, 100).ConfigureAwait(false);
+                            AssertTrue(events.Any(item => item.EventType == "mission.landing_failed"), "the failure is visible as a landing_failed event");
+                        }
+                    }
+                }
+            });
+
             await RunTest("Local merge failure sets LandingFailed on merge exception", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1145,6 +1186,51 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Merge-queue landing records a lost handoff as LandingFailed with its reason", async () =>
+            {
+                foreach (bool throwOnEnqueue in new[] { true, false })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        StubGitService git = new StubGitService();
+                        git.DiffResult = "+++ b/src/Foo.cs\n+changed\n";
+                        MissionLandingHandler handler = CreateScopeHandler(testDb, git, CreateLogging(), CreateSettings(),
+                            mergeQueue: new FaultingMergeQueueService(throwOnEnqueue));
+
+                        LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId);
+                        Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+
+                        await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                        string mode = throwOnEnqueue ? "a thrown enqueue" : "an enqueue that returns no entry";
+                        Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.LandingFailed, stored!.Status, mode + " leaves no landing path, so the mission must not stay WorkProduced");
+                        AssertContains("merge_queue_handoff_lost", stored.FailureReason ?? "", mode + " records its reason on the mission");
+                        await AssertScopedEventAsync(testDb, mission.Id, "mission.landing_failed").ConfigureAwait(false);
+                    }
+                }
+            });
+
+            await RunTest("Merge-queue landing keeps WorkProduced when a failed enqueue left an active entry", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    git.DiffResult = "+++ b/src/Foo.cs\n+changed\n";
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, CreateLogging(), CreateSettings(),
+                        mergeQueue: new FaultingMergeQueueService(true, activeEntryExists: true));
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, stored!.Status, "an active merge entry still lands the work, so the mission is not failed");
+                    AssertNull(stored.FailureReason, "no failure is recorded while the queue holds the entry");
+                }
+            });
+
             await RunTest("Local landing completion event is scoped to the mission owner", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1498,7 +1584,8 @@ namespace Armada.Test.Unit.Suites.Services
             StubGitService git,
             LoggingModule logging,
             ArmadaSettings settings,
-            LeakHunkAdapter? leakHunkAdapter = null)
+            LeakHunkAdapter? leakHunkAdapter = null,
+            IMergeQueueService? mergeQueue = null)
         {
             IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
             ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
@@ -1507,7 +1594,7 @@ namespace Armada.Test.Unit.Suites.Services
                 testDb.Driver,
                 settings,
                 git,
-                new PersistingMergeQueueService(testDb.Driver),
+                mergeQueue ?? new PersistingMergeQueueService(testDb.Driver),
                 landingService,
                 new AutoLandEvaluator(),
                 new ConventionChecker(),
@@ -1916,9 +2003,9 @@ namespace Armada.Test.Unit.Suites.Services
                 => Task.FromResult(new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.Enqueued, null));
         }
 
-        private sealed class StubMergeQueueService : IMergeQueueService
+        private class StubMergeQueueService : IMergeQueueService
         {
-            public Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default) => Task.FromResult(entry);
+            public virtual Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default) => Task.FromResult(entry);
             public Task ProcessQueueAsync(CancellationToken token = default) => Task.CompletedTask;
             public Task CancelAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.CompletedTask;
             public Task<List<MergeEntry>> ListAsync(string? tenantId = null, CancellationToken token = default) => Task.FromResult(new List<MergeEntry>());
@@ -1934,9 +2021,34 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default) => Task.FromResult(0);
             public Task<int> RecoverInFlightLandingsAsync(CancellationToken token = default) => Task.FromResult(0);
             public Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default) => Task.FromResult(false);
-            public Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default) => Task.FromResult(false);
+            public virtual Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default) => Task.FromResult(false);
             public Task<SafetyNetEnqueueResult> TrySafetyNetEnqueueAsync(Mission mission, Vessel vessel, string? unifiedDiff, IAutoLandEvaluator autoLandEvaluator, IConventionChecker conventionChecker, ICriticalTriggerEvaluator criticalTriggerEvaluator, CancellationToken token = default)
                 => Task.FromResult(new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.Enqueued, null));
+        }
+
+        /// <summary>
+        /// Merge-queue double whose enqueue fails by throwing or by returning no entry, and that reports
+        /// whether the mission already has an active entry.
+        /// </summary>
+        private sealed class FaultingMergeQueueService : StubMergeQueueService
+        {
+            private readonly bool _Throw;
+            private readonly bool _ActiveEntryExists;
+
+            public FaultingMergeQueueService(bool throwOnEnqueue, bool activeEntryExists = false)
+            {
+                _Throw = throwOnEnqueue;
+                _ActiveEntryExists = activeEntryExists;
+            }
+
+            public override Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default)
+            {
+                if (_Throw) throw new InvalidOperationException("queue storage unavailable");
+                return Task.FromResult<MergeEntry>(null!);
+            }
+
+            public override Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default)
+                => Task.FromResult(_ActiveEntryExists);
         }
 
     }

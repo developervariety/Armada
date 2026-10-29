@@ -26,6 +26,8 @@ namespace Armada.Server
         private string _Header = "[MissionLanding] ";
         // Aliased to the shared definition so the rule has one source, not two.
         private const string _AutoRescueMarker = RescueMissionMarker.Marker;
+        private const string MergeQueueHandoffLostCode = "merge_queue_handoff_lost";
+        private const string MergeQueueHandoffLostPrefix = MergeQueueHandoffLostCode + ": ";
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
@@ -634,15 +636,31 @@ namespace Armada.Server
                         entry.TenantId = MergeQueueService.ResolveSharedEntryTenant(mission.TenantId, vessel?.TenantId);
                         entry.UserId = mission.UserId ?? vessel?.UserId;
                         string requestedEntryId = entry.Id;
-                        entry = await _MergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
-                        if (!String.Equals(entry.Id, requestedEntryId, StringComparison.Ordinal))
+                        (MergeEntry? enqueuedEntry, string? handoffLostReason) = await EnqueueMergeEntryAsync(mission, entry).ConfigureAwait(false);
+                        if (handoffLostReason != null)
                         {
+                            // No durable entry exists, so nothing will land this work. The mission leaves
+                            // WorkProduced with the reason recorded; retry-landing is the recovery.
+                            landingAttempted = true;
+                            landingSucceeded = false;
+                            landingFailureReason = handoffLostReason;
+                            landingFailureReasonCode = MergeQueueHandoffLostCode;
+                        }
+                        else if (enqueuedEntry == null)
+                        {
+                            // The enqueue call failed but the mission already has an active entry, so the
+                            // handoff is durable and the queue lands it.
+                        }
+                        else if (!String.Equals(enqueuedEntry.Id, requestedEntryId, StringComparison.Ordinal))
+                        {
+                            entry = enqueuedEntry;
                             // The branch already had an active entry; the queue recorded the attach. Its auto-land
                             // evaluation and enqueued event ran when that entry was created.
                             _Logging.Info(_Header + "mission " + mission.Id + " attached to existing merge entry " + entry.Id + " (branch " + dock.BranchName + " -> " + targetBranch + ")");
                         }
                         else
                         {
+                        entry = enqueuedEntry;
                         _Logging.Info(_Header + "mission " + mission.Id + " auto-enqueued as merge entry " + entry.Id + " (branch " + dock.BranchName + " -> " + targetBranch + ")");
 
                         // Evaluate vessel auto-land predicate
@@ -783,8 +801,19 @@ namespace Armada.Server
                     catch (Exception mqEx)
                     {
                         _Logging.Warn(_Header + "error auto-enqueuing merge entry for mission " + mission.Id + ": " + mqEx.Message + " — branch " + dock.BranchName + " is still available for manual enqueue");
+                        if (!landingAttempted)
+                        {
+                            string? lostReason = await ResolveLostHandoffReasonAsync(mission, "merge-queue handoff failed: " + mqEx.Message).ConfigureAwait(false);
+                            if (lostReason != null)
+                            {
+                                landingAttempted = true;
+                                landingSucceeded = false;
+                                landingFailureReason = lostReason;
+                                landingFailureReasonCode = MergeQueueHandoffLostCode;
+                            }
+                        }
                     }
-                    // Mission stays as WorkProduced; merge queue processing will land it
+                    // With a durable entry the mission stays WorkProduced and merge queue processing lands it
                 }
                 else
                 {
@@ -986,6 +1015,55 @@ namespace Armada.Server
                 _WebSocketHub.BroadcastMissionChange(mission.Id, mission.Status.ToString(), mission.Title, mission.VoyageId,
                     WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
             }
+        }
+
+        /// <summary>
+        /// Enqueue a mission's branch and require a durable entry. A thrown or empty enqueue still counts as a
+        /// handoff when the mission already has an active entry; otherwise the handoff is lost and the reason is
+        /// returned so the caller records it on the mission.
+        /// </summary>
+        /// <returns>The enqueued entry; or no entry and no reason when an active entry already exists; or a lost-handoff reason.</returns>
+        private async Task<(MergeEntry? Entry, string? LostReason)> EnqueueMergeEntryAsync(Mission mission, MergeEntry entry)
+        {
+            string failure;
+            try
+            {
+                MergeEntry? enqueued = await _MergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
+                if (enqueued != null && !String.IsNullOrWhiteSpace(enqueued.Id)) return (enqueued, null);
+                failure = "the merge queue returned no durable entry";
+            }
+            catch (Exception ex)
+            {
+                failure = "enqueue failed: " + ex.Message;
+            }
+
+            return (null, await ResolveLostHandoffReasonAsync(mission, failure).ConfigureAwait(false));
+        }
+
+        /// <summary>
+        /// Decide whether a failed merge-queue handoff left the mission without a landing path.
+        /// </summary>
+        /// <returns>The recorded reason when the mission has no active merge entry; null when an entry exists and the queue lands it.</returns>
+        private async Task<string?> ResolveLostHandoffReasonAsync(Mission mission, string failure)
+        {
+            bool durable = false;
+            try
+            {
+                durable = await _MergeQueue.HasActiveMergeEntryForMissionAsync(mission.Id).ConfigureAwait(false);
+            }
+            catch (Exception probeEx)
+            {
+                _Logging.Warn(_Header + "could not verify a merge entry for mission " + mission.Id + " after a failed handoff: " + probeEx.Message);
+            }
+
+            if (durable)
+            {
+                _Logging.Warn(_Header + "merge-queue handoff for mission " + mission.Id + " reported a failure (" + failure + ") but an active entry exists");
+                return null;
+            }
+
+            _Logging.Warn(_Header + "merge-queue handoff lost for mission " + mission.Id + ": " + failure);
+            return MergeQueueHandoffLostPrefix + failure;
         }
 
         private async Task RefuseLandingAsync(Mission mission, MissionStatusEnum status, string reason)

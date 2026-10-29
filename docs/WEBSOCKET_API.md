@@ -2024,6 +2024,10 @@ unchanged and returns a `command.error` frame that names the reason:
 }
 ```
 
+A transition into `WorkProduced`, or out of `Review` to `InProgress` or `Failed`, is refused the same way
+with the reason `manual_transition_work_produced_pipeline_owned` or
+`manual_transition_review_decision_required`.
+
 The `command.result` or `command.error` frame is a reply to the session that sent
 the command; no other session receives it. An applied transition is announced to
 subscribers as a mission change that reaches only the sessions that may read the

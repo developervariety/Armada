@@ -108,7 +108,7 @@ namespace Test.Shared.Suites.E2E
 
             #region StatusTransition-Valid-Lifecycle
 
-            cases.Add(CaseAsync("status_transition_full_lifecycle_pending_through_review_rework_to_complete", "StatusTransition_FullLifecycle_PendingThroughReviewReworkToComplete", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("status_transition_full_lifecycle_pending_through_testing_rework_to_complete", "StatusTransition_FullLifecycle_PendingThroughTestingReworkToComplete", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
@@ -120,7 +120,6 @@ namespace Test.Shared.Suites.E2E
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
                 await TransitionAndAssertAsync(authClient, missionId, "Testing");
-                await TransitionAndAssertAsync(authClient, missionId, "Review");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
                 await TransitionAndAssertAsync(authClient, missionId, "Testing");
 
@@ -186,24 +185,6 @@ namespace Test.Shared.Suites.E2E
                 await TransitionAndAssertAsync(authClient, missionId, "Testing");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
                 await TransitionAndAssertAsync(authClient, missionId, "Testing");
-                await TransitionAndAssertAsync(authClient, missionId, "Complete");
-            }));
-
-            cases.Add(CaseAsync("status_transition_review_bounce_back_to_in_progress_then_complete", "StatusTransition_ReviewBounceBackToInProgress_ThenComplete", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdMissionIds = new List<string>();
-
-                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "Review Bounce", "Research");
-                string missionId = created.Id;
-
-                await TransitionAndAssertAsync(authClient, missionId, "Assigned");
-                await TransitionAndAssertAsync(authClient, missionId, "InProgress");
-                await TransitionAndAssertAsync(authClient, missionId, "Review");
-                await TransitionAndAssertAsync(authClient, missionId, "InProgress");
                 await TransitionAndAssertAsync(authClient, missionId, "Complete");
             }));
 

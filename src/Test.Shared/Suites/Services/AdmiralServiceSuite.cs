@@ -545,7 +545,43 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("health_check_async_fresh_work_produced_mission_skips_captain_release", "HealthCheckAsync FreshWorkProducedMission SkipsCaptainRelease", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("health_check_async_review_mission_with_released_captain_stays_in_review", "HealthCheckAsync ReviewMissionWithReleasedCaptain StaysInReview", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Vessel vessel = new Vessel("review-vessel", "https://github.com/test/repo.git");
+                    await db.Vessels.CreateAsync(vessel);
+
+                    // A mission awaiting operator review keeps its captain id, has no live process, and has
+                    // released its captain, which is exactly the shape of an orphaned mission.
+                    Captain captain = new Captain("released-reviewer");
+                    captain.State = CaptainStateEnum.Idle;
+                    captain.CurrentMissionId = null;
+                    await db.Captains.CreateAsync(captain);
+
+                    Mission mission = new Mission("Awaiting operator review");
+                    mission.VesselId = vessel.Id;
+                    mission.CaptainId = captain.Id;
+                    mission.Status = MissionStatusEnum.Review;
+                    mission.StartedUtc = DateTime.UtcNow.AddMinutes(-30);
+                    mission.ProcessId = null;
+                    mission.BranchName = "armada/test/review";
+                    mission = await db.Missions.CreateAsync(mission);
+
+                    await service.HealthCheckAsync();
+
+                    Mission? updated = await db.Missions.ReadAsync(mission.Id);
+                    AssertNotNull(updated, "Mission should still exist");
+                    AssertEqual(MissionStatusEnum.Review, updated!.Status, "A mission awaiting operator review is not an orphan and must not be completed by the sweep");
+                    AssertEqual(captain.Id, updated.CaptainId, "The review mission keeps its captain assignment");
+                }
+            }));
+
+            cases.Add(CaseAsync("health_check_async_fresh_work_produced_mission_skips_captain_release","HealthCheckAsync FreshWorkProducedMission SkipsCaptainRelease", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {

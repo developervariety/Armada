@@ -341,6 +341,9 @@ namespace Armada.Core.Services
         /// <summary>How long a handled completion keeps de-duplicating late calls for the same launch.</summary>
         internal static readonly TimeSpan CompletionDuplicateWindow = TimeSpan.FromSeconds(30);
 
+        /// <summary>Prefix of the failure reason recorded when the landing handoff throws before any merge entry exists.</summary>
+        internal const string LandingHandoffFailedPrefix = "landing_handoff_failed: ";
+
         /// <summary>
         /// One completion-guard entry: the handler's gate and the launch attempt it handled.
         /// </summary>
@@ -3818,6 +3821,7 @@ namespace Armada.Core.Services
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error in mission complete handler for " + mission.Id + ": " + ex.Message);
+                    await RecordLandingHandoffFailureAsync(mission.Id, ex.Message, token).ConfigureAwait(false);
                 }
 
                 // The landing handoff itself can drive a mission terminal AFTER the earlier reap block
@@ -14217,6 +14221,54 @@ namespace Armada.Core.Services
                 m.Status != MissionStatusEnum.Failed &&
                 m.Status != MissionStatusEnum.Cancelled &&
                 m.Status != MissionStatusEnum.LandingFailed);
+        }
+
+        /// <summary>
+        /// Surface a landing handoff that threw. A mission still WorkProduced with no active merge entry has no
+        /// landing path, so it moves to LandingFailed with the reason on the mission, where retry-landing
+        /// recovers it. A mission that moved on, or that already has an active entry, is left alone.
+        /// </summary>
+        private async Task RecordLandingHandoffFailureAsync(string missionId, string failure, CancellationToken token)
+        {
+            try
+            {
+                Mission? current = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+                if (current == null || current.Status != MissionStatusEnum.WorkProduced) return;
+
+                List<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
+                if (entries.Any(entry => String.Equals(entry.MissionId, missionId, StringComparison.Ordinal) && !MergeStatusRules.IsTerminal(entry.Status))) return;
+
+                current.Status = MissionStatusEnum.LandingFailed;
+                current.FailureReason = LandingHandoffFailedPrefix + failure;
+                current.CompletedUtc = DateTime.UtcNow;
+                current.LastUpdateUtc = DateTime.UtcNow;
+                if (!await _Database.Missions.TryUpdateIfStatusAsync(current, MissionStatusEnum.WorkProduced, token).ConfigureAwait(false)) return;
+
+                _Logging.Warn(_Header + "mission " + missionId + " landing handoff failed, status set to LandingFailed: " + failure);
+                await MissionAttemptFactRecorder.RecordAsync(_Database, current, MissionAttemptFactTypeEnum.Failed, "landing_handoff_failed", _Logging, token).ConfigureAwait(false);
+
+                ArmadaEvent evt = new ArmadaEvent("mission.landing_failed", "Landing failed: " + current.Title)
+                {
+                    TenantId = current.TenantId,
+                    UserId = current.UserId,
+                    EntityType = "mission",
+                    EntityId = current.Id,
+                    MissionId = current.Id,
+                    CaptainId = current.CaptainId,
+                    VesselId = current.VesselId,
+                    VoyageId = current.VoyageId,
+                    Payload = System.Text.Json.JsonSerializer.Serialize(new { missionId = current.Id, reason = current.FailureReason })
+                };
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception recordEx)
+            {
+                _Logging.Warn(_Header + "could not record the landing handoff failure for mission " + missionId + ": " + recordEx.Message);
+            }
         }
 
         private async Task<Mission> RequireHeldMissionAsync(string missionId, string operatorName, string reason, CancellationToken token)

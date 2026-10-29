@@ -18,6 +18,18 @@ upstream integrations and excludes changes already present at that baseline.
 - Compact voyage status reads omit unrequested mission descriptions and report previews. Explicit description and output requests retain bounded previews.
 - Captain briefs name configured validation commands and input environment names without copying their values, and distinguish manual validation from native Check proof.
 
+### Lost merge-queue handoff
+
+- A mission whose merge-queue enqueue throws or returns no durable entry, and that has no active merge entry, becomes `LandingFailed` with the reason `merge_queue_handoff_lost: <cause>` (`landing_handoff_failed: <cause>` when the landing handler itself throws) and a `mission.landing_failed` event, instead of staying `WorkProduced` with a log line. The landing drain also enqueues a produced mission that has no voyage, on a merge-queue vessel, after five minutes without a merge entry. See [Merging](docs/MERGING.md).
+
+### Pipeline-owned status transitions
+
+- The operator status transition (REST, WebSocket and MCP) refuses a move into `WorkProduced` and a move from `Review` to `InProgress` or `Failed`, with the reasons `manual_transition_work_produced_pipeline_owned` and `manual_transition_review_decision_required`. Completion handling, retry-landing and the review decision paths apply those moves. The mission is unchanged on a refusal. See [REST API](docs/REST_API.md).
+
+### Orphan recovery and operator review
+
+- The orphaned-mission sweep no longer collects `Review` missions. A mission awaiting operator review keeps its mission-to-captain link with a released captain and no process, and the sweep used to complete it again and reset it to `WorkProduced`.
+
 ### Judge blocking rule
 
 - The Judge persona carries a `## When To Block` section: NEEDS_REVISION is for a defect the Judge can show (a criterion whose behaviour is missing or wrong, a failing test, build or command, a regression, data-loss or security fault, or an out-of-scope behaviour change). Requests for more tests or evidence, report or commit hygiene, pending Checks and style are Suggested Follow-ups, not blocks. An existing built-in Judge row receives the section on the next start.

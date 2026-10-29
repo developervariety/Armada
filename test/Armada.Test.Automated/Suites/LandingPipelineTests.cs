@@ -167,7 +167,7 @@ namespace Armada.Test.Automated.Suites
                 string missionId = mission.Id!;
                 await TransitionAsync(missionId, "Assigned");
                 await TransitionAsync(missionId, "InProgress");
-                await TransitionAsync(missionId, "WorkProduced");
+                await SeedWorkProducedAsync(missionId).ConfigureAwait(false);
                 Vessel checkVessel = await CreateVesselWithLandingModeAsync("Manual-check-vessel", "MergeQueue");
                 CheckRun blockingCheck = await ImportCheckAsync(checkVessel.Id!, missionId, "Failed", "isolated-failed-check");
                 for (int index = 0; index < 101; index++)
@@ -188,7 +188,7 @@ namespace Armada.Test.Automated.Suites
                 string missionId = mission.Id!;
                 await TransitionAsync(missionId, "Assigned");
                 await TransitionAsync(missionId, "InProgress");
-                await TransitionAsync(missionId, "WorkProduced");
+                await SeedWorkProducedAsync(missionId).ConfigureAwait(false);
                 Vessel checkVessel = await CreateVesselWithLandingModeAsync("Manual-pending-vessel", "MergeQueue");
                 CheckRun blockingCheck = await ImportCheckAsync(checkVessel.Id!, missionId, "Pending", "isolated-pending-check");
                 for (int index = 0; index < 101; index++)
@@ -227,7 +227,7 @@ namespace Armada.Test.Automated.Suites
                 {
                     await TransitionAsync(missionId, "Assigned");
                     await TransitionAsync(missionId, "InProgress");
-                    await TransitionAsync(missionId, "WorkProduced");
+                    await SeedWorkProducedAsync(missionId).ConfigureAwait(false);
                     HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
                     AssertStatusCode(HttpStatusCode.Conflict, complete);
                     Mission persisted = await GetMissionAsync(missionId);
@@ -263,7 +263,7 @@ namespace Armada.Test.Automated.Suites
                 {
                     await TransitionAsync(missionId, "Assigned");
                     await TransitionAsync(missionId, "InProgress");
-                    await TransitionAsync(missionId, "WorkProduced");
+                    await SeedWorkProducedAsync(missionId).ConfigureAwait(false);
                     HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
                     AssertStatusCode(HttpStatusCode.Conflict, complete);
                     string body = await complete.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -479,8 +479,8 @@ namespace Armada.Test.Automated.Suites
             {
                 string missionId = await CreateAndAdvanceMissionAsync("Event emission test", "InProgress");
 
-                // Transition to WorkProduced
-                await TransitionAsync(missionId, "WorkProduced");
+                // Transition to Testing
+                await TransitionAsync(missionId, "Testing");
 
                 // Check that a status_changed event was emitted
                 EnumerationResult<ArmadaEvent> events = await GetTypedAsync<EnumerationResult<ArmadaEvent>>("/api/v1/events?type=mission.status_changed&missionId=" + missionId);
@@ -488,26 +488,39 @@ namespace Armada.Test.Automated.Suites
                 foreach (ArmadaEvent evt in events.Objects ?? new List<ArmadaEvent>())
                 {
                     string? msg = evt.Message;
-                    if (msg != null && msg.Contains("WorkProduced"))
+                    if (msg != null && msg.Contains("Testing"))
                     {
                         found = true;
                         break;
                     }
                 }
-                AssertTrue(found, "Expected mission.status_changed event mentioning WorkProduced for mission " + missionId);
+                AssertTrue(found, "Expected mission.status_changed event mentioning Testing for mission " + missionId);
             });
 
-            await RunTest("LandingFailed_TransitionsBackToWorkProduced", async () =>
+            await RunTest("ManualTransition_IntoWorkProducedIsRefusedWithoutMutation", async () =>
+            {
+                string missionId = await CreateAndAdvanceMissionAsync("Manual work produced refusal", "InProgress");
+
+                HttpResponseMessage resp = await TransitionAsync(missionId, "WorkProduced");
+                AssertStatusCode(HttpStatusCode.Conflict, resp);
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertContains("WorkProduced", body, "the refusal names the refused status");
+
+                Mission mission = await GetMissionAsync(missionId);
+                AssertEqual("InProgress", mission.Status.ToString(), "a refused transition leaves the mission unchanged");
+            });
+
+            await RunTest("LandingFailed_ManualTransitionToWorkProducedIsRefused", async () =>
             {
                 string missionId = await CreateAndAdvanceMissionAsync("LandingFailed retry", "WorkProduced");
                 await TransitionAsync(missionId, "LandingFailed");
 
-                // LandingFailed -> WorkProduced (retry)
+                // Retry-landing resets a LandingFailed mission; a status write does not.
                 HttpResponseMessage resp = await TransitionAsync(missionId, "WorkProduced");
-                AssertStatusCode(HttpStatusCode.OK, resp);
+                AssertStatusCode(HttpStatusCode.Conflict, resp);
 
                 Mission mission = await GetMissionAsync(missionId);
-                AssertEqual("WorkProduced", mission.Status.ToString());
+                AssertEqual("LandingFailed", mission.Status.ToString());
             });
 
             await RunTest("LandingFailed_TransitionsToFailed", async () =>
@@ -551,12 +564,24 @@ namespace Armada.Test.Automated.Suites
             string[] chain = new[] { "Assigned", "InProgress", "WorkProduced", "PullRequestOpen" };
             foreach (string status in chain)
             {
-                HttpResponseMessage resp = await TransitionAsync(missionId, status);
-                resp.EnsureSuccessStatusCode();
+                // WorkProduced is established by completion handling, so the fixture records it in the store.
+                if (status == "WorkProduced")
+                    await SeedWorkProducedAsync(missionId).ConfigureAwait(false);
+                else
+                    (await TransitionAsync(missionId, status).ConfigureAwait(false)).EnsureSuccessStatusCode();
                 if (status == targetStatus) break;
             }
 
             return missionId;
+        }
+
+        private async Task SeedWorkProducedAsync(string missionId)
+        {
+            DatabaseDriver database = ReadServerDatabase();
+            Mission stored = await database.Missions.ReadAsync(missionId).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("WorkProduced fixture mission was not found.");
+            stored.Status = MissionStatusEnum.WorkProduced;
+            await database.Missions.UpdateAsync(stored).ConfigureAwait(false);
         }
 
         private async Task<Mission> CreateMissionAsync(string title)

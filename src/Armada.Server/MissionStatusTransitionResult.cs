@@ -70,6 +70,17 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// The transition is legal in the state machine but only a pipeline path may apply it, so the
+        /// operator request is refused with a named reason and the mission is not changed.
+        /// </summary>
+        public static MissionStatusTransitionResult PipelineOwned(Mission mission, string reason, string message)
+        {
+            if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentException("A refusal requires a named reason.", nameof(reason));
+            if (String.IsNullOrWhiteSpace(message)) throw new ArgumentException("A refusal requires a message.", nameof(message));
+            return new MissionStatusTransitionResult(MissionStatusTransitionOutcomeEnum.Refused, mission, reason, message);
+        }
+
+        /// <summary>
         /// The mission disappeared while the landing pipeline ran.
         /// </summary>
         public static MissionStatusTransitionResult MissionMissing()
