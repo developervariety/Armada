@@ -687,6 +687,17 @@ namespace Armada.Core.Services
                     await RunGitAsync(targetWorkDir, token, "merge", fetchedBranchRef, "--no-edit", "--allow-unrelated-histories", "-m", message).ConfigureAwait(false);
                 }
             }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                if (await TryResolveChangelogConflictAsync(targetWorkDir, branchName, token).ConfigureAwait(false))
+                {
+                    _Logging.Info(_Header + "merged " + branchName + " into " + targetWorkDir + " keeping both sides of " + ChangelogLandingConflict.ChangelogPath);
+                    return;
+                }
+
+                await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
+                throw;
+            }
             catch
             {
                 await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
@@ -879,7 +890,13 @@ namespace Armada.Core.Services
             AddChangedPaths(workingTreeOutput, changedFiles);
 
             string untrackedOutput = await RunGitAsync(worktreePath, token, "ls-files", "-z", "--others", "--exclude-standard").ConfigureAwait(false);
-            AddChangedPaths(untrackedOutput, changedFiles);
+            HashSet<string> untrackedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            AddChangedPaths(untrackedOutput, untrackedFiles);
+            foreach (string untracked in untrackedFiles)
+            {
+                // Untracked scratch files (editor backups, merge leftovers) are not proof of work.
+                if (!ScratchFileMatcher.IsScratchFile(untracked)) changedFiles.Add(untracked);
+            }
 
             return changedFiles
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
@@ -1795,6 +1812,32 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        // A merge that stopped on CHANGELOG.md alone is finished with a union of both sides. A resolver
+        // failure is logged and read as "not resolved" so the caller restores the worktree and reports the
+        // original merge failure.
+        private async Task<bool> TryResolveChangelogConflictAsync(string worktreePath, string branchName, CancellationToken token)
+        {
+            try
+            {
+                return await ChangelogLandingConflict.TryResolveAsync(worktreePath, async (args, ct) =>
+                {
+                    try
+                    {
+                        return new ChangelogGitOutput(0, await RunGitAsync(worktreePath, ct, args).ConfigureAwait(false));
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return new ChangelogGitOutput(1, String.Empty);
+                    }
+                }, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _Logging.Warn(_Header + "could not resolve a " + ChangelogLandingConflict.ChangelogPath + " conflict while merging " + branchName + " in " + worktreePath + ": " + ex.Message);
+                return false;
+            }
+        }
 
         private async Task<string> RunGitAsync(string? workingDirectory, params string[] args)
         {

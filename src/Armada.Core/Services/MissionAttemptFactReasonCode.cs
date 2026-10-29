@@ -38,6 +38,7 @@ namespace Armada.Core.Services
             "rescue_produced_no_commits",
             "landing_push_failed",
             "landing_merge_failed",
+            "landing_source_unavailable",
             "dispatch_hold_active"
         };
 

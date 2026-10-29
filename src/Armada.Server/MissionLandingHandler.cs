@@ -172,7 +172,7 @@ namespace Armada.Server
             }
             catch (Exception diffEx)
             {
-                _Logging.Debug(_Header + "could not capture diff for mission " + mission.Id + ": " + diffEx.Message);
+                _Logging.Warn(_Header + "could not capture diff for mission " + mission.Id + "; a no-changes landing is verified against the recorded commits: " + diffEx.Message);
             }
 
             // Capture the HEAD commit hash before any merge/reclaim
@@ -190,6 +190,39 @@ namespace Armada.Server
             {
                 _Logging.Debug(_Header + "could not capture commit hash for mission " + mission.Id + ": " + commitEx.Message);
             }
+        }
+
+        /// <summary>
+        /// Explains why an empty diff snapshot or a missing branch cannot be read as "nothing to land". A no-changes
+        /// landing needs proof: the mission recorded a commit that differs from its start commit and that commit is not
+        /// already on the target branch. Returns null when no such proof exists (no recorded commit, an unrecorded
+        /// start, no commits since the start, or work already integrated), which keeps the no-op landing.
+        /// </summary>
+        private async Task<string?> DescribeUnprovenNoChangesAsync(Mission mission, Vessel vessel, string repositoryPath, string? branchName, bool branchExists, string? branchLookupFailure)
+        {
+            string? recorded = mission.CommitHash?.Trim();
+            if (!MissionStageStartCommitResolver.IsFullCommitId(recorded)) return null;
+
+            MissionStageStartCommit? start = await MissionStageStartCommitResolver.ResolveAsync(_Database, _Settings.LogDirectory, mission, _Logging).ConfigureAwait(false);
+            if (start == null || String.Equals(start.Commit.Trim(), recorded, StringComparison.OrdinalIgnoreCase)) return null;
+
+            bool? integrated = null;
+            try
+            {
+                integrated = await _Git.TryIsAncestorAsync(repositoryPath, recorded!, vessel.DefaultBranch).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                _Logging.Warn(_Header + "could not read whether commit " + recorded + " is on " + vessel.DefaultBranch + " for mission " + mission.Id + ": " + exception.Message);
+            }
+            if (integrated == true) return null;
+
+            string shortCommit = recorded!.Length > 12 ? recorded.Substring(0, 12) : recorded;
+            string shortStart = start.Commit.Trim().Length > 12 ? start.Commit.Trim().Substring(0, 12) : start.Commit.Trim();
+            string problem = branchExists
+                ? "no diff snapshot was captured"
+                : "branch " + branchName + " is not readable in the bare repository" + (branchLookupFailure == null ? "" : " (" + branchLookupFailure + ")");
+            return "commit " + shortCommit + " was recorded after start commit " + shortStart + " and is not on " + vessel.DefaultBranch + ", but " + problem;
         }
 
         /// <summary>
@@ -447,6 +480,7 @@ namespace Armada.Server
                     // the bare repo as indicators -- the worktree may already be gone at this point.
                     bool hasChanges = true;
                     bool branchExists = false;
+                    string? branchLookupFailure = null;
                     string repositoryPath = dock.HostCheckout != null
                         ? HarborCheckoutAddress.ForDock(dock.Id) + "/repository"
                         : vessel.LocalPath!;
@@ -464,6 +498,8 @@ namespace Armada.Server
                         {
                             if (dock.HostCheckout != null)
                                 throw new InvalidOperationException("harbor_landing_source_unavailable", exception);
+                            branchLookupFailure = exception.Message;
+                            _Logging.Warn(_Header + "could not look up branch " + dock.BranchName + " for mission " + mission.Id + "; it reads as not in the bare repo: " + exception.Message);
                         }
                     }
 
@@ -499,6 +535,16 @@ namespace Armada.Server
                             landingFailureReasonCode = "worker_produced_no_commits";
                             // Preserve the branch (do not clean up) for inspection/retry.
                             _Logging.Warn(_Header + "worker mission " + mission.Id + " produced no changes -- treating as failure, not a no-op landing");
+                        }
+                        else if (await DescribeUnprovenNoChangesAsync(mission, vessel, repositoryPath, dock.BranchName, branchExists, branchLookupFailure).ConfigureAwait(false) is string unprovenNoChanges)
+                        {
+                            // The mission recorded commits past its start, yet the diff snapshot is empty or the
+                            // branch is not readable. Absence of evidence is not "nothing to land": keep the
+                            // branch and fail the landing so the work is retried instead of dropped.
+                            landingSucceeded = false;
+                            landingFailureReason = "landing_source_unavailable: " + unprovenNoChanges;
+                            landingFailureReasonCode = "landing_source_unavailable";
+                            _Logging.Warn(_Header + "mission " + mission.Id + " has no landable changes on record but " + unprovenNoChanges + " -- landing failed, branch retained");
                         }
                         else
                         {

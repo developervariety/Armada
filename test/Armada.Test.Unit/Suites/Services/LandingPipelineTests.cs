@@ -1356,6 +1356,71 @@ namespace Armada.Test.Unit.Suites.Services
 
             // === D7 leak_hunk advisory pass on the landing gate ===
 
+            await RunTest("A no-changes landing is proven by the start commit: recorded commits with a missing diff or branch fail, an empty change completes", async () =>
+            {
+                const string startCommit = "1111111111111111111111111111111111111111";
+                const string newCommit = "2222222222222222222222222222222222222222";
+                List<NoChangesLandingCase> cases = new List<NoChangesLandingCase>
+                {
+                    new NoChangesLandingCase("commits recorded, diff snapshot empty", "", true, newCommit, startCommit, null, false),
+                    new NoChangesLandingCase("commits recorded, branch missing", "diff --git a/docs/notes.md b/docs/notes.md", false, newCommit, startCommit, null, false),
+                    new NoChangesLandingCase("no commits since start, diff empty", "", true, startCommit, startCommit, null, true),
+                    new NoChangesLandingCase("commits already on the target, diff empty", "", true, newCommit, startCommit, true, true),
+                    new NoChangesLandingCase("start commit not recorded, diff empty", "", true, newCommit, null, null, true)
+                };
+
+                foreach (NoChangesLandingCase item in cases)
+                {
+                    string logDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                        {
+                            StubGitService git = new StubGitService();
+                            git.IsAncestorResult = item.OnTarget;
+                            LoggingModule logging = CreateLogging();
+                            ArmadaSettings settings = CreateSettings();
+                            settings.LogDirectory = logDirectory;
+                            MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+                            LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge, BranchCleanupPolicyEnum.LocalAndRemote);
+                            if (item.BranchExists) git.ExistingBranches.Add(entities.Dock.BranchName!);
+
+                            Mission mission = entities.Mission;
+                            mission.Persona = "TestEngineer";
+                            mission.Status = MissionStatusEnum.WorkProduced;
+                            mission.DiffSnapshot = item.DiffSnapshot;
+                            mission.CommitHash = item.CommitHash;
+                            await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                            if (item.StartCommit != null)
+                                await MissionStageStartCommitResolver.WriteStageStartRecordAsync(logDirectory, mission.Id, item.StartCommit).ConfigureAwait(false);
+
+                            await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                            Mission? after = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                            if (item.Lands)
+                            {
+                                AssertEqual(MissionStatusEnum.Complete, after!.Status, item.Name + ": a verified empty change completes");
+                            }
+                            else
+                            {
+                                AssertEqual(MissionStatusEnum.LandingFailed, after!.Status, item.Name + ": unproven absence of changes is a landing failure");
+                                AssertContains("landing_source_unavailable", after.FailureReason ?? "", item.Name + ": the failure states its reason");
+                                AssertContains(newCommit.Substring(0, 12), after.FailureReason ?? "", item.Name + ": the failure names the recorded commit");
+                                AssertFalse(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), item.Name + ": the branch is retained for retry");
+                                ProductionFactPage<MissionAttemptFact> facts = await testDb.Driver.MissionAttemptFacts.EnumerateAsync(
+                                    new ProductionFactQuery { FromUtc = DateTime.UtcNow.AddMinutes(-1), ToUtc = DateTime.UtcNow.AddMinutes(1) }).ConfigureAwait(false);
+                                AssertEqual("landing_source_unavailable", facts.Items.Single(fact => fact.MissionId == mission.Id && fact.FactType == MissionAttemptFactTypeEnum.Failed).ReasonCode,
+                                    item.Name + ": the attempt fact carries the typed cause");
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        try { if (Directory.Exists(logDirectory)) Directory.Delete(logDirectory, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A mission whose deliverable is a ruling or a report is refused by every landing entry point; a voyage-less Worker still lands", async () =>
             {
                 List<NotLandableCase> cases = new List<NotLandableCase>
@@ -1606,6 +1671,28 @@ namespace Armada.Test.Unit.Suites.Services
                 null);
             if (leakHunkAdapter != null) handler.SetLeakHunkAdapter(leakHunkAdapter);
             return handler;
+        }
+
+        private sealed class NoChangesLandingCase
+        {
+            public NoChangesLandingCase(string name, string diffSnapshot, bool branchExists, string commitHash, string? startCommit, bool? onTarget, bool lands)
+            {
+                Name = name;
+                DiffSnapshot = diffSnapshot;
+                BranchExists = branchExists;
+                CommitHash = commitHash;
+                StartCommit = startCommit;
+                OnTarget = onTarget;
+                Lands = lands;
+            }
+
+            public string Name { get; }
+            public string DiffSnapshot { get; }
+            public bool BranchExists { get; }
+            public string CommitHash { get; }
+            public string? StartCommit { get; }
+            public bool? OnTarget { get; }
+            public bool Lands { get; }
         }
 
         private sealed class NotLandableCase

@@ -3231,6 +3231,12 @@ namespace Armada.Core.Services
                 return new MergeAttemptResult(true, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError);
             }
 
+            // A conflict confined to CHANGELOG.md keeps both sides; every other conflict falls through.
+            if (await TryResolveChangelogConflictAsync(worktreePath, branchName, token).ConfigureAwait(false))
+            {
+                return new MergeAttemptResult(true, 0, mergeResult.StandardOutput, mergeResult.StandardError);
+            }
+
             // The unmerged paths exist only while the merge is in progress, so read them before the
             // abort that cleans the worktree for cleanup.
             List<string> conflictedFiles = await CollectConflictedFilesAsync(worktreePath, token).ConfigureAwait(false);
@@ -3244,6 +3250,27 @@ namespace Armada.Core.Services
             {
                 ConflictedFiles = conflictedFiles
             };
+        }
+
+        /// <summary>
+        /// Finish a stopped merge whose only unresolved path is CHANGELOG.md. A resolver failure reads as
+        /// "not resolved" so the caller reports the original conflict.
+        /// </summary>
+        private async Task<bool> TryResolveChangelogConflictAsync(string worktreePath, string branchName, CancellationToken token)
+        {
+            try
+            {
+                return await ChangelogLandingConflict.TryResolveAsync(worktreePath, async (args, ct) =>
+                {
+                    GitProcessResult result = await RunGitCapturingAsync(worktreePath, ct, args).ConfigureAwait(false);
+                    return new ChangelogGitOutput(result.ExitCode, result.StandardOutput);
+                }, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _Logging.Warn(_Header + "could not resolve a " + ChangelogLandingConflict.ChangelogPath + " conflict while merging " + branchName + " in " + worktreePath + ": " + ex.Message);
+                return false;
+            }
         }
 
         /// <summary>
