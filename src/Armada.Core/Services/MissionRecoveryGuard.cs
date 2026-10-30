@@ -83,7 +83,8 @@ namespace Armada.Core.Services
             while (visited.Add(current.Id))
             {
                 string? parentId = current.ParentMissionId;
-                if (String.IsNullOrWhiteSpace(parentId) && !String.IsNullOrWhiteSpace(current.VoyageId))
+                if (String.IsNullOrWhiteSpace(parentId) && RescueMissionMarker.IsAutoRescue(current)
+                    && !String.IsNullOrWhiteSpace(current.VoyageId))
                 {
                     List<Mission> stages = await database.Missions.EnumerateByVoyageAsync(current.VoyageId, token).ConfigureAwait(false);
                     Mission? root = stages.FirstOrDefault(item => RescueMissionMarker.IsAutoRescue(item)
