@@ -3773,6 +3773,18 @@ namespace Armada.Test.Unit.Suites.Services
                     DescribeStageChain(outcome.RecoveryMissions), "Recovery retains both Workers and every independent duty.");
             }).ConfigureAwait(false);
 
+            await RunTest("A recovery keeps the planner before the full review contract", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DuplicateWorkerRescueOutcome outcome = await RescueOnDuplicateWorkerPipelineAsync(
+                    testDb, "ten_recovery_planner", "Judge", 6,
+                    "Judge verdict: NEEDS_REVISION. The error path is incomplete.", includePlanner: true).ConfigureAwait(false);
+                AssertEqual("Architect", outcome.Rescue.Persona, "Recovery retains the first planner duty.");
+                AssertEqual("Architect,Worker,PortingReferenceAnalyst,TestEngineer,Worker,Judge",
+                    DescribeStageChain(outcome.RecoveryMissions), "All six recorded stages retain their order.");
+                AssertTrue(outcome.RecoveryMissions.All(item => item.RecoveryAttempts == 1), "Every stage retains the recovery budget.");
+            }).ConfigureAwait(false);
+
             await RunTest("A rescue anchors on the stage list its voyage was dispatched with after the pipeline gains a stage", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -5545,7 +5557,8 @@ namespace Armada.Test.Unit.Suites.Services
             string tenantId,
             string failedPersona,
             int failedStageOrder,
-            string failureReason)
+            string failureReason,
+            bool includePlanner = false)
         {
             string userId = "usr_" + tenantId;
             await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
@@ -5565,12 +5578,27 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            if (includePlanner)
+            {
+                foreach (PipelineStage stage in pipeline.Stages) stage.Order++;
+                pipeline.Stages.Insert(0, new PipelineStage(1, "Architect"));
+                await testDb.Driver.Pipelines.UpdateAsync(pipeline).ConfigureAwait(false);
+                await testDb.Driver.Captains.CreateAsync(new Captain("recovery-planner")
+                {
+                    TenantId = vessel.TenantId, UserId = vessel.UserId, Model = "gpt-5.6-luna",
+                    Tier = CaptainTierEnum.Premium, State = CaptainStateEnum.Idle,
+                    AllowedPersonas = System.Text.Json.JsonSerializer.Serialize(new[] { "Architect" })
+                }).ConfigureAwait(false);
+            }
+
             Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent duplicate-Worker voyage")
             {
                 TenantId = vessel.TenantId,
                 UserId = vessel.UserId,
                 Status = VoyageStatusEnum.Failed
             }).ConfigureAwait(false);
+
+            await VoyagePipelineRecord.RecordAsync(testDb.Driver, null, parentVoyage, pipeline).ConfigureAwait(false);
 
             Mission failed = await CreateFailedMissionAsync(testDb, vessel, failureReason).ConfigureAwait(false);
             failed.Persona = failedPersona;
