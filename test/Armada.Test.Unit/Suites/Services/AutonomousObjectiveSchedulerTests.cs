@@ -2585,6 +2585,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     objective = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
                     objective.Status = ObjectiveStatusEnum.InProgress;
+                    objective.LastUpdateUtc = DateTime.UtcNow;
                     await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
                     await scheduler.SweepAsync().ConfigureAwait(false);
                     objective = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;

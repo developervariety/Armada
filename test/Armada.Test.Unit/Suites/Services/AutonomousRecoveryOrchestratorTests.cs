@@ -31,6 +31,54 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("RestartWaitsForRecoveryAndNamesTheActiveRescue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await EnsureTenantAndUserAsync(testDb, "ten_restart_recovery", "usr_restart_recovery").ConfigureAwait(false);
+                    Vessel vessel = await CreateVesselAsync(testDb, "ten_restart_recovery", "usr_restart_recovery").ConfigureAwait(false);
+                    await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+                    Mission failed = await CreateFailedMissionAsync(testDb, vessel,
+                        BuildGateFailureReason("Compile", "build", 1, "Parser.cs(12,5): error CS0103: missing name")).ConfigureAwait(false);
+                    failed.AgentOutput = "Retained original failure evidence.";
+                    await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+                    ArmadaSettings settings = StandardRecoveryTierSettings();
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    TaskCompletionSource<bool> entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    admiral.BeforeDispatch = async () =>
+                    {
+                        entered.TrySetResult(true);
+                        await release.Task.ConfigureAwait(false);
+                    };
+                    AutonomousRecoveryOrchestrator recovery = CreateOrchestrator(testDb.Driver, admiral,
+                        new IncidentService(testDb.Driver), new RunbookService(testDb.Driver, new LoggingModule()), settings);
+                    Task recovering = recovery.HandleMissionOutcomeAsync(failed, false);
+                    await entered.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                    Task<Mission> restarting = new MissionRestartService(testDb.Driver, settings).RestartAsync(failed);
+                    bool restartedBeforeRelease;
+                    try
+                    {
+                        Task first = await Task.WhenAny(restarting, Task.Delay(200)).ConfigureAwait(false);
+                        restartedBeforeRelease = first == restarting;
+                    }
+                    finally { release.TrySetResult(true); }
+                    await recovering.ConfigureAwait(false);
+                    string refusal = "";
+                    try { await restarting.ConfigureAwait(false); }
+                    catch (InvalidOperationException ex) { refusal = ex.Message; }
+                    AssertFalse(restartedBeforeRelease,
+                        "Restart must wait on the same per-mission recovery lock until the rescue graph is persisted.");
+                    Mission rescue = admiral.DispatchedMissions.Single();
+                    AssertContains("active_rescue_descendant", refusal, "Restart must name its refusal class.");
+                    AssertContains(rescue.Id, refusal, "Restart must name the actual active rescue descendant.");
+                    Mission stored = (await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Failed, stored.Status, "The refused original is not reopened.");
+                    AssertEqual("Retained original failure evidence.", stored.AgentOutput, "The original report is retained.");
+                    AssertEqual(1, stored.RecoveryAttempts, "The original recovery counter is retained, not reset by a stale restart copy.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("A rescue of an objective whose non-goals forbid test edits runs no TestEngineer stage, unless the failure asks for it", () =>
             {
                 List<PipelineStage> chain = new List<PipelineStage>
@@ -3702,7 +3750,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"Persona\":\"PortingReferenceAnalyst\"", rescueSkips[0].Payload ?? "", "The analyst skip is the one carried.");
             }).ConfigureAwait(false);
 
-            await RunTest("A Judge rescue on a pipeline with two Worker stages anchors at the Worker stage before the Judge", async () =>
+            await RunTest("A Judge rescue with duplicate Worker stages replays the entire recorded contract", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 DuplicateWorkerRescueOutcome outcome = await RescueOnDuplicateWorkerPipelineAsync(
@@ -3710,12 +3758,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "Judge verdict: NEEDS_REVISION. The error path swallows the exception.").ConfigureAwait(false);
 
                 AssertEqual("Worker", outcome.Rescue.Persona, "A Judge rejection is rescued by a Worker.");
-                AssertEqual(4, outcome.Rescue.StageOrder ?? 0, "The rescue Worker takes the order of the Worker stage that precedes the failed Judge.");
-                AssertEqual("high", outcome.Rescue.PreferredModel ?? "", "The rescue Worker takes the tier of the Worker stage it replaces.");
-                AssertEqual(
-                    "Worker,Judge",
-                    DescribeStageChain(outcome.RecoveryMissions),
-                    "Only the stages after the second Worker re-run; the earlier analyst and TestEngineer passes are not rebuilt.");
+                AssertEqual(1, outcome.Rescue.StageOrder ?? 0, "Recovery starts at the first required stage.");
+                AssertEqual("mid", outcome.Rescue.PreferredModel ?? "", "The first Worker keeps its own tier.");
+                AssertEqual("Worker,PortingReferenceAnalyst,TestEngineer,Worker,Judge",
+                    DescribeStageChain(outcome.RecoveryMissions), "Recovery retains both Workers and every independent duty.");
             }).ConfigureAwait(false);
 
             await RunTest("A rescue anchors on the stage list its voyage was dispatched with after the pipeline gains a stage", async () =>
@@ -3754,7 +3800,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("EditedRecovery", outcome.FallbackEvents[0].Message ?? "", "The fallback event names the live pipeline it used.");
             }).ConfigureAwait(false);
 
-            await RunTest("A failed second Worker stage is rescued at its own stage and re-runs only the stages after it", async () =>
+            await RunTest("A failed second Worker retains every required stage in its recovery", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 DuplicateWorkerRescueOutcome outcome = await RescueOnDuplicateWorkerPipelineAsync(
@@ -3762,11 +3808,9 @@ namespace Armada.Test.Unit.Suites.Services
                     "DoD gate failed: classification=TestFail; unit-test command exited 1").ConfigureAwait(false);
 
                 AssertEqual("Worker", outcome.Rescue.Persona, "A failed Worker is rescued by a Worker.");
-                AssertEqual(4, outcome.Rescue.StageOrder ?? 0, "The rescue replaces the failed Worker stage, not the first Worker stage.");
-                AssertEqual(
-                    "Worker,Judge",
-                    DescribeStageChain(outcome.RecoveryMissions),
-                    "Only the stages after the failed Worker re-run.");
+                AssertEqual(1, outcome.Rescue.StageOrder ?? 0, "Recovery starts at the first required stage.");
+                AssertEqual("Worker,PortingReferenceAnalyst,TestEngineer,Worker,Judge",
+                    DescribeStageChain(outcome.RecoveryMissions), "A failed revision does not drop independent duties.");
             }).ConfigureAwait(false);
 
             await RunTest("A carried skip whose persona names two rescue stages is not carried and the other skip still is", async () =>
@@ -5827,6 +5871,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Exception? ThrowOnDispatch { get; set; }
 
+            public Func<Task>? BeforeDispatch { get; set; }
+
             public FleetCapacityAdmissionException? CapacityRefusal { get; set; }
 
             public Task<FleetCapacityAdmissionException?> ProbeCapacityAsync(Vessel vessel, string? candidateVoyageId, CancellationToken token = default)
@@ -5855,6 +5901,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
             {
+                if (BeforeDispatch != null) await BeforeDispatch().ConfigureAwait(false);
                 if (ThrowOnDispatch != null) throw ThrowOnDispatch;
                 if (!String.IsNullOrWhiteSpace(AssignedRescueCaptainId))
                     mission.CaptainId = AssignedRescueCaptainId;
