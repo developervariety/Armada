@@ -1052,6 +1052,7 @@ namespace Armada.Server
             {
                 if (voyage.Status == VoyageStatusEnum.Complete)
                 {
+                    if (await RescueStageContract.DescribeRefusalAsync(_Database, voyage.Id, token).ConfigureAwait(false) != null) return false;
                     if (!IsSuccessfulVoyageMissionGraph(missionsByVoyage[voyage.Id], dependencyMissionsById)) return false;
                     continue;
                 }

@@ -83,6 +83,62 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            foreach (string landingPath in new[] { "direct", "queue" })
+            {
+                await RunTest("Short rescue refuses " + landingPath + " landing before branch writes", async () =>
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        StubGitService git = new StubGitService();
+                        LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver,
+                            LandingModeEnum.LocalMerge, BranchCleanupPolicyEnum.None).ConfigureAwait(false);
+                        Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage("Required review")
+                        { Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
+                        await VoyagePipelineRecord.RecordAsync(testDb.Driver, null, original, new Pipeline("Reviewed")
+                        {
+                            Stages = new List<PipelineStage> { new PipelineStage(1, "Worker"),
+                                new PipelineStage(2, "TestEngineer"), new PipelineStage(3, "Judge") }
+                        }).ConfigureAwait(false);
+                        Mission failed = await testDb.Driver.Missions.CreateAsync(new Mission("Failed review")
+                        { VoyageId = original.Id, VesselId = entities.Vessel.Id, Persona = "Judge",
+                            StageOrder = 3, Status = MissionStatusEnum.Failed }).ConfigureAwait(false);
+                        Voyage rescue = await testDb.Driver.Voyages.CreateAsync(new Voyage("Short rescue")
+                        { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                        Mission root = await testDb.Driver.Missions.CreateAsync(new Mission("Revision")
+                        { VoyageId = rescue.Id, VesselId = entities.Vessel.Id, Persona = "Worker", StageOrder = 1,
+                            ParentMissionId = failed.Id, Description = RescueMissionMarker.Marker,
+                            Status = MissionStatusEnum.Complete }).ConfigureAwait(false);
+                        entities.Mission.VoyageId = rescue.Id;
+                        entities.Mission.DependsOnMissionId = root.Id;
+                        entities.Mission.Persona = "Judge";
+                        entities.Mission.StageOrder = 3;
+                        entities.Mission.Status = MissionStatusEnum.WorkProduced;
+                        await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+                        if (landingPath == "direct")
+                        {
+                            MissionLandingHandler handler = CreateScopeHandler(testDb, git, CreateLogging(), CreateSettings());
+                            await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+                            Mission updated = (await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false))!;
+                            AssertEqual(MissionStatusEnum.LandingFailed, updated.Status, "Missing required review refuses direct landing.");
+                            AssertContains("rescue_required_stage_missing", updated.FailureReason ?? "", "The refusal names the contract.");
+                        }
+                        else
+                        {
+                            MergeQueueService queue = new MergeQueueService(CreateLogging(), testDb.Driver,
+                                CreateSettings(), git, new MergeFailureClassifier());
+                            MergeEntry entry = new MergeEntry { VesselId = entities.Vessel.Id,
+                                MissionId = entities.Mission.Id, BranchName = entities.Dock.BranchName!, TargetBranch = "main" };
+                            string refusal = "";
+                            try { await queue.EnqueueAsync(entry).ConfigureAwait(false); }
+                            catch (InvalidOperationException ex) { refusal = ex.Message; }
+                            AssertContains("rescue_required_stage_missing", refusal, "Queue admission names the missing contract.");
+                            AssertEqual(0, (await queue.ListAsync().ConfigureAwait(false)).Count, "No entry is admitted for a short rescue.");
+                        }
+                        AssertEqual(0, git.MergeBranchCalls.Count, "No merge executes for missing required roles.");
+                    }
+                }).ConfigureAwait(false);
+            }
+
             // === Local Merge Happy Path ===
 
             await RunTest("Local merge success produces correct git call sequence", async () =>

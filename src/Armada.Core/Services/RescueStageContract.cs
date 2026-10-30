@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Models;
 
