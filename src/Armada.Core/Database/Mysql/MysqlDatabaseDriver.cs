@@ -755,7 +755,10 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(134, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.MysqlStatements.Concat(SignalMissionSchema.MysqlStatements).ToArray()),
                 new SchemaMigration(135, "Persist the delivery proof of a failed merge entry", MergeDeliveryPersistence.MysqlStatements),
                 new SchemaMigration(136, "Persist the stage chain identity that scopes the parallel-stage barrier", MissionStageChainSchema.MysqlStatements),
-                new SchemaMigration(137, "Drop the coordination board tables", CoordinationBoardDropSchema.MysqlStatements)
+                new SchemaMigration(137, "Drop the coordination board tables", CoordinationBoardDropSchema.MysqlStatements),
+                new SchemaMigration(138, "Persist generated-artifact policy and candidate review",
+                    @"ALTER TABLE vessels ADD COLUMN generated_artifacts_json LONGTEXT NULL;",
+                    @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json LONGTEXT NULL;")
             };
         }
 

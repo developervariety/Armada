@@ -1741,6 +1741,16 @@ validation.
 
 ## Vessel Writes
 
+`armada_add_vessel` and `armada_update_vessel` accept `generatedArtifacts`:
+`{ "paths": ["generated/manifest.json"], "regenerateCommand": "python3 tools/generate.py" }`.
+Paths are exact repository-relative files, not patterns. The command and at least
+one unique path are required. An omitted field on update keeps the declaration;
+explicit `null` clears it. This declaration supports native owned landing
+worktrees; a Harbor landing refuses it by name. See [Declared generated
+artifacts](MERGING.md#declared-generated-artifacts) for the candidate review and
+publication rules. `GeneratedArtifactReview` on a mission is read-only server
+state, not a mission metadata patch field.
+
 `armada_add_vessel` and `armada_update_vessel` accept `gitHubTokenOverride`, the
 per-vessel GitHub token REST accepts on `POST` and `PUT /api/v1/vessels`. It is
 write-only and follows the one rule every vessel write applies (REST, MCP,

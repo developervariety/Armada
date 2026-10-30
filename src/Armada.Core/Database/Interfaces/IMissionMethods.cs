@@ -87,6 +87,15 @@ namespace Armada.Core.Database.Interfaces
             throw new System.NotSupportedException("Integration barrier persistence is not implemented by this database.");
         }
 
+        /// <summary>Conditionally prepare a same-record Judge rerun or store its exact-candidate approval.
+        /// Preparation preserves the prior output and both recovery counters. Ordinary saves cannot change this binding.
+        /// Callers must verify the candidate ancestry and required Checks before requesting an approval.</summary>
+        Task<bool> TryWriteGeneratedArtifactReviewAsync(Mission expected, GeneratedArtifactReviewBinding next,
+            bool prepareReview, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Generated candidate review persistence is not implemented by this database.");
+        }
+
         /// <summary>Atomically bind an assigned mission and its captain to a durable Harbor job before launch.</summary>
         /// <param name="update">Exact owner, assignment and process identity.</param>
         /// <param name="token">Cancellation token.</param>

@@ -40,11 +40,23 @@ namespace Armada.Core.Services
         public static bool OwnsReplayLaunch(Mission? mission, Captain captain)
         {
             if (mission == null) return false;
-            if (String.IsNullOrEmpty(mission.ResearchReplayId)) return true;
+            if (String.IsNullOrEmpty(mission.ResearchReplayId) && mission.GeneratedArtifactReview == null) return true;
+            if (mission.GeneratedArtifactReview != null
+                && (!mission.StartedUtc.HasValue || mission.StartedUtc.Value < mission.GeneratedArtifactReview.RequestedUtc)) return false;
             return mission.StartedUtc.HasValue && !String.IsNullOrEmpty(mission.DockId)
                 && mission.CaptainId == captain.Id && captain.CurrentMissionId == mission.Id
                 && captain.CurrentDockId == mission.DockId;
         }
+        /// <summary>Identify the durable attempt whose deferred output and process writes are still current.</summary>
+        public static string GenerationOf(Mission? mission)
+        {
+            if (mission == null) return String.Empty;
+            GeneratedArtifactReviewBinding? review = mission.GeneratedArtifactReview;
+            return review == null ? mission.ResearchReplayId ?? String.Empty
+                : (mission.ResearchReplayId ?? String.Empty) + ":generated:" + review.PreparationAttempt
+                    + ":" + review.CandidateCommit;
+        }
+
         private sealed class OutputLease : IDisposable
         {
             private readonly IDisposable _Completion;

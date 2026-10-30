@@ -1038,7 +1038,10 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(137, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.SqlServerStatements.Concat(SignalMissionSchema.SqlServerStatements).ToArray()),
                 new SchemaMigration(138, "Persist the delivery proof of a failed merge entry", MergeDeliveryPersistence.SqlServerStatements),
                 new SchemaMigration(139, "Persist the stage chain identity that scopes the parallel-stage barrier", MissionStageChainSchema.SqlServerStatements),
-                new SchemaMigration(140, "Drop the coordination board tables", CoordinationBoardDropSchema.SqlServerStatements)
+                new SchemaMigration(140, "Drop the coordination board tables", CoordinationBoardDropSchema.SqlServerStatements),
+                new SchemaMigration(141, "Persist generated-artifact policy and candidate review",
+                    @"ALTER TABLE vessels ADD generated_artifacts_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE missions ADD generated_artifact_review_json NVARCHAR(MAX) NULL;")
             };
         }
 

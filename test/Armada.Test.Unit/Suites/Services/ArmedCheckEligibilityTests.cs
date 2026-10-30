@@ -347,6 +347,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Armed check measures a pending regenerated Judge candidate before its later chain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("candidate-review-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                    string oldCommit = new string('a', 40);
+                    string candidateCommit = new string('c', 40);
+                    Mission worker = await CreateWorkMissionAsync(testDb, vessel, voyage, MissionStatusEnum.WorkProduced,
+                        "candidate-review", oldCommit).ConfigureAwait(false);
+                    Mission judge = await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Judge,
+                        MissionStatusEnum.WorkProduced, worker.BranchName, oldCommit).ConfigureAwait(false);
+                    judge.DependsOnMissionId = worker.Id;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    Mission recorder = await CreateDependentStageAsync(testDb, vessel, voyage, PersonaCatalog.Recorder, judge).ConfigureAwait(false);
+                    await CreateDependentStageAsync(testDb, vessel, voyage, PersonaCatalog.Worker, recorder).ConfigureAwait(false);
+                    judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    GeneratedArtifactReviewBinding binding = GeneratedArtifactReviewRule.NextBinding(judge,
+                        new GeneratedArtifactLandingResult
+                        { Outcome = "ReviewRequired", SourceCommit = oldCommit, TargetBaseCommit = new string('b', 40), CandidateCommit = candidateCommit },
+                        2, DateTime.UtcNow);
+                    AssertTrue(await testDb.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(judge, binding, true).ConfigureAwait(false));
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    foreach (MissionStatusEnum status in new[] { MissionStatusEnum.Pending, MissionStatusEnum.Assigned, MissionStatusEnum.InProgress, MissionStatusEnum.WorkProduced })
+                    {
+                        Mission current = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        current.Status = status;
+                        await testDb.Driver.Missions.UpdateAsync(current).ConfigureAwait(false);
+                        AssertTrue(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                            "The later chain cannot commit before the candidate verdict.");
+                        CheckRun stamped = await orchestrator.StampWorkUnderReviewAsync(armed, default).ConfigureAwait(false);
+                        AssertEqual(candidateCommit, stamped.CommitHash, "The old source commit cannot satisfy candidate review.");
+                        AssertEqual(worker.BranchName, stamped.BranchName);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Armed check still waits for a sibling stage that does not depend on the Judge", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

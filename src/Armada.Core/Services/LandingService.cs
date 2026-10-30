@@ -429,6 +429,19 @@ namespace Armada.Core.Services
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
+            Mission? currentReviewMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            Mission? currentReviewJudge = currentReviewMission == null ? null
+                : await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, currentReviewMission, token).ConfigureAwait(false);
+            if (currentReviewJudge != null && (currentReviewJudge.HeldForOperatorReview
+                || GeneratedArtifactReviewRule.IsAwaitingApproval(currentReviewJudge)))
+            {
+                mission.FailureReason = currentReviewJudge.HeldForOperatorReview
+                    ? "generated_candidate_operator_hold" : "generated_candidate_review_pending";
+                measure.Outcome = "review_required";
+                await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                return false;
+            }
+
             Dock? missionDock = !String.IsNullOrWhiteSpace(mission.DockId)
                 ? await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false)
                 : null;
@@ -475,6 +488,7 @@ namespace Armada.Core.Services
                 bool succeeded = false;
                 bool refusedByValidation = false;
                 bool worktreeCreatedThisAttempt = false;
+                bool prepareGeneratedAfterDrift = false;
                 Exception? failure = null;
 
                 try
@@ -505,7 +519,24 @@ namespace Armada.Core.Services
 
                     // No target branch is passed: the worktree is detached on purpose, and checking the
                     // branch out inside it would hit the same refusal.
-                    await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, null, commitMessage, token).ConfigureAwait(false);
+                    GeneratedArtifactLandingResult generated = await PrepareGeneratedLandingAsync(vessel, mission, targetBranch, token).ConfigureAwait(false);
+                    if (generated.Outcome == "ReviewRequired")
+                    {
+                        mission.FailureReason = generated.Reason;
+                        measure.Outcome = "review_required";
+                        return false;
+                    }
+                    if (generated.Outcome == "Failed")
+                    {
+                        mission.FailureReason = generated.Reason;
+                        if (GeneratedArtifactReviewRule.IsTemporaryPreparationWait(generated.Reason))
+                            measure.Outcome = ArmadaMetrics.OutcomeIncomplete;
+                        return false;
+                    }
+                    if (generated.Outcome == "Regenerated" && generated.TargetBaseCommit != targetTip)
+                        throw new InvalidOperationException("target branch drift: generated candidate belongs to another landing base");
+                    string mergeSource = generated.Outcome == "Regenerated" ? generated.CandidateCommit! : missionBranch;
+                    await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, mergeSource, null, commitMessage, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
 
                     string? mergedHead = await _Git.GetRevisionCommitShaAsync(worktreePath, "HEAD", token).ConfigureAwait(false);
@@ -551,6 +582,20 @@ namespace Armada.Core.Services
                             measure.Outcome = ArmadaMetrics.OutcomeCanceled;
                             return false;
                         }
+                        string? generatedRefusal = await RefuseUnapprovedGeneratedPublicationAsync(vessel, mission,
+                            targetBranch, missionBranch, token).ConfigureAwait(false);
+                        if (generatedRefusal != null)
+                        {
+                            if (generatedRefusal == "generated_candidate_target_drift"
+                                || generatedRefusal == "generated_candidate_source_changed")
+                            {
+                                prepareGeneratedAfterDrift = true;
+                                throw new InvalidOperationException("generated_candidate_reprepare_required: " + generatedRefusal);
+                            }
+                            mission.FailureReason = generatedRefusal;
+                            measure.Outcome = "review_required";
+                            return false;
+                        }
                         // LocalMerge lands into the local repository only -- pushing to a remote is
                         // the operator's decision, never automatic. Pushing here made every landing
                         // fail once the local default branch diverged from the remote: git rejects
@@ -588,7 +633,7 @@ namespace Armada.Core.Services
                     failure = ex;
                     succeeded = false;
 
-                    string? classified = ClassifyIntegrationFailure(ex);
+                    string? classified = prepareGeneratedAfterDrift ? null : ClassifyIntegrationFailure(ex);
                     if (classified != null)
                     {
                         mission.FailureReason = classified;
@@ -620,6 +665,24 @@ namespace Armada.Core.Services
                         catch (Exception pruneEx)
                         {
                             _Logging.Warn(_Header + "failed to prune integration worktrees for " + vessel.LocalPath + ": " + pruneEx.Message);
+                        }
+                    }
+                }
+
+                if (!succeeded && failure != null && (prepareGeneratedAfterDrift || IsTargetBranchDrift(failure)))
+                {
+                    Mission? current = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                    Mission? judge = current == null ? null
+                        : await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, current, token).ConfigureAwait(false);
+                    if (judge?.GeneratedArtifactReview?.ApprovedUtc != null && vessel.GeneratedArtifacts != null)
+                    {
+                        GeneratedArtifactLandingResult prepared = await PrepareGeneratedLandingAsync(vessel,
+                            current!, targetBranch, token).ConfigureAwait(false);
+                        if (prepared.Outcome == "ReviewRequired" || prepared.Outcome == "Failed")
+                        {
+                            mission.FailureReason = prepared.Reason;
+                            measure.Outcome = prepared.Outcome == "ReviewRequired" ? "review_required" : ArmadaMetrics.OutcomeFailure;
+                            return false;
                         }
                     }
                 }

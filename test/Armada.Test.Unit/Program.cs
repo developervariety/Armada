@@ -77,6 +77,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MissionDatabaseTests());
             runner.AddSuite(new MissionAssignmentStatePersistenceTests());
             runner.AddSuite(new MissionIntegrationBarrierPersistenceTests());
+            runner.AddSuite(new GeneratedArtifactReviewPersistenceTests());
             runner.AddSuite(new DockHostCheckoutPersistenceTests());
             runner.AddSuite(new SchemaMigrationTests());
             runner.AddSuite(new PostgresBooleanColumnTypeTests());
@@ -310,6 +311,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MergeQueueBranchCleanupTests());
             runner.AddSuite(new MergeQueueServiceTests());
             runner.AddSuite(new MergeQueueServiceClassificationTests());
+            runner.AddSuite(new GeneratedArtifactLandingTests());
             runner.AddSuite(new MergeFailureClassifierTests());
             runner.AddSuite(new ProviderStallClassifierTests());
             runner.AddSuite(new RebaseCaptainDockSetupTests());

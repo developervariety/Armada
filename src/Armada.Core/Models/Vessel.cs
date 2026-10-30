@@ -238,6 +238,11 @@ namespace Armada.Core.Models
         public string? SiblingRepos { get; set; } = null;
 
         /// <summary>
+        /// Optional declaration for regenerating generated files at landing. Null keeps ordinary merge behavior.
+        /// </summary>
+        public GeneratedArtifactPolicy? GeneratedArtifacts { get; set; } = null;
+
+        /// <summary>
         /// Count of successful auto-landings on this vessel. Used by the auto-land
         /// safety net's calibration period: while this count is below 50, every
         /// auto-landed entry is queued for deep review regardless of critical-trigger

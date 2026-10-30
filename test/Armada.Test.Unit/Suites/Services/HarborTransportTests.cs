@@ -2015,6 +2015,63 @@ namespace Armada.Test.Unit.Suites.Services
 
             LandingService landing = new LandingService(run.Logging, harness.Driver, run.Settings, hostGit);
             landing.SetHarborCheckouts(checkouts);
+            HarborWorkspaceOperationResult beforeGenerated = await checkouts.InspectRepositoryAsync(vessel, "hbr_a", grantId, "refs/heads/main").ConfigureAwait(false);
+            vessel.GeneratedArtifacts = new GeneratedArtifactPolicy
+            { Paths = new List<string> { "manifest.json" }, RegenerateCommand = "sh tools/regenerate.sh" };
+            AssertFalse(await landing.MergeInDedicatedWorktreeAsync(vessel, run.Mission, "main", run.Mission.BranchName).ConfigureAwait(false),
+                "A Harbor declaration must not fall through to an ordinary text merge.");
+            AssertStartsWith("generated_artifacts_harbor_unsupported", run.Mission.FailureReason ?? String.Empty);
+            AssertEqual(beforeGenerated.HeadCommit, (await checkouts.InspectRepositoryAsync(vessel, "hbr_a", grantId,
+                "refs/heads/main").ConfigureAwait(false)).HeadCommit);
+            await harness.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+            Mission queuedPolicyMission = await harness.Driver.Missions.CreateAsync(new Mission("Harbor declared-artifact queue")
+            {
+                TenantId = run.Mission.TenantId, UserId = run.Mission.UserId, VesselId = vessel.Id,
+                DockId = run.Dock.Id, Persona = "Recorder", Status = MissionStatusEnum.WorkProduced,
+                BranchName = run.Mission.BranchName, CommitHash = run.Mission.CommitHash
+            }).ConfigureAwait(false);
+            MergeEntry policyEntry = await harness.Driver.MergeEntries.CreateAsync(new MergeEntry(run.Mission.BranchName!, "main")
+            {
+                TenantId = queuedPolicyMission.TenantId, UserId = queuedPolicyMission.UserId,
+                VesselId = vessel.Id, MissionId = queuedPolicyMission.Id, Status = MergeStatusEnum.Queued
+            }).ConfigureAwait(false);
+            MergeQueueService policyQueue = new MergeQueueService(run.Logging, harness.Driver, run.Settings,
+                hostGit, new MergeFailureClassifier());
+            policyQueue.SetHarborCheckouts(checkouts);
+            MergeEntry? refusedPolicy = await policyQueue.ProcessSingleAsync(policyEntry.Id, policyEntry.TenantId).ConfigureAwait(false);
+            AssertNotNull(refusedPolicy);
+            AssertEqual(MergeStatusEnum.Failed, refusedPolicy!.Status,
+                "The Harbor queue refuses a declaration before it provisions or publishes a candidate.");
+            AssertContains("generated_artifacts_harbor_unsupported",
+                (refusedPolicy.TestOutput ?? String.Empty) + refusedPolicy.MergeFailureSummary);
+            AssertEqual(beforeGenerated.HeadCommit, (await checkouts.InspectRepositoryAsync(vessel, "hbr_a", grantId,
+                "refs/heads/main").ConfigureAwait(false)).HeadCommit);
+            vessel.GeneratedArtifacts = null;
+            await harness.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+            string? originalDependency = run.Mission.DependsOnMissionId;
+            string candidate = (await hostGit.GetHeadCommitHashAsync(HarborCheckoutAddress.ForDock(run.Dock.Id)).ConfigureAwait(false))!;
+            Mission boundJudge = await harness.Driver.Missions.CreateAsync(new Mission("Harbor candidate review")
+            {
+                TenantId = run.Mission.TenantId, UserId = run.Mission.UserId, VesselId = vessel.Id,
+                VoyageId = run.Mission.VoyageId, Status = MissionStatusEnum.WorkProduced, Persona = "Judge",
+                CommitHash = beforeGenerated.HeadCommit, BranchName = run.Mission.BranchName,
+                AgentOutput = "[ARMADA:VERDICT] PASS\nEarlier source review"
+            }).ConfigureAwait(false);
+            boundJudge = (await harness.Driver.Missions.ReadAsync(boundJudge.Id).ConfigureAwait(false))!;
+            GeneratedArtifactReviewBinding pendingReview = GeneratedArtifactReviewRule.NextBinding(boundJudge,
+                new GeneratedArtifactLandingResult { Outcome = "ReviewRequired", SourceCommit = beforeGenerated.HeadCommit,
+                    TargetBaseCommit = beforeGenerated.HeadCommit, CandidateCommit = candidate }, 2, DateTime.UtcNow);
+            AssertTrue(await harness.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(boundJudge, pendingReview, true).ConfigureAwait(false));
+            run.Mission.DependsOnMissionId = boundJudge.Id;
+            await harness.Driver.Missions.UpdateAsync(run.Mission).ConfigureAwait(false);
+            AssertFalse(await landing.MergeInDedicatedWorktreeAsync(vessel, run.Mission, "main", run.Mission.BranchName).ConfigureAwait(false),
+                "A Harbor publication must honor the same-record Judge binding.");
+            AssertEqual("generated_candidate_review_pending", run.Mission.FailureReason);
+            AssertEqual(beforeGenerated.HeadCommit, (await checkouts.InspectRepositoryAsync(vessel, "hbr_a", grantId,
+                "refs/heads/main").ConfigureAwait(false)).HeadCommit);
+            run.Mission.DependsOnMissionId = originalDependency;
+            run.Mission.FailureReason = null;
+            await harness.Driver.Missions.UpdateAsync(run.Mission).ConfigureAwait(false);
             AssertTrue(await landing.MergeInDedicatedWorktreeAsync(vessel, run.Mission, "main", run.Mission.BranchName).ConfigureAwait(false), "landing merges the remote-owned branch through a dedicated runner checkout: " + run.Mission.FailureReason);
             HarborWorkspaceOperationResult published = await checkouts.InspectRepositoryAsync(vessel, "hbr_a", grantId, "refs/heads/main").ConfigureAwait(false);
             AssertFalse(String.Equals(run.Dock.HostCheckout!.BaseCommit, published.HeadCommit, StringComparison.OrdinalIgnoreCase), "the target branch advances from its original commit after landing");

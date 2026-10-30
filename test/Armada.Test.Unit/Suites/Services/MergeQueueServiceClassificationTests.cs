@@ -24,7 +24,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// are persisted on the merge entry alongside the Failed status, and
     /// <see cref="MergeEntry.ConflictedFiles"/> is stored as a JSON array.
     /// </summary>
-    public class MergeQueueServiceClassificationTests : TestSuite
+    public partial class MergeQueueServiceClassificationTests : TestSuite
     {
         /// <summary>Suite name.</summary>
         public override string Name => "Merge Queue Service Classification";
@@ -266,6 +266,117 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        private static GeneratedArtifactReviewBinding Binding(string candidate, string targetBase)
+        {
+            return new GeneratedArtifactReviewBinding
+            {
+                SourceCommit = new string('a', 40),
+                CandidateCommit = candidate,
+                TargetBaseCommit = targetBase,
+                PreparationAttempt = 1,
+                RequestedUtc = new DateTime(2030, 1, 1, 12, 0, 0, DateTimeKind.Utc)
+            };
+        }
+
+        /// <summary>
+        /// Queue the captain branch of a fast-forward repository behind a Recorder whose Judge holds a regenerated-candidate
+        /// binding built from the branch tip and the target tip, store the binding through the conditional review write,
+        /// optionally approve it and hold the Judge, then process the entry. Returns the entry and the target before and after.
+        /// </summary>
+        private async Task<GeneratedCandidateQueueResult> ProcessRegeneratedCandidateAsync(
+            Func<string, string, GeneratedArtifactReviewBinding> bind, bool approve, bool hold)
+        {
+            string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_regen_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(rootDir);
+                ConflictRepoSetup repos = await CreateFastForwardReposAsync(rootDir).ConfigureAwait(false);
+                string tip = await RunGitCaptureAsync(repos.BareDir, "rev-parse", repos.CaptainBranch).ConfigureAwait(false);
+                string mainBefore = await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false);
+                GeneratedArtifactReviewBinding binding = bind(tip, mainBefore);
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    Vessel vessel = new Vessel("regenerated-vessel", repos.RemoteDir);
+                    vessel.LocalPath = repos.BareDir;
+                    vessel.DefaultBranch = "main";
+                    vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("Judge", "Review the work")
+                    {
+                        VesselId = vessel.Id,
+                        Persona = "Judge",
+                        Status = MissionStatusEnum.Complete,
+                        BranchName = repos.CaptainBranch,
+                        CommitHash = binding.SourceCommit
+                    }).ConfigureAwait(false);
+                    Mission loaded = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    AssertTrue(await testDb.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(loaded, binding, true).ConfigureAwait(false),
+                        "the fixture prepares the same-record Judge review");
+                    if (approve)
+                    {
+                        Mission pending = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        pending.Status = MissionStatusEnum.WorkProduced;
+                        await testDb.Driver.Missions.UpdateAsync(pending).ConfigureAwait(false);
+                        Mission produced = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        GeneratedArtifactReviewBinding approved = new GeneratedArtifactReviewBinding
+                        {
+                            SourceCommit = binding.SourceCommit,
+                            CandidateCommit = binding.CandidateCommit,
+                            TargetBaseCommit = binding.TargetBaseCommit,
+                            PreparationAttempt = binding.PreparationAttempt,
+                            RequestedUtc = binding.RequestedUtc,
+                            ApprovedUtc = new DateTime(2030, 1, 1, 12, 5, 0, DateTimeKind.Utc)
+                        };
+                        AssertTrue(await testDb.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(produced, approved, false).ConfigureAwait(false),
+                            "the fixture stores the approval at the candidate");
+                    }
+                    if (hold)
+                    {
+                        Mission approvedJudge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        approvedJudge.HeldForOperatorReview = true;
+                        approvedJudge.HeldForOperatorReviewReason = "operator review";
+                        await testDb.Driver.Missions.UpdateAsync(approvedJudge).ConfigureAwait(false);
+                    }
+
+                    Mission recorder = await testDb.Driver.Missions.CreateAsync(new Mission("Recorder", "Record the work")
+                    {
+                        VesselId = vessel.Id,
+                        Persona = "Recorder",
+                        Status = MissionStatusEnum.WorkProduced,
+                        BranchName = repos.CaptainBranch,
+                        CommitHash = tip,
+                        DependsOnMissionId = judge.Id
+                    }).ConfigureAwait(false);
+
+                    MergeEntry entry = new MergeEntry();
+                    entry.VesselId = vessel.Id;
+                    entry.MissionId = recorder.Id;
+                    entry.BranchName = repos.CaptainBranch;
+                    entry.TargetBranch = "main";
+                    entry.Status = MergeStatusEnum.Queued;
+                    entry.CreatedUtc = DateTime.UtcNow;
+                    entry.LastUpdateUtc = DateTime.UtcNow;
+                    await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                    RecordingMergeFailureClassifier classifier = new RecordingMergeFailureClassifier(
+                        new MergeFailureClassification(MergeFailureClassEnum.TextConflict, "Recording classifier", new List<string>()));
+                    MergeQueueService service = new MergeQueueService(logging, testDb.Driver, CreateSettings(), new GitService(logging), classifier);
+                    await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+
+                    MergeEntry updated = (await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
+                    string mainAfter = await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false);
+                    return new GeneratedCandidateQueueResult { Entry = updated, MainBefore = mainBefore, MainAfter = mainAfter, Tip = tip };
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
+            }
+        }
+
         /// <summary>Run all classification persistence tests.</summary>
         protected override async Task RunTestsAsync()
         {
@@ -329,7 +440,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally
                 {
-                    try { Directory.Delete(rootDir, true); } catch { }
+                    try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
                 }
             });
 
@@ -401,7 +512,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally
                 {
-                    try { Directory.Delete(rootDir, true); } catch { }
+                    try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
                 }
             });
 
@@ -452,7 +563,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally
                 {
-                    try { Directory.Delete(rootDir, true); } catch { }
+                    try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
                 }
             });
             await RunTest("ProcessEntry_MergeConflict_ConflictedFilesStoredAsJsonArray", async () =>
@@ -505,7 +616,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally
                 {
-                    try { Directory.Delete(rootDir, true); } catch { }
+                    try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
                 }
             });
 
@@ -530,7 +641,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally
                 {
-                    try { Directory.Delete(rootDir, true); } catch { }
+                    try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
                 }
             });
 
@@ -550,9 +661,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally
                 {
-                    try { Directory.Delete(rootDir, true); } catch { }
+                    try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
                 }
             });
+
+            // A regenerated candidate lands only after its Judge approved that exact commit against the
+            // target it was prepared on; every other binding state leaves the target where it was.
+            GeneratedCandidatePublicationCase[] refusals =
+            {
+                new GeneratedCandidatePublicationCase { Name = "an approval still pending", Code = "generated_candidate_review_pending", Bind = (tip, main) => Binding(tip, main) },
+                new GeneratedCandidatePublicationCase { Name = "a target that moved after preparation", Code = "generated_candidate_target_drift", Bind = (tip, main) => Binding(tip, new string('d', 40)), Approve = true },
+                new GeneratedCandidatePublicationCase { Name = "a branch that is not the reviewed candidate", Code = "generated_candidate_source_changed", Bind = (tip, main) => Binding(new string('c', 40), main), Approve = true },
+                new GeneratedCandidatePublicationCase { Name = "an operator hold on the Judge", Code = "generated_candidate_operator_hold", Bind = (tip, main) => Binding(tip, main), Approve = true, Hold = true }
+            };
+            foreach (GeneratedCandidatePublicationCase refusal in refusals)
+            {
+                await RunTest("ProcessEntry_RegeneratedCandidate_LeavesTargetUnmovedFor " + refusal.Name, async () =>
+                {
+                    GeneratedCandidateQueueResult result = await ProcessRegeneratedCandidateAsync(refusal.Bind, refusal.Approve, refusal.Hold).ConfigureAwait(false);
+                    AssertNotEqual(MergeStatusEnum.Landed, result.Entry.Status, "the entry must not land for " + refusal.Name);
+                    AssertEqual(result.MainBefore, result.MainAfter, "the target must not move for " + refusal.Name);
+                    string detail = (result.Entry.TestOutput ?? String.Empty) + " " + (result.Entry.MergeFailureSummary ?? String.Empty);
+                    AssertContains(refusal.Code, detail, "the refusal is named on the entry for " + refusal.Name);
+                });
+            }
+
+            await RunTest("ProcessEntry_RegeneratedCandidate_LandsOnceApprovedAtTheExactCandidateAndTarget", async () =>
+            {
+                GeneratedCandidateQueueResult result = await ProcessRegeneratedCandidateAsync((t, m) => Binding(t, m), true, false).ConfigureAwait(false);
+                AssertEqual(MergeStatusEnum.Landed, result.Entry.Status, "an approved exact candidate on its prepared target lands; output: " + result.Entry.TestOutput);
+                AssertEqual(result.Tip, result.MainAfter, "the target moves onto the approved candidate");
+            });
+
+            await RunGeneratedCandidatePreparationTestsAsync().ConfigureAwait(false);
 
             await RunTest("Constructor_NullClassifier_ThrowsArgumentNullException", async () =>
             {

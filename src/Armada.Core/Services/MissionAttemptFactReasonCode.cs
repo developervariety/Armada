@@ -16,6 +16,7 @@ namespace Armada.Core.Services
             "landed",
             "pull_request_merged",
             "restarted",
+            "generated_candidate_review",
             "judge_check_wait",
             "judge_revision_check_wait",
             "missing_judge_verdict",

@@ -92,7 +92,8 @@ namespace Armada.Core.Services
                     || mission.Status == MissionStatusEnum.PullRequestOpen
                     || mission.Status == MissionStatusEnum.Testing
                     || mission.Status == MissionStatusEnum.Review
-                    || mission.Status == MissionStatusEnum.Complete)
+                    || mission.Status == MissionStatusEnum.Complete
+                    || IsPendingGeneratedCandidate(mission))
                 .ToList();
 
             // Completing a landed chain updates predecessors last. Those timestamps record
@@ -393,6 +394,18 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        private static bool IsPendingGeneratedCandidate(Mission mission)
+        {
+            GeneratedArtifactReviewBinding? binding = mission.GeneratedArtifactReview;
+            return binding != null && binding.ApprovedUtc == null
+                && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge)
+                && !String.IsNullOrWhiteSpace(binding.CandidateCommit)
+                && String.Equals(mission.CommitHash, binding.CandidateCommit, StringComparison.Ordinal)
+                && String.Equals(mission.StartFromRef, binding.CandidateCommit, StringComparison.Ordinal)
+                && (mission.Status == MissionStatusEnum.Pending || mission.Status == MissionStatusEnum.Assigned
+                    || mission.Status == MissionStatusEnum.InProgress);
+        }
+
         private static Mission? SelectLaneWork(VoyageLane lane)
         {
             // Work above the split is not a lane's own: a record stamped there would measure every
@@ -418,7 +431,8 @@ namespace Armada.Core.Services
                 && byId.TryGetValue(parentId, out Mission? parent))
             {
                 if (PersonaCatalog.Matches(parent.Persona, PersonaCatalog.Judge)
-                    && (parent.HeldForOperatorReview || !MissionService.IsDependencySatisfyingStatus(parent.Status)))
+                    && (parent.HeldForOperatorReview || GeneratedArtifactReviewRule.IsAwaitingApproval(parent)
+                        || !MissionService.IsDependencySatisfyingStatus(parent.Status)))
                     return true;
                 parentId = parent.DependsOnMissionId;
             }

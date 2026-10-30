@@ -12,6 +12,12 @@ namespace Armada.Core.Services
         private async Task<bool> AdvanceHarborLandingStateMachineOneStepAsync(MergeEntry entry,
             HarborQueueContext context, CancellationToken token)
         {
+            if (context.Vessel.GeneratedArtifacts != null)
+            {
+                await TransitionEntryToFailureAsync(entry, "generated_artifacts_harbor_unsupported", token,
+                    fireRecovery: false).ConfigureAwait(false);
+                return false;
+            }
             if (entry.Status == MergeStatusEnum.Queued || entry.Status == MergeStatusEnum.Rebasing)
             {
                 await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);

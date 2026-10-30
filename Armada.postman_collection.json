@@ -2576,7 +2576,7 @@
 								"{{vesselId}}"
 							]
 						},
-						"description": "Updates an existing vessel."
+						"description": "Replaces client-editable vessel fields. Preserve the complete intended record. GeneratedArtifacts optionally declares exact repository-relative Paths and a RegenerateCommand for native landing; null keeps ordinary merging. A regenerated candidate requires the same Judge to review it and required Checks at that commit before publication. Harbor declarations are refused by name."
 					}
 				},
 				{

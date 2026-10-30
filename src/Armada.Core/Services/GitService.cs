@@ -2274,6 +2274,9 @@ namespace Armada.Core.Services
 
             string localRef = "refs/heads/armada-landing/" + branchName;
             string remoteRef = "refs/heads/" + branchName;
+            if (DockGitAnchorPersistence.IsCommit(branchName)
+                && await GetRevisionCommitShaAsync(sourceRepoPath, remoteRef, token).ConfigureAwait(false) == null)
+                remoteRef = branchName;
             string refspec = "+" + remoteRef + ":" + localRef;
 
             await RunGitAsync(targetWorkDir, token, "fetch", sourceRepoPath, refspec).ConfigureAwait(false);

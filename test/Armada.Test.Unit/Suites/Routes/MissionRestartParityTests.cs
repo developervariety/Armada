@@ -37,6 +37,7 @@ namespace Armada.Test.Unit.Suites.Routes
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunGeneratedCandidateAssignmentTestAsync().ConfigureAwait(false);
             await RunResearchReplayTestsAsync().ConfigureAwait(false);
             await RunTest("ResearchReplay_PreviewsFullChainWithoutChangingCompletedDutiesOrFailedVerdict", async () =>
             {

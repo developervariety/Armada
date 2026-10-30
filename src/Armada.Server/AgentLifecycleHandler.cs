@@ -827,7 +827,7 @@ namespace Armada.Server
 
             // The new process owns the mission's per-process state from here, and starts it empty. An earlier
             // process's exit, even one handled after this point, can no longer release it.
-            long stateOwner = await TakeMissionStateOwnershipAsync(mission.Id, mission.ResearchReplayId).ConfigureAwait(false);
+            long stateOwner = await TakeMissionStateOwnershipAsync(mission.Id, MissionExecutionBoundary.GenerationOf(mission)).ConfigureAwait(false);
             _PendingLaunchOwners[launchKey] = stateOwner;
             _PendingLaunches[launchKey] = (captain.Id, mission.Id);
             runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey, stateOwner);
@@ -1450,7 +1450,7 @@ namespace Armada.Server
                         !String.Equals(currentLaunch.MissionId, launch.MissionId, StringComparison.Ordinal)
                         || !_PendingLaunchOwners.TryGetValue(launchKey, out long currentOwner) || currentOwner != expectedOwner
                         || !_ReplayGenerationByOwner.TryGetValue(expectedOwner, out string? expectedGeneration)
-                        || !String.Equals(mission?.ResearchReplayId ?? String.Empty, expectedGeneration, StringComparison.Ordinal))
+                        || !String.Equals(MissionExecutionBoundary.GenerationOf(mission), expectedGeneration, StringComparison.Ordinal))
                     {
                         return;
                     }
@@ -1769,7 +1769,7 @@ namespace Armada.Server
             if (String.IsNullOrEmpty(missionId)) return true;
             if (!owner.HasValue) return false;
             Mission? mission = await _Database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
-            if (mission == null || !String.Equals(mission.ResearchReplayId ?? String.Empty, replayGeneration, StringComparison.Ordinal)) return false;
+            if (mission == null || !String.Equals(MissionExecutionBoundary.GenerationOf(mission), replayGeneration, StringComparison.Ordinal)) return false;
             lock (_MissionStateOwners)
             {
                 if (_MissionStateOwners.TryGetValue(missionId, out long currentOwner)) return currentOwner == owner.Value;

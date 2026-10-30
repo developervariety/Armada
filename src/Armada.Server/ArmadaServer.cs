@@ -469,6 +469,11 @@ using WatsonWebserver.Core.Routing;
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
+            _LandingService.GeneratedArtifactPreparer = missionService.PrepareGeneratedArtifactsForTargetAsync;
+            missionService.GeneratedArtifactLandingRetry = _LandingService.RetryLandingAsync;
+            if (_MergeQueue is MergeQueueService generatedQueue)
+                generatedQueue.GeneratedArtifactPreparer = missionService.PrepareGeneratedArtifactsForTargetAsync;
+
             _LandingService.SetHarborCheckouts(_HarborCheckouts);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = _SuppliedRuntimeFactory

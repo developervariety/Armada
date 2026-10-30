@@ -1923,6 +1923,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A prepared generated review rejects deferred output from its prior launch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("generated-output-owner")).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("Review regenerated source")
+                    {
+                        Status = MissionStatusEnum.WorkProduced, Persona = "Judge", CaptainId = captain.Id,
+                        CommitHash = new string('a', 40), BranchName = "generated-review",
+                        AgentOutput = "[ARMADA:VERDICT] PASS\nRetained earlier review"
+                    }).ConfigureAwait(false);
+                    long priorOwner = handler.TakeMissionStateOwnership(judge.Id);
+                    handler.RegisterMissionProcess(989835, captain.Id, judge.Id, priorOwner);
+                    judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    GeneratedArtifactReviewBinding binding = GeneratedArtifactReviewRule.NextBinding(judge,
+                        new GeneratedArtifactLandingResult
+                        {
+                            Outcome = "ReviewRequired", SourceCommit = judge.CommitHash,
+                            TargetBaseCommit = new string('b', 40), CandidateCommit = new string('c', 40)
+                        }, 2, DateTime.UtcNow);
+                    AssertTrue(await testDb.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(judge, binding, true).ConfigureAwait(false));
+                    handler.HandleAgentOutput(989835, "[ARMADA:PROGRESS] Prior source feedback must stay historical.");
+                    FieldInfo ownersField = typeof(AgentLifecycleHandler).GetField("_MissionStateOwners", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    FieldInfo pendingField = typeof(AgentLifecycleHandler).GetField("_DeferredOutputWriteCounts", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    object owners = ownersField.GetValue(handler)!;
+                    await WaitForConditionAsync(() =>
+                    {
+                        lock (owners) return Task.FromResult(!((Dictionary<long, int>)pendingField.GetValue(handler)!).ContainsKey(priorOwner));
+                    }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                    AssertEqual(0, (await testDb.Driver.Signals.EnumerateRecentAsync(50).ConfigureAwait(false)).Count,
+                        "A durable candidate replacement rejects old output even before a new runtime takes ownership.");
+                    Mission current = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    long nextOwner = handler.TakeMissionStateOwnership(judge.Id, MissionExecutionBoundary.GenerationOf(current));
+                    handler.RegisterMissionProcess(989836, captain.Id, judge.Id, nextOwner);
+                    handler.HandleAgentOutput(989836, "[ARMADA:PROGRESS] Current candidate feedback.");
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
+                    AssertEqual(1, (await testDb.Driver.Signals.EnumerateRecentAsync(50).ConfigureAwait(false)).Count);
+                    AssertTrue(current.PreservedRunOutput!.Contains("Retained earlier review", StringComparison.Ordinal));
+                    AssertEqual(0, current.RecoveryAttempts);
+                    AssertEqual(0, current.LandingRetryCount);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("An old runtime subscriber cannot write after the operating system PID is reused", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

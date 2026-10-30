@@ -360,6 +360,13 @@ namespace Armada.Server
             }
 
             Vessel? vessel = evidence.Vessel;
+            if (vessel?.GeneratedArtifacts != null && dock.HostCheckout != null)
+            {
+                await RefuseLandingAsync(mission, MissionStatusEnum.LandingFailed,
+                    "generated_artifacts_harbor_unsupported: generated artifacts require a native owned worktree").ConfigureAwait(false);
+                return;
+            }
+
 
             // The gate scans the change read now together with the diff captured at completion, so a
             // finding in either blocks the landing.
@@ -675,6 +682,22 @@ namespace Armada.Server
 
                         if (!landingSucceeded)
                         {
+                            Mission? currentLanding = await _Database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                            Mission? candidateJudge = currentLanding == null ? null
+                                : await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, currentLanding).ConfigureAwait(false);
+                            if (GeneratedArtifactReviewRule.IsAwaitingApproval(candidateJudge) || candidateJudge?.HeldForOperatorReview == true
+                                || GeneratedArtifactReviewRule.IsTemporaryPreparationWait(mission.FailureReason)
+                                || mission.FailureReason == "generated_candidate_target_drift"
+                                || mission.FailureReason == "generated_candidate_source_changed")
+                            {
+                                if (currentLanding != null)
+                                {
+                                    currentLanding.FailureReason = mission.FailureReason ?? "generated_candidate_review_pending";
+                                    await _Database.Missions.UpdateAsync(currentLanding).ConfigureAwait(false);
+                                }
+                                _Logging.Info(_Header + "landing waits for candidate review on mission " + mission.Id + ": " + mission.FailureReason);
+                                return;
+                            }
                             landingFailureReasonCode = "landing_merge_failed";
                             landingFailureReason = !String.IsNullOrEmpty(mission.FailureReason)
                                 ? mission.FailureReason

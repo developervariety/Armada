@@ -62,6 +62,23 @@ namespace Armada.Core.Services
                     return;
                 }
 
+                Mission? currentMission = await _Database.Missions.ReadAsync(context.Mission.Id, token).ConfigureAwait(false);
+                Mission? boundJudge = currentMission == null ? null
+                    : await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, currentMission, token).ConfigureAwait(false);
+                if (boundJudge != null)
+                {
+                    string? currentTarget = await InspectHarborRevisionAsync(context, "refs/heads/" + entry.TargetBranch, token).ConfigureAwait(false);
+                    string? currentSource = await InspectHarborRevisionAsync(context, "refs/heads/" + entry.BranchName, token).ConfigureAwait(false);
+                    string? refusal = boundJudge.HeldForOperatorReview ? "generated_candidate_operator_hold"
+                        : String.IsNullOrWhiteSpace(currentTarget) || String.IsNullOrWhiteSpace(currentSource)
+                            ? "generated_candidate_source_unresolved"
+                            : GeneratedArtifactReviewRule.PublicationRefusal(boundJudge, currentTarget, currentSource);
+                    if (refusal != null)
+                    {
+                        await ParkGeneratedCandidateAsync(entry, context.Mission, refusal, token).ConfigureAwait(false);
+                        return;
+                    }
+                }
                 if (!String.Equals(remote, head, StringComparison.OrdinalIgnoreCase))
                 {
                     using (new HarborCheckoutOperationScope("mq-push:" + entry.Id + ":" + head, head!))

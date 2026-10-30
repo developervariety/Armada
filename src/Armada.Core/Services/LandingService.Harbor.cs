@@ -23,6 +23,15 @@ namespace Armada.Core.Services
                 throw new InvalidOperationException("harbor_landing_dock_binding_invalid");
             if (String.IsNullOrWhiteSpace(targetBranch)) throw new InvalidOperationException("landing_target_branch_required");
 
+            if (vessel.GeneratedArtifacts != null)
+            {
+                mission.FailureReason = "generated_artifacts_harbor_unsupported: generated artifacts require a native owned worktree";
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "refusing Harbor generated-artifact landing for " + mission.Id + ": " + mission.FailureReason);
+                return false;
+            }
+
             string branch = !String.IsNullOrWhiteSpace(sourceBranch) ? sourceBranch! : mission.BranchName ?? dock.BranchName ?? String.Empty;
             if (String.IsNullOrWhiteSpace(branch)) throw new InvalidOperationException("landing_source_branch_required");
             string source = HarborCheckoutAddress.ForDock(dock.Id);

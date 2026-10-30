@@ -242,6 +242,12 @@ namespace Armada.Server.Routes
                 }
                 Vessel vessel = JsonSerializer.Deserialize<Vessel>(createBodyText, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
+                string? generatedRefusal = Armada.Core.Services.GeneratedArtifactLanding.ValidateDeclaration(vessel.GeneratedArtifacts);
+                if (generatedRefusal != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = generatedRefusal };
+                }
                 if (String.IsNullOrEmpty(vessel.RepoUrl))
                 {
                     req.Http.Response.StatusCode = 400;
@@ -334,6 +340,12 @@ namespace Armada.Server.Routes
                 }
                 Vessel updated = JsonSerializer.Deserialize<Vessel>(updateBodyText, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
+                string? generatedRefusal = Armada.Core.Services.GeneratedArtifactLanding.ValidateDeclaration(updated.GeneratedArtifacts);
+                if (generatedRefusal != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = generatedRefusal };
+                }
                 updated.AutoLandPredicate = updateAlpJson;
                 VesselUpdateMerge.KeepServerOwnedFields(existing, updated);
                 // A changed fleet is read in the caller's scope; an unchanged one is never refused.

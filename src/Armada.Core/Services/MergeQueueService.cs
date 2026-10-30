@@ -265,6 +265,13 @@ namespace Armada.Core.Services
                 return new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.SkippedNotLandable, null, noLanding);
             }
 
+            Mission? currentGeneratedMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            Mission? generatedJudge = currentGeneratedMission == null ? null
+                : await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, currentGeneratedMission, token).ConfigureAwait(false);
+            if (generatedJudge != null && (generatedJudge.HeldForOperatorReview || GeneratedArtifactReviewRule.IsAwaitingApproval(generatedJudge)))
+                return new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.SkippedNotLandable, null,
+                    generatedJudge.HeldForOperatorReview ? "generated_candidate_operator_hold" : "generated_candidate_review_pending");
+
             if (await HasActiveMergeEntryForMissionAsync(mission.Id, token).ConfigureAwait(false))
             {
                 MergeEntry? existing = await ReadMostRecentMergeEntryAsync(mission.Id, token).ConfigureAwait(false);
@@ -1055,6 +1062,8 @@ namespace Armada.Core.Services
                     await TransitionEntryToFailureAsync(entry, stageRefusal, token).ConfigureAwait(false);
                     return false;
                 }
+                if (landingMission != null && await ParkUnapprovedGeneratedCandidateAsync(entry, landingMission, repoPath, token).ConfigureAwait(false))
+                    return false;
                 string? pinRefusal = await SiblingPinOverride.EvaluateLandingAsync(_Database, _Git, landingMission, token).ConfigureAwait(false);
                 if (pinRefusal != null)
                 {
@@ -1095,7 +1104,9 @@ namespace Armada.Core.Services
                 }
 
                 await MergeIntegrationWorktreeAsync(entry, token).ConfigureAwait(false);
-                if (entry.Status == MergeStatusEnum.Failed || entry.Status == MergeStatusEnum.Cancelled) return false;
+                if (entry.Status == MergeStatusEnum.Failed || entry.Status == MergeStatusEnum.Cancelled
+                    || entry.Status == MergeStatusEnum.Queued) return false;
+                if (entry.Status == MergeStatusEnum.Rebasing) return true;
                 await PersistStatusAsync(entry, MergeStatusEnum.Testing, token, startedTests: true).ConfigureAwait(false);
                 return true;
             }
@@ -1457,6 +1468,49 @@ namespace Armada.Core.Services
                 await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
                 FireRecoveryHandlerForEntry(entry.Id);
                 return;
+            }
+
+            Vessel? generatedVessel = await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+            if (generatedVessel?.GeneratedArtifacts != null)
+            {
+                Mission? generatedMission = String.IsNullOrWhiteSpace(entry.MissionId) ? null
+                    : await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                if (generatedMission == null || GeneratedArtifactPreparer == null)
+                {
+                    await TransitionEntryToFailureAsync(entry, "generated_artifacts_preparer_unavailable", token, fireRecovery: false).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                    return;
+                }
+                GeneratedArtifactLandingResult generated = await GeneratedArtifactPreparer(generatedMission, entry.TargetBranch, token).ConfigureAwait(false);
+                if (generated.Outcome == "ReviewRequired")
+                {
+                    await ParkGeneratedCandidateAsync(entry, generatedMission, generated.Reason ?? "generated_candidate_review_pending", token).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                    return;
+                }
+                if (generated.Outcome == "Failed")
+                {
+                    if (GeneratedArtifactReviewRule.IsTemporaryPreparationWait(generated.Reason))
+                    {
+                        await ParkGeneratedCandidateAsync(entry, generatedMission, generated.Reason!, token).ConfigureAwait(false);
+                        await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                        return;
+                    }
+                    await TransitionEntryToFailureAsync(entry, generated.Reason ?? "generated_preparation_failed", token, fireRecovery: false).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                    return;
+                }
+                if (generated.Outcome == "Regenerated")
+                {
+                    string baseCommit = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
+                    if (generated.TargetBaseCommit != baseCommit)
+                    {
+                        await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);
+                        await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                        return;
+                    }
+                    mergeRef = generated.CandidateCommit!;
+                }
             }
 
             bool alreadyMerged = await IsAncestorAsync(integrationPath, mergeRef, "HEAD", token).ConfigureAwait(false);
@@ -2544,6 +2598,11 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task LandEntryAsync(MergeEntry entry, string repoPath, string integrationBranch, CancellationToken token)
         {
+            if (!String.IsNullOrWhiteSpace(entry.MissionId))
+            {
+                Mission? mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                if (mission != null && await ParkUnapprovedGeneratedCandidateAsync(entry, mission, repoPath, token).ConfigureAwait(false)) return;
+            }
             string preLandRemoteTargetHead = "";
             string integrationHead = "";
             try

@@ -41,7 +41,7 @@ namespace Armada.Core.Services
                 throw new InvalidOperationException("target branch drift: " + targetBranch + " moved from " + targetTip + " to " + (latestTargetTip ?? "(unresolved)"));
 
             if (!await PublishHarborReferencesAsync(vessel, mission, integrationPath, target, targetBranch,
-                mergedHead, targetTip, attemptId, token).ConfigureAwait(false))
+                mergedHead, targetTip, branch, attemptId, token).ConfigureAwait(false))
             {
                 measure.Outcome = ArmadaMetrics.OutcomeCanceled;
                 await RemoveHarborIntegrationAsync(checkouts, attempt.IntegrationDock, attemptId, token).ConfigureAwait(false);
@@ -66,12 +66,31 @@ namespace Armada.Core.Services
         }
 
         private async Task<bool> PublishHarborReferencesAsync(Vessel vessel, Mission mission, string integrationPath,
-            string target, string targetBranch, string mergedHead, string targetTip, string attemptId, CancellationToken token)
+            string target, string targetBranch, string mergedHead, string targetTip, string sourceBranch, string attemptId, CancellationToken token)
         {
             using (await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId,
                 mission.VoyageId, mission.Id, token).ConfigureAwait(false))
             {
                 if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission, token).ConfigureAwait(false)) return false;
+                Mission? current = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                Mission? boundJudge = current == null ? null
+                    : await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, current, token).ConfigureAwait(false);
+                if (boundJudge != null)
+                {
+                    string? sourceTip = await _Git.GetRevisionCommitShaAsync(integrationPath + "/repository",
+                        "refs/heads/" + sourceBranch, token).ConfigureAwait(false);
+                    string? refusal = String.IsNullOrWhiteSpace(sourceTip) ? "generated_candidate_source_unresolved"
+                        : boundJudge.HeldForOperatorReview ? "generated_candidate_operator_hold"
+                        : GeneratedArtifactReviewRule.PublicationRefusal(boundJudge, targetTip, sourceTip);
+                    if (refusal != null)
+                    {
+                        mission.FailureReason = refusal;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                        _Logging.Warn(_Header + "Harbor publication refused for " + mission.Id + ": " + refusal);
+                        return false;
+                    }
+                }
                 await PublishHarborReferencesWhileAdmittedAsync(vessel, integrationPath, target, targetBranch,
                     mergedHead, targetTip, attemptId, token).ConfigureAwait(false);
                 return true;

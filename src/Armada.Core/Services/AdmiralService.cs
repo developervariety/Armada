@@ -1715,9 +1715,9 @@ namespace Armada.Core.Services
             // A captain with no recorded process is inside a launch whose process id is not written yet, so
             // that exit is still the mission's.
             string? ignoredReason = null;
-            if (!String.IsNullOrEmpty(mission.ResearchReplayId)
+            if ((!String.IsNullOrEmpty(mission.ResearchReplayId) || mission.GeneratedArtifactReview != null)
                 && (mission.ProcessId != processId || captain.ProcessId != processId))
-                ignoredReason = "the exit does not identify the current replay launch";
+                ignoredReason = "the exit does not identify the current replacement launch";
             else if (superseded)
                 ignoredReason = "the admiral stopped and superseded it";
             else if (stopRequested && exitCode != 0)

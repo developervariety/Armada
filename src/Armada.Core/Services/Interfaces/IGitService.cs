@@ -287,12 +287,12 @@ namespace Armada.Core.Services.Interfaces
         Task EnableAutoMergeAsync(string worktreePath, string prUrl, CancellationToken token = default);
 
         /// <summary>
-        /// Merge a branch from a source repository into the current branch of a target working directory.
-        /// Fetches the branch from sourceRepoPath and merges it into targetWorkDir.
+        /// Merge a branch or full commit from a source repository into the target working directory.
+        /// Fetches the source into a concrete local ref before merging it.
         /// </summary>
         /// <param name="targetWorkDir">The user's local working directory.</param>
         /// <param name="sourceRepoPath">Path to the bare repo containing the branch.</param>
-        /// <param name="branchName">Branch name to fetch and merge.</param>
+        /// <param name="branchName">Branch name or full commit SHA to fetch and merge.</param>
         /// <param name="targetBranch">Target branch to checkout before merging (e.g. "main", "develop"). If null, uses current branch.</param>
         /// <param name="commitMessage">Optional custom merge commit message. If null, uses default.</param>
         /// <param name="token">Cancellation token.</param>

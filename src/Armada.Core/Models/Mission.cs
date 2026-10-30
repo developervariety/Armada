@@ -168,6 +168,9 @@ namespace Armada.Core.Models
         /// </summary>
         public string? CommitHash { get; set; } = null;
 
+        /// <summary>Server-owned binding for a regenerated landing candidate's in-place Judge review.</summary>
+        public GeneratedArtifactReviewBinding? GeneratedArtifactReview { get; internal set; } = null;
+
         /// <summary>
         /// Saved git diff snapshot captured at mission completion, before worktree reclamation.
         /// </summary>

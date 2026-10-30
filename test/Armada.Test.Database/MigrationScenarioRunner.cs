@@ -48,6 +48,12 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection, census, token).ConfigureAwait(false)), "Scenario requires an empty database");
             }
 
+            if (scenario == "generated-artifact-migration")
+            {
+                await new GeneratedArtifactMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+                return;
+            }
+
             if (scenario == "admission-migration")
                 await new MissionAdmissionMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 

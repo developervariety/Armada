@@ -738,6 +738,13 @@ namespace Armada.Core.Services
                 dependencyHasSameOwner = OwnershipPolicy.SameTenant(mission.TenantId, dependency.TenantId)
                     && String.Equals(OwnershipPolicy.UserOfRecord(mission.UserId), OwnershipPolicy.UserOfRecord(dependency.UserId), StringComparison.Ordinal);
 
+                if (GeneratedArtifactReviewRule.IsAwaitingApproval(dependency))
+                {
+                    await HoldForAssignmentAsync(mission, "generated_candidate_review_pending", dependency.Id,
+                        "Predecessor Judge must approve the exact regenerated candidate before this stage can start.", token).ConfigureAwait(false);
+                    return false;
+                }
+
                 if (!IsDependencySatisfyingStatus(dependency.Status))
                 {
                     // Dependency not yet satisfied -- don't assign. PullRequestOpen unblocks
@@ -781,7 +788,7 @@ namespace Armada.Core.Services
                 // per the gate above) still require the explicit handoff (branch + prior-stage context)
                 // so the downstream stage doesn't launch with the original dispatch prompt before
                 // architect/test/judge prep runs.
-                if (!dependencyIsCrossVessel && !IsPipelineHandoffPrepared(mission, dependency))
+                if (mission.GeneratedArtifactReview == null && !dependencyIsCrossVessel && !IsPipelineHandoffPrepared(mission, dependency))
                 {
                     if (String.Equals(dependency.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
                     {
@@ -833,8 +840,24 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
                         " (" + dependency.Status + ") but handoff context was not propagated -- self-healing handoff before assignment");
                     await SelfHealDependentHandoffAsync(dependency, mission, token).ConfigureAwait(false);
+                    Mission? afterHandoff = await _Database.Missions.ReadAsync(dependency.Id, token).ConfigureAwait(false);
+                    if (afterHandoff == null || afterHandoff.HeldForOperatorReview
+                        || GeneratedArtifactReviewRule.IsAwaitingApproval(afterHandoff)
+                        || !IsDependencySatisfyingStatus(afterHandoff.Status)
+                        || !IsPipelineHandoffPrepared(mission, afterHandoff))
+                    {
+                        await HoldForAssignmentAsync(mission,
+                            GeneratedArtifactReviewRule.IsAwaitingApproval(afterHandoff) ? "generated_candidate_review_pending" : "dependency_handoff_pending",
+                            dependency.Id, "The predecessor has not released this handoff after current verification.", token).ConfigureAwait(false);
+                        return false;
+                    }
+                    upstreamCommitHash = afterHandoff.CommitHash;
+                    dependencyBranchName = afterHandoff.BranchName;
                 }
             }
+
+            if (!await VerifyGeneratedCandidateBeforeAssignmentAsync(mission, vessel, upstreamCommitHash,
+                dependencyHasSameOwner, dependencyIsCrossVessel, token).ConfigureAwait(false)) return false;
 
             if (await ShouldDeferArchitectSequencedMissionAsync(mission, token).ConfigureAwait(false))
             {
@@ -1180,7 +1203,8 @@ namespace Armada.Core.Services
             // attach the new worktree to an existing branch head rather than cutting from the default
             // branch. Branch-retention on a later failure/revert keys on this same combined flag.
             bool preserveHarborAttemptBranch = persistedHarborAttempt != null;
-            bool preserveSavedBranch = preserveInheritedBranch || preserveReassignedRootBranch || preserveHarborAttemptBranch;
+            bool preserveSavedBranch = preserveInheritedBranch || preserveReassignedRootBranch || preserveHarborAttemptBranch
+                || mission.GeneratedArtifactReview != null;
             if (integrationTargetSha != null && !preserveSavedBranch) mission.StartFromRef = integrationTargetSha;
             string branchName = preserveHarborAttemptBranch
                 ? persistedHarborAttempt!.BranchName
@@ -1193,7 +1217,7 @@ namespace Armada.Core.Services
             mission.Status = MissionStatusEnum.Assigned;
             mission.AssignmentState = MissionAssignmentStateEnum.Provisioning;
             mission.LastUpdateUtc = DateTime.UtcNow;
-            string? resolvedStartCommit = null;
+            string? resolvedStartCommit = mission.GeneratedArtifactReview?.CandidateCommit;
             if (harborOwnedCheckout) mission.DockProvisionAttemptId ??= Guid.NewGuid().ToString("N");
 
             // A mission with a start ref and no inherited branch -- a first-stage mission, or a
@@ -1323,7 +1347,7 @@ namespace Armada.Core.Services
 
             // A continued branch comes back with the uncommitted work its previous checkout held: the
             // provisioning step saved that work to a recover ref and then rebuilt the checkout clean.
-            if (preserveInheritedBranch || preserveReassignedRootBranch)
+            if (mission.GeneratedArtifactReview == null && (preserveInheritedBranch || preserveReassignedRootBranch))
                 await ResumeSavedDockWorkAsync(mission, dock, captain, token).ConfigureAwait(false);
 
             // Commit the assignment as two conditional writes, each undone explicitly when the other
@@ -1854,6 +1878,9 @@ namespace Armada.Core.Services
             // A mission waiting at a review gate continues through that gate's approval; the hold only
             // stood in front of it. A produced mission now runs the handoff or landing the hold stopped.
             if (mission.Status != MissionStatusEnum.WorkProduced) return mission;
+            if (mission.GeneratedArtifactReview != null
+                && !await ApproveGeneratedCandidateAsync(mission, true, token).ConfigureAwait(false))
+                return await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false) ?? mission;
 
             bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
             if (hasDependentPipelineStages)
@@ -1863,6 +1890,7 @@ namespace Armada.Core.Services
                 // has it checked out. Completion reclaims the dock after the handoff for the same reason.
                 if (!String.IsNullOrEmpty(mission.DockId))
                     await ReclaimMissionDockAsync(mission.DockId!, token).ConfigureAwait(false);
+                await ResumeProducedGeneratedLandingAsync(mission, token).ConfigureAwait(false);
                 await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                 await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
                 Mission? handedOff = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
@@ -1954,6 +1982,7 @@ namespace Armada.Core.Services
         /// <returns>True when the Judge was completed.</returns>
         private async Task<bool> TryCompleteDeliveredCheckWaitHoldAsync(Mission mission, CancellationToken token)
         {
+            if (GeneratedArtifactReviewRule.IsAwaitingApproval(mission)) return false;
             LandingReconcileEvidence? evidence = await ReadDeliveryEvidenceAsync(mission, token).ConfigureAwait(false);
             if (evidence == null) return false;
 
@@ -2236,6 +2265,7 @@ namespace Armada.Core.Services
             ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (!await ApproveGeneratedCandidateAsync(mission, true, token).ConfigureAwait(false)) return false;
             await RecordCheckWaitDecisionAsync(mission, "released",
                 "Checks passed at the reviewed commit " + mission.CommitHash + checks + "; the Judge PASS is released without a new Judge run", token).ConfigureAwait(false);
             _Logging.Info(_Header + "judge mission " + mission.Id + " PASS released: Checks passed at the reviewed commit " + mission.CommitHash);
@@ -2707,7 +2737,7 @@ namespace Armada.Core.Services
             string? resolvedStartCommit,
             CancellationToken token)
         {
-            bool exactReplay = !String.IsNullOrEmpty(mission.ResearchReplayId);
+            bool exactReplay = !String.IsNullOrEmpty(mission.ResearchReplayId) || mission.GeneratedArtifactReview != null;
             if (String.IsNullOrWhiteSpace(resolvedStartCommit) && !exactReplay) return true;
 
             bool? containsStartCommit = null;
@@ -2730,7 +2760,9 @@ namespace Armada.Core.Services
             bool isRescue = RescueMissionMarker.IsAutoRescue(mission);
             if (containsStartCommit == true || (containsStartCommit == null && !isRescue && !exactReplay)) return true;
 
-            string reason = exactReplay
+            string reason = mission.GeneratedArtifactReview != null
+                ? "generated_candidate_checkout_mismatch: the Judge checkout must equal the exact regenerated candidate commit."
+                : exactReplay
                 ? "research_replay_source_mismatch: the replay checkout must equal its exact immutable source commit."
                 : containsStartCommit == false
                 ? "start_from_ref_base_missing: the provisioned checkout does not contain resolved start commit " + resolvedStartCommit + "."
@@ -3694,7 +3726,12 @@ namespace Armada.Core.Services
                                 break;
 
                             case JudgeCheckGate.GreenChecks:
+                                await ApproveGeneratedCandidateAsync(mission, true, token).ConfigureAwait(false);
+                                break;
                             case JudgeCheckGate.NoChecksWithExclusion:
+                                if (mission.GeneratedArtifactReview != null)
+                                    await HoldGeneratedCandidateApprovalAsync(mission, "generated_candidate_required_checks_missing", token).ConfigureAwait(false);
+                                break;
                             default:
                                 break;
                         }
@@ -3870,6 +3907,9 @@ namespace Armada.Core.Services
                 mission = missionAfterHandoff;
             }
 
+            if (mission.Status == MissionStatusEnum.Pending && GeneratedArtifactReviewRule.IsAwaitingApproval(mission))
+                return;
+
             if (mission.Status == MissionStatusEnum.Failed ||
                 mission.Status == MissionStatusEnum.Cancelled ||
                 mission.Status == MissionStatusEnum.LandingFailed)
@@ -3957,6 +3997,7 @@ namespace Armada.Core.Services
                 Mission? afterLanding = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
                 if (afterLanding != null)
                 {
+                    if (afterLanding.Status == MissionStatusEnum.Pending && GeneratedArtifactReviewRule.IsAwaitingApproval(afterLanding)) return;
                     await ReapTerminalMissionBranchAsync(afterLanding, token).ConfigureAwait(false);
                 }
             }
@@ -4026,6 +4067,8 @@ namespace Armada.Core.Services
                 _Logging.Info(_Header + "skipping captain release for mission " + mission.Id +
                     " because captain " + captain.Id + " is now assigned to " + (latestCaptain?.CurrentMissionId ?? "nothing"));
             }
+
+            await ResumeProducedGeneratedLandingAsync(mission, token).ConfigureAwait(false);
 
             // Try to pick up next pending mission
             List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
@@ -4291,6 +4334,21 @@ namespace Armada.Core.Services
             {
                 content += ledger.Track("mission.git_anchors", gitAnchorsSection);
                 content += "\n";
+            }
+
+            if (mission.GeneratedArtifactReview != null)
+            {
+                GeneratedArtifactReviewBinding review = mission.GeneratedArtifactReview;
+                content += ledger.Track("mission.generated_artifact_review",
+                    "## Regenerated landing candidate\n\n"
+                    + "This is a new review of the combined authored tree and its regenerated artifacts, on the same Judge duty.\n"
+                    + "Earlier reviewed source: `" + review.SourceCommit + "`.\n"
+                    + "Landing base: `" + review.TargetBaseCommit + "`.\n"
+                    + "Frozen candidate: `" + review.CandidateCommit + "`.\n"
+                    + "Preparation attempt: " + review.PreparationAttempt + ".\n"
+                    + "Review exactly the frozen candidate. Earlier output remains historical and is not its approval. "
+                    + "Required Checks must prove this candidate; an earlier source Check cannot satisfy them. "
+                    + "Do not move the branch or replace its source. Give a new verdict with evidence for every required finding and criterion.\n\n");
             }
 
             // A stage whose checkout lacks the commit its predecessor recorded still runs; the brief names both
@@ -6308,7 +6366,7 @@ namespace Armada.Core.Services
                 if (String.Equals(sibling.Id, mission.Id, StringComparison.Ordinal)) continue;
                 if (!IsBarrierSibling(sibling, dependency)) continue;
 
-                if (!IsDependencySatisfyingStatus(sibling.Status))
+                if (!IsDependencySatisfyingStatus(sibling.Status) || GeneratedArtifactReviewRule.IsAwaitingApproval(sibling))
                 {
                     _Logging.Debug(_Header + "mission " + mission.Id + " waiting on parallel sibling " +
                         sibling.Id + " (stage " + sibling.StageOrder + ", " + sibling.Status + ")");
@@ -7429,11 +7487,17 @@ namespace Armada.Core.Services
         private async Task<bool> TryHandoffToNextStageAsync(Mission completedMission, HandoffHoldRelease? heldRelease, CancellationToken token)
         {
             if (String.IsNullOrEmpty(completedMission.VoyageId) || completedMission.Status == MissionStatusEnum.Cancelled) return false;
+            if (!await EnsureGeneratedReviewBeforeHandoffAsync(completedMission, token).ConfigureAwait(false)) return false;
 
             // Find missions that depend on this completed mission
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(completedMission.VoyageId, token).ConfigureAwait(false);
             Mission? storedUpstream = voyageMissions.FirstOrDefault(m => m.Id == completedMission.Id);
             if (storedUpstream?.Status == MissionStatusEnum.Cancelled) return false;
+            if (GeneratedArtifactReviewRule.IsAwaitingApproval(storedUpstream ?? completedMission))
+            {
+                _Logging.Info(_Header + "handoff waits for generated candidate approval on mission " + completedMission.Id);
+                return false;
+            }
             List<Mission> dependentMissions = voyageMissions.Where(m =>
                 m.DependsOnMissionId == completedMission.Id &&
                 m.Status == MissionStatusEnum.Pending &&
@@ -7640,7 +7704,7 @@ namespace Armada.Core.Services
             foreach (Mission nextMission in dependentMissions)
             {
                 if (HasIntegrationBarrierRecord(nextMission)) continue;
-                await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, voyageMissions, token).ConfigureAwait(false);
+                await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, voyageMissions, true, token).ConfigureAwait(false);
             }
 
             // Mark drained signals as read after all downstream missions are updated
@@ -9033,8 +9097,18 @@ namespace Armada.Core.Services
             List<Signal> unreadMailboxSignals,
             HashSet<string> appliedSignalIds,
             List<Mission>? voyageMissions,
+            bool generatedReviewPrepared,
             CancellationToken token = default)
         {
+            if (!generatedReviewPrepared && !await EnsureGeneratedReviewBeforeHandoffAsync(completedMission, token).ConfigureAwait(false)) return;
+            Mission? currentUpstream = await _Database.Missions.ReadAsync(completedMission.Id, token).ConfigureAwait(false);
+            if (GeneratedArtifactReviewRule.IsAwaitingApproval(currentUpstream ?? completedMission))
+            {
+                await HoldForAssignmentAsync(nextMission, "generated_candidate_review_pending", completedMission.Id,
+                    "Predecessor Judge must approve the exact regenerated candidate before handoff.", token).ConfigureAwait(false);
+                return;
+            }
+
             // Build persona-specific preamble for the next stage
             int earlierWorkers = nextMission.IsReadOnlyMode ? CountEarlierWorkerStages(completedMission, nextMission, voyageMissions) : 0;
             string personaPreamble = BuildPersonaPreamble(nextMission.Persona, nextMission.Mode, earlierWorkers);
@@ -9452,7 +9526,7 @@ namespace Armada.Core.Services
                         if (level.Count >= _MaxStageChainSiblingsPerLevel + 1) break;
                         if (sibling == null || visited.Contains(sibling.Id)) continue;
                         if (!IsParallelStageSibling(sibling, current)) continue;
-                        if (!IsDependencySatisfyingStatus(sibling.Status)) continue;
+                        if (!IsDependencySatisfyingStatus(sibling.Status) || GeneratedArtifactReviewRule.IsAwaitingApproval(sibling)) continue;
                         visited.Add(sibling.Id);
                         level.Add(sibling);
                     }
@@ -10441,7 +10515,7 @@ namespace Armada.Core.Services
             List<Mission>? voyageMissions = dependent.IsReadOnlyMode && !String.IsNullOrEmpty(dependent.VoyageId)
                 ? await _Database.Missions.EnumerateByVoyageAsync(dependent.VoyageId, token).ConfigureAwait(false)
                 : null;
-            await PrepareSingleDependentHandoffAsync(dependency, dependent, unreadMailboxSignals, appliedSignalIds, voyageMissions, token).ConfigureAwait(false);
+            await PrepareSingleDependentHandoffAsync(dependency, dependent, unreadMailboxSignals, appliedSignalIds, voyageMissions, false, token).ConfigureAwait(false);
             foreach (string signalId in appliedSignalIds)
                 await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
         }

@@ -125,6 +125,7 @@ namespace Armada.Server.Mcp.Tools
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
                         },
+                        generatedArtifacts = GeneratedArtifactsSchema(),
                         siblingRepos = new
                         {
                             type = "array",
@@ -243,6 +244,9 @@ namespace Armada.Server.Mcp.Tools
                     vessel.AutoLandPredicate = autoLandPredicateJson;
                     vessel.DefaultPlaybooks = defaultPlaybooksJson;
                     vessel.SiblingRepos = siblingReposJson;
+                    string? generatedError = ReadGeneratedArtifacts(args, out _, out Armada.Core.Models.GeneratedArtifactPolicy? generatedPolicy);
+                    if (generatedError != null) return (object)new { Error = generatedError };
+                    vessel.GeneratedArtifacts = generatedPolicy;
                     vessel.ApplyGitHubTokenOverride(request.GitHubTokenOverrideSpecified, request.GitHubTokenOverride);
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
@@ -303,6 +307,7 @@ namespace Armada.Server.Mcp.Tools
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
                         },
+                        generatedArtifacts = GeneratedArtifactsSchema(),
                         siblingRepos = new
                         {
                             type = "array",
@@ -467,6 +472,9 @@ namespace Armada.Server.Mcp.Tools
                         }
                     }
                     vessel.ApplyGitHubTokenOverride(request.GitHubTokenOverrideSpecified, request.GitHubTokenOverride);
+                    string? generatedError = ReadGeneratedArtifacts(args, out bool generatedSpecified, out Armada.Core.Models.GeneratedArtifactPolicy? generatedPolicy);
+                    if (generatedError != null) return (object)new { Error = generatedError };
+                    if (generatedSpecified) vessel.GeneratedArtifacts = generatedPolicy;
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
@@ -719,6 +727,36 @@ namespace Armada.Server.Mcp.Tools
                 return false;
             }
             return false;
+        }
+
+        private static object GeneratedArtifactsSchema() => new
+        {
+            type = new[] { "object", "null" },
+            description = "Optional operator-declared landing regeneration. Exact relative generated paths only; authored files are never resolved. Omit to keep the current policy on update; null clears it.",
+            properties = new
+            {
+                paths = new { type = "array", items = new { type = "string" } },
+                regenerateCommand = new { type = "string" }
+            },
+            required = new[] { "paths", "regenerateCommand" }
+        };
+
+        private static string? ReadGeneratedArtifacts(JsonElement? args, out bool specified, out Armada.Core.Models.GeneratedArtifactPolicy? policy)
+        {
+            policy = null;
+            specified = args.HasValue && args.Value.TryGetProperty("generatedArtifacts", out _);
+            if (!specified) return null;
+            JsonElement value = args!.Value.GetProperty("generatedArtifacts");
+            if (value.ValueKind == JsonValueKind.Null) return null;
+            try
+            {
+                policy = JsonSerializer.Deserialize<Armada.Core.Models.GeneratedArtifactPolicy>(value.GetRawText(), _JsonOptions);
+                return Armada.Core.Services.GeneratedArtifactLanding.ValidateDeclaration(policy);
+            }
+            catch (JsonException)
+            {
+                return "generated_declaration_invalid_json";
+            }
         }
 
         private static string SerializeSiblingRepos(List<Armada.Core.Models.SiblingRepo> value)

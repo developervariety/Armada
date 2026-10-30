@@ -43,7 +43,7 @@ namespace Armada.Server
             long stateOwner;
             try
             {
-                stateOwner = await RestoreMissionStateOwnershipAsync(mission.Id, mission.ResearchReplayId, token).ConfigureAwait(false);
+                stateOwner = await RestoreMissionStateOwnershipAsync(mission.Id, MissionExecutionBoundary.GenerationOf(mission), token).ConfigureAwait(false);
             }
             catch
             {

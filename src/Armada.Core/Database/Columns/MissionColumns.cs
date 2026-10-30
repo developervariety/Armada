@@ -51,6 +51,7 @@ namespace Armada.Core.Database
             mission.ProcessStartedUtc = row.NullableUtc("process_started_utc");
             mission.PrUrl = row.NullableText("pr_url");
             mission.CommitHash = row.NullableText("commit_hash");
+            mission.GeneratedArtifactReview = row.Json<GeneratedArtifactReviewBinding>("generated_artifact_review_json", _Json);
             mission.DiffSnapshot = row.NullableText("diff_snapshot");
             mission.AgentOutput = row.NullableText("agent_output");
             mission.Persona = row.NullableText("persona");
@@ -125,6 +126,7 @@ namespace Armada.Core.Database
                 .Utc("process_started_utc", mission.ProcessStartedUtc)
                 .Text("pr_url", mission.PrUrl)
                 .Text("commit_hash", mission.CommitHash)
+                .Text("generated_artifact_review_json", mission.GeneratedArtifactReview == null ? null : JsonSerializer.Serialize(mission.GeneratedArtifactReview, _Json))
                 .Text("diff_snapshot", mission.DiffSnapshot)
                 .Text("agent_output", mission.AgentOutput)
                 .Text("persona", mission.Persona)

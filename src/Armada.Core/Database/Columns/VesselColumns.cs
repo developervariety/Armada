@@ -55,6 +55,7 @@ namespace Armada.Core.Database
             vessel.AutoLandPredicate = row.TextOrNull("auto_land_predicate");
             vessel.DefaultPlaybooks = row.TextOrNull("default_playbooks");
             vessel.SiblingRepos = row.TextOrNull("sibling_repos");
+            vessel.GeneratedArtifacts = row.Json<GeneratedArtifactPolicy>("generated_artifacts_json", _Json);
             vessel.AutoLandCalibrationLandedCount = row.Int("auto_land_calibration_landed_count");
             vessel.SecretScanEnabled = row.Bool("secret_scan_enabled");
             vessel.ProtectedPathPatterns = row.Json<List<string>>("protected_path_patterns_json", _Json) ?? new List<string>();
@@ -102,6 +103,7 @@ namespace Armada.Core.Database
                 .Int("auto_land_calibration_landed_count", vessel.AutoLandCalibrationLandedCount)
                 .Text("default_playbooks", vessel.DefaultPlaybooks)
                 .Text("sibling_repos", vessel.SiblingRepos)
+                .Text("generated_artifacts_json", vessel.GeneratedArtifacts == null ? null : JsonSerializer.Serialize(vessel.GeneratedArtifacts, _Json))
                 .Int("architect_max_missions_per_voyage", vessel.ArchitectMaxMissionsPerVoyage)
                 .Text("default_branch", vessel.DefaultBranch)
                 .Bool("active", vessel.Active)

@@ -140,6 +140,8 @@ namespace Armada.Test.Database
             await RunTest("Fleet_Create_Read_Update_Enumerate", "Operational", () => TestFleetCrudAsync(token), token);
             await RunTest("Fleet_ReadByName_Exists_UnscopedEnumerate", "Operational", () => TestFleetLookupAsync(token), token);
             await RunTest("Vessel_Create_Read_Update_Enumerate", "Operational", () => TestVesselCrudAsync(token), token);
+            await RunTest("Generated_Artifact_Policy_And_Conditional_Review_Reopen", "Operational",
+                () => new GeneratedArtifactPersistenceDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
             foreach (string field in new[] { "RequirePassingChecksToLand", "ProtectedBranchPatterns", "ReleaseBranchPrefix", "HotfixBranchPrefix", "RequirePullRequestForProtectedBranches", "RequireMergeQueueForReleaseBranches" })
                 await RunTest("Vessel_Preview_" + field + "_Create_Update_Reopen", "Operational", () => TestVesselPreviewFieldAsync(field, token), token);
             foreach (string field in new[] { "SecretScanEnabled", "ProtectedPathPatterns", "PrivateIdentifierDenylist" })
