@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Pending Judge review does not fail completed research
+
+- A completed report that defers only because the Judge review "has not run" hands off to its actual pending downstream Judge. Unfinished current work and missing, cancelled, unrelated or foreign reviewers still block completion.
+
 ### Suite lease acquire waits at most 45 seconds
 
 - `armada_suite_lease` `acquire` accepts `waitSeconds` from 0 to 45 and treats a larger value as 45, so a queued answer arrives before the 60-second request timeout that common MCP clients apply. The default wait (30 seconds), queue order and slot limits are unchanged. A tool-boundary regression uses a controlled clock to prove that a 120-second request answers queued at the 45-second clamp, before a 60-second client timeout.

@@ -130,7 +130,7 @@ namespace Armada.Core.Services
         };
 
         private static readonly Regex _PendingJudgeOnly = new Regex(
-            @"\A\s*(?:only\s+)?(?:because|until)\s+(?:(?:the|final|independent)\s+)*Judge(?:\s+(?:review|acceptance|verdict))?\s+(?:(?:is|remains)\s+)?(?:still\s+)?(?:pending|not\s+(?:yet\s+)?(?:complete|finished|done))\s*[.!]?\s*\z",
+            @"\A\s*(?:only\s+)?(?:because|until)\s+(?:(?:the|final|independent)\s+)*Judge(?:\s+(?:review|acceptance|verdict))?\s+(?:(?:(?:is|remains)\s+)?(?:still\s+)?(?:pending|not\s+(?:yet\s+)?(?:complete|finished|done))|has\s+not\s+(?:yet\s+)?run)\s*[.!]?\s*\z",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 

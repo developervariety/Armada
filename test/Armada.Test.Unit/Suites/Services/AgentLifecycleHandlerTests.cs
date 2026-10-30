@@ -2429,6 +2429,11 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A completed Research report waits for its actual downstream Judge without waiving unfinished work", async () =>
             {
+                foreach (string reviewStatement in new[]
+                {
+                    "Acceptance criteria 1 and 2 are MET; criterion 3 is NOT MET because the Judge review is still pending.",
+                    "Criterion 3 is not met because the Judge review has not run."
+                })
                 foreach (string scenario in new[] { "pending-review", "unfinished-work", "unrelated-review", "cancelled-review", "foreign-review" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2454,7 +2459,7 @@ namespace Armada.Test.Unit.Suites.Services
                         await rig.RunCaptainAsync(
                             "## Research report",
                             scenario == "unfinished-work" ? "Acceptance criterion 2 is NOT MET because the required matrix is incomplete." : "The required matrix and source study are complete.",
-                            "Acceptance criteria 1 and 2 are MET; criterion 3 is NOT MET because the Judge review is still pending.",
+                            reviewStatement,
                             "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
 
                         Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
