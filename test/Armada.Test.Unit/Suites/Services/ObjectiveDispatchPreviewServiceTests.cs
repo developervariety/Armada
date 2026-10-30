@@ -477,7 +477,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("A pinned sibling commit off the provisioned branch refuses dispatch with a named reason", async () =>
+            await RunTest("A pinned sibling commit off the provisioned branch refuses dispatch with a named reason unless the objective provisions the pin", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -522,6 +522,22 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreview unresolved = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     AssertTrue(unresolved.Issues.Any(issue => issue.Code == "required_sibling_pin_unresolved" && issue.Severity == ReadinessSeverityEnum.Error),
                         "a pin the sibling repository does not hold refuses dispatch");
+
+                    // With the override the docks check out the pin itself, so a pin off the branch is the point.
+                    objective.Preparation.RequiredSiblingInputs[0].ProvisionPinnedCommit = true;
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|" + pin] = pin;
+                    harness.Git.IsAncestorResult = false;
+                    ObjectiveDispatchPreview provisioned = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(provisioned.Issues.Any(issue => issue.Code == "required_sibling_pin_not_ancestor"), "a provisioned pin off the branch is not refused");
+                    ObjectiveDispatchPreviewIssue? named = provisioned.Issues.FirstOrDefault(issue => issue.Code == "required_sibling_pin_provisioned");
+                    AssertNotNull(named, "the preview names the override");
+                    AssertEqual(ReadinessSeverityEnum.Info, named!.Severity, "the override notice does not block dispatch");
+                    AssertContains(pin.Substring(0, 12), named.Message, "the notice names the pinned commit");
+
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|" + pin] = null;
+                    ObjectiveDispatchPreview provisionedUnresolved = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(provisionedUnresolved.Issues.Any(issue => issue.Code == "required_sibling_pin_unresolved" && issue.Severity == ReadinessSeverityEnum.Error),
+                        "a provisioned pin the sibling repository does not hold refuses dispatch");
                 }
             }).ConfigureAwait(false);
 

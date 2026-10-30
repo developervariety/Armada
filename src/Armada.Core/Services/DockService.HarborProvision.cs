@@ -38,6 +38,12 @@ namespace Armada.Core.Services
                 if (sibling != null && sibling.BuildParticipant)
                     throw new InvalidOperationException("dock_harbor_required_sibling_unsupported: " + sibling.RelativePath);
             }
+            Objective? siblingObjective = await ReadSiblingObjectiveAsync(vessel, mission.Id, token).ConfigureAwait(false);
+            foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+            {
+                if (sibling != null && SiblingPinOverride.PinFor(siblingObjective, sibling) != null)
+                    throw new InvalidOperationException("dock_harbor_sibling_pin_override_unsupported: " + sibling.RelativePath);
+            }
 
             string requestedRevision = !String.IsNullOrWhiteSpace(mission.StartFromRef)
                 ? mission.StartFromRef.Trim()

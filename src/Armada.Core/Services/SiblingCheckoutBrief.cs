@@ -58,6 +58,7 @@ namespace Armada.Core.Services
                 ObjectivePreparationSiblingInput? required = FindRequiredInput(objective, sibling);
                 List<string> requiredPaths = required?.RequiredArtifactPaths ?? new List<string>();
                 state.PinnedCommit = String.IsNullOrWhiteSpace(required?.PinnedCommit) ? null : required!.PinnedCommit!.Trim();
+                state.PinProvisioned = state.PinnedCommit != null && required!.ProvisionPinnedCommit;
                 state.Present = Directory.Exists(state.FullPath) && Directory.EnumerateFileSystemEntries(state.FullPath).Any();
                 if (!state.Present)
                 {
@@ -118,7 +119,15 @@ namespace Armada.Core.Services
                 sb.Append("- `").Append(state.RelativePath).Append("` HEAD `").Append(Short(state.Head)).Append("`");
                 if (state.Clean == false) sb.Append(", with uncommitted changes: compare against HEAD, not working-tree status");
                 sb.Append(".\n");
-                if (state.PinnedCommit != null)
+                if (state.PinnedCommit != null && state.PinProvisioned)
+                {
+                    sb.Append("  - Sibling pin override: the objective provisions this checkout at pinned commit `")
+                        .Append(Short(state.PinnedCommit)).Append("`, which may not have landed. ");
+                    sb.Append(state.Head != null && state.Head.StartsWith(state.PinnedCommit, StringComparison.OrdinalIgnoreCase)
+                        ? "HEAD is that commit; build and measure against it. The consumer lands only after the sibling lands it.\n"
+                        : "HEAD is not that commit; HEAD controls. Report the mismatch.\n");
+                }
+                else if (state.PinnedCommit != null)
                 {
                     sb.Append("  - Pinned `").Append(Short(state.PinnedCommit)).Append("`: ");
                     if (state.PinIsAncestor == true)
@@ -153,7 +162,7 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private static ObjectivePreparationSiblingInput? FindRequiredInput(Objective? objective, SiblingRepo sibling)
+        internal static ObjectivePreparationSiblingInput? FindRequiredInput(Objective? objective, SiblingRepo sibling)
         {
             string declared = NormalizeRelativePath(sibling.RelativePath);
             foreach (ObjectivePreparationSiblingInput input in objective?.Preparation?.RequiredSiblingInputs ?? new List<ObjectivePreparationSiblingInput>())

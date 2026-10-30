@@ -757,7 +757,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("The sibling brief lists assigned paths changed since an ancestor pin and says HEAD controls over a pin that is not an ancestor", async () =>
+            await RunTest("The sibling brief lists assigned paths changed since an ancestor pin, says HEAD controls over a pin that is not an ancestor, and names a provisioned pin override", async () =>
             {
                 LoggingModule logging = CreateLogging();
                 string root = Path.Combine(Path.GetTempPath(), "armada_sibling_pin_" + Guid.NewGuid().ToString("N"));
@@ -810,6 +810,14 @@ namespace Armada.Test.Unit.Suites.Services
                     input.PinnedCommit = sidePin;
                     string divergent = SiblingCheckoutBrief.Render(await SiblingCheckoutBrief.ReadAsync(git, vessel, worktree, objective), false);
                     AssertContains("not an ancestor of HEAD; HEAD controls.", divergent, "a pin off the provisioned history defers to HEAD");
+
+                    await RunGitAsync(sibling, "checkout", "-q", "--detach", sidePin);
+                    input.ProvisionPinnedCommit = true;
+                    string overridden = SiblingCheckoutBrief.Render(await SiblingCheckoutBrief.ReadAsync(git, vessel, worktree, objective), false);
+                    AssertContains("Sibling pin override", overridden, "the brief names the override");
+                    AssertContains(sidePin.Substring(0, 12), overridden, "the brief names the pinned commit");
+                    AssertContains("HEAD is that commit", overridden, "the brief confirms the checkout is the pinned tree");
+                    AssertFalse(overridden.Contains("not an ancestor of HEAD"), "an override pin is not reported as divergent history");
                 }
                 finally
                 {

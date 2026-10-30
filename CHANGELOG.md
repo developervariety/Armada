@@ -10,6 +10,9 @@ upstream integrations and excludes changes already present at that baseline.
 ### Suite lease acquire waits at most 45 seconds
 
 - `armada_suite_lease` `acquire` accepts `waitSeconds` from 0 to 45 and treats a larger value as 45, so a queued answer arrives before the 60-second request timeout that common MCP clients apply. The default wait (30 seconds), queue order and slot limits are unchanged. A tool-boundary regression uses a controlled clock to prove that a 120-second request answers queued at the 45-second clamp, before a 60-second client timeout.
+### Sibling pin override provisions an unlanded sibling commit per dispatch
+
+- A required sibling input with `provisionPinnedCommit: true` makes every dock of the objective's dispatch check out its `pinnedCommit` in that dock's own sibling checkout, from any ref of the sibling repository that holds it. Docks without the override keep the declared branch, and no sibling ref is created, landed or moved. Dispatch preview resolves the commit and names the override (`required_sibling_pin_provisioned`) instead of applying the ancestor rule, and still refuses a commit the repository does not hold. The brief and a `dock.sibling_pin_override` event name the pinned commit. Landing refuses with `sibling_pin_unlanded` until the commit is on the sibling vessel's default branch. Without the flag, pinned commits behave as before.
 
 ### Recovery preserves required stages and excludes concurrent restarts
 
