@@ -113,9 +113,8 @@ item keeps its rule and records why, and the other items are still decided.
   preflight, `criteria_lint`, `stage_necessity`, `owner_digest`,
   `dispatch_staleness`) as well as the mission-scoped ones. A seam that holds
   only ids passes the vessel with them: the log watch screen, `change_quality`
-  from a supplied diff, the merge-queue leak scan, and inbox and board-note
-  triage (an item's mission, merge entry, incident, deployment or claim; a
-  note's own vessel, its mission's, and its voyage's missions'). The vessels are
+  from a supplied diff, the merge-queue leak scan, and inbox
+  triage (an item's mission, merge entry, incident or deployment). The vessels are
   checked before any state is built.
 - **Content markers.** A state whose UNREDACTED text contains one of the
   markers that apply sends nothing (`egress_excluded_content`). The check
@@ -204,7 +203,7 @@ byte count and never the state, and nothing extra leaves the host.
   `JoinedShare` (calls whose subject reached a known outcome), the counts behind
   them, and the same join by the model's confidence band (`<0.50`,
   `0.50-0.80`, `0.80-0.90`, `>=0.90`, `none`). A subject that is not a mission or
-  objective (a papercut group, a board note, a merge entry) is named but has no
+  objective (a papercut group, a merge entry) is named but has no
   landing outcome to join. The report holds counts, never record ids or state,
   and reads at most 20000 calls, newest first; `Truncated` says when the window
   held more.
@@ -310,8 +309,7 @@ links only; they are never part of the state, so they change neither the state
 hash nor what leaves the host. `papercut_merge` names the compared pair of
 papercut groups and `memory_candidate` the one group (`papercut_group`), each
 gathered across many missions. `inbox_triage` names the mission for a mission
-item, the incident, objective or other record an item is about, and the note
-itself (`board_note`) for a board note that relates to no mission. A
+item, or the incident, objective or other record an item is about. A
 `leak_hunk` scan on the merge-queue path with no mission names its merge entry
 (`merge_entry`). `dispatch_staleness` names an objective only when the dispatch
 is about exactly one. A mission-scoped decision records the mission and not its
@@ -397,8 +395,8 @@ tail the screen already read, it asks one Choice `off_course` (`on_track`,
 and one Noul `correctable_now`. A tail whose final outcome is already
 `[ARMADA:RESULT] BLOCKED` is not read: the captain stated its block, and the
 completion path raises the question to the owner. At or above the threshold with a class other
-than `on_track`, it returns one finding, so the screen posts its single
-voyage-tagged board note naming the drift class with one line of evidence, and
+than `on_track`, it returns one finding, so the screen records its single
+finding naming the drift class with one line of evidence, and
 the decision emits one `captain.course_flag` event carrying the mission, the
 voyage, the class and the reading. That event is deliberately distinct from the
 typed-decision bookkeeping events, so an operator query for course flags is
@@ -472,7 +470,7 @@ confidence and probabilities return `unavailable` with reason `response_validati
 No partial answers reach an adapter or a list tally. Noul confidence remains optional.
 Rounded probabilities need not sum to exactly one. This check adds no provider call.
 
-Tool events name the calling tool in `tool_name` and retain the supplied session identity
+Tool events name the calling tool in `tool_name` and retain the authenticated caller
 as `participant_key`, including calls
 without a mission. This field is attribution only. It does not grant access and does
 not fill `CaptainId`; that field comes from the mission for tool calls. Custom tool
@@ -518,8 +516,8 @@ described in turn:
   upgraded to the more conservative UsageLimit or AuthFailure; a recognised
   signature is never downgraded and a crash is never read as clean. In `Gate`,
   a `fleet_wide` reading at or above `0.9` (whatever the kind) records a
-  `provider.account_fault_suspected` event and posts a broadcast board note.
-  Both name the captain key family (the runtime plus the credential source:
+  `provider.account_fault_suspected` event.
+  The event names the captain key family (the runtime plus the credential source:
   `model-endpoint`, `captain-key`, or `runtime-login`), never the key. This
   path only reports. It never benches, quarantines, or stops a captain.
 
@@ -637,8 +635,7 @@ Two decision points recover captain time at the pipeline level (both ship
   `off_premise` outcome at or above threshold **halts** the voyage before the next
   stage: the pending dependents are cancelled with reason
   `handoff_blocked:<outcome>`, one incident is opened carrying the finished
-  stage's output as the question text, an owner-addressed board note is posted for
-  a blocked owner question, and the finished stage's branch is preserved. A
+  stage's output as the question text, and the finished stage's branch is preserved. A
   `partial` outcome does **not** halt; it Mails the next stage the unmet
   acceptance criteria and the voyage continues. An Implementation Worker or
   TestEngineer is told to complete them; every other stage, including every
@@ -795,11 +792,10 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   health loop. Once per UTC day it collects the owner-decision candidates its
   hit source found — an owner-decision preparation claim an anchor change
   re-opened (`NeedsRecheck`) on this tip, with preflight question 13 `needs_owner_ruling`
-  flags, `owner_ruling` hits, and board notes inbox triage classified as questions
+  flags and `owner_ruling` hits
   attaching as those signals land — ranks each with a `cost_of_waiting` Score
   `[none, a lane idles today, a captain is guessing now, a landing is held]`
-  and a `default_safe` Noul, and posts **one** owner-addressed board note plus
-  **one** `owner_decisions.digest` event listing the questions by cost, each
+  and a `default_safe` Noul, and records **one** `owner_decisions.digest` event listing the questions by cost, each
   with its proposed default. The runner is dormant while the decision is `Off`,
   so it is never forced on; it is a no-op on any day with no candidates. It
   **never answers** a question — the deterministic cost from the fan-out and age
@@ -912,12 +908,10 @@ One decision point reads a returned refinement summary:
 
 Two operator surfaces read the attention triage:
 
-- **`inbox_triage`** (ships `Gate`) runs in the `inbox` and
-  `armada_coordination_read` MCP tools. It scores each inbox item and board note
+- **`inbox_triage`** (ships `Gate`) runs in the `inbox` MCP tool. It scores each inbox item
   for whether a human needs to act now. In `Gate` above the threshold each item
   gains an `attention` label (`informational`, `today`, `this_hour`,
-  `blocking_live_voyage`), each board note also a `noteKind` (`handoff`,
-  `status`, `question`, `stop_sign`, `hold_notice`), and the response is
+  `blocking_live_voyage`), and the response is
   re-ordered by attention. NOTHING is hidden, dropped, or dismissed; `Off`,
   unavailable, `Shadow`, and below-threshold leave the deterministic severity
   order and set no label.

@@ -4,10 +4,9 @@ Campaign closeout lists existing delivery proof for linked InProgress work; that
 
 Mission metadata updates reject unknown or non-patchable fields by name; a refused patch saves nothing.
 
-Objective dispatch records its participant and resolved source on the voyage event stream.
-Blocked-stage questions go to that participant for triage; an unknown participant
-leaves the question on the shared board. Explicit owner approval gates keep their
-owner destination.
+Objective dispatch records its resolved source on the voyage event stream.
+Blocked-stage questions go to the owner on an incident. Explicit owner approval
+gates keep their owner destination.
 
 Two consecutive Judge NEEDS_REVISION verdicts on an objective at the same frozen
 source add `objective_repeat_review_stop` to dispatch preview. This issue is not
@@ -81,7 +80,7 @@ source anchors. Passing test summaries do not appear as required fixes.
 The final criterion result determines completion even when its description
 contains a failure-result phrase.
 Every rescue stage carries the current owning objective brief. Binding revision
-requirements belong on that objective, rather than only in coordination chat.
+requirements belong on that objective, rather than only in a session thread.
 Declared execution requirements are checked before rescue dispatch. Missing
 requirements leave an `execution_unavailable` incident without launching work or
 spending the recovery attempt. Reconsideration uses the original failure's
@@ -387,19 +386,6 @@ endpoint label. It does not requeue onto another captain on that endpoint.
 The retry and failure facts retain the same cause code. See
 [model gateway timeouts](USAGE_ROUTING.md#model-gateway-timeouts) for the
 endpoint label and retry rules.
-
-## Captain board notes
-
-Captains can post one-line notes from their normal worker output. A line that
-starts with `[ARMADA:NOTE] ` is stored as a Captain-authored message on the
-shared coordination board when board storage is available (SQLite or
-PostgreSQL). Ask captains to post a claim note before work and an outcome note
-when work ends. Each note can contain at most 500 characters; Armada redacts
-credential-shaped values and accepts at most 20 Captain notes for one mission.
-Keep notes in plain text and do not include absolute host paths. Notes are
-advisory records for operators and the dashboard. They do not control mission
-state and do not send messages to other captains. This path does not add
-captain access to operator coordination tools.
 
 ## Admiral memory growth
 

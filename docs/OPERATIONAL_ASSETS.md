@@ -19,7 +19,7 @@ deployment records.
 ## 1. Operator Boundary
 
 Armada gives supported captains an explicit launch-scoped connection to the
-local MCP URL. This makes coordination and evidence tools available even when
+local MCP URL. This makes status and evidence tools available even when
 the runtime ignores project configuration. Mission scope remains authoritative:
 captains must not dispatch, administer the fleet, deploy, restore, purge, or
 control the server unless the mission explicitly assigns that operator action.

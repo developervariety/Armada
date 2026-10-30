@@ -4,8 +4,8 @@
 //
 // WHY: `claude --print` emits only the FINAL assistant message. One autonomous cycle
 // ran for eight minutes, did real work, and left a 73-byte log saying it had nothing
-// to report. The work was visible only on the coordination board, so a cycle that
-// misbehaved would leave almost nothing to read afterwards.
+// to report. The transcript is the only record of what a cycle did, so a cycle that
+// misbehaves would leave almost nothing to read afterwards.
 //
 // The raw .jsonl stays on disk as the source of truth. This produces the human-sized
 // version beside it: what it said, which tools it called, whether each one worked, and

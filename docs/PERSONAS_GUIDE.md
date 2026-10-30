@@ -47,7 +47,7 @@ Give the mission:
 - the required result-marker format.
 
 Armada injects its local MCP configuration into supported captain launches.
-The captain works in the assigned dock and may use mission-scoped coordination
+The captain works in the assigned dock and may use mission-scoped status
 and evidence tools. The operator performs status, Check, landing, release,
 deployment, incident, and recovery operations unless the mission says otherwise.
 

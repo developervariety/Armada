@@ -167,8 +167,7 @@ this frame and not in the URL. Query strings appear in request logs.
 - `subscribe` is open to any authenticated session. Each event carries a
   delivery scope and reaches only the sessions that may read the record it
   describes: the owning user, administrators of the owning tenant, and global
-  administrators. An event with no known owner, such as a coordination board
-  note or a scheduler event, reaches global administrators only. Replayed and
+  administrators. An event with no known owner, such as a scheduler event, reaches global administrators only. Replayed and
   catch-up events obey the same rule, so reconnecting never reveals an event the
   session could not have received live.
 - The `status.snapshot` fleet status and reconciliation aggregate every tenant,

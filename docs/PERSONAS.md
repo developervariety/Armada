@@ -160,8 +160,7 @@ ends with one `[ARMADA:CHALLENGE] {"findings":[...]}` line.
 
 The pass that dispatches the Challenger opens the Judge failure's incident (or
 reuses the active one) with a note that a Challenger is ruling and the rescue
-follows its ruling, and posts one broadcast board note, "Challenger review
-pending for Judge <id>; rescue will follow", so no operator rescues the failure
+follows its ruling, and records a `judge_challenge.dispatched` event, so no operator rescues the failure
 by hand. No rescue is created while the Challenger runs, and the passes that only
 wait write nothing. The rescue that follows the ruling records on the same
 incident.
@@ -381,8 +380,6 @@ A brief also matches the dock it lands in and the tools the captain has:
   non-goal wins over a conflicting role, rescue or captain duty, and a
   TestEngineer whose objective's non-goals forbid test edits is told it is
   validate-only.
-- Board Notes says that printing an `[ARMADA:NOTE]` line posts the note, so no
-  board tool is needed.
 - Papercuts says an `unavailable` typed-decision answer is not a papercut. It
   names `armada_check_prior_art` as unavailable when the vessel is
   egress-excluded, the captain tools are disabled, or the `prior_art` decision
@@ -457,7 +454,7 @@ names. Use a pipeline stage model tier of `low`, `mid`, or `high` when a stage
 needs a preference.
 
 Supported captains receive the local Armada MCP connection. A persona must use
-it only for mission-scoped coordination and evidence. The operator owns fleet
+it only for mission-scoped tools and evidence. The operator owns fleet
 control, dispatch, deployment, restore, purge, and server actions unless the
 mission explicitly assigns such an action.
 
@@ -555,8 +552,8 @@ Research, and Audit mode:
 - A Judge that ends blocked is not re-run as a missing verdict.
 - Autonomous recovery does not dispatch a rescue. A rescue would re-run the
   stage without the answer and ask the same question again.
-- The owner sees the question on one open incident for the mission and on an
-  owner-addressed board note. Answer it, then re-dispatch the stage with the
+- The owner sees the question on one open incident for the mission.
+  Answer it, then re-dispatch the stage with the
   answer in its brief.
 
 ### A report-only Worker that ends COMPLETE with an unfinished report

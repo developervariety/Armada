@@ -10,19 +10,17 @@
 // costs more than it looks. Measured on one session (2026-08-23 23:19Z to
 // 01:50Z): 68 assistant messages of which only 5 carried visible text, gaps of
 // seven minutes at a time, and three of five turns killed mid-tool-loop. While
-// the loop runs the session makes no tool calls, so it cannot see a directed
-// board note either -- a helper waiting on an answer times out against a lead
-// that is technically alive.
+// the loop runs the session makes no tool calls, so it cannot react to anything
+// else while it waits.
 //
 // Subscribing is the fix. The Admiral's WebSocket hub already broadcasts every
-// voyage, mission, incident and board change. This turns them into lines. Each
+// voyage, mission and incident change. This turns them into lines. Each
 // line becomes a notification, the session stays free between events, and a
 // stage boundary reaches the operator while the next brief can still be
 // corrected.
 //
 // Configuration:
 //   ARMADA_WS_URL           Admiral WebSocket URL (default ws://127.0.0.1:7890/ws)
-//   ARMADA_PARTICIPANT_KEY  report board notes addressed to this key
 //   ARMADA_API_KEY          admiral API key sent in the authenticate frame
 //   ARMADA_TOKEN            bearer credential token; used instead of the API key
 //
@@ -34,8 +32,7 @@
 // row the watch prints STOPPED and exits 1, so silence always means no events.
 //
 // Usage (run ON the Armada server; the hub is loopback-bound):
-//   watch-armada.mjs [--voyage <id>] [--participant <key>] [--all-notes]
-//                    [--quiet-captains] [--exit-on-terminal]
+//   watch-armada.mjs [--voyage <id>] [--quiet-captains] [--exit-on-terminal]
 //
 // With --voyage, mission and voyage lines are limited to that voyage and, with
 // --exit-on-terminal, the watch ends when the voyage reaches a terminal status.
@@ -50,8 +47,6 @@ const TERMINAL_VOYAGE_STATES = new Set(["Complete", "Failed", "Cancelled"]);
 export function parseArguments(argv) {
   const options = {
     voyageId: null,
-    participantKey: null,
-    allNotes: false,
     quietCaptains: false,
     exitOnTerminal: false,
   };
@@ -59,8 +54,6 @@ export function parseArguments(argv) {
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
     if (argument === "--voyage") options.voyageId = argv[++index] || null;
-    else if (argument === "--participant") options.participantKey = argv[++index] || null;
-    else if (argument === "--all-notes") options.allNotes = true;
     else if (argument === "--quiet-captains") options.quietCaptains = true;
     else if (argument === "--exit-on-terminal") options.exitOnTerminal = true;
   }
@@ -128,16 +121,6 @@ export function describeEvent(event, options) {
       return `CAPTAIN STALLED ${data.Id ?? data.id ?? ""} ${data.Name ?? data.name ?? ""}`;
     }
 
-    case "coordination.message.created": {
-      const message = data.message;
-      if (!message) return null;
-      const addressed = message.toParticipantKey;
-      const mine = options.participantKey && addressed === options.participantKey;
-      if (!mine && !options.allNotes) return null;
-      const marker = mine ? "MAIL" : "board";
-      return `${marker} <${message.authorName ?? "unknown"}> ${shorten(message.content, 240)}`;
-    }
-
     default: {
       // Fleet events arrive through the generic envelope with a message string.
       // Report only the ones an operator would act on; the rest are noise.
@@ -166,10 +149,8 @@ export async function watch(options = {}) {
   const url = environment.ARMADA_WS_URL || DEFAULT_WS_URL;
   const settings = {
     voyageId: options.voyageId ?? null,
-    participantKey: options.participantKey ?? environment.ARMADA_PARTICIPANT_KEY ?? null,
     apiKey: environment.ARMADA_API_KEY || null,
     token: environment.ARMADA_TOKEN || null,
-    allNotes: Boolean(options.allNotes),
     quietCaptains: Boolean(options.quietCaptains),
     exitOnTerminal: Boolean(options.exitOnTerminal),
   };
@@ -277,8 +258,7 @@ export async function watch(options = {}) {
 
       socket.addEventListener("open", () => {
         backoffMs = RECONNECT_MIN_MS;
-        note(`watching ${url}${settings.voyageId ? ` voyage=${settings.voyageId}` : ""}` +
-          `${settings.participantKey ? ` mail=${settings.participantKey}` : ""}`);
+        note(`watching ${url}${settings.voyageId ? ` voyage=${settings.voyageId}` : ""}`);
         if (settings.apiKey || settings.token) {
           const authenticate = { route: "authenticate" };
           if (settings.token) authenticate.token = settings.token;

@@ -231,20 +231,19 @@ loaded (bind-mount that file so the change survives a container replacement):
     "agentWake": {
       "runtime": "OpenCode",
       "deliveryMode": "Both",
-      "participantKey": "ops-session",
       "workingDirectory": "/workspace"
     }
   }
 }
 ```
 
-The configured `participantKey` survives an Admiral restart. A transient
-`armada_register_agentwake_session` registration does not; when it supplies its
-own participant key, it overrides the configured key until the next restart.
+The configured runtime and delivery mode survive an Admiral restart. A transient
+`armada_register_agentwake_session` registration does not; it overrides the
+configured runtime until the next restart.
 Use a transient registration for a controlled probe or for Claude and Codex
-resume state. OpenCode starts fresh for every wake, so the note must carry the
-complete task and the session must read the board and durable memory. Confirm
-the effective owner with `armada_agentwake_status`.
+resume state. OpenCode starts fresh for every wake, so the session must read the
+Armada status tools and durable memory. Confirm the effective target with
+`armada_agentwake_status`.
 
 Use `StoredWake` when a resident operator only needs Wake rows. Use
 `SpawnProcess` or `Both` only after a controlled spawn test. Do not run a host
