@@ -538,6 +538,10 @@ namespace Armada.Core.Services
             // slot: dock reclamation would delete the worktree in between. The lease is held across
             // the sequence and released afterwards; the disk-lifecycle sweep and
             // DockService.ReclaimAsync both honor it.
+            string? pinRefusal = await ApplySiblingPinsAsync(mission, token).ConfigureAwait(false);
+            if (pinRefusal != null)
+                return DefinitionOfDoneResult.Fail("sibling-pin", -1, BuildDiagnosticText(pinRefusal), DefinitionOfDoneFailureClassEnum.Infra);
+
             DockLeaseRegistry.Acquire(dock.Id);
             try
             {
@@ -843,7 +847,7 @@ namespace Armada.Core.Services
                 CommitHash = cleanHead,
                 Label = label,
                 Command = command,
-                EnvironmentFingerprint = DefinitionOfDoneCommandPasses.FingerprintEnvironment(profile?.EnvironmentVariables),
+                EnvironmentFingerprint = DefinitionOfDoneCommandPasses.FingerprintEnvironment(WithSiblingPins(profile?.EnvironmentVariables)),
                 ExecutionBudgetTicks = ActiveExecutionBudget?.Limit.Ticks,
                 CompletedUtc = DateTime.UtcNow
             });
@@ -1973,6 +1977,42 @@ namespace Armada.Core.Services
             return null;
         }
 
+        /// <summary>
+        /// A dock provisioned at a sibling pin is measured against that pin, so every command of the attempt receives
+        /// the pin through <see cref="SiblingPinOverride.EnvironmentVariablePrefix"/> variables, and a profile that
+        /// verifies its sibling checks that commit instead of the sibling's default branch. A pin that no longer
+        /// resolves stops the gate.
+        /// </summary>
+        /// <returns>The refusal reason, or null when the gate may run.</returns>
+        private async Task<string?> ApplySiblingPinsAsync(Mission mission, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(mission.VoyageId) || String.IsNullOrWhiteSpace(mission.VesselId)) return null;
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+            List<ProvisionedSiblingPin> pins = await SiblingPinOverride.ResolvePinsAsync(_Database, vessel, mission.VoyageId,
+                (repoPath, revision, ct) => _Git == null ? Task.FromResult<string?>(null) : _Git.GetRevisionCommitShaAsync(repoPath, revision, ct),
+                token).ConfigureAwait(false);
+            string? refusal = SiblingPinOverride.DescribeUnresolved(pins);
+            if (refusal != null) return refusal;
+            GateSlot? slot = _GateSlot.Value;
+            if (slot != null) slot.SiblingPins = SiblingPinOverride.ToEnvironment(pins);
+            return null;
+        }
+
+        /// <summary>
+        /// The command environment with this attempt's sibling pins added. Armada sets the pins, so they win over a
+        /// variable of the same name.
+        /// </summary>
+        private static IReadOnlyDictionary<string, string>? WithSiblingPins(IReadOnlyDictionary<string, string>? environment)
+        {
+            IReadOnlyDictionary<string, string>? pins = _GateSlot.Value?.SiblingPins;
+            if (pins == null || pins.Count == 0) return environment;
+            Dictionary<string, string> merged = environment == null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : new Dictionary<string, string>(environment, StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> pin in pins) merged[pin.Key] = pin.Value;
+            return merged;
+        }
+
         private static Dictionary<string, string> MergeCommandEnvironment(
             WorkflowProfile? profile,
             IReadOnlyDictionary<string, string>? overrides)
@@ -2000,6 +2040,7 @@ namespace Armada.Core.Services
             IReadOnlyDictionary<string, string>? environment = null,
             WorkflowProfile? limitProfile = null)
         {
+            environment = WithSiblingPins(environment);
             if (Armada.Core.Harbor.HarborCheckoutAddress.IsHarbor(workingDir))
                 return await RunHarborCommandAsync(label, command, workingDir, token, failedTestLinePattern, environment, limitProfile).ConfigureAwait(false);
             ProcessStartInfo startInfo = new ProcessStartInfo(GetShell()) { WorkingDirectory = workingDir };
@@ -2384,6 +2425,9 @@ namespace Armada.Core.Services
             public string? VesselId => _VesselId;
 
             public string OperationId { get; }
+
+            /// <summary>Sibling pin variables every command of this attempt receives.</summary>
+            public IReadOnlyDictionary<string, string> SiblingPins { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
             /// <summary>Commands this attempt ran in full and passed on a clean worktree at a known HEAD.</summary>
             public List<DefinitionOfDoneCommandPass> FullPasses { get; }

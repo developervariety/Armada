@@ -635,6 +635,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Gate commands receive the objective's provisioned sibling pin, and a pin that does not resolve stops the gate", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                string producerRoot = CreateTempDir();
+                try
+                {
+                    string producerRepo = Path.Combine(producerRoot, "producer");
+                    GitServiceTests.SeedTemplateRepository(producerRepo);
+                    GitService git = new GitService(logging);
+                    string fullPin = (await git.GetRevisionCommitShaAsync(producerRepo, "HEAD").ConfigureAwait(false))!;
+
+                    string build = OperatingSystem.IsWindows()
+                        ? "echo %ARMADA_SIBLING_PIN_PRODUCER%>pin.txt"
+                        : "printf '%s' \"$ARMADA_SIBLING_PIN_PRODUCER\" > pin.txt";
+                    await EnsureVesselWithProfileAsync(testDb, "ten_pin_env", "vsl_pin_env", worktreePath, build, "echo UNIT", null, "Pin Env Vessel").ConfigureAwait(false);
+                    Vessel producer = await testDb.Driver.Vessels.CreateAsync(new Vessel("pin-env-producer", producerRepo) { TenantId = "ten_pin_env", LocalPath = producerRepo, DefaultBranch = "main" }).ConfigureAwait(false);
+                    Vessel consumer = (await testDb.Driver.Vessels.ReadAsync("vsl_pin_env").ConfigureAwait(false))!;
+                    consumer.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = producer.Id, RelativePath = "../Producer", BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly, DefaultBranch = "main" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(consumer).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pin env voyage") { TenantId = "ten_pin_env" }).ConfigureAwait(false);
+                    Objective objective = new Objective { TenantId = "ten_pin_env", Title = "measure against the pinned producer" };
+                    objective.VoyageIds.Add(voyage.Id);
+                    objective.Preparation.RequiredSiblingInputs.Add(new ObjectivePreparationSiblingInput
+                    {
+                        VesselRef = producer.Id,
+                        RelativePath = "../Producer",
+                        PinnedCommit = fullPin.Substring(0, 12),
+                        ProvisionPinnedCommit = true
+                    });
+                    objective = await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    Mission mission = CreateWorkerMission("ten_pin_env", "vsl_pin_env");
+                    mission.VoyageId = voyage.Id;
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false }, testDb.Driver, logging, null, git);
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+                    AssertTrue(result.Passed, "the gate passes: " + result.OutputTail);
+                    AssertEqual(fullPin, File.ReadAllText(Path.Combine(worktreePath, "pin.txt")).Trim(),
+                        "the build command receives the pin, resolved to the full commit");
+
+                    File.Delete(Path.Combine(worktreePath, "pin.txt"));
+                    objective.Preparation.RequiredSiblingInputs[0].PinnedCommit = "deadbeefdeadbeef";
+                    await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+                    DefinitionOfDoneResult unresolved = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+                    AssertFalse(unresolved.Passed, "an unresolved pin stops the gate");
+                    AssertEqual("sibling-pin", unresolved.CommandLabel);
+                    AssertContains(SiblingPinOverride.UnresolvedPrefix, unresolved.OutputTail ?? String.Empty);
+                    AssertFalse(File.Exists(Path.Combine(worktreePath, "pin.txt")), "no command runs against an unresolved pin");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                    TryDeleteDirectory(producerRoot);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate holds a dock lease across execution and releases it afterwards", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

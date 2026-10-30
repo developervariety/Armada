@@ -1887,7 +1887,9 @@ Each `requiredSiblingInputs` entry may set `pinnedCommit` and
 and makes every dock of the dispatch check out that commit in its own sibling
 checkout; landing waits until the commit is on the sibling vessel's default
 branch unless the entry also sets `landBeforeSibling: true`, which requires
-`provisionPinnedCommit` (`docs/PERSONAS.md`).
+`provisionPinnedCommit`. Gate and Check commands of the dispatch receive the
+resolved pin in `ARMADA_SIBLING_PIN_<SIBLING>`, and its Build and UnitTest
+Checks run beside the pinned sibling (`docs/PERSONAS.md`).
 `confirmStageSkip: true` explicitly confirms the skip supplied in preparation,
 or the existing skip when preparation is omitted. Armada records the authenticated
 operator, server time, and a server-issued proof; inbound `confirmedBy`,

@@ -433,6 +433,9 @@ namespace Armada.Core.Services
                     if (slotRequested == null) throw new InvalidOperationException("The check run no longer exists.");
                     if (slotRequested.Status != CheckRunStatusEnum.Pending) return slotRequested;
                     run = slotRequested;
+                    List<ProvisionedSiblingPin> siblingPins = await ResolveRunSiblingPinsAsync(vessel, run, token).ConfigureAwait(false);
+                    string? pinRefusal = DescribePinRefusal(siblingPins, harborSelected);
+                    if (pinRefusal != null) return await CompleteExistingRunAsFailureAsync(run, pinRefusal, token).ConfigureAwait(false);
 
                     executionDirectory = run.WorkingDirectory!;
                     executionCommand = run.Command;
@@ -444,7 +447,7 @@ namespace Armada.Core.Services
                         string? repoSource = ResolveRepoSource(vessel);
                         if (repoSource != null)
                         {
-                            isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                            isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, siblingPins, token).ConfigureAwait(false);
                             if (isolatedCheckout != null)
                             {
                                 executionDirectory = isolatedCheckout.Path;
@@ -454,7 +457,7 @@ namespace Armada.Core.Services
                             {
                                 return await CompleteExistingRunAsFailureAsync(
                                     run,
-                                    "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.",
+                                    DescribeFailedCheckout(siblingPins),
                                     token).ConfigureAwait(false);
                             }
                         }
@@ -1096,6 +1099,9 @@ namespace Armada.Core.Services
         /// The environment a check command runs with: the workflow profile's variables, plus the deployment candidate
         /// for a record that belongs to a deployment. The candidate variables are set by Armada and win over a profile
         /// variable of the same name, so a deploy script reads the commit the deployment pinned rather than a branch tip.
+        /// A record whose objective provisions a sibling pin also receives each resolved pin through a
+        /// <see cref="SiblingPinOverride.EnvironmentVariablePrefix"/> variable, the same variable the gate's commands
+        /// receive, so a profile that verifies its sibling checks the pinned commit.
         /// </summary>
         private async Task<Dictionary<string, string>> BuildCommandEnvironmentAsync(
             WorkflowProfile? profile,
@@ -1110,6 +1116,10 @@ namespace Armada.Core.Services
                     if (!String.IsNullOrWhiteSpace(pair.Key)) environment[pair.Key] = pair.Value ?? String.Empty;
                 }
             }
+
+            Vessel? vessel = String.IsNullOrWhiteSpace(run.VesselId) ? null : await _Database.Vessels.ReadAsync(run.VesselId!, token).ConfigureAwait(false);
+            foreach (KeyValuePair<string, string> pin in SiblingPinOverride.ToEnvironment(await ResolveRunSiblingPinsAsync(vessel, run, token).ConfigureAwait(false)))
+                environment[pin.Key] = pin.Value;
 
             if (String.IsNullOrWhiteSpace(run.DeploymentId)) return environment;
 
@@ -1232,6 +1242,9 @@ namespace Armada.Core.Services
                 if (slotRequested == null) throw new InvalidOperationException("The check run no longer exists.");
                 if (slotRequested.Status != CheckRunStatusEnum.Pending) return slotRequested;
                 run = slotRequested;
+                List<ProvisionedSiblingPin> siblingPins = await ResolveRunSiblingPinsAsync(vessel, run, token).ConfigureAwait(false);
+                string? pinRefusal = DescribePinRefusal(siblingPins, harborSelected);
+                if (pinRefusal != null) return await CompleteExistingRunAsFailureAsync(run, pinRefusal, token).ConfigureAwait(false);
                 executionDirectory = run.WorkingDirectory!;
                 executionCommand = run.Command;
                 if (harborSelected && IsIsolatedCheckoutType(run.Type))
@@ -1245,7 +1258,7 @@ namespace Armada.Core.Services
                     string? repoSource = ResolveRepoSource(vessel);
                     if (repoSource != null)
                     {
-                        isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                        isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, siblingPins, token).ConfigureAwait(false);
                         if (isolatedCheckout != null)
                         {
                             executionDirectory = isolatedCheckout.Path;
@@ -1255,7 +1268,7 @@ namespace Armada.Core.Services
                         {
                             return await CompleteExistingRunAsFailureAsync(
                                 run,
-                                "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.",
+                                DescribeFailedCheckout(siblingPins),
                                 token).ConfigureAwait(false);
                         }
                     }
@@ -2323,6 +2336,42 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The provisioned sibling pins of the objective a check's mission or voyage belongs to.
+        /// </summary>
+        private async Task<List<ProvisionedSiblingPin>> ResolveRunSiblingPinsAsync(Vessel? vessel, CheckRun run, CancellationToken token)
+        {
+            string? voyageId = run.VoyageId;
+            if (String.IsNullOrWhiteSpace(voyageId) && !String.IsNullOrWhiteSpace(run.MissionId))
+                voyageId = (await _Database.Missions.ReadAsync(run.MissionId!, token).ConfigureAwait(false))?.VoyageId;
+            return await SiblingPinOverride.ResolvePinsAsync(_Database, vessel, voyageId,
+                (repoPath, revision, ct) => ResolveRefCandidateAsync(repoPath, revision, ct), token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Why a check under provisioned sibling pins must not run, or null when it may. A pin must resolve, and a
+        /// harbor check has no place to provision the pinned sibling beside its checkout.
+        /// </summary>
+        private static string? DescribePinRefusal(IReadOnlyList<ProvisionedSiblingPin> pins, bool harborSelected)
+        {
+            if (pins.Count == 0) return null;
+            string? unresolved = SiblingPinOverride.DescribeUnresolved(pins);
+            if (unresolved != null) return unresolved;
+            if (harborSelected)
+                return "check_harbor_sibling_pin_override_unsupported: objective " + pins[0].ObjectiveId
+                    + " provisions a pinned sibling, and a harbor check cannot provision it. The check did not run.";
+            return null;
+        }
+
+        private static string DescribeFailedCheckout(IReadOnlyList<ProvisionedSiblingPin> pins)
+        {
+            if (pins.Count == 0)
+                return "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.";
+            List<string> siblings = pins.Select(pin => pin.Sibling.RelativePath + " at " + pin.Commit).ToList();
+            return "sibling_pin_override_checkout_failed: the isolated checkout with pinned sibling " + String.Join(", ", siblings)
+                + " could not be created. The check will not execute without its pinned sibling.";
+        }
+
+        /// <summary>
         /// Build the path of a check's private checkout. The check run id is part of the directory
         /// name so a reclaim sweep can tell a checkout that a live check is executing in from a
         /// leftover one, without a second record of what is in flight.
@@ -2376,7 +2425,8 @@ namespace Armada.Core.Services
         /// from the vessel's local repository is preferred, because that is exactly how a mission dock
         /// checks out: it inherits the repository's own config (core.autocrlf, core.eol, filters) and
         /// .gitattributes, so the checked-out bytes are faithful to what a dock produces. A fresh
-        /// clone is used only as a fallback when the local repository is not usable.
+        /// clone is used only as a fallback when the local repository is not usable. Under provisioned sibling pins
+        /// the checkout is nested the way a dock is, and each pinned sibling is checked out at its pin beside it.
         /// </summary>
         private async Task<IsolatedCheckout?> TryCreateIsolatedCheckoutAsync(
             Vessel vessel,
@@ -2384,8 +2434,12 @@ namespace Armada.Core.Services
             string? commitHash,
             string? branchName,
             string defaultBranch,
+            IReadOnlyList<ProvisionedSiblingPin> siblingPins,
             CancellationToken token)
         {
+            if (siblingPins.Count > 0)
+                return await TryCreatePinnedCheckoutAsync(vessel, checkRunId, commitHash, branchName, defaultBranch, siblingPins, token).ConfigureAwait(false);
+
             string? localPath = (!String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
                 ? vessel.LocalPath
                 : null;
@@ -2415,6 +2469,58 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Create a nested checkout, &lt;root&gt;/&lt;Vessel&gt;, with each pinned sibling as a detached worktree at its
+        /// resolved pin at the sibling's relative path. A sibling path that leaves the checkout root is refused, so a
+        /// check never reads or moves a sibling checkout another run shares.
+        /// </summary>
+        private async Task<IsolatedCheckout?> TryCreatePinnedCheckoutAsync(
+            Vessel vessel,
+            string checkRunId,
+            string? commitHash,
+            string? branchName,
+            string defaultBranch,
+            IReadOnlyList<ProvisionedSiblingPin> siblingPins,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(vessel.LocalPath) || !Directory.Exists(vessel.LocalPath) || String.IsNullOrWhiteSpace(vessel.Name))
+            {
+                _Logging.Warn(_Header + "isolated checkout: a pinned sibling needs the vessel's local repository and name, and vessel " + vessel.Id + " has none");
+                return null;
+            }
+
+            string root = BuildCheckoutPath(checkRunId);
+            string rootPrefix = root + Path.DirectorySeparatorChar;
+            string checkoutPath = Path.Combine(root, vessel.Name);
+            IsolatedCheckout? main = await TryCreateDetachedWorktreeAsync(vessel.LocalPath!, checkRunId, commitHash, branchName, defaultBranch, token, checkoutPath).ConfigureAwait(false);
+            if (main == null)
+            {
+                SafeDeleteDirectory(root);
+                return null;
+            }
+
+            IsolatedCheckout checkout = new IsolatedCheckout(checkoutPath, vessel.LocalPath, root, siblingPins);
+            foreach (ProvisionedSiblingPin pin in siblingPins)
+            {
+                string siblingPath = Path.GetFullPath(Path.Combine(checkoutPath, pin.Sibling.RelativePath));
+                IsolatedCheckout? sibling = null;
+                if (siblingPath.StartsWith(rootPrefix, StringComparison.Ordinal) && pin.RepoPath != null && pin.Commit != null)
+                    sibling = await TryCreateDetachedWorktreeAsync(pin.RepoPath, checkRunId, pin.Commit, null, defaultBranch, token, siblingPath).ConfigureAwait(false);
+                else
+                    _Logging.Warn(_Header + "isolated checkout: pinned sibling " + pin.Sibling.RelativePath + " does not resolve inside " + root);
+
+                if (sibling == null)
+                {
+                    await CleanupIsolatedCheckoutAsync(checkout, CancellationToken.None).ConfigureAwait(false);
+                    return null;
+                }
+                checkout.Siblings.Add(sibling);
+            }
+
+            _Logging.Info(_Header + "isolated checkout created at " + checkoutPath + " with " + checkout.Siblings.Count + " pinned sibling(s)");
+            return checkout;
+        }
+
+        /// <summary>
         /// Cut a detached worktree from <paramref name="repoPath"/> at the requested commit, or at
         /// the best resolvable branch ref when no commit hash was supplied. The worktree shares the
         /// repository's own
@@ -2426,9 +2532,10 @@ namespace Armada.Core.Services
             string? commitHash,
             string? branchName,
             string defaultBranch,
-            CancellationToken token)
+            CancellationToken token,
+            string? checkoutPath = null)
         {
-            string tempPath = BuildCheckoutPath(checkRunId);
+            string tempPath = checkoutPath ?? BuildCheckoutPath(checkRunId);
             SemaphoreSlim repoLock = _CheckoutRepoLocks.GetOrAdd(repoPath, _ => new SemaphoreSlim(1, 1));
             await repoLock.WaitAsync(token).ConfigureAwait(false);
             try
@@ -2565,12 +2672,12 @@ namespace Armada.Core.Services
         /// <returns>The checkout to run in, or null when it was gone and could not be made again.</returns>
         private async Task<IsolatedCheckout?> RecreateRemovedCheckoutAsync(Vessel vessel, CheckRun run, IsolatedCheckout checkout, CancellationToken token)
         {
-            if (Directory.Exists(checkout.Path)) return checkout;
+            if (Directory.Exists(checkout.Path) && checkout.Siblings.TrueForAll(sibling => Directory.Exists(sibling.Path))) return checkout;
 
             _Logging.Warn(_Header + "isolated checkout " + checkout.Path + " for check " + run.Id
                 + " was removed while the check waited for the host command slot; creating it again");
             await CleanupIsolatedCheckoutAsync(checkout, CancellationToken.None).ConfigureAwait(false);
-            return await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+            return await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, checkout.Pins, token).ConfigureAwait(false);
         }
 
         private static string DescribeRemovedCheckout(string path)
@@ -2585,6 +2692,9 @@ namespace Armada.Core.Services
             {
                 return;
             }
+
+            foreach (IsolatedCheckout sibling in checkout.Siblings)
+                await CleanupIsolatedCheckoutAsync(sibling, token).ConfigureAwait(false);
 
             if (!String.IsNullOrWhiteSpace(checkout.RepoPath))
             {
@@ -2616,6 +2726,8 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "isolated checkout: worktree prune failed for " + checkout.RepoPath + ": " + ex.Message);
                 }
             }
+
+            if (checkout.RootPath != null) SafeDeleteDirectory(checkout.RootPath);
         }
 
         private async Task<string?> TryCloneToTempAsync(
@@ -2762,19 +2874,31 @@ namespace Armada.Core.Services
         /// <summary>
         /// A temporary checkout a check run executes in, with the repository it was cut from so the
         /// worktree registration can be removed at cleanup. <see cref="RepoPath"/> is null when the
-        /// checkout came from a plain clone.
+        /// checkout came from a plain clone. A checkout under provisioned sibling pins sits inside its own
+        /// <see cref="RootPath"/> beside its pinned <see cref="Siblings"/>.
         /// </summary>
         private sealed class IsolatedCheckout
         {
-            public IsolatedCheckout(string path, string? repoPath)
+            public IsolatedCheckout(string path, string? repoPath, string? rootPath = null, IReadOnlyList<ProvisionedSiblingPin>? pins = null)
             {
                 Path = path;
                 RepoPath = repoPath;
+                RootPath = rootPath;
+                Pins = pins ?? new List<ProvisionedSiblingPin>();
             }
 
             public string Path { get; }
 
             public string? RepoPath { get; }
+
+            /// <summary>Directory that holds the checkout and its pinned siblings, or null for a flat checkout.</summary>
+            public string? RootPath { get; }
+
+            /// <summary>Sibling pins the checkout was made under.</summary>
+            public IReadOnlyList<ProvisionedSiblingPin> Pins { get; }
+
+            /// <summary>Pinned sibling worktrees beside the checkout.</summary>
+            public List<IsolatedCheckout> Siblings { get; } = new List<IsolatedCheckout>();
         }
 
         private sealed class GitCommandResult

@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Gates and Checks build against a provisioned sibling pin
+
+- Every gate and Check command of a mission whose objective provisions a sibling pin receives the full pinned commit in `ARMADA_SIBLING_PIN_<SIBLING>`, so a workflow profile verifies the pinned sibling instead of moving it to the default branch. Build and UnitTest Checks of such a mission run in a nested isolated checkout with each pinned sibling checked out at its pin beside it. An unresolved pin stops the gate and fails the Check with `sibling_pin_unresolved`; a pinned checkout that cannot be made fails with `sibling_pin_override_checkout_failed`; a Harbor-routed Check refuses with `check_harbor_sibling_pin_override_unsupported`. Missions without a provisioned pin are unchanged.
+
 ### Owner flag lets a consumer land before its pinned sibling commit
 
 - A required sibling input that sets `landBeforeSibling: true` with `provisionPinnedCommit` lets the consumer land while its pinned sibling commit is not yet on the sibling vessel's default branch. The landing records a `mission.landed_ahead_of_sibling` event once per mission. Without the flag, landing still refuses with `sibling_pin_unlanded`.

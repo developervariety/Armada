@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -22,6 +23,18 @@ namespace Armada.Core.Services
         /// Prefix of the reason a landing is refused while a provisioned sibling pin has not landed.
         /// </summary>
         public const string LandingRefusalPrefix = "sibling_pin_unlanded";
+
+        /// <summary>
+        /// Prefix of the environment variable that carries a provisioned sibling pin to every gate and check command
+        /// of the objective's missions. The rest of the name is the sibling directory name in upper case, with each
+        /// character that is not a letter or digit replaced by an underscore; the value is the full pinned commit.
+        /// </summary>
+        public const string EnvironmentVariablePrefix = "ARMADA_SIBLING_PIN_";
+
+        /// <summary>
+        /// Prefix of the reason a gate or check refuses to run when a provisioned pin does not resolve to a commit.
+        /// </summary>
+        public const string UnresolvedPrefix = "sibling_pin_unresolved";
 
         #endregion
 
@@ -100,6 +113,98 @@ namespace Armada.Core.Services
             if (landedAhead.Count > 0)
                 await RecordLandedAheadAsync(database, mission, objective!, landedAhead, token).ConfigureAwait(false);
             return null;
+        }
+
+        /// <summary>
+        /// Name of the environment variable that carries the pin of <paramref name="sibling"/>.
+        /// </summary>
+        /// <param name="sibling">Declared sibling.</param>
+        /// <returns>The variable name.</returns>
+        public static string EnvironmentVariableName(SiblingRepo sibling)
+        {
+            if (sibling == null) throw new ArgumentNullException(nameof(sibling));
+            string relative = (sibling.RelativePath ?? String.Empty).Replace('\\', '/').TrimEnd('/');
+            string leaf = relative.Substring(relative.LastIndexOf('/') + 1);
+            StringBuilder name = new StringBuilder(EnvironmentVariablePrefix);
+            foreach (char c in leaf)
+                name.Append(Char.IsAsciiLetterOrDigit(c) ? Char.ToUpperInvariant(c) : '_');
+            return name.ToString();
+        }
+
+        /// <summary>
+        /// The provisioned sibling pins that apply to a vessel's work under a voyage: one entry for each declared
+        /// sibling whose required input sets <see cref="ObjectivePreparationSiblingInput.ProvisionPinnedCommit"/>,
+        /// with the pin resolved to a full commit in the sibling vessel's repository. An entry whose pin does not
+        /// resolve has a null <see cref="ProvisionedSiblingPin.Commit"/>.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="vessel">Vessel the work belongs to; may be null.</param>
+        /// <param name="voyageId">Voyage of the work; may be null.</param>
+        /// <param name="resolveCommit">Resolves a revision to a full commit in a repository path, or returns null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The pins; empty when none applies.</returns>
+        public static async Task<List<ProvisionedSiblingPin>> ResolvePinsAsync(
+            DatabaseDriver database,
+            Vessel? vessel,
+            string? voyageId,
+            Func<string, string, CancellationToken, Task<string?>> resolveCommit,
+            CancellationToken token = default)
+        {
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            if (resolveCommit == null) throw new ArgumentNullException(nameof(resolveCommit));
+            List<ProvisionedSiblingPin> pins = new List<ProvisionedSiblingPin>();
+            if (vessel == null || String.IsNullOrWhiteSpace(voyageId)) return pins;
+            List<SiblingRepo> siblings = vessel.GetSiblingRepos();
+            if (siblings.Count == 0) return pins;
+
+            Objective? objective = await VoyageObjectiveResolver.ResolveAsync(database, voyageId!, token).ConfigureAwait(false);
+            if (objective == null) return pins;
+
+            foreach (SiblingRepo sibling in siblings)
+            {
+                string? pin = PinFor(objective, sibling);
+                if (pin == null) continue;
+                ObjectivePreparationSiblingInput input = SiblingCheckoutBrief.FindRequiredInput(objective, sibling)!;
+                Vessel? siblingVessel = await database.Vessels.ReadAsync(input.VesselRef, token).ConfigureAwait(false)
+                    ?? await database.Vessels.ReadByNameAsync(input.VesselRef, token).ConfigureAwait(false);
+                string? repoPath = String.IsNullOrWhiteSpace(siblingVessel?.LocalPath) ? null : siblingVessel!.LocalPath;
+                string? commit = repoPath == null ? null : await resolveCommit(repoPath, pin, token).ConfigureAwait(false);
+                pins.Add(new ProvisionedSiblingPin(sibling, objective.Id, pin, repoPath, String.IsNullOrWhiteSpace(commit) ? null : commit!.Trim()));
+            }
+            return pins;
+        }
+
+        /// <summary>
+        /// Why work under these pins must not run, or null when every pin resolved.
+        /// </summary>
+        /// <param name="pins">Resolved pins.</param>
+        /// <returns>The refusal reason, or null.</returns>
+        public static string? DescribeUnresolved(IReadOnlyList<ProvisionedSiblingPin> pins)
+        {
+            if (pins == null) return null;
+            foreach (ProvisionedSiblingPin pin in pins)
+            {
+                if (pin.Commit != null) continue;
+                return UnresolvedPrefix + ": objective " + pin.ObjectiveId + " provisions sibling " + pin.Sibling.RelativePath
+                    + " at pinned commit " + pin.PinnedCommit + ", which "
+                    + (pin.RepoPath == null ? "has no readable sibling repository" : "does not exist in " + pin.RepoPath)
+                    + ". Nothing runs against an unresolved pin.";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The environment variables that carry resolved pins to a command.
+        /// </summary>
+        /// <param name="pins">Resolved pins.</param>
+        /// <returns>Variable name to full pinned commit.</returns>
+        public static Dictionary<string, string> ToEnvironment(IReadOnlyList<ProvisionedSiblingPin>? pins)
+        {
+            Dictionary<string, string> environment = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (pins == null) return environment;
+            foreach (ProvisionedSiblingPin pin in pins)
+                if (pin.Commit != null) environment[EnvironmentVariableName(pin.Sibling)] = pin.Commit;
+            return environment;
         }
 
         #endregion
