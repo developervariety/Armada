@@ -456,7 +456,11 @@ the ancestor rule, and names the override (`required_sibling_pin_provisioned`,
 informational). The consumer's work is valid only for that commit, so landing
 refuses with `sibling_pin_unlanded` until the pin is an ancestor of the sibling
 vessel's default branch; retry the landing once the sibling lands it, or
-re-measure at the landed tip and clear the override.
+re-measure at the landed tip and clear the override. The owner may set
+`landBeforeSibling: true` on the input to let the consumer land first. That
+landing records a `mission.landed_ahead_of_sibling` event, once per mission,
+naming the unlanded commit; the sibling's own gate then measures against the
+landed consumer.
 
 The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a

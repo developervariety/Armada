@@ -325,7 +325,7 @@ namespace Armada.Server
                 return;
             }
 
-            string? pinRefusal = await SiblingPinOverride.DescribeLandingRefusalAsync(_Database, _Git, mission.VoyageId).ConfigureAwait(false);
+            string? pinRefusal = await SiblingPinOverride.EvaluateLandingAsync(_Database, _Git, mission).ConfigureAwait(false);
             if (pinRefusal != null)
             {
                 await RefuseLandingAsync(mission, MissionStatusEnum.LandingFailed, pinRefusal).ConfigureAwait(false);

@@ -32,5 +32,12 @@ namespace Armada.Core.Models
         /// of the sibling vessel's default branch. Requires <see cref="PinnedCommit"/>.
         /// </summary>
         public bool ProvisionPinnedCommit { get; set; } = false;
+
+        /// <summary>
+        /// Owner exception to the landing rule for a provisioned pin: when true, the consumer may land while
+        /// <see cref="PinnedCommit"/> is not yet on the sibling vessel's default branch, and the landing records a
+        /// <c>mission.landed_ahead_of_sibling</c> event. Requires <see cref="ProvisionPinnedCommit"/>.
+        /// </summary>
+        public bool LandBeforeSibling { get; set; } = false;
     }
 }

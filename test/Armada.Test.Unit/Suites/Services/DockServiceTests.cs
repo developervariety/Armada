@@ -1024,7 +1024,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ProvisionAsync checks out an objective's provisioned sibling pin in that dock alone, and the consumer lands only after the pin lands", async () =>
+            await RunTest("ProvisionAsync checks out an objective's provisioned sibling pin in that dock alone, and the consumer lands only after the pin lands unless the owner lets it land first", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -1110,13 +1110,26 @@ namespace Armada.Test.Unit.Suites.Services
                         string producerBare = (await testDb.Driver.Vessels.ReadAsync(producer.Id).ConfigureAwait(false))!.LocalPath!;
                         AssertEqual(producerMain, (await RunGitAsync(producerBare, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(), "the override never moves the producer's main");
 
-                        string? refusal = await SiblingPinOverride.DescribeLandingRefusalAsync(testDb.Driver, git, voyage.Id).ConfigureAwait(false);
+                        string? refusal = await SiblingPinOverride.EvaluateLandingAsync(testDb.Driver, git, pinnedMission).ConfigureAwait(false);
                         AssertNotNull(refusal, "the consumer cannot land while the pinned producer commit is unlanded");
                         AssertStartsWith(SiblingPinOverride.LandingRefusalPrefix, refusal!, "the refusal is named");
-                        AssertNull(await SiblingPinOverride.DescribeLandingRefusalAsync(testDb.Driver, git, plainMission.VoyageId).ConfigureAwait(false), "a mission without the override is not gated");
+                        AssertNull(await SiblingPinOverride.EvaluateLandingAsync(testDb.Driver, git, plainMission).ConfigureAwait(false), "a mission without the override is not gated");
 
+                        // The owner's landBeforeSibling lets this consumer land ahead of the unlanded pin, and says so once.
+                        objective.Preparation.RequiredSiblingInputs[0].LandBeforeSibling = true;
+                        objective = await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+                        AssertNull(await SiblingPinOverride.EvaluateLandingAsync(testDb.Driver, git, pinnedMission).ConfigureAwait(false), "landBeforeSibling lets the consumer land ahead of the pin");
+                        AssertNull(await SiblingPinOverride.EvaluateLandingAsync(testDb.Driver, git, pinnedMission).ConfigureAwait(false), "a second landing check is still allowed");
+                        List<ArmadaEvent> ahead = (await testDb.Driver.Events.EnumerateByMissionAsync(pinnedMission.Id).ConfigureAwait(false))
+                            .Where(item => item.EventType == SiblingPinOverride.LandedAheadEvent).ToList();
+                        AssertEqual(1, ahead.Count, "landing ahead of the sibling is recorded once per mission");
+                        AssertContains(pin.Substring(0, 12), ahead[0].Message ?? String.Empty, "the record names the unlanded pinned commit");
+                        AssertEqual(producerMain, (await RunGitAsync(producerBare, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(), "landing ahead never moves the producer's main");
+
+                        objective.Preparation.RequiredSiblingInputs[0].LandBeforeSibling = false;
+                        objective = await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
                         await RunGitAsync(producerBare, "update-ref", "refs/heads/main", pin, producerMain).ConfigureAwait(false);
-                        AssertNull(await SiblingPinOverride.DescribeLandingRefusalAsync(testDb.Driver, git, voyage.Id).ConfigureAwait(false), "once the producer lands the pin, the consumer may land");
+                        AssertNull(await SiblingPinOverride.EvaluateLandingAsync(testDb.Driver, git, pinnedMission).ConfigureAwait(false), "once the producer lands the pin, the consumer may land");
                     }
                     finally
                     {

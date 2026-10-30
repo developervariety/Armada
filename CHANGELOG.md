@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Owner flag lets a consumer land before its pinned sibling commit
+
+- A required sibling input that sets `landBeforeSibling: true` with `provisionPinnedCommit` lets the consumer land while its pinned sibling commit is not yet on the sibling vessel's default branch. The landing records a `mission.landed_ahead_of_sibling` event once per mission. Without the flag, landing still refuses with `sibling_pin_unlanded`.
+
 ### Sibling pin override provisions an unlanded sibling commit per dispatch
 
 - A required sibling input with `provisionPinnedCommit: true` makes every dock of the objective's dispatch check out its `pinnedCommit` in that dock's own sibling checkout, from any ref of the sibling repository that holds it. Docks without the override keep the declared branch, and no sibling ref is created, landed or moved. Dispatch preview resolves the commit and names the override (`required_sibling_pin_provisioned`) instead of applying the ancestor rule, and still refuses a commit the repository does not hold. The brief and a `dock.sibling_pin_override` event name the pinned commit. Landing refuses with `sibling_pin_unlanded` until the commit is on the sibling vessel's default branch. Without the flag, pinned commits behave as before.

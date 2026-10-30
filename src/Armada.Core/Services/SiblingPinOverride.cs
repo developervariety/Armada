@@ -43,21 +43,29 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Why a mission of this voyage must not land yet, or null when it may: each provisioned sibling pin must be
-        /// an ancestor of its sibling vessel's default branch. A pin whose ancestry cannot be read refuses too.
+        /// Event recorded once per mission when it is allowed to land ahead of an unlanded provisioned pin.
+        /// </summary>
+        public const string LandedAheadEvent = "mission.landed_ahead_of_sibling";
+
+        /// <summary>
+        /// Why a mission must not land yet, or null when it may. Each provisioned sibling pin of the mission's
+        /// objective must be an ancestor of its sibling vessel's default branch; a pin whose ancestry cannot be read
+        /// refuses too. An input with <see cref="ObjectivePreparationSiblingInput.LandBeforeSibling"/> lets the
+        /// mission land ahead of its unlanded pin, and that landing records <see cref="LandedAheadEvent"/> once.
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="git">Git service used to read the sibling repository.</param>
-        /// <param name="voyageId">Voyage of the mission about to land; may be null.</param>
+        /// <param name="mission">Mission about to land, merge or enqueue; may be null.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The refusal reason, or null.</returns>
-        public static async Task<string?> DescribeLandingRefusalAsync(DatabaseDriver database, IGitService git, string? voyageId, CancellationToken token = default)
+        public static async Task<string?> EvaluateLandingAsync(DatabaseDriver database, IGitService git, Mission? mission, CancellationToken token = default)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (git == null) throw new ArgumentNullException(nameof(git));
-            if (String.IsNullOrEmpty(voyageId)) return null;
+            if (mission == null || String.IsNullOrEmpty(mission.VoyageId)) return null;
 
-            Objective? objective = await VoyageObjectiveResolver.ResolveAsync(database, voyageId, token).ConfigureAwait(false);
+            Objective? objective = await VoyageObjectiveResolver.ResolveAsync(database, mission.VoyageId, token).ConfigureAwait(false);
+            List<string> landedAhead = new List<string>();
             foreach (ObjectivePreparationSiblingInput input in objective?.Preparation?.RequiredSiblingInputs ?? new List<ObjectivePreparationSiblingInput>())
             {
                 if (input == null || !input.ProvisionPinnedCommit || String.IsNullOrWhiteSpace(input.PinnedCommit)) continue;
@@ -78,17 +86,45 @@ namespace Armada.Core.Services
                 string state = landed == false
                     ? "is not an ancestor of " + input.VesselRef + " branch " + branch + " at " + Short(tip)
                     : "could not be checked against " + input.VesselRef + " branch " + branch;
-                return LandingRefusalPrefix + ": objective " + objective!.Id + " provisions sibling " + input.RelativePath
-                    + " at pinned commit " + Short(pin) + ", which " + state + ". Land the sibling commit first, or re-measure "
-                    + "at the landed tip and clear provisionPinnedCommit.";
+                string description = "sibling " + input.RelativePath + " at pinned commit " + Short(pin) + ", which " + state;
+                if (input.LandBeforeSibling)
+                {
+                    landedAhead.Add(description);
+                    continue;
+                }
+
+                return LandingRefusalPrefix + ": objective " + objective!.Id + " provisions " + description
+                    + ". Land the sibling commit first, or re-measure at the landed tip and clear provisionPinnedCommit.";
             }
 
+            if (landedAhead.Count > 0)
+                await RecordLandedAheadAsync(database, mission, objective!, landedAhead, token).ConfigureAwait(false);
             return null;
         }
 
         #endregion
 
         #region Private-Methods
+
+        private static async Task RecordLandedAheadAsync(DatabaseDriver database, Mission mission, Objective objective, List<string> siblings, CancellationToken token)
+        {
+            List<ArmadaEvent> existing = await database.Events.EnumerateByMissionAsync(mission.Id, 200, token).ConfigureAwait(false);
+            if (existing.Exists(item => String.Equals(item.EventType, LandedAheadEvent, StringComparison.Ordinal))) return;
+
+            ArmadaEvent landedAhead = new ArmadaEvent(LandedAheadEvent,
+                "Mission " + mission.Id + " lands ahead of its sibling under objective " + objective.Id + "'s landBeforeSibling: "
+                + String.Join("; ", siblings) + ".")
+            {
+                TenantId = mission.TenantId,
+                UserId = mission.UserId,
+                EntityType = "mission",
+                EntityId = mission.Id,
+                MissionId = mission.Id,
+                VesselId = mission.VesselId,
+                VoyageId = mission.VoyageId
+            };
+            await database.Events.CreateAsync(landedAhead, token).ConfigureAwait(false);
+        }
 
         private static string Short(string? commit)
         {
