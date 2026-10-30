@@ -8,8 +8,8 @@ namespace Armada.Core.Services
     using Armada.Core.Models;
 
     /// <summary>
-    /// The independent Check evidence a Judge brief carries: whether a passing UnitTest Check measured the
-    /// exact commit the Judge reviews.
+    /// The Check evidence a Judge brief carries: whether a passing UnitTest Check measured the exact commit
+    /// the Judge reviews, and whether that Check executed its command or adopted a definition-of-done gate pass.
     /// </summary>
     /// <remarks>
     /// The Judge gate already requires green independent Checks for the reviewed commit. A passing
@@ -26,7 +26,7 @@ namespace Armada.Core.Services
         public const string ModuleName = "mission.judge_check_evidence";
 
         /// <summary>Heading of the section in the Judge brief.</summary>
-        public const string Heading = "## Independent Check Evidence";
+        public const string Heading = "## Check Evidence";
 
         #endregion
 
@@ -61,7 +61,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// The brief section for a Judge: the passing Check and the commit it measured, or a statement
-        /// that no passing UnitTest Check exists for the commit under review.
+        /// that no passing UnitTest Check exists for the commit under review. The lead says whether the Check
+        /// executed its command or adopted a definition-of-done gate pass, and an adopted Check names the
+        /// mission and commit of that pass and states that the Check ran no command.
         /// </summary>
         /// <param name="passing">The passing UnitTest Check, or null.</param>
         /// <param name="reviewedCommit">The commit under review, or null when none is recorded.</param>
@@ -74,17 +76,28 @@ namespace Armada.Core.Services
             {
                 string label = String.IsNullOrWhiteSpace(passing.Label) ? passing.Type.ToString() : passing.Label!.Trim();
                 return Heading + "\n" +
-                    "Independent UnitTest Check `" + passing.Id + "` (" + label + ") passed at commit `" + commit + "`, the commit under review. " +
+                    BuildPassingLead(passing, label, commit) +
                     "Cite this Check by id as your test evidence and run only focused tests for the code the diff changes, giving each " +
                     "command and its result. Run the full test suite instead when the diff changes test infrastructure or build configuration.\n"
                     + BuildSnapshot(checks, commit);
             }
 
             return Heading + "\n" +
-                "No passing independent UnitTest Check is recorded for " +
+                "No passing UnitTest Check is recorded for " +
                 (commit == null ? "the commit under review" : "commit `" + commit + "`, the commit under review,") +
                 " when this brief was written. Read current Check receipts before repeating work. Run the full test suite in the FOREGROUND as your test evidence if no current passing UnitTest receipt covers this commit.\n"
                 + BuildSnapshot(checks, commit);
+        }
+
+        private static string BuildPassingLead(CheckRun passing, string label, string commit)
+        {
+            if (passing.SatisfiedBy == null)
+                return "Executed: UnitTest Check `" + passing.Id + "` (" + label + ") ran its command and passed at commit `" + commit + "`, the commit under review. ";
+
+            string sourceCommit = String.IsNullOrWhiteSpace(passing.SatisfiedBy.CommitHash) ? commit : passing.SatisfiedBy.CommitHash.Trim();
+            return "Adopted from DoD: UnitTest Check `" + passing.Id + "` (" + label + ") passed at commit `" + commit + "`, the commit under review, "
+                + "by adopting the definition-of-done gate pass of mission `" + passing.SatisfiedBy.MissionId + "` at commit `" + sourceCommit + "`; "
+                + "this Check ran no command. ";
         }
 
         private static string BuildSnapshot(IEnumerable<CheckRun>? checks, string? commit)

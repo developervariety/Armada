@@ -640,14 +640,18 @@ document diff without running the full test suite.
 
 ### Judge test evidence
 
-An implementation Judge brief carries an `## Independent Check Evidence`
+An implementation Judge brief carries a `## Check Evidence`
 section, written when the brief is generated. The commit under review is the
 predecessor stage's commit. The section reads the Checks the Judge gate reads
 (the voyage's and the mission's, narrowed to the Judge's lane) and keeps only
 the latest record of each Check:
 
 - When every latest UnitTest record at the commit under review has passed, the
-  section names the Check id and the commit. The Judge cites that Check as its
+  section names the Check id and the commit. Its lead says how the Check passed:
+  `Executed` when the Check ran its command, or `Adopted from DoD` when it took
+  the pass of a definition-of-done gate that ran the same command on that
+  commit. An adopted lead names the gate's mission and commit and says that the
+  Check ran no command. The Judge cites that Check as its
   test evidence and runs only focused tests for the changed code, with each
   command and its result. It runs the full suite instead when the diff changes
   test infrastructure or build configuration.

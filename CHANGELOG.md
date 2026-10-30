@@ -7,6 +7,18 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Suite lease acquire answers within a bound
+
+- `armada_suite_lease` `acquire` waits at most `waitSeconds` (default 30, at most 120) and then answers `granted`, `held` or `queued` with the queue position, so a captain never waits past its MCP client's call timeout. A queued request stays queued after the call returns or is cancelled, and the next `acquire` keeps its place. `captain.suite_lease_wait` is recorded once per queued request. `release` while queued answers `withdrawn` and gives up the place. Slot limits, queue order and the definition-of-done time limit are unchanged.
+
+### Battery packs readable in the image
+
+- The server image makes the packaged battery packs world-readable and their directories traversable, whatever modes the build checkout gave them, so a non-root admiral can read every pack manifest and fixture. File contents and existing execute bits are unchanged.
+
+### Judge Check evidence names executed and adopted Checks
+
+- The Judge brief section is `## Check Evidence`. Its lead says `Executed` when the passing UnitTest Check ran its command, or `Adopted from DoD` with the definition-of-done gate's mission and commit when the Check took that gate's pass; an adopted Check states that it ran no command. Which tests the Judge runs, and every gate requirement, are unchanged.
+
 ### Coordination board removed
 
 - The coordination board is gone: its rooms, messages, participants and claims, the `armada_coordination_*` tools, the `/api/v1/coordination` routes, the `armada board` command and the `coordination_*` tables. A migration drops the four board tables on every provider (SQLite 144, PostgreSQL 149, MySQL 137, SQL Server 140). `coordination_leases` is a separate lock store and stays.

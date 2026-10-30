@@ -4438,7 +4438,7 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
-            // A Judge whose commit already has a passing independent UnitTest Check cites it and runs only
+            // A Judge whose commit already has a passing UnitTest Check cites it and runs only
             // focused tests; without one it runs the full suite. The section states which case applies, read
             // when the brief is written so a Judge re-run after its Checks resolve sees the current state.
             if (!mission.IsReadOnlyMode && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))

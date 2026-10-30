@@ -27,14 +27,15 @@ namespace Armada.Core.Services
         private static readonly ConcurrentDictionary<string, IDisposable> _Held =
             new ConcurrentDictionary<string, IDisposable>(StringComparer.Ordinal);
 
-        private static readonly ConcurrentDictionary<string, byte> _Waiting =
-            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
-
         private static readonly ConcurrentDictionary<string, Lazy<Task<IDisposable>>> _InFlight =
             new ConcurrentDictionary<string, Lazy<Task<IDisposable>>>(StringComparer.Ordinal);
 
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _WaitCancels =
             new ConcurrentDictionary<string, CancellationTokenSource>(StringComparer.Ordinal);
+
+        // Serializes a grant against a withdrawal, so a lease granted while its wait is being cancelled is
+        // either recorded before the release reads it or returned to the host lock unrecorded.
+        private static readonly object _GrantLock = new object();
 
         #endregion
 
@@ -48,7 +49,7 @@ namespace Armada.Core.Services
         public static bool IsActive(string? missionId)
         {
             if (String.IsNullOrWhiteSpace(missionId)) return false;
-            return _Waiting.ContainsKey(missionId) || _Held.ContainsKey(missionId);
+            return _WaitCancels.ContainsKey(missionId) || _Held.ContainsKey(missionId);
         }
 
         /// <summary>
@@ -59,12 +60,13 @@ namespace Armada.Core.Services
         public static bool IsWaiting(string? missionId)
         {
             if (String.IsNullOrWhiteSpace(missionId)) return false;
-            return _Waiting.ContainsKey(missionId);
+            return _WaitCancels.ContainsKey(missionId);
         }
 
         /// <summary>
         /// Acquire the suite lease for a mission. The request takes the vessel suite slot and then a host
-        /// command slot. A second acquire for the same mission returns the held lease.
+        /// command slot. A second acquire for the same mission returns the held lease, or joins the wait
+        /// already queued for it and so keeps that wait's place.
         /// </summary>
         /// <param name="missionId">Mission that holds the lease.</param>
         /// <param name="vesselKey">Vessel whose suite the captain will run.</param>
@@ -88,13 +90,12 @@ namespace Armada.Core.Services
             }
             finally
             {
-                _InFlight.TryRemove(id, out Lazy<Task<IDisposable>> _);
+                _InFlight.TryRemove(new KeyValuePair<string, Lazy<Task<IDisposable>>>(id, inflight));
             }
         }
 
         private static async Task<IDisposable> AcquireCoreAsync(string missionId, string? vesselKey, CancellationToken token)
         {
-            _Waiting[missionId] = 0;
             using (CancellationTokenSource wait = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
                 _WaitCancels[missionId] = wait;
@@ -105,13 +106,20 @@ namespace Armada.Core.Services
                         "captain suite lease for mission " + missionId,
                         vesselKey,
                         wait.Token).ConfigureAwait(false);
-                    _Held[missionId] = lease;
+                    lock (_GrantLock)
+                    {
+                        if (wait.IsCancellationRequested)
+                        {
+                            lease.Dispose();
+                            wait.Token.ThrowIfCancellationRequested();
+                        }
+                        _Held[missionId] = lease;
+                    }
                     return lease;
                 }
                 finally
                 {
                     _WaitCancels.TryRemove(new KeyValuePair<string, CancellationTokenSource>(missionId, wait));
-                    _Waiting.TryRemove(missionId, out byte _);
                 }
             }
         }
@@ -124,8 +132,32 @@ namespace Armada.Core.Services
         public static bool Release(string? missionId)
         {
             if (String.IsNullOrWhiteSpace(missionId)) return false;
-            if (!_Held.TryRemove(missionId.Trim(), out IDisposable? lease) || lease == null) return false;
+            IDisposable? lease;
+            lock (_GrantLock)
+            {
+                if (!_Held.TryRemove(missionId.Trim(), out lease) || lease == null) return false;
+            }
             lease.Dispose();
+            return true;
+        }
+
+        /// <summary>
+        /// Cancel the mission's queued acquire, if any, so it gives up its place and is never granted. The
+        /// mission stops reading as waiting at once, and a later acquire starts a new request.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>True when a queued acquire was cancelled.</returns>
+        public static bool CancelWait(string? missionId)
+        {
+            if (String.IsNullOrWhiteSpace(missionId)) return false;
+            string id = missionId.Trim();
+            lock (_GrantLock)
+            {
+                if (!_WaitCancels.TryRemove(id, out CancellationTokenSource? wait) || wait == null) return false;
+                _InFlight.TryRemove(id, out Lazy<Task<IDisposable>>? _);
+                try { wait.Cancel(); }
+                catch (ObjectDisposedException) { return false; }
+            }
             return true;
         }
 
@@ -138,11 +170,7 @@ namespace Armada.Core.Services
         public static void ReleaseForMission(string? missionId)
         {
             if (String.IsNullOrWhiteSpace(missionId)) return;
-            if (_WaitCancels.TryGetValue(missionId.Trim(), out CancellationTokenSource? wait))
-            {
-                try { wait.Cancel(); }
-                catch (ObjectDisposedException) { }
-            }
+            CancelWait(missionId);
             Release(missionId);
         }
 

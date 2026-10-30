@@ -2,6 +2,7 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Text.Json;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -17,6 +18,15 @@ namespace Armada.Server.Mcp.Tools
     {
         /// <summary>MCP tool name.</summary>
         public const string ToolName = "armada_suite_lease";
+
+        /// <summary>Seconds an acquire waits for a grant before it answers queued, when the caller names none.</summary>
+        public const int DefaultWaitSeconds = 30;
+
+        /// <summary>Longest wait an acquire accepts. It stays well inside an MCP client's call timeout.</summary>
+        public const int MaxWaitSeconds = 120;
+
+        // A short floor so a queued request has entered the host lock's queue before its position is read.
+        private const int MinimumWaitMilliseconds = 25;
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -37,13 +47,14 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 ToolName,
-                "Acquire or release the Armada suite lease before a full-suite run (for example scripts/check.sh). The lease takes the per-vessel and host-wide full-suite slots. A captain credential acts only for its own mission. Wait if the tool says you are queued; that wait is not a stall. Release when the suite ends. The lease is released when the mission ends.",
+                "Acquire or release the Armada suite lease before a full-suite run (for example scripts/check.sh). The lease takes the per-vessel and host-wide full-suite slots. A captain credential acts only for its own mission. acquire waits at most waitSeconds (default " + DefaultWaitSeconds + ", at most " + MaxWaitSeconds + ") and then answers granted, held, or queued with your position. While queued, call acquire again: the queued request keeps its place between calls, and that wait is not a stall. Release when the suite ends; release while queued withdraws the request. The lease is released when the mission ends.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        action = new { type = "string", description = "acquire or release" }
+                        action = new { type = "string", description = "acquire or release" },
+                        waitSeconds = new { type = "integer", description = "acquire only: seconds to wait for a grant before answering queued (0-" + MaxWaitSeconds + ", default " + DefaultWaitSeconds + ")" }
                     },
                     required = new[] { "action" }
                 },
@@ -62,8 +73,10 @@ namespace Armada.Server.Mcp.Tools
                     string action = (request.Action ?? String.Empty).Trim();
                     if (String.Equals(action, "release", StringComparison.OrdinalIgnoreCase))
                     {
+                        bool withdrawn = CaptainSuiteLeaseRegistry.CancelWait(missionId);
                         bool released = CaptainSuiteLeaseRegistry.Release(missionId);
-                        return new { Status = released ? "released" : "idle", MissionId = missionId };
+                        string releaseStatus = released ? "released" : withdrawn ? "withdrawn" : "idle";
+                        return new { Status = releaseStatus, MissionId = missionId };
                     }
 
                     if (!String.Equals(action, "acquire", StringComparison.OrdinalIgnoreCase))
@@ -79,45 +92,39 @@ namespace Armada.Server.Mcp.Tools
                         return new { Status = "held", MissionId = missionId, Position = 0 };
                     }
 
+                    // The queued request must outlive this call: a transport timeout or a client that stops
+                    // waiting cancels the call, and the next acquire joins the same request at its place.
+                    // Only release or the end of the mission withdraws it.
+                    bool alreadyQueued = CaptainSuiteLeaseRegistry.IsWaiting(missionId);
                     Task<IDisposable> acquire = CaptainSuiteLeaseRegistry.AcquireAsync(
                         missionId,
                         mission.VesselId,
-                        McpCallerContext.CallToken);
+                        CancellationToken.None);
+
+                    int waitSeconds = Math.Clamp(request.WaitSeconds ?? DefaultWaitSeconds, 0, MaxWaitSeconds);
+                    DateTime waitUntilUtc = DateTime.UtcNow.AddMilliseconds(Math.Max(waitSeconds * 1000, MinimumWaitMilliseconds));
+                    await WaitForGrantAsync(acquire, TimeSpan.FromMilliseconds(MinimumWaitMilliseconds)).ConfigureAwait(false);
+                    if (!acquire.IsCompleted && !alreadyQueued)
+                    {
+                        await RecordWaitAsync(database, logging, mission, CaptainSuiteLeaseRegistry.ReadWaitPosition(missionId)).ConfigureAwait(false);
+                    }
+
+                    TimeSpan remaining = waitUntilUtc - DateTime.UtcNow;
+                    if (!acquire.IsCompleted && remaining > TimeSpan.Zero)
+                    {
+                        await WaitForGrantAsync(acquire, remaining).ConfigureAwait(false);
+                    }
+
                     if (!acquire.IsCompleted)
                     {
-                        await Task.Delay(25).ConfigureAwait(false);
                         int position = CaptainSuiteLeaseRegistry.ReadWaitPosition(missionId);
-                        HostSlotSnapshot snapshot = HostWideCommandLock.Snapshot();
-                        try
+                        return new
                         {
-                            ArmadaEvent evt = new ArmadaEvent(
-                                CaptainSuiteLeaseRegistry.WaitEventType,
-                                "Mission " + missionId + " waits for a suite lease at position " + position)
-                            {
-                                TenantId = mission.TenantId,
-                                UserId = mission.UserId,
-                                EntityType = "mission",
-                                EntityId = mission.Id,
-                                MissionId = mission.Id,
-                                CaptainId = mission.CaptainId,
-                                VesselId = mission.VesselId,
-                                VoyageId = mission.VoyageId,
-                                Payload = JsonSerializer.Serialize(new
-                                {
-                                    position,
-                                    snapshot.SlotCount,
-                                    snapshot.VesselSlotCount,
-                                    HolderKeys = snapshot.Holders.ConvertAll(holder => holder.Key),
-                                    WaitingKeys = snapshot.Waiters.ConvertAll(waiter => waiter.Key),
-                                    VesselWaitingKeys = snapshot.VesselWaiters.ConvertAll(waiter => waiter.Key)
-                                }, _JsonOptions)
-                            };
-                            await database.Events.CreateAsync(evt).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            logging?.Warn("[McpSuiteLeaseTools] could not record " + CaptainSuiteLeaseRegistry.WaitEventType + ": " + ex.Message);
-                        }
+                            Status = "queued",
+                            MissionId = missionId,
+                            Position = position,
+                            Message = "Call acquire again to keep waiting at this place; call release to withdraw."
+                        };
                     }
 
                     try
@@ -126,8 +133,7 @@ namespace Armada.Server.Mcp.Tools
                     }
                     catch (OperationCanceledException)
                     {
-                        CaptainSuiteLeaseRegistry.Release(missionId);
-                        return Failure("cancelled", "The suite lease acquire was cancelled.");
+                        return Failure("cancelled", "The queued suite lease request was withdrawn or its mission ended.");
                     }
 
                     return new
@@ -139,6 +145,54 @@ namespace Armada.Server.Mcp.Tools
                 });
         }
 
+        // Waits for the grant, the bound, or the end of the call, whichever comes first. Ending the call
+        // stops this wait only; the queued request keeps its place.
+        private static async Task WaitForGrantAsync(Task<IDisposable> acquire, TimeSpan bound)
+        {
+            try
+            {
+                await Task.WhenAny(acquire, Task.Delay(bound, McpCallerContext.CallToken)).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private static async Task RecordWaitAsync(DatabaseDriver database, LoggingModule? logging, Mission mission, int position)
+        {
+            HostSlotSnapshot snapshot = HostWideCommandLock.Snapshot();
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(
+                    CaptainSuiteLeaseRegistry.WaitEventType,
+                    "Mission " + mission.Id + " waits for a suite lease at position " + position)
+                {
+                    TenantId = mission.TenantId,
+                    UserId = mission.UserId,
+                    EntityType = "mission",
+                    EntityId = mission.Id,
+                    MissionId = mission.Id,
+                    CaptainId = mission.CaptainId,
+                    VesselId = mission.VesselId,
+                    VoyageId = mission.VoyageId,
+                    Payload = JsonSerializer.Serialize(new
+                    {
+                        position,
+                        snapshot.SlotCount,
+                        snapshot.VesselSlotCount,
+                        HolderKeys = snapshot.Holders.ConvertAll(holder => holder.Key),
+                        WaitingKeys = snapshot.Waiters.ConvertAll(waiter => waiter.Key),
+                        VesselWaitingKeys = snapshot.VesselWaiters.ConvertAll(waiter => waiter.Key)
+                    }, _JsonOptions)
+                };
+                await database.Events.CreateAsync(evt).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logging?.Warn("[McpSuiteLeaseTools] could not record " + CaptainSuiteLeaseRegistry.WaitEventType + ": " + ex.Message);
+            }
+        }
+
         private static object Failure(string code, string message)
         {
             return new { Error = message, Code = code };
@@ -147,6 +201,8 @@ namespace Armada.Server.Mcp.Tools
         private sealed class SuiteLeaseArgs
         {
             public string? Action { get; set; }
+
+            public int? WaitSeconds { get; set; }
         }
     }
 }
