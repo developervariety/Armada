@@ -156,25 +156,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("blocking_live_voyage", output[0].Attention, "the highest-attention item carries the top attention label");
             });
 
-            await RunTest("InboxTriage_BoardNotes_Classified_GatedEvents", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(AttentionAndKind(2, 0.95, "question"));
-                InboxTriageAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
-
-                List<BoardNoteTriageInput> notes = new List<BoardNoteTriageInput>
-                {
-                    new BoardNoteTriageInput { Id = "cmsg_1", AuthorType = "Operator", Content = "Where does the porting campaign stand?" }
-                };
-
-                IReadOnlyList<BoardNoteTriage> triaged = await adapter.TriageBoardNotesAsync(notes, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(1, triaged.Count, "the note is triaged in Gate mode");
-                AssertEqual("cmsg_1", triaged[0].Id, "the triage is keyed by note id");
-                AssertEqual("question", triaged[0].NoteKind, "the note kind is classified");
-                AssertTrue(!String.IsNullOrEmpty(triaged[0].Attention), "the note carries an attention label");
-            });
-
             await RunTest("InboxTriage_ForwardsCallerTokenToClient", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

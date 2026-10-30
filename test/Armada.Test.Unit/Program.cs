@@ -406,7 +406,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SlopCheckExecutionTests());
             runner.AddSuite(new CheckRunSummaryViewTests());
             runner.AddSuite(new RescueEffectivenessTests());
-            runner.AddSuite(new StalePauseRuleTests());
             runner.AddSuite(new StageBaseVerifierTests());
             runner.AddSuite(new DiskLifecycleTests());
             runner.AddSuite(new StorageInventoryTests());
@@ -495,10 +494,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DockBoundaryHookCoverageTests());
             runner.AddSuite(new UnlandedBranchServiceTests());
             runner.AddSuite(new VesselBranchWriteServiceTests());
-            runner.AddSuite(new CoordinationDatabaseTests());
-            runner.AddSuite(new CoordinationServiceTests());
-            runner.AddSuite(new CoordinationClaimTests());
-            runner.AddSuite(new CoordinationCaptainVoiceTests());
             runner.AddSuite(new DispatchHoldTests());
             runner.AddSuite(new DispatchObjectiveModeTests());
             runner.AddSuite(new ObjectiveDispatchPreviewServiceTests());

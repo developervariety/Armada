@@ -693,9 +693,6 @@ namespace Armada.Test.Unit.Suites.Services
                     worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
                     testEngineer.VoyageId = voyage.Id;
                     testEngineer = await testDb.Driver.Missions.UpdateAsync(testEngineer).ConfigureAwait(false);
-                    Armada.Server.CoordinationService board = new Armada.Server.CoordinationService(CreateLogging(), testDb.Driver);
-                    await board.PostMessageAsync(Armada.Server.CoordinationService.DefaultRoomKey,
-                        CoordinationAuthorTypeEnum.Operator, "operator", "Operator", "OWNED-BOARD-NOTE", voyageId: voyage.Id).ConfigureAwait(false);
                     // No captain exists, so assignment cannot complete after the self-heal.
 
                     bool firstAssigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
@@ -727,10 +724,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", requirement), "real handoff preparation preserves the operator append exactly once");
                     AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", MissionService.BuildHandoffMarker(worker.Id)), "new closed handoff replacement remains idempotent");
                     string close = "<!-- ARMADA:HANDOFF-END:" + worker.Id + " -->";
-                    AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", "OWNED-BOARD-NOTE"), "owned board notes refresh once with their handoff");
                     AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", close), "production emits one closing boundary");
-                    AssertTrue(preparedAgain.Description!.IndexOf("OWNED-BOARD-NOTE", StringComparison.Ordinal)
-                        < preparedAgain.Description.IndexOf(close, StringComparison.Ordinal), "board notes stay inside the generated boundary");
+                    AssertFalse(preparedAgain.Description!.Contains("Board notes on this voyage", StringComparison.Ordinal), "the generated handoff carries no board notes block");
                     string dock = Path.Combine(Path.GetTempPath(), "armada_operator_note_dock_" + Guid.NewGuid().ToString("N"));
                     Directory.CreateDirectory(dock);
                     try

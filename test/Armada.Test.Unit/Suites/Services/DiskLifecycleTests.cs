@@ -366,7 +366,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("An upload that fails verification keeps the file, records an event and posts one board note", async () =>
+            await RunTest("An upload that fails verification keeps the file and records one event", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Layout layout = CreateLayout();
@@ -376,9 +376,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string failing = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_fail.log", DateTime.UtcNow.AddDays(-40));
                     string passing = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_pass.log", DateTime.UtcNow.AddDays(-40));
                     FakeArchiveSink sink = new FakeArchiveSink { FailKeysContaining = "msn_fail" };
-                    FakeBoardNotePoster notes = new FakeBoardNotePoster();
                     DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
-                    service.BoardNotes = notes;
                     layout.Settings.DiskLifecycle.Enabled = true;
                     layout.Settings.DiskLifecycle.DryRun = false;
 
@@ -391,8 +389,7 @@ namespace Armada.Test.Unit.Suites.Services
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
                     AssertEqual(1, events.Count, "One archive-failure event is recorded");
                     AssertTrue(events[0].Message!.Contains(failing, StringComparison.Ordinal), "The event names the kept file");
-                    AssertEqual(1, notes.Posts.Count, "One board note is posted");
-                    AssertTrue(notes.Posts[0].Contains("kept locally", StringComparison.Ordinal), "The note says the file is kept: " + notes.Posts[0]);
+                    AssertTrue(events[0].Message!.Contains("kept locally", StringComparison.Ordinal), "The event says the file is kept: " + events[0].Message);
 
                     File.WriteAllText(layout.Settings.Archive.CredentialsFile, "accessKeyId=exampleaccess\nsecretAccessKey=examplesecret\n");
                     using (HttpClient receiptClient = new HttpClient(new StubHttpMessageHandler(HttpStatusCode.InternalServerError,
@@ -400,7 +397,6 @@ namespace Armada.Test.Unit.Suites.Services
                         new Dictionary<string, string[]> { { "x-amz-request-id", new[] { "retained-request-42" } } })))
                     {
                         service.ArchiveSinkFactory = settings => new S3ArchiveSink(settings, receiptClient, retryDelay: (delay, token) => Task.CompletedTask);
-                        notes.Posts.Clear();
                         DiskLifecycleReport failed = await service.ReconcileAsync().ConfigureAwait(false);
                         AssertTrue(File.Exists(failing), "HTTP500 keeps the unverified local file");
                         AssertTrue(failed.ArchiveFailures > 0);
@@ -410,9 +406,8 @@ namespace Armada.Test.Unit.Suites.Services
                         List<ArmadaEvent> receipts = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
                         AssertTrue(receipts.Any(item => item.Message!.Contains("request_id=retained-request-42", StringComparison.Ordinal)),
                             "the durable failure event retains the provider support receipt");
-                        AssertTrue(notes.Posts.Any(note => note.Contains("request_id=retained-request-42", StringComparison.Ordinal)),
-                            "the failure note retains the provider support receipt");
-                        AssertFalse(notes.Posts.Any(note => note.Contains("PRIVATE_RESPONSE", StringComparison.Ordinal)));
+                        AssertFalse(receipts.Any(item => item.Message!.Contains("PRIVATE_RESPONSE", StringComparison.Ordinal)),
+                            "the event never carries the provider response body");
                     }
                 }
                 finally
@@ -570,7 +565,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
             }
 
-            await RunTest("A read-back cap stops the run after the first cap, keeps the rest locally, and reports one cap event and one board note", async () =>
+            await RunTest("A read-back cap stops the run after the first cap, keeps the rest locally, and reports one cap event", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Layout layout = CreateLayout();
@@ -585,9 +580,7 @@ namespace Armada.Test.Unit.Suites.Services
                         CreateRetentionFile(missions, "msn_c.log", DateTime.UtcNow.AddDays(-40))
                     };
                     FakeArchiveSink sink = new FakeArchiveSink { CapExceeded = true };
-                    FakeBoardNotePoster notes = new FakeBoardNotePoster();
                     DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
-                    service.BoardNotes = notes;
                     layout.Settings.DiskLifecycle.Enabled = true;
                     layout.Settings.DiskLifecycle.DryRun = false;
 
@@ -604,9 +597,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, capEvents.Count, "Exactly one cap event is recorded for the whole run");
                     List<ArmadaEvent> failEvents = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
                     AssertEqual(0, failEvents.Count, "No per-file archive-failure event is recorded for the cap");
-                    AssertEqual(1, notes.Posts.Count, "Exactly one board note is posted for the cap");
-                    AssertTrue(notes.Posts[0].Contains("cap", StringComparison.OrdinalIgnoreCase) && notes.Posts[0].Contains("kept", StringComparison.Ordinal),
-                        "The single note says the files are kept for the cap: " + notes.Posts[0]);
+                    AssertTrue(capEvents[0].Message!.Contains("cap", StringComparison.OrdinalIgnoreCase) && capEvents[0].Message!.Contains("locally", StringComparison.Ordinal),
+                        "The single event says the files are kept for the cap: " + capEvents[0].Message);
                 }
                 finally
                 {
@@ -994,9 +986,7 @@ namespace Armada.Test.Unit.Suites.Services
                     File.SetUnixFileMode(missions, readOnlyDirectory);
 
                     FakeArchiveSink sink = new FakeArchiveSink();
-                    FakeBoardNotePoster notes = new FakeBoardNotePoster();
                     DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
-                    service.BoardNotes = notes;
                     layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
                     layout.Settings.DiskLifecycle.Enabled = true;
                     layout.Settings.DiskLifecycle.DryRun = false;
@@ -1011,8 +1001,6 @@ namespace Armada.Test.Unit.Suites.Services
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_free_failed", 10).ConfigureAwait(false);
                     AssertEqual(1, events.Count, "One free-failure event is recorded");
                     AssertTrue(events[0].Message!.Contains(log, StringComparison.Ordinal), "The event names the item");
-                    AssertEqual(1, notes.Posts.Count, "One board note is posted");
-                    AssertTrue(notes.Posts[0].Contains(log, StringComparison.Ordinal), "The note names the item: " + notes.Posts[0]);
 
                     int logUploads = sink.Puts.Count(k => k.EndsWith("/msn_locked.log", StringComparison.Ordinal));
                     File.SetUnixFileMode(missions, writableDirectory);

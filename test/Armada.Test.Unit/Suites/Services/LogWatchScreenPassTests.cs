@@ -283,14 +283,14 @@ namespace Armada.Test.Unit.Suites.Services
                 LogWatchScreenPass pass = new LogWatchScreenPass(BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate)));
 
                 await pass.EvaluateAsync(Context(
-                    "[ARMADA:NOTE] the ProtocolDecoder port is under way",
+                    "[ARMADA:PROGRESS] the ProtocolDecoder port is under way",
                     "Rebased mission msn_other42 onto 1a2b3c4d5e6f7a8b",
                     "Wrote /Volumes/Work/repo/src/ProtocolDecoder.cs on build.internal.example.com",
                     "Used token " + _KeyShapedToken,
                     "[ARMADA:RESULT] IN_PROGRESS"), CancellationToken.None).ConfigureAwait(false);
 
                 string state = FakeTypedDecisionClient.StateText(client.LastRequest);
-                AssertContains("[ARMADA:NOTE]", state, "the note marker survives redaction");
+                AssertContains("[ARMADA:PROGRESS]", state, "the progress marker survives redaction");
                 AssertContains("[ARMADA:RESULT]", state, "the result marker survives redaction");
                 AssertContains("ProtocolDecoder", state, "the product identifier survives redaction");
                 AssertFalse(state.Contains("msn_other42", StringComparison.Ordinal), "an Armada id is redacted");
@@ -338,7 +338,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "Implemented the challenge-response authentication exchange for the owned device.",
                         "Captured the handshake between the authorized client and the device on the test bench.",
                         "Read the access-control routine in our own assembly to match the published table.",
-                        "[ARMADA:NOTE] the authentication step now answers the challenge correctly."
+                        "[ARMADA:PROGRESS] the authentication step now answers the challenge correctly."
                     })
                 };
 

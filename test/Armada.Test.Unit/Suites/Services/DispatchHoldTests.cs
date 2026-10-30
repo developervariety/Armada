@@ -31,7 +31,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Tests for the fleet-wide dispatch hold: state transitions, the admiral
     /// dispatch guard, and the armada_dispatch_hold tool including its
-    /// coordination-board announcements.
+    /// state-change events.
     /// </summary>
     public class DispatchHoldTests : TestSuite
     {
@@ -65,7 +65,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    (Func<JsonElement?, Task<object>> handler, _, _) = BuildToolHarness(testDb, new DispatchHold(testDb.Driver.DispatchHolds));
+                    (Func<JsonElement?, Task<object>> handler, _) = BuildToolHarness(testDb, new DispatchHold(testDb.Driver.DispatchHolds));
                     JsonElement engage = JsonSerializer.SerializeToElement(new { action = "engage", reason = "deploy under verification", setBy = "session-a" }, _JsonOpts);
                     await handler(engage).ConfigureAwait(false);
 
@@ -79,7 +79,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(refusal, "a restored hold must refuse dispatch");
                     AssertContains("deploy under verification", refusal!.Message);
 
-                    (Func<JsonElement?, Task<object>> restartedHandler, _, _) = BuildToolHarness(testDb, restarted);
+                    (Func<JsonElement?, Task<object>> restartedHandler, _) = BuildToolHarness(testDb, restarted);
                     JsonElement clear = JsonSerializer.SerializeToElement(new { action = "clear" }, _JsonOpts);
                     await restartedHandler(clear).ConfigureAwait(false);
 
@@ -89,13 +89,18 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("The restored-hold board note names the reason and the setter", () =>
+            await RunTest("RecordRestoredAsync records one dispatch.hold_restored event naming the reason and the setter", async () =>
             {
-                string note = DispatchHold.RestoredNote(new DispatchHoldSnapshot { Reason = "deploy under verification", SetBy = "session-a" });
-                AssertContains("restored", note);
-                AssertContains("deploy under verification", note);
-                AssertContains("session-a", note);
-                return Task.CompletedTask;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    await DispatchHoldEvents.RecordRestoredAsync(testDb.Driver, new DispatchHoldSnapshot { Reason = "deploy under verification", SetBy = "session-a" }).ConfigureAwait(false);
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(DispatchHoldEvents.RestoredEventType, 10).ConfigureAwait(false);
+                    AssertEqual(1, events.Count);
+                    AssertEqual("dispatch.hold_restored", events[0].EventType);
+                    AssertContains("restored", events[0].Message);
+                    AssertContains("deploy under verification", events[0].Message);
+                    AssertContains("session-a", events[0].Message);
+                }
             });
 
             await RunTest("ThrowIfActive names the holder reason and recovery action", () =>
@@ -121,7 +126,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    (Func<JsonElement?, Task<object>> handler, _, _) = BuildToolHarness(testDb);
+                    (Func<JsonElement?, Task<object>> handler, _) = BuildToolHarness(testDb);
 
                     JsonElement missingReason = JsonSerializer.SerializeToElement(new { action = "engage", setBy = "s" }, _JsonOpts);
                     object result = await handler(missingReason).ConfigureAwait(false);
@@ -133,34 +138,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Engage announces on the board and status reports the hold until cleared", async () =>
+            await RunTest("Engage and clear record events naming the setter and the authenticated clearer, and status reports the hold until cleared", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    (Func<JsonElement?, Task<object>> handler, CoordinationService coordination, DispatchHold hold) = BuildToolHarness(testDb);
+                    (Func<JsonElement?, Task<object>> handler, DispatchHold hold) = BuildToolHarness(testDb, authenticated: true);
 
                     JsonElement engage = JsonSerializer.SerializeToElement(new { action = "engage", reason = "redeploy", setBy = "session-a" }, _JsonOpts);
                     object result = await handler(engage).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
                     AssertContains("\"Active\":true", resultJson);
 
-                    var messages = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey);
-                    AssertEqual(1, messages.Count);
-                    AssertContains("[hold]", messages[0].Content);
-                    AssertContains("redeploy", messages[0].Content);
-                    AssertContains("session-a", messages[0].Content);
+                    List<ArmadaEvent> engaged = await testDb.Driver.Events.EnumerateByTypeAsync(DispatchHoldEvents.EngagedEventType, 10).ConfigureAwait(false);
+                    AssertEqual(1, engaged.Count, "engage records exactly one event");
+                    AssertContains("redeploy", engaged[0].Message);
+                    AssertContains("session-a", engaged[0].Message);
 
                     JsonElement status = JsonSerializer.SerializeToElement(new { action = "status" }, _JsonOpts);
                     result = await handler(status).ConfigureAwait(false);
                     AssertContains("\"Active\":true", JsonSerializer.Serialize(result));
                     AssertNotNull(hold.Snapshot());
+                    AssertEqual(0, (await testDb.Driver.Events.EnumerateByTypeAsync(DispatchHoldEvents.ClearedEventType, 10).ConfigureAwait(false)).Count, "status records nothing");
 
                     JsonElement clear = JsonSerializer.SerializeToElement(new { action = "clear" }, _JsonOpts);
                     await handler(clear).ConfigureAwait(false);
+                    await handler(clear).ConfigureAwait(false);
 
-                    var after = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey);
-                    AssertEqual(2, after.Count);
-                    AssertContains("resumed", after[1].Content);
+                    List<ArmadaEvent> cleared = await testDb.Driver.Events.EnumerateByTypeAsync(DispatchHoldEvents.ClearedEventType, 10).ConfigureAwait(false);
+                    AssertEqual(1, cleared.Count, "clearing an active hold records one event; clearing an inactive hold records none");
+                    AssertContains("Test operator", cleared[0].Message, "the event names the authenticated clearer");
+                    AssertContains("redeploy", cleared[0].Message);
                     AssertNull(hold.Snapshot());
                 }
             });
@@ -775,21 +782,17 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private (Func<JsonElement?, Task<object>> Handler, CoordinationService Coordination, DispatchHold Hold) BuildToolHarness(TestDatabase testDb, DispatchHold? existingHold = null)
+        private (Func<JsonElement?, Task<object>> Handler, DispatchHold Hold) BuildToolHarness(TestDatabase testDb, DispatchHold? existingHold = null, bool authenticated = false)
         {
-            LoggingModule logging = new LoggingModule();
-            logging.Settings.EnableConsole = false;
             DispatchHold hold = existingHold ?? new DispatchHold();
-            CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
 
             Func<JsonElement?, Task<object>>? handler = null;
-            McpCoordinationTools.Register(
-                (name, _, _, h) => { if (name == "armada_dispatch_hold") handler = h; },
+            McpDispatchHoldTools.Register(
+                (name, _, _, h) => { if (name == "armada_dispatch_hold") handler = authenticated ? McpTestCaller.Wrap(h) : h; },
                 testDb.Driver,
-                coordination,
                 hold);
             AssertNotNull(handler, "armada_dispatch_hold handler must be registered");
-            return (handler!, coordination, hold);
+            return (handler!, hold);
         }
 
         private AdmiralService BuildAdmiral(TestDatabase testDb, LoggingModule logging, DispatchHold hold, int maxConcurrentVoyages = 1)

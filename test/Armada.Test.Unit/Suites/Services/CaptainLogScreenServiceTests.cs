@@ -69,19 +69,6 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private sealed class RecordingNotePoster : IVoyageTaggedNotePoster
-        {
-            public List<string> Contents { get; } = new List<string>();
-            public List<string?> VoyageIds { get; } = new List<string?>();
-
-            public Task PostVoyageNoteAsync(string content, string? voyageId, string? missionId, string? vesselId, CancellationToken token)
-            {
-                Contents.Add(content);
-                VoyageIds.Add(voyageId);
-                return Task.CompletedTask;
-            }
-        }
-
         #endregion
 
         #region Helpers
@@ -189,23 +176,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(result.Reason);
             });
 
-            await RunTest("Sweep_CleanTail_RecordsTheScreenAndPostsNoNote", async () =>
+            await RunTest("Sweep_CleanTail_RecordsTheScreen", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Mission mission = await SeedInProgressMissionAsync(db, "voyage-a").ConfigureAwait(false);
                 FakeTailReader reader = new FakeTailReader();
                 reader.TailsByMissionId[mission.Id] = "nothing of interest here";
-                RecordingNotePoster poster = new RecordingNotePoster();
 
                 CaptainLogScreenService sut = new CaptainLogScreenService(
                     CreateLogging(), db.Driver, EnabledSettings(), reader,
-                    new List<ICaptainLogScreenPass> { new RecordingPass() }, poster);
+                    new List<ICaptainLogScreenPass> { new RecordingPass() });
 
                 CaptainLogScreenSweepResult result = await sut.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, result.Screened);
                 AssertEqual(1, result.Clean);
-                AssertEqual(0, poster.Contents.Count);
 
                 List<ArmadaEvent> events = await ScreenEventsAsync(db).ConfigureAwait(false);
                 AssertEqual(1, events.Count);
@@ -213,13 +198,12 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, PayloadOf(events[0]).Counts.Count);
             });
 
-            await RunTest("Sweep_Findings_PostsExactlyOneVoyageTaggedNoteAndOneEvent", async () =>
+            await RunTest("Sweep_Findings_RecordsExactlyOneFlaggedEvent", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Mission mission = await SeedInProgressMissionAsync(db, "voyage-a").ConfigureAwait(false);
                 FakeTailReader reader = new FakeTailReader();
                 reader.TailsByMissionId[mission.Id] = "a tail that trips two classes";
-                RecordingNotePoster poster = new RecordingNotePoster();
                 RecordingPass pass = new RecordingPass(
                     Finding("rule_one", "the first line of evidence"),
                     Finding("rule_one", "a second line for the same class"),
@@ -227,17 +211,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                 CaptainLogScreenService sut = new CaptainLogScreenService(
                     CreateLogging(), db.Driver, EnabledSettings(), reader,
-                    new List<ICaptainLogScreenPass> { pass }, poster);
+                    new List<ICaptainLogScreenPass> { pass });
 
                 CaptainLogScreenSweepResult result = await sut.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, result.Flagged);
-                AssertEqual(1, poster.Contents.Count);
-                AssertEqual(mission.VoyageId, poster.VoyageIds[0]);
-                AssertContains("rule_one", poster.Contents[0]);
-                AssertContains("rule_two", poster.Contents[0]);
-                AssertContains("the first line of evidence", poster.Contents[0]);
-                AssertContains("the other line of evidence", poster.Contents[0]);
 
                 List<ArmadaEvent> events = await ScreenEventsAsync(db).ConfigureAwait(false);
                 AssertEqual(1, events.Count);
@@ -259,7 +237,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 CaptainLogScreenService sut = new CaptainLogScreenService(
                     CreateLogging(), db.Driver, EnabledSettings(), reader,
-                    new List<ICaptainLogScreenPass> { pass }, null, () => clock);
+                    new List<ICaptainLogScreenPass> { pass }, () => clock);
 
                 await sut.SweepAsync().ConfigureAwait(false);
                 AssertEqual(1, pass.Calls);
@@ -284,7 +262,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 CaptainLogScreenService sut = new CaptainLogScreenService(
                     CreateLogging(), db.Driver, EnabledSettings(), reader,
-                    new List<ICaptainLogScreenPass> { pass }, null, () => clock);
+                    new List<ICaptainLogScreenPass> { pass }, () => clock);
 
                 await sut.SweepAsync().ConfigureAwait(false);
                 reader.TailsByMissionId[mission.Id] = "first content plus a new line";
@@ -295,35 +273,34 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, (await ScreenEventsAsync(db).ConfigureAwait(false)).Count);
             });
 
-            await RunTest("Sweep_FlaggedMissionInCooldown_PostsNoSecondNote", async () =>
+            await RunTest("Sweep_FlaggedMissionInCooldown_RecordsNoSecondFlag", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Mission mission = await SeedInProgressMissionAsync(db, "voyage-a").ConfigureAwait(false);
                 FakeTailReader reader = new FakeTailReader();
                 reader.TailsByMissionId[mission.Id] = "a tail with a finding";
-                RecordingNotePoster poster = new RecordingNotePoster();
                 DateTime clock = DateTime.UtcNow;
 
                 CaptainLogScreenService sut = new CaptainLogScreenService(
                     CreateLogging(), db.Driver, EnabledSettings(), reader,
                     new List<ICaptainLogScreenPass> { new RecordingPass(Finding("rule_one", "evidence")) },
-                    poster, () => clock);
+                    () => clock);
 
                 await sut.SweepAsync().ConfigureAwait(false);
-                AssertEqual(1, poster.Contents.Count);
+                AssertEqual(1, (await ScreenEventsAsync(db).ConfigureAwait(false)).Count);
 
                 // A later sweep, still inside the cooldown window, over a tail that has also moved on.
                 reader.TailsByMissionId[mission.Id] = "a tail with a finding and one more line";
                 clock = clock.AddMinutes(5);
                 CaptainLogScreenSweepResult second = await sut.SweepAsync().ConfigureAwait(false);
 
-                AssertEqual(1, poster.Contents.Count);
+                AssertEqual(1, (await ScreenEventsAsync(db).ConfigureAwait(false)).Count);
                 AssertEqual(1, second.InCooldown);
 
                 // Past the cooldown window the same mission can be flagged again.
                 clock = clock.AddMinutes(60);
                 await sut.SweepAsync().ConfigureAwait(false);
-                AssertEqual(2, poster.Contents.Count);
+                AssertEqual(2, (await ScreenEventsAsync(db).ConfigureAwait(false)).Count);
             });
 
             await RunTest("Sweep_IntervalNotElapsed_ReadsNothingAndNamesTheReason", async () =>
@@ -336,7 +313,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 CaptainLogScreenService sut = new CaptainLogScreenService(
                     CreateLogging(), db.Driver, EnabledSettings(), reader,
-                    new List<ICaptainLogScreenPass> { new RecordingPass() }, null, () => clock);
+                    new List<ICaptainLogScreenPass> { new RecordingPass() }, () => clock);
 
                 await sut.SweepAsync().ConfigureAwait(false);
                 int readsAfterFirst = reader.Reads;
@@ -398,8 +375,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 CaptainLogScreenService sut = new CaptainLogScreenService(
                     CreateLogging(), db.Driver, EnabledSettings(), reader,
-                    new List<ICaptainLogScreenPass> { new RecordingPass(Finding("rule_one", "evidence")) },
-                    new RecordingNotePoster());
+                    new List<ICaptainLogScreenPass> { new RecordingPass(Finding("rule_one", "evidence")) });
 
                 await sut.SweepAsync().ConfigureAwait(false);
 

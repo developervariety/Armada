@@ -304,7 +304,6 @@ namespace Armada.Test.Unit.Suites.Services
                         AgentWake = new AgentWakeSettings
                         {
                             Runtime = AgentWakeRuntime.OpenCode,
-                            ParticipantKey = "probe-lead",
                             DeliveryMode = AgentWakeDeliveryMode.Both
                         }
                     }
@@ -316,7 +315,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(captured.IsAgentWakeConfigured(), "hot reload should enable AgentWake");
                 AssertEqual(7, captured.ThrottleCapPerHour);
                 AssertEqual(AgentWakeRuntime.OpenCode, captured.AgentWake!.Runtime);
-                AssertEqual("probe-lead", captured.AgentWake.ParticipantKey);
+                AssertEqual(AgentWakeDeliveryMode.Both, captured.AgentWake.DeliveryMode);
 
                 live.ApplyHotReloadableFrom(new ArmadaSettings { RemoteTrigger = null });
                 AssertTrue(ReferenceEquals(captured, live.RemoteTrigger), "disabling must preserve the captured settings instance");

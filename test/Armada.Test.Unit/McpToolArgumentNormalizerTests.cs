@@ -26,9 +26,9 @@ namespace Armada.Test.Unit
             type = "object",
             properties = new
             {
-                participantKey = new { type = "string" },
+                subjectId = new { type = "string" },
                 afterUtc = new { type = "string", format = "date-time" },
-                roomKey = new { type = "string" },
+                label = new { type = "string" },
                 status = new { type = "string", @enum = new[] { "Open", "Closed" } },
                 includeFullContent = new { type = "boolean" },
                 limit = new { type = "integer" },
@@ -36,7 +36,7 @@ namespace Armada.Test.Unit
                 nullableFlag = new { type = new[] { "boolean", "null" } },
                 tags = new { type = "array", items = new { type = "string" } }
             },
-            required = new[] { "participantKey" }
+            required = new[] { "subjectId" }
         };
 
         /// <summary>Suite name.</summary>
@@ -70,7 +70,7 @@ namespace Armada.Test.Unit
             {
                 JsonElement args = JsonSerializer.SerializeToElement(new
                 {
-                    participantKey = "example-lead",
+                    subjectId = "example-lead",
                     afterUtc = "",
                     status = "",
                     includeFullContent = "",
@@ -81,7 +81,7 @@ namespace Armada.Test.Unit
                 JsonElement? result = McpToolArgumentNormalizer.Normalize(args, _Schema, _JsonOpts);
                 AssertNotNull(result, "result present");
                 JsonElement r = result!.Value;
-                AssertTrue(r.TryGetProperty("participantKey", out _), "a real string value is kept");
+                AssertTrue(r.TryGetProperty("subjectId", out _), "a real string value is kept");
                 AssertFalse(r.TryGetProperty("afterUtc", out _), "empty date-time string is dropped");
                 AssertFalse(r.TryGetProperty("status", out _), "empty enum-constrained string is dropped");
                 AssertFalse(r.TryGetProperty("includeFullContent", out _), "empty boolean string is dropped");
@@ -92,12 +92,12 @@ namespace Armada.Test.Unit
 
             await RunTest("EmptyString_ForOptionalPlainString_IsDropped_ForRequiredString_IsKept", () =>
             {
-                // The live failure shape: afterUtc and roomKey are plain optional strings with no
+                // The live failure shape: afterUtc and label are plain optional strings with no
                 // format, sent as "" by a client that meant to omit them.
-                JsonElement args = JsonSerializer.SerializeToElement(new { participantKey = "", roomKey = "" }, _JsonOpts);
+                JsonElement args = JsonSerializer.SerializeToElement(new { subjectId = "", label = "" }, _JsonOpts);
                 JsonElement? result = McpToolArgumentNormalizer.Normalize(args, _Schema, _JsonOpts);
-                AssertFalse(result!.Value.TryGetProperty("roomKey", out _), "an optional plain string sent as \"\" is omitted");
-                AssertTrue(result!.Value.TryGetProperty("participantKey", out JsonElement key), "a REQUIRED string keeps its empty value for the handler to reject");
+                AssertFalse(result!.Value.TryGetProperty("label", out _), "an optional plain string sent as \"\" is omitted");
+                AssertTrue(result!.Value.TryGetProperty("subjectId", out JsonElement key), "a REQUIRED string keeps its empty value for the handler to reject");
                 AssertEqual("", key.GetString(), "required value unchanged");
                 return Task.CompletedTask;
             });
@@ -106,7 +106,7 @@ namespace Armada.Test.Unit
             {
                 JsonElement args = JsonSerializer.SerializeToElement(new
                 {
-                    participantKey = "k",
+                    subjectId = "k",
                     includeFullContent = "true",
                     limit = "12",
                     ratio = "0.5",
@@ -122,7 +122,7 @@ namespace Armada.Test.Unit
 
             await RunTest("UnconvertibleString_IsLeftForTheHandlerToReject", () =>
             {
-                JsonElement args = JsonSerializer.SerializeToElement(new { participantKey = "k", limit = "many", includeFullContent = "yes" }, _JsonOpts);
+                JsonElement args = JsonSerializer.SerializeToElement(new { subjectId = "k", limit = "many", includeFullContent = "yes" }, _JsonOpts);
                 JsonElement r = McpToolArgumentNormalizer.Normalize(args, _Schema, _JsonOpts)!.Value;
                 AssertEqual("many", r.GetProperty("limit").GetString(), "a non-numeric string stays a string");
                 AssertEqual("yes", r.GetProperty("includeFullContent").GetString(), "a non-boolean string stays a string");
@@ -133,7 +133,7 @@ namespace Armada.Test.Unit
             {
                 JsonElement args = JsonSerializer.SerializeToElement(new
                 {
-                    participantKey = "k",
+                    subjectId = "k",
                     includeFullContent = true,
                     limit = 3,
                     afterUtc = "2026-08-25T00:00:00Z",

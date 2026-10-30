@@ -1253,12 +1253,8 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Board notes say printing the marker posts the note, and prior art is skipped where it is off", async () =>
+            await RunTest("The brief carries no board notes section, and prior art is skipped where it is off", async () =>
             {
-                string notes = MissionService.BuildProgressNotesSection();
-                AssertContains("[ARMADA:NOTE]", notes);
-                AssertContains("no board tool", notes, "the brief says the marker line is the post, so a captain does not look for a board tool");
-
                 foreach (bool excluded in new[] { true, false })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

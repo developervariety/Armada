@@ -526,63 +526,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A dispatch announces a claim overlap only for a claim another participant holds", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("claim-overlap-vessel", "https://github.com/test/repo.git")
-                        {
-                            TenantId = Constants.DefaultTenantId,
-                            UserId = Constants.DefaultUserId
-                        }).ConfigureAwait(false);
-                    ArmadaSettings settings = new ArmadaSettings();
-                    settings.CodeIndex.Enabled = false;
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-                    VoyageDispatchService service = new VoyageDispatchService(
-                        testDb.Driver,
-                        new RecordingAdmiralService(testDb.Driver),
-                        logging,
-                        null,
-                        null,
-                        settings);
-                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
-                    CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
-                    await coordination.ClaimAsync("session-a", "Session A", CoordinationClaimSubjectEnum.Vessel, vessel.Id).ConfigureAwait(false);
-
-                    VoyageDispatchResult own = await service.DispatchAsync(new SharedVoyageDispatchRequest
-                    {
-                        Title = "dispatch by the claim holder",
-                        VesselId = vessel.Id,
-                        DispatcherParticipantKey = "session-a",
-                        Missions = new List<MissionDescription> { new MissionDescription("own work", "the holder dispatches its own claimed work") }
-                    }).ConfigureAwait(false);
-                    AssertEqual(201, own.StatusCode, "the holder's dispatch succeeds");
-                    List<CoordinationMessage> afterOwn = (await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false))
-                        .Where(message => message.Content.StartsWith("[claims]", StringComparison.Ordinal))
-                        .ToList();
-                    AssertEqual(0, afterOwn.Count, "the claim holder's own dispatch is not a claim overlap");
-
-                    await coordination.ClaimAsync("session-b", "Session B", CoordinationClaimSubjectEnum.Vessel, vessel.Id).ConfigureAwait(false);
-                    VoyageDispatchResult overlapping = await service.DispatchAsync(new SharedVoyageDispatchRequest
-                    {
-                        Title = "dispatch beside another holder",
-                        VesselId = vessel.Id,
-                        DispatcherParticipantKey = "session-a",
-                        Missions = new List<MissionDescription> { new MissionDescription("overlapping work", "another session holds this vessel too") }
-                    }).ConfigureAwait(false);
-                    AssertEqual(201, overlapping.StatusCode, "an overlapping dispatch still proceeds");
-                    List<CoordinationMessage> afterOverlap = (await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false))
-                        .Where(message => message.Content.StartsWith("[claims]", StringComparison.Ordinal))
-                        .ToList();
-                    AssertEqual(1, afterOverlap.Count, "a claim another participant holds is announced once");
-                    AssertContains("Session B holds a claim", afterOverlap[0].Content, "the notice names the other holder");
-                    AssertFalse(afterOverlap[0].Content.Contains("Session A", StringComparison.Ordinal),
-                        "the notice does not name the dispatcher's own claim");
-                }
-            });
-
             await RunTest("RestMapping_WithPerMissionFields_DispatchesCreatedMissionsWithFields", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -211,7 +211,6 @@ namespace Armada.Test.Unit.Suites.Services
 
                         List<UnavailableCallCase> calls = new List<UnavailableCallCase>
                         {
-                            new UnavailableCallCase("armada_coordination_post", "{\"content\":\"stdio catalog probe\",\"authorName\":\"stdio-test\"}", "Unavailable: coordination board"),
                             new UnavailableCallCase("armada_objective_scheduler_status", "{}", "Unavailable: objective scheduler"),
                             new UnavailableCallCase("armada_dispatch_hold", "{\"action\":\"status\"}", "Unavailable: dispatch hold"),
                             new UnavailableCallCase("create_backlog_refinement_session", "{\"objectiveId\":\"obj_demo\",\"captainId\":\"cpt_demo\"}", "Unavailable: objective refinement"),

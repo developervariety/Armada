@@ -186,6 +186,67 @@ namespace Armada.Test.Database
                 _ => throw new NotSupportedException("Unsupported database provider")
             };
 
+            await VerifyDropMigrationOnUpgradeAsync(dropVersion, async conn =>
+            {
+                foreach (string statement in JobsTableCreationStatements())
+                    await ExecuteAsync(conn, statement, token).ConfigureAwait(false);
+                await ExecuteAsync(conn, "INSERT INTO jobs (id, tenant_id, user_id, name, kind, status, progress, created_utc, last_update_utc) "
+                    + "VALUES ('job_upgrade_example', NULL, NULL, 'held row', 'Example', 'Running', 0, '2026-01-02 03:04:05', '2026-01-02 03:04:05');", token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1L, await ScalarCountAsync(conn, "SELECT COUNT(*) FROM jobs WHERE id = @id;", new KeyValuePair<string, object>("@id", "job_upgrade_example"), token).ConfigureAwait(false), "The upgraded database holds a jobs row");
+                DatabaseAssert.True(await IndexExistsAsync(conn, "idx_jobs_created", token).ConfigureAwait(false), "The upgraded database holds idx_jobs_created");
+            }, async conn =>
+            {
+                DatabaseAssert.True(!await TableExistsAsync(conn, "jobs", token).ConfigureAwait(false), "jobs table is absent after the upgrade");
+                DatabaseAssert.True(!await IndexExistsAsync(conn, "idx_jobs_created", token).ConfigureAwait(false), "idx_jobs_created index is absent after the upgrade");
+            }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// An upgraded database that still holds the coordination board tables, with a row in one of them, loses the
+        /// four board tables and their indexes when the drop migration runs, while the separate
+        /// <c>coordination_leases</c> table survives with its row. Providers that never created the board tables end
+        /// the same way. The scenario seeds minimal stand-ins for the board tables, so it does not depend on the
+        /// historical creation statements.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Task.</returns>
+        public async Task VerifyCoordinationBoardDroppedOnUpgradeAsync(CancellationToken token = default)
+        {
+            int dropVersion = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => 144, DatabaseTypeEnum.Postgresql => 149,
+                DatabaseTypeEnum.Mysql => 137, DatabaseTypeEnum.SqlServer => 140,
+                _ => throw new NotSupportedException("Unsupported database provider")
+            };
+            string[] boardTables = new[] { "coordination_rooms", "coordination_messages", "coordination_participants", "coordination_claims" };
+
+            long leaseRows = 0;
+            await VerifyDropMigrationOnUpgradeAsync(dropVersion, async conn =>
+            {
+                foreach (string table in boardTables)
+                {
+                    await ExecuteAsync(conn, "DROP TABLE IF EXISTS " + table + ";", token).ConfigureAwait(false);
+                    await ExecuteAsync(conn, "CREATE TABLE " + table + " (id VARCHAR(64) PRIMARY KEY, label VARCHAR(100));", token).ConfigureAwait(false);
+                    await ExecuteAsync(conn, "CREATE INDEX idx_" + table + "_label ON " + table + " (label);", token).ConfigureAwait(false);
+                }
+                await ExecuteAsync(conn, "INSERT INTO coordination_rooms (id, label) VALUES ('crm_upgrade_example', 'held row');", token).ConfigureAwait(false);
+                foreach (string table in boardTables)
+                    DatabaseAssert.True(await TableExistsAsync(conn, table, token).ConfigureAwait(false), "The upgraded database holds " + table);
+                leaseRows = await ScalarCountAsync(conn, "SELECT COUNT(*) FROM coordination_leases;", Array.Empty<KeyValuePair<string, object>>(), token).ConfigureAwait(false);
+            }, async conn =>
+            {
+                foreach (string table in boardTables)
+                {
+                    DatabaseAssert.True(!await TableExistsAsync(conn, table, token).ConfigureAwait(false), table + " is absent after the upgrade");
+                    DatabaseAssert.True(!await IndexExistsAsync(conn, "idx_" + table + "_label", token).ConfigureAwait(false), "idx_" + table + "_label is absent after the upgrade");
+                }
+                DatabaseAssert.True(await TableExistsAsync(conn, "coordination_leases", token).ConfigureAwait(false), "coordination_leases survives the upgrade");
+                DatabaseAssert.Equal(leaseRows, await ScalarCountAsync(conn, "SELECT COUNT(*) FROM coordination_leases;", Array.Empty<KeyValuePair<string, object>>(), token).ConfigureAwait(false), "coordination_leases keeps its rows");
+            }, token).ConfigureAwait(false);
+        }
+
+        private async Task VerifyDropMigrationOnUpgradeAsync(int dropVersion, Func<DbConnection, Task> seed, Func<DbConnection, Task> assertDropped, CancellationToken token)
+        {
             MigrationScenarioRunner history = new MigrationScenarioRunner(_Settings);
             Dictionary<int, string> installed = await history.ReadHistoryAsync(token).ConfigureAwait(false);
             List<LedgerRow> later = new List<LedgerRow>();
@@ -193,12 +254,7 @@ namespace Armada.Test.Database
             using (DbConnection conn = CreateConnection())
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                foreach (string statement in JobsTableCreationStatements())
-                    await ExecuteAsync(conn, statement, token).ConfigureAwait(false);
-                await ExecuteAsync(conn, "INSERT INTO jobs (id, tenant_id, user_id, name, kind, status, progress, created_utc, last_update_utc) "
-                    + "VALUES ('job_upgrade_example', NULL, NULL, 'held row', 'Example', 'Running', 0, '2026-01-02 03:04:05', '2026-01-02 03:04:05');", token).ConfigureAwait(false);
-                DatabaseAssert.Equal(1L, await ScalarCountAsync(conn, "SELECT COUNT(*) FROM jobs WHERE id = @id;", new KeyValuePair<string, object>("@id", "job_upgrade_example"), token).ConfigureAwait(false), "The upgraded database holds a jobs row");
-                DatabaseAssert.True(await IndexExistsAsync(conn, "idx_jobs_created", token).ConfigureAwait(false), "The upgraded database holds idx_jobs_created");
+                await seed(conn).ConfigureAwait(false);
 
                 using (DbCommand read = conn.CreateCommand())
                 {
@@ -234,12 +290,11 @@ namespace Armada.Test.Database
             using (DbConnection conn = CreateConnection())
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                DatabaseAssert.True(!await TableExistsAsync(conn, "jobs", token).ConfigureAwait(false), "jobs table is absent after the upgrade");
-                DatabaseAssert.True(!await IndexExistsAsync(conn, "idx_jobs_created", token).ConfigureAwait(false), "idx_jobs_created index is absent after the upgrade");
+                await assertDropped(conn).ConfigureAwait(false);
             }
 
             Dictionary<int, string> upgraded = await history.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.True(upgraded.ContainsKey(dropVersion), "The upgrade records the jobs table drop version");
+            DatabaseAssert.True(upgraded.ContainsKey(dropVersion), "The upgrade records the drop version " + dropVersion);
             DatabaseAssert.Equal(installed.Count, upgraded.Count, "The upgraded ledger holds every installed version");
             // The drop version is applied again, so only its own row carries a new timestamp.
             MigrationScenarioRunner.AssertHistory(installed.Where(row => row.Key != dropVersion).ToDictionary(row => row.Key, row => row.Value), upgraded);

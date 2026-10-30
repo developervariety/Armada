@@ -101,12 +101,11 @@ namespace Armada.Test.Unit.Suites.Services
             TestDatabase db,
             FakeTypedDecisionClient client,
             TypedDecisionSettings settings,
-            FakeOwnerDecisionNotePoster poster,
             OwnerDigestHitSource source,
             Func<DateTime> nowUtc)
         {
             TypedOwnerDigestAdapter adapter = BuildAdapter(db, client, settings);
-            return new OwnerDigestRunner(settings, adapter, poster, source, db.Driver, nowUtc, new LoggingModule());
+            return new OwnerDigestRunner(settings, adapter, source, db.Driver, nowUtc, new LoggingModule());
         }
 
         #endregion
@@ -278,20 +277,18 @@ namespace Armada.Test.Unit.Suites.Services
 
             // ---- Runner half ----
 
-            await RunTest("Runner_DecisionOff_Dormant_PostsNothing", async () =>
+            await RunTest("Runner_DecisionOff_Dormant_RecordsNothing", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(CostResult(3, 0.99));
-                FakeOwnerDecisionNotePoster poster = new FakeOwnerDecisionNotePoster();
                 TypedDecisionSettings settings = BuildSettings(TypedDecisionModeEnum.Off);
-                OwnerDigestRunner runner = BuildRunner(db, client, settings, poster,
+                OwnerDigestRunner runner = BuildRunner(db, client, settings,
                     SourceOf(BuildCandidate(chain: 5)), () => new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc));
 
                 OwnerDigestRunResult result = await runner.RunOnceAsync(CancellationToken.None).ConfigureAwait(false);
 
                 AssertFalse(result.Posted, "an Off decision must leave the runner dormant");
                 AssertEqual("dormant", result.Reason);
-                AssertEqual(0, poster.Posts.Count, "a dormant runner must post no note");
                 AssertEqual(0, client.CallCount, "a dormant runner must not call the client");
                 AssertEqual(0, await CountEventsAsync(db, OwnerDigestRunner.DigestEventType).ConfigureAwait(false));
             }).ConfigureAwait(false);
@@ -300,30 +297,27 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(CostResult(3, 0.99));
-                FakeOwnerDecisionNotePoster poster = new FakeOwnerDecisionNotePoster();
                 TypedDecisionSettings settings = BuildSettings(TypedDecisionModeEnum.Gate);
-                OwnerDigestRunner runner = BuildRunner(db, client, settings, poster,
+                OwnerDigestRunner runner = BuildRunner(db, client, settings,
                     SourceOf(), () => new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc));
 
                 OwnerDigestRunResult result = await runner.RunOnceAsync(CancellationToken.None).ConfigureAwait(false);
 
                 AssertFalse(result.Posted, "no candidates must post nothing");
                 AssertEqual("no_candidates", result.Reason);
-                AssertEqual(0, poster.Posts.Count);
                 AssertEqual(0, await CountEventsAsync(db, OwnerDigestRunner.DigestEventType).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
-            await RunTest("Runner_PostsOneNoteAndOneEvent_RankedByCost", async () =>
+            await RunTest("Runner_RecordsOneDigestEvent_RankedByCost", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 // Gate mode with a client that scores every candidate at the same level; deterministic
                 // cost then decides the rank. The high-chain question must come first.
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(CostResult(0, 0.10));
-                FakeOwnerDecisionNotePoster poster = new FakeOwnerDecisionNotePoster();
                 TypedDecisionSettings settings = BuildSettings(TypedDecisionModeEnum.Gate);
                 OwnerDigestCandidate low = BuildCandidate(question: "low cost question", chain: 0, ageHours: 1.0, source: "board_question");
                 OwnerDigestCandidate high = BuildCandidate(question: "high cost question", chain: 5, ageHours: 30.0, source: "preflight_q13");
-                OwnerDigestRunner runner = BuildRunner(db, client, settings, poster,
+                OwnerDigestRunner runner = BuildRunner(db, client, settings,
                     SourceOf(low, high), () => new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc));
 
                 OwnerDigestRunResult result = await runner.RunOnceAsync(CancellationToken.None).ConfigureAwait(false);
@@ -333,23 +327,22 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, client.Calls, "independent candidates are ranked in one request");
                 AssertEqual(2, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false),
                     "each candidate still records its own decision event");
-                AssertEqual(1, poster.Posts.Count, "exactly one owner-addressed note per pass");
-                AssertEqual(1, await CountEventsAsync(db, OwnerDigestRunner.DigestEventType).ConfigureAwait(false));
-                string note = poster.Posts[0];
-                AssertTrue(note.IndexOf("high cost question", StringComparison.Ordinal)
-                    < note.IndexOf("low cost question", StringComparison.Ordinal),
+                AssertEqual(1, await CountEventsAsync(db, OwnerDigestRunner.DigestEventType).ConfigureAwait(false), "exactly one digest event per pass");
+                List<ArmadaEvent> digest = await db.Driver.Events.EnumerateByTypeAsync(OwnerDigestRunner.DigestEventType, 10).ConfigureAwait(false);
+                string payloadText = digest[0].Payload ?? String.Empty;
+                AssertTrue(payloadText.IndexOf("preflight_q13", StringComparison.Ordinal)
+                    < payloadText.IndexOf("board_question", StringComparison.Ordinal),
                     "the higher-cost question must be ranked first");
             }).ConfigureAwait(false);
 
-            await RunTest("Runner_OneNotePerDay_SecondPassSameDayNoOp", async () =>
+            await RunTest("Runner_OneDigestPerDay_SecondPassSameDayNoOp", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(CostResult(2, 0.90));
-                FakeOwnerDecisionNotePoster poster = new FakeOwnerDecisionNotePoster();
                 TypedDecisionSettings settings = BuildSettings(TypedDecisionModeEnum.Gate);
                 DateTime day = new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc);
                 DateTime clockValue = day;
-                OwnerDigestRunner runner = BuildRunner(db, client, settings, poster,
+                OwnerDigestRunner runner = BuildRunner(db, client, settings,
                     SourceOf(BuildCandidate(chain: 2)), () => clockValue);
 
                 OwnerDigestRunResult first = await runner.RunOnceAsync(CancellationToken.None).ConfigureAwait(false);
@@ -359,34 +352,28 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(first.Posted, "the first pass of the day must post");
                 AssertFalse(second.Posted, "a second pass on the same UTC day must not post");
                 AssertEqual("already_posted_today", second.Reason);
-                AssertEqual(1, poster.Posts.Count, "exactly one note per UTC day");
                 AssertEqual(1, await CountEventsAsync(db, OwnerDigestRunner.DigestEventType).ConfigureAwait(false));
 
                 // The next UTC day posts again.
                 clockValue = day.AddDays(1);
                 OwnerDigestRunResult third = await runner.RunOnceAsync(CancellationToken.None).ConfigureAwait(false);
                 AssertTrue(third.Posted, "the next UTC day must post again");
-                AssertEqual(2, poster.Posts.Count);
+                AssertEqual(2, await CountEventsAsync(db, OwnerDigestRunner.DigestEventType).ConfigureAwait(false), "the next day records a second digest");
             }).ConfigureAwait(false);
 
-            await RunTest("Runner_NeverAnswers_NoteIsProposalAndEventCarriesNoAnswer", async () =>
+            await RunTest("Runner_NeverAnswers_EventCarriesNoAnswer", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 // default_safe is high, yet the runner still only PROPOSES; it answers nothing.
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(CostResult(1, 0.95, defaultSafe: 0.99));
-                FakeOwnerDecisionNotePoster poster = new FakeOwnerDecisionNotePoster();
                 TypedDecisionSettings settings = BuildSettings(TypedDecisionModeEnum.Gate);
-                OwnerDigestRunner runner = BuildRunner(db, client, settings, poster,
+                OwnerDigestRunner runner = BuildRunner(db, client, settings,
                     SourceOf(BuildCandidate(question: "Approve the reduction?", proposedDefault: "hold")),
                     () => new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc));
 
                 OwnerDigestRunResult result = await runner.RunOnceAsync(CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(result.Posted);
-                string note = poster.Posts[0];
-                AssertContains("no question is answered here", note);
-                AssertContains("Proposed default", note);
-
                 // The digest event carries only ranking metadata: no answer, choice, or ruling field.
                 EnumerationResult<ArmadaEvent> events = await db.Driver.Events
                     .EnumerateAsync(new EnumerationQuery { EventType = OwnerDigestRunner.DigestEventType, PageNumber = 1, PageSize = 10 })

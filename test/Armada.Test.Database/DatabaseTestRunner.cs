@@ -79,6 +79,7 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(version, await _Driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Repeated startup schema version");
             }, token);
             await RunTest("Schema_Upgrade_Drops_Jobs_Table_Holding_Rows", "Schema", () => new SchemaVerificationTests(_Settings).VerifyJobsTableDroppedOnUpgradeAsync(token), token);
+            await RunTest("Schema_Upgrade_Drops_Coordination_Board_Tables_Keeps_Leases", "Schema", () => new SchemaVerificationTests(_Settings).VerifyCoordinationBoardDroppedOnUpgradeAsync(token), token);
             if (_Settings.Type == DatabaseTypeEnum.Postgresql)
                 await RunTest("Postgresql_Upgrade_Preserves_Planning_Times_And_Objective_Links", "Schema", () => new PlanningTimestampMigrationTests(_Settings).VerifyAsync(token), token);
 
@@ -91,11 +92,6 @@ namespace Armada.Test.Database
                 await RunTest("MySQL_Unicode_Full_Uniqueness_Concurrency_Rollback", "Schema", () => new MysqlUnicodeUniquenessTests(_Settings).VerifyAsync(token), token);
 
             await RunTest("CoordinationLease_Reopen_Ownership_Expiry", "Operational", () => TestCoordinationLeaseAsync(token), token);
-            CoordinationDatabaseTests coordination = new CoordinationDatabaseTests(_Driver, _Settings, _NoCleanup);
-            await RunTest("CoordinationRoom_Create_Read_Update_Reopen_Delete", "Operational", () => coordination.VerifyRoomsAsync(token), token);
-            await RunTest("CoordinationParticipant_Upsert_Heartbeat_Race_Prune", "Operational", () => coordination.VerifyParticipantsAsync(token), token);
-            await RunTest("CoordinationMessage_Create_Read_Update_Visibility_Delete", "Operational", () => coordination.VerifyMessagesAsync(token), token);
-            await RunTest("CoordinationClaim_Create_Extend_Release_Reopen", "Operational", () => coordination.VerifyClaimsAsync(token), token);
             await RunTest("Backup_Native_Verified_Archive_Provider_Manifest_And_Restore_Contract", "Operational", () => TestNativeBackupAsync(token), token);
             await RunTest("HarborRunnerEnrollment_Reopen_And_CAS_Race", "Operational", () => new HarborRunnerEnrollmentDatabaseTests(_Driver, _Settings).VerifyAsync(token), token);
             await RunTest("HarborRunnerEnrollment_Every_Property_Enroll_Revoke_Reopen", "Operational", () => new HarborRunnerEnrollmentDatabaseTests(_Driver, _Settings).VerifyEveryPropertyAsync(token), token);

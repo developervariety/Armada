@@ -343,72 +343,15 @@ namespace Armada.Test.Unit.Suites.Services
                 }, service);
 
                 AssertNotNull(handler, "armada_register_agentwake_session handler should be registered");
-                AssertTrue(JsonSerializer.Serialize(registrationSchema).Contains("participantKey", StringComparison.Ordinal), "registration schema should advertise participantKey");
-                using JsonDocument doc = JsonDocument.Parse("{\"runtime\":\"Codex\",\"sessionId\":\"codex-session-456\",\"workingDirectory\":\"mcp-workdir\",\"participantKey\":\"mcp-helper\"}");
+                AssertFalse(JsonSerializer.Serialize(registrationSchema).Contains("participantKey", StringComparison.Ordinal), "registration schema advertises no participant key");
+                using JsonDocument doc = JsonDocument.Parse("{\"runtime\":\"Codex\",\"sessionId\":\"codex-session-456\",\"workingDirectory\":\"mcp-workdir\"}");
                 await handler!(doc.RootElement).ConfigureAwait(false);
-                AssertEqual("mcp-helper", service.GetAgentWakeSession()!.ParticipantKey, "MCP-registered participant key should be retained");
                 await service.FireDrainerAsync("vessel-a", "event").ConfigureAwait(false);
 
                 AgentWakeProcessRequest req = host.LastRequest!;
                 AssertEqual("codex", req.Command, "MCP-registered runtime should drive Auto wake");
                 AssertTrue(req.ArgumentList.Contains("codex-session-456"), "MCP-registered session should be resumed");
                 AssertEqual("mcp-workdir", req.WorkingDirectory, "MCP-registered working directory should be used");
-            });
-
-            await RunTest("FireBoardWake_AgentWake_ConfiguredParticipantStartsAfterRestart", async () =>
-            {
-                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
-                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
-                RemoteTriggerSettings settings = MakeAgentWakeSettings();
-                settings.AgentWake = new AgentWakeSettings
-                {
-                    Runtime = AgentWakeRuntime.OpenCode,
-                    DeliveryMode = AgentWakeDeliveryMode.SpawnProcess,
-                    ParticipantKey = "persistent-lead",
-                    WorkingDirectory = "lead-workdir"
-                };
-                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
-
-                AgentWakeStatusSnapshot status = service.GetAgentWakeStatus();
-                AssertTrue(status.Configured, "AgentWake status should report the enabled configuration");
-                AssertFalse(status.Session != null, "a fresh service should not require a transient registration");
-                AssertEqual("persistent-lead", status.EffectiveParticipantKey, "the settings key should own addressed wakes after restart");
-
-                await service.FireBoardWakeAsync("persistent-lead", "review the board").ConfigureAwait(false);
-
-                AssertEqual(1, host.StartCallCount, "the persistent participant should start one process without registration");
-                AssertEqual("opencode", host.LastRequest!.Command, "the configured runtime should start");
-                AssertEqual("lead-workdir", host.LastRequest.WorkingDirectory, "the configured working directory should be retained");
-                AssertContains("review the board", string.Join(" ", host.LastRequest.ArgumentList), "the addressed task should seed the fresh process");
-            });
-
-            await RunTest("FireBoardWake_AgentWake_TransientParticipantOverridesConfiguredParticipant", async () =>
-            {
-                RecordingAgentWakeProcessHost host = new RecordingAgentWakeProcessHost();
-                RecordingRemoteTriggerHttpClient http = new RecordingRemoteTriggerHttpClient();
-                RemoteTriggerSettings settings = MakeAgentWakeSettings();
-                settings.AgentWake = new AgentWakeSettings
-                {
-                    Runtime = AgentWakeRuntime.OpenCode,
-                    DeliveryMode = AgentWakeDeliveryMode.SpawnProcess,
-                    ParticipantKey = "persistent-lead"
-                };
-                RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
-                service.RegisterAgentWakeSession(new AgentWakeSessionRegistration
-                {
-                    Runtime = AgentWakeRuntime.OpenCode,
-                    ParticipantKey = "controlled-probe"
-                });
-
-                AgentWakeStatusSnapshot status = service.GetAgentWakeStatus();
-                AssertEqual("persistent-lead", status.ConfiguredParticipantKey, "status should retain the restart-safe key");
-                AssertEqual("controlled-probe", status.EffectiveParticipantKey, "a transient probe should temporarily own addressed wakes");
-
-                await service.FireBoardWakeAsync("persistent-lead", "must stay signal-only").ConfigureAwait(false);
-                AssertEqual(0, host.StartCallCount, "the configured key should not race a transient process owner");
-
-                await service.FireBoardWakeAsync("controlled-probe", "start the controlled probe").ConfigureAwait(false);
-                AssertEqual(1, host.StartCallCount, "the transient participant should start one process");
             });
 
             await RunTest("FireDrainer_AgentWake_CustomSettings_PropagatesRequestOptions", async () =>

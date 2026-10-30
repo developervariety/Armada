@@ -228,284 +228,6 @@ namespace Armada.Test.Unit.Suites.Services
                     secondResult.GetProperty("tools")[0].GetProperty("name").GetString());
             }).ConfigureAwait(false);
 
-            await RunTest("PendingWake_RidesBackOnAnyToolResult", async () =>
-            {
-                int port = GetAvailablePort();
-                await using ArmadaMcpHttpServer server = CreateServer(port);
-                server.PendingWakeProvider = (participantKey, token) =>
-                    Task.FromResult((IReadOnlyList<string>)new List<string>
-                    {
-                        "[to=" + participantKey + "] [from=lead] take vessel review"
-                    });
-                RegisterStatusTool(server);
-                await server.StartAsync().ConfigureAwait(false);
-
-                using HttpClient client = new HttpClient
-                {
-                    BaseAddress = new Uri("http://127.0.0.1:" + port)
-                };
-
-                // A monitoring session calls a status tool, not a coordination tool. Before
-                // the wake rode on the tool result, this is exactly where mail went unseen.
-                JsonElement withoutHeader = await CallStatusToolAsync(client, 1, null).ConfigureAwait(false);
-                AssertFalse(
-                    ResultText(withoutHeader).Contains("[ARMADA WAKE]", StringComparison.Ordinal),
-                    "an unidentified caller must not receive another session's mail");
-
-                JsonElement withHeader = await CallStatusToolAsync(client, 2, "lead-session").ConfigureAwait(false);
-                string text = ResultText(withHeader);
-                AssertContains("armada_status ok", text);
-                AssertContains("[ARMADA WAKE]", text);
-                AssertContains("take vessel review", text);
-                AssertContains("armada_mark_signal_read", text);
-            }).ConfigureAwait(false);
-
-            await RunTest("PendingWake_RepeatsUntilAcknowledged", async () =>
-            {
-                int port = GetAvailablePort();
-                await using ArmadaMcpHttpServer server = CreateServer(port);
-                int providerCalls = 0;
-                server.PendingWakeProvider = (participantKey, token) =>
-                {
-                    providerCalls++;
-                    return Task.FromResult((IReadOnlyList<string>)new List<string> { "still waiting" });
-                };
-                RegisterStatusTool(server);
-                await server.StartAsync().ConfigureAwait(false);
-
-                using HttpClient client = new HttpClient
-                {
-                    BaseAddress = new Uri("http://127.0.0.1:" + port)
-                };
-
-                // Delivery is not acknowledgement. A wake that stopped being shown before
-                // the session read it would be a lost wake.
-                JsonElement first = await CallStatusToolAsync(client, 1, "lead-session").ConfigureAwait(false);
-                JsonElement second = await CallStatusToolAsync(client, 2, "lead-session").ConfigureAwait(false);
-                AssertContains("[ARMADA WAKE]", ResultText(first));
-                AssertContains("[ARMADA WAKE]", ResultText(second));
-                AssertEqual(2, providerCalls, "each tool call should re-check for pending wakes");
-            }).ConfigureAwait(false);
-
-            await RunTest("PendingWake_SkipsToolsThatCarryTheirOwnWakes", async () =>
-            {
-                int port = GetAvailablePort();
-                await using ArmadaMcpHttpServer server = CreateServer(port);
-                server.WakeBannerExcludedTools.Add("armada_coordination_read");
-                server.PendingWakeProvider = (participantKey, token) =>
-                    Task.FromResult((IReadOnlyList<string>)new List<string> { "directed work" });
-                server.RegisterTool(
-                    "armada_coordination_read",
-                    "Read the board",
-                    new { type = "object" },
-                    args => Task.FromResult((object)new { UnreadWakes = new[] { "directed work" } }));
-                await server.StartAsync().ConfigureAwait(false);
-
-                using HttpClient client = new HttpClient
-                {
-                    BaseAddress = new Uri("http://127.0.0.1:" + port)
-                };
-
-                JsonElement call = await CallToolAsync(
-                    client, 1, "armada_coordination_read", "lead-session").ConfigureAwait(false);
-                string text = ResultText(call);
-                AssertContains("UnreadWakes", text);
-                AssertFalse(
-                    text.Contains("[ARMADA WAKE]", StringComparison.Ordinal),
-                    "a tool that already returns its wakes must not be given a second copy");
-            }).ConfigureAwait(false);
-
-            await RunTest("CoordinationRead_RefusesAParticipantKeyThatDiffersFromTheHeader", async () =>
-            {
-                // A session sent the participant header and passed a different participantKey;
-                // the header key was read silently, so notes addressed to the key it asked for
-                // never appeared and nothing said why.
-                using (Armada.Test.Unit.TestHelpers.TestDatabase testDb = await Armada.Test.Unit.TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
-                    logging.Settings.EnableConsole = false;
-                    Armada.Server.CoordinationService coordination = new Armada.Server.CoordinationService(logging, testDb.Driver);
-                    int port = GetAvailablePort();
-                    await using ArmadaMcpHttpServer server = CreateServer(port);
-                    Armada.Server.Mcp.Tools.McpCoordinationTools.Register(
-                        (name, description, schema, handler) => server.RegisterTool(name, description, schema, handler),
-                        testDb.Driver,
-                        coordination);
-                    await server.StartAsync().ConfigureAwait(false);
-
-                    using HttpClient client = new HttpClient
-                    {
-                        BaseAddress = new Uri("http://127.0.0.1:" + port)
-                    };
-
-                    JsonElement mismatched = await CallToolAsync(
-                        client, 1, "armada_coordination_read", "session-key", new { participantKey = "session-name" }).ConfigureAwait(false);
-                    string refused = ResultText(mismatched);
-                    AssertContains("differs from this session", refused);
-                    AssertFalse(refused.Contains("\"Messages\"", StringComparison.Ordinal), "a refused read returns no notes");
-
-                    JsonElement matching = await CallToolAsync(
-                        client, 2, "armada_coordination_read", "session-key", new { participantKey = "session-key" }).ConfigureAwait(false);
-                    string read = ResultText(matching);
-                    AssertContains("Messages", read);
-                    AssertFalse(read.Contains("differs from", StringComparison.Ordinal), "the header key itself is read");
-
-                    JsonElement heartbeat = await CallToolAsync(
-                        client, 3, "armada_coordination_heartbeat", "session-key", new { participantKey = "session-name", displayName = "session-name" }).ConfigureAwait(false);
-                    AssertContains("differs from this session", ResultText(heartbeat));
-                }
-            }).ConfigureAwait(false);
-
-            await RunTest("CoordinationTools_AcceptTheConfiguredBaseKeyAndNameTheSessionKey", async () =>
-            {
-                // A bridge made the configured key unique for one session. The session knows
-                // only the configured key, so naming it must mean the header key, and the
-                // result must tell the session which key it reads and acknowledges as.
-                using (Armada.Test.Unit.TestHelpers.TestDatabase testDb = await Armada.Test.Unit.TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
-                    logging.Settings.EnableConsole = false;
-                    Armada.Server.CoordinationService coordination = new Armada.Server.CoordinationService(logging, testDb.Driver);
-                    int port = GetAvailablePort();
-                    await using ArmadaMcpHttpServer server = CreateServer(port);
-                    Armada.Server.Mcp.Tools.McpCoordinationTools.Register(
-                        (name, description, schema, handler) => server.RegisterTool(name, description, schema, handler),
-                        testDb.Driver,
-                        coordination);
-                    await server.StartAsync().ConfigureAwait(false);
-
-                    using HttpClient client = new HttpClient
-                    {
-                        BaseAddress = new Uri("http://127.0.0.1:" + port)
-                    };
-
-                    JsonElement withoutKey = await CallToolAsync(
-                        client, 1, "armada_coordination_heartbeat", "operator-ab12cd", new { displayName = "operator session" }, "operator").ConfigureAwait(false);
-                    string heartbeat = ResultText(withoutKey);
-                    AssertFalse(heartbeat.Contains("\"Error\"", StringComparison.Ordinal), "a heartbeat with no participantKey uses the header key: " + heartbeat);
-                    AssertContains("\"YourParticipantKey\":\"operator-ab12cd\"", heartbeat);
-
-                    JsonElement baseKeyHeartbeat = await CallToolAsync(
-                        client, 2, "armada_coordination_heartbeat", "operator-ab12cd", new { participantKey = "operator", displayName = "operator session" }, "operator").ConfigureAwait(false);
-                    string baseHeartbeat = ResultText(baseKeyHeartbeat);
-                    AssertFalse(baseHeartbeat.Contains("differs from", StringComparison.Ordinal), "the configured base key means the header key: " + baseHeartbeat);
-                    AssertContains("\"YourParticipantKey\":\"operator-ab12cd\"", baseHeartbeat);
-
-                    JsonElement baseKeyRead = await CallToolAsync(
-                        client, 3, "armada_coordination_read", "operator-ab12cd", new { participantKey = "operator" }, "operator").ConfigureAwait(false);
-                    string read = ResultText(baseKeyRead);
-                    AssertContains("Messages", read);
-                    AssertContains("\"YourParticipantKey\":\"operator-ab12cd\"", read);
-
-                    JsonElement otherKey = await CallToolAsync(
-                        client, 4, "armada_coordination_read", "operator-ab12cd", new { participantKey = "someone-else" }, "operator").ConfigureAwait(false);
-                    AssertContains("differs from this session", ResultText(otherKey));
-
-                    JsonElement baseWithoutUniqueKey = await CallToolAsync(
-                        client, 5, "armada_coordination_read", "operator-ab12cd", new { participantKey = "operator" }).ConfigureAwait(false);
-                    AssertContains("differs from this session", ResultText(baseWithoutUniqueKey));
-                }
-            }).ConfigureAwait(false);
-
-            await RunTest("CoordinationRead_ASessionBehindASharedBridgeReadsMailAddressedToItsName", async () =>
-            {
-                // A bridge made the shared configured key unique for this session, so the session
-                // knows itself only by the name it posts under. Naming that name must read its own
-                // mail, whole; a name only another session uses must stay refused.
-                using (Armada.Test.Unit.TestHelpers.TestDatabase testDb = await Armada.Test.Unit.TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
-                    logging.Settings.EnableConsole = false;
-                    Armada.Server.CoordinationService coordination = new Armada.Server.CoordinationService(logging, testDb.Driver);
-                    int port = GetAvailablePort();
-                    await using ArmadaMcpHttpServer server = CreateServer(port);
-                    Armada.Server.Mcp.Tools.McpCoordinationTools.Register(
-                        (name, description, schema, handler) => server.RegisterTool(name, description, schema, handler),
-                        testDb.Driver,
-                        coordination);
-                    await server.StartAsync().ConfigureAwait(false);
-
-                    using HttpClient client = new HttpClient
-                    {
-                        BaseAddress = new Uri("http://127.0.0.1:" + port)
-                    };
-
-                    // The note is sent before the session first posts under its name, so it is stored
-                    // under the name rather than resolved to the key.
-                    string task = "task detail " + new string('t', 900);
-                    await coordination.PostMessageAsync(
-                        Armada.Server.CoordinationService.DefaultRoomKey, Armada.Core.Enums.CoordinationAuthorTypeEnum.Operator,
-                        "peer-key", "peer-name", task, toParticipantKey: "helper-one").ConfigureAwait(false);
-                    await CallToolAsync(
-                        client, 1, "armada_coordination_heartbeat", "bridge-ab12cd", new { displayName = "helper-one" }, "bridge").ConfigureAwait(false);
-
-                    JsonElement byName = await CallToolAsync(
-                        client, 2, "armada_coordination_read", "bridge-ab12cd", new { participantKey = "helper-one" }, "bridge").ConfigureAwait(false);
-                    string byNameText = ResultText(byName);
-                    using (JsonDocument read = JsonDocument.Parse(byNameText))
-                    {
-                        JsonElement root = read.RootElement;
-                        AssertFalse(root.TryGetProperty("Error", out _), "the session's own name is not refused: " + byNameText);
-                        AssertEqual("bridge-ab12cd", root.GetProperty("YourParticipantKey").GetString());
-                        JsonElement[] mail = root.GetProperty("Messages").EnumerateArray()
-                            .Where(m => m.GetProperty("ToParticipantKey").GetString() == "helper-one").ToArray();
-                        AssertEqual(1, mail.Length, "the note addressed to the session's name is in its read");
-                        AssertFalse(mail[0].GetProperty("Truncated").GetBoolean(), "mail addressed to the session's name is not previewed");
-                        AssertEqual(task, mail[0].GetProperty("Content").GetString());
-                    }
-
-                    JsonElement otherName = await CallToolAsync(
-                        client, 3, "armada_coordination_read", "bridge-ab12cd", new { participantKey = "peer-name" }, "bridge").ConfigureAwait(false);
-                    AssertContains("differs from this session", ResultText(otherName));
-                }
-            }).ConfigureAwait(false);
-
-            await RunTest("PendingWake_LookupFailureLeavesTheToolResultIntact", async () =>
-            {
-                int port = GetAvailablePort();
-                await using ArmadaMcpHttpServer server = CreateServer(port);
-                server.PendingWakeProvider = (participantKey, token) =>
-                    throw new InvalidOperationException("board unavailable");
-                RegisterStatusTool(server);
-                await server.StartAsync().ConfigureAwait(false);
-
-                using HttpClient client = new HttpClient
-                {
-                    BaseAddress = new Uri("http://127.0.0.1:" + port)
-                };
-
-                // Losing the caller's real result to a board lookup is the worse outcome.
-                JsonElement call = await CallStatusToolAsync(client, 1, "lead-session").ConfigureAwait(false);
-                AssertContains("armada_status ok", ResultText(call));
-            }).ConfigureAwait(false);
-
-            await RunTest("PendingWake_RejectsAMalformedParticipantHeader", async () =>
-            {
-                int port = GetAvailablePort();
-                await using ArmadaMcpHttpServer server = CreateServer(port);
-                string? observedKey = null;
-                server.PendingWakeProvider = (participantKey, token) =>
-                {
-                    observedKey = participantKey;
-                    return Task.FromResult((IReadOnlyList<string>)new List<string> { "mail" });
-                };
-                RegisterStatusTool(server);
-                await server.StartAsync().ConfigureAwait(false);
-
-                using HttpClient client = new HttpClient
-                {
-                    BaseAddress = new Uri("http://127.0.0.1:" + port)
-                };
-
-                // The key is echoed into text a model reads, so a key that is not a plain
-                // identifier is dropped rather than passed on.
-                JsonElement call = await CallStatusToolAsync(client, 1, "lead session <b>").ConfigureAwait(false);
-                AssertNull(observedKey, "a malformed participant key must not reach the board lookup");
-                AssertFalse(
-                    ResultText(call).Contains("[ARMADA WAKE]", StringComparison.Ordinal),
-                    "a malformed participant key must not deliver a wake");
-            }).ConfigureAwait(false);
-
             await RunTest("MissingOrInvalidCredentialsFailClosed", async () =>
             {
                 int port = GetAvailablePort();
@@ -656,12 +378,12 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(5, adminTools.GetProperty("result").GetProperty("tools").GetArrayLength(), "the administrator outside a mission still discovers the whole catalog");
             }).ConfigureAwait(false);
 
-            await RunTest("HeaderParticipantReachesHandlerAndAudit", async () =>
+            await RunTest("AuthenticatedCallerIdentityReachesHandlerAndAudit", async () =>
             {
                 int port = GetAvailablePort();
                 await using ArmadaMcpHttpServer server = CreateServer(port);
                 McpToolCallAudit? observedAudit = null;
-                string? observedParticipant = null;
+                string? observedCaller = null;
                 server.ToolCallAuditSink = (audit, token) =>
                 {
                     observedAudit = audit;
@@ -669,12 +391,12 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 server.RegisterTool(
                     "armada_identity",
-                    "Return the request participant",
+                    "Return the authenticated caller",
                     new { type = "object" },
                     args =>
                     {
-                        observedParticipant = ArmadaMcpHttpServer.CurrentParticipantKey;
-                        return Task.FromResult((object)new { Participant = observedParticipant });
+                        observedCaller = McpCallerContext.CallerIdentity;
+                        return Task.FromResult((object)new { Caller = observedCaller });
                     });
                 await server.StartAsync().ConfigureAwait(false);
 
@@ -684,13 +406,11 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 using HttpRequestMessage request = CreateRequest(
                     "/mcp", 1, "tools/call", new { name = "armada_identity", arguments = new { } });
-                request.Headers.TryAddWithoutValidation(ArmadaMcpHttpServer.ParticipantHeaderName, "operator-example");
                 using HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
-                AssertEqual("operator-example", observedParticipant, "the handler reads the participant the request header named");
+                AssertEqual("default", observedCaller, "the handler reads the identity the credential resolved to");
                 AssertNotNull(observedAudit, "The successful tool call must reach the audit sink.");
-                AssertEqual("operator-example", observedAudit!.ParticipantKey);
-                AssertEqual("armada_identity", observedAudit.ToolName);
+                AssertEqual("armada_identity", observedAudit!.ToolName);
                 AssertTrue(observedAudit.Succeeded);
             }).ConfigureAwait(false);
 
@@ -886,7 +606,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 BaseAddress = new Uri("http://127.0.0.1:" + port)
             };
-            call.Response = await CallToolAsync(client, 1, "armada_result", null).ConfigureAwait(false);
+            call.Response = await CallToolAsync(client, 1, "armada_result").ConfigureAwait(false);
             return call;
         }
 
@@ -917,33 +637,17 @@ namespace Armada.Test.Unit.Suites.Services
                 args => Task.FromResult((object)new { Status = "armada_status ok" }));
         }
 
-        private static async Task<JsonElement> CallStatusToolAsync(
-            HttpClient client,
-            int id,
-            string? participantKey)
-        {
-            return await CallToolAsync(client, id, "armada_status", participantKey).ConfigureAwait(false);
-        }
-
         private static async Task<JsonElement> CallToolAsync(
             HttpClient client,
             int id,
             string toolName,
-            string? participantKey,
-            object? arguments = null,
-            string? participantBaseKey = null)
+            object? arguments = null)
         {
             HttpRequestMessage request = CreateRequest(
                 "/mcp",
                 id,
                 "tools/call",
                 new { name = toolName, arguments = arguments ?? new { } });
-            if (participantKey != null)
-                request.Headers.TryAddWithoutValidation(
-                    ArmadaMcpHttpServer.ParticipantHeaderName, participantKey);
-            if (participantBaseKey != null)
-                request.Headers.TryAddWithoutValidation(
-                    ArmadaMcpHttpServer.ParticipantBaseHeaderName, participantBaseKey);
             return await SendAsync(client, request).ConfigureAwait(false);
         }
 

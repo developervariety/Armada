@@ -44,13 +44,13 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Caller without a mission retains participant attribution", async () =>
+            await RunTest("Caller without a mission retains authenticated caller attribution", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     client.NextResult = ChoiceResult("provider", 0.93);
-                    Harness harness = Harness.Create(testDb, client, enabled: true, participantKey: "operator-session-test");
+                    Harness harness = Harness.Create(testDb, client, enabled: true);
                     await harness.CallAsync("armada_typed_decision", new
                     {
                         state = "test state",
@@ -59,7 +59,8 @@ namespace Armada.Test.Unit.Suites.Services
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
                     AssertEqual(1, events.Count);
                     AssertNull(events[0].CaptainId, "An operator session is not a captain id");
-                    AssertContains("\"participant_key\":\"operator-session-test\"", events[0].Payload ?? "");
+                    AssertContains("\"caller_identity\":\"" + Constants.DefaultUserId + "\"", events[0].Payload ?? "", "the event names the authenticated caller");
+                    AssertFalse((events[0].Payload ?? "").Contains("participant_key", StringComparison.Ordinal), "the event carries no participant key");
                     AssertContains("\"tool_name\":\"armada_typed_decision\"", events[0].Payload ?? "");
                 }
             });
@@ -701,8 +702,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal) { ["finding"] = new TypedAnswer { Type = "noul", Noul = 0.97 } }
                     };
                     Harness harness = Harness.Create(testDb, client, enabled: true,
-                        configure: s => s.TypedDecisions.Custom["house_rule"] = CustomDecision(TypedDecisionModeEnum.Shadow),
-                        participantKey: "operator-session-test");
+                        configure: s => s.TypedDecisions.Custom["house_rule"] = CustomDecision(TypedDecisionModeEnum.Shadow));
 
                     string response = await harness.CallAsync("armada_run_custom_decision", new { name = "house_rule", context = new { diff = "a" } }).ConfigureAwait(false);
 
@@ -712,7 +712,8 @@ namespace Armada.Test.Unit.Suites.Services
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false);
                     AssertEqual(1, events.Count, "one shadow event");
                     AssertNull(events[0].CaptainId, "A session key must not become a captain id");
-                    AssertContains("\"participant_key\":\"operator-session-test\"", events[0].Payload ?? "");
+                    AssertContains("\"caller_identity\":\"" + Constants.DefaultUserId + "\"", events[0].Payload ?? "", "the event names the authenticated caller");
+                    AssertFalse((events[0].Payload ?? "").Contains("participant_key", StringComparison.Ordinal), "the event carries no participant key");
                     AssertContains("\"tool_name\":\"armada_run_custom_decision\"", events[0].Payload ?? "");
                 }
             });
@@ -790,7 +791,6 @@ namespace Armada.Test.Unit.Suites.Services
                         new TypedDecisionRecorder(testDb.Driver, new LoggingModule()),
                         settings,
                         new LoggingModule(),
-                        null,
                         new PriorArtRetriever(source));
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("prior-art-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
                     Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission
@@ -1003,8 +1003,7 @@ namespace Armada.Test.Unit.Suites.Services
                 bool enablePremiseCheck = false,
                 bool enableMemoryRecord = false,
                 bool enableCorpusPrelabel = false,
-                Action<ArmadaSettings>? configure = null,
-                string? participantKey = null)
+                Action<ArmadaSettings>? configure = null)
             {
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.TypedDecisions.CaptainTool.Enabled = enabled;
@@ -1021,8 +1020,7 @@ namespace Armada.Test.Unit.Suites.Services
                     client,
                     recorder,
                     settings,
-                    new LoggingModule(),
-                    () => participantKey);
+                    new LoggingModule());
                 return harness;
             }
 

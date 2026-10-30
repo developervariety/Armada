@@ -150,9 +150,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<IReadOnlyList<FollowUpDuplicateCandidate>> GetDuplicateCandidatesAsync(string? vesselId, int limit, CancellationToken token)
                 => Task.FromResult<IReadOnlyList<FollowUpDuplicateCandidate>>(new List<FollowUpDuplicateCandidate>());
             public Task<string?> CreateTriagedObjectiveAsync(FollowUpRouteRequest request, CancellationToken token) => Task.FromResult<string?>(null);
-            public Task AppendEvidenceNoteAsync(FollowUpRouteRequest request, CancellationToken token) => Task.CompletedTask;
             public Task LinkDuplicateAsync(FollowUpRouteRequest request, string existingObjectiveId, CancellationToken token) => Task.CompletedTask;
-            public Task FlagBlockingForOperatorAsync(FollowUpRouteRequest request, CancellationToken token) => Task.CompletedTask;
         }
 
         private static LoggingModule Quiet()
@@ -264,11 +262,6 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     InboxTriageAdapter adapter = new InboxTriageAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), Quiet());
                     await adapter.TriageInboxAsync(new List<InboxItem> { new InboxItem { Kind = "papercut", Title = "Decoder read", Detail = body } }, CancellationToken.None).ConfigureAwait(false);
-                }),
-                new StandaloneSender(InboxTriageAdapter.DecisionPoint, "board_notes", false, async (db, settings, client, vesselId, body) =>
-                {
-                    InboxTriageAdapter adapter = new InboxTriageAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), Quiet());
-                    await adapter.TriageBoardNotesAsync(new List<BoardNoteTriageInput> { new BoardNoteTriageInput { Id = "note_1", AuthorType = "captain", Content = body } }, CancellationToken.None).ConfigureAwait(false);
                 })
             };
         }

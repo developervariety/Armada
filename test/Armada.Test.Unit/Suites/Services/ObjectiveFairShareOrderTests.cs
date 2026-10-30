@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading.Tasks;
@@ -121,6 +122,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(descendant.Id, ordered[0].Id);
                 AssertEqual("plain", campaignByObjectiveId[descendant.Id],
                     "A malformed parent cycle must terminate and must not invent a campaign root.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("The campaign root is the nearest tagged ancestor, and a parent loop has none", () =>
+            {
+                Objective outer = new Objective { Title = "outer", Tags = new List<string> { "campaign:outer" } };
+                Objective inner = new Objective { Title = "inner", ParentObjectiveId = outer.Id, Tags = new List<string> { "Campaign:inner" } };
+                Objective leaf = new Objective { Title = "leaf", ParentObjectiveId = inner.Id };
+                Objective loopA = new Objective { Title = "loop a" };
+                Objective loopB = new Objective { Title = "loop b", ParentObjectiveId = loopA.Id };
+                loopA.ParentObjectiveId = loopB.Id;
+                Dictionary<string, Objective> byId = new List<Objective> { outer, inner, leaf, loopA, loopB }
+                    .ToDictionary(o => o.Id, o => o, StringComparer.Ordinal);
+
+                AssertEqual(inner.Id, CampaignRoomResolver.FindCampaignRoot(leaf, byId)!.Id, "the nearest tagged ancestor is the root");
+                AssertEqual("inner", CampaignRoomResolver.ReadCampaignName(inner));
+                AssertNull(CampaignRoomResolver.FindCampaignRoot(loopA, byId), "a parent loop has no campaign");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
         }

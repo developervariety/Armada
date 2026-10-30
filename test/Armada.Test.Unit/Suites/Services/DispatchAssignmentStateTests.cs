@@ -959,7 +959,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains(" M README.md", status);
                     AssertContains(" D work.txt", status);
                     AssertContains("?? new.txt", status);
-                    AssertEqual(0, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "A resume posts no warning");
 
                     List<ArmadaEvent> events = (await testDb.Driver.Events.EnumerateByMissionAsync(restart.Stage.Id, 50).ConfigureAwait(false));
                     AssertEqual(1, events.Count(e => e.EventType == "mission.work_snapshot_applied"), "The resume is recorded once");
@@ -968,7 +967,7 @@ namespace Armada.Test.Unit.Suites.Services
             });
 
             // Saved work made on an older commit than the rebuilt checkout's HEAD is not applied: it would land
-            // on a tree it was not made on. The skip is recorded and announced once, and the work stays saved.
+            // on a tree it was not made on. The skip is recorded once, and the work stays saved.
             await RunTest("TryAssign_ReassignedStageTwoMissionWhoseSavedWorkIsOnAnOlderCommit_AppliesNothingAndRecordsTheSkip", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -988,7 +987,6 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaEvent skipped = events.Single(e => e.EventType == "mission.work_snapshot_skipped");
                     AssertContains("recover/" + restart.Stage.Id + "-1", skipped.Message);
                     AssertEqual(0, events.Count(e => e.EventType == "mission.work_snapshot_applied"), "Nothing was applied");
-                    AssertEqual(1, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "The skip is announced once on the board");
                     AssertTrue(RunGitProcess(restart.BareRepo, "for-each-ref", "refs/heads/recover/" + restart.Stage.Id + "-1").Contains("recover/", StringComparison.Ordinal),
                         "The saved work stays in its recover ref");
 
@@ -999,7 +997,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(reassigned, "The stage must be assignable a second time; reason: " + (again?.FailureReason ?? "(none)"));
                     List<ArmadaEvent> laterEvents = await testDb.Driver.Events.EnumerateByMissionAsync(restart.Stage.Id, 50).ConfigureAwait(false);
                     AssertEqual(1, laterEvents.Count(e => e.EventType == "mission.work_snapshot_skipped"), "The same saved ref records one skip across assignments");
-                    AssertEqual(1, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "The same saved ref is announced once across assignments");
                 }
             });
 
@@ -1480,10 +1477,10 @@ namespace Armada.Test.Unit.Suites.Services
             // in one pass must not both provision a dock for the one idle captain: the second must
             // wait for an idle captain without spending the provisioning cost. Measured live: 12
             // aborted claims in one day, each after a full dock and sibling provisioning.
-            // A mission that moves from one captain to another announces the move once on the board, and the
+            // A mission that moves from one captain to another records one mission.reassigned event, and the
             // unread mail addressed to the mission moves with it. Mail addressed to a captain, to another
             // mission, or already read stays where it is.
-            await RunTest("TryAssign_MissionMovesToADifferentCaptain_AnnouncesOnceAndMovesItsUnreadMail", async () =>
+            await RunTest("TryAssign_MissionMovesToADifferentCaptain_RecordsOneReassignedEventAndMovesItsUnreadMail", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -1493,9 +1490,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    FakeBoardNotePoster poster = new FakeBoardNotePoster();
                     MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
-                    missionService.ReassignmentNotePoster = poster;
 
                     Vessel vessel = new Vessel("reassign-note-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
@@ -1525,11 +1520,15 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(assigned, "The mission must be assignable to the replacement captain");
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(moved.Id).ConfigureAwait(false);
                     AssertEqual(replacement.Id, readBack!.CaptainId ?? "(null)", "The replacement captain holds the mission");
-                    AssertEqual(1, poster.Posts.Count, "The move is announced once");
-                    AssertContains(moved.Id, poster.Posts[0]);
-                    AssertContains(previous.Name, poster.Posts[0]);
-                    AssertContains(replacement.Name, poster.Posts[0]);
-                    AssertEqual(moved.Id, poster.MissionIds[0] ?? "(null)", "The note names the mission");
+                    List<ArmadaEvent> reassigned = (await testDb.Driver.Events.EnumerateByMissionAsync(moved.Id, 50).ConfigureAwait(false))
+                        .Where(e => e.EventType == "mission.reassigned").ToList();
+                    AssertEqual(1, reassigned.Count, "The move is recorded once");
+                    AssertContains(previous.Id, reassigned[0].Message);
+                    AssertContains(replacement.Id, reassigned[0].Message);
+                    AssertEqual(replacement.Id, reassigned[0].CaptainId ?? "(null)", "The event carries the new captain");
+                    AssertEqual(vessel.Id, reassigned[0].VesselId ?? "(null)", "The event carries the vessel");
+                    AssertContains(previous.Id, reassigned[0].Payload ?? "", "The payload names the captain the mission left");
+                    AssertContains(replacement.Id, reassigned[0].Payload ?? "", "The payload names the captain the mission joined");
 
                     AssertEqual(replacement.Id, (await testDb.Driver.Signals.ReadAsync(missionMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Unread mission mail follows the mission");
                     AssertEqual(replacement.Id, (await testDb.Driver.Signals.ReadAsync(waitingMail.Id).ConfigureAwait(false))!.ToCaptainId ?? "(null)", "Mail sent while the mission had no captain reaches its next captain");
@@ -1539,8 +1538,8 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            // The first assignment of a mission, and a relaunch on the same captain, announce nothing.
-            await RunTest("TryAssign_FirstAssignmentOrSameCaptain_PostsNoReassignmentNote", async () =>
+            // The first assignment of a mission, and a relaunch on the same captain, record no reassignment.
+            await RunTest("TryAssign_FirstAssignmentOrSameCaptain_RecordsNoReassignedEvent", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -1550,9 +1549,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    FakeBoardNotePoster poster = new FakeBoardNotePoster();
                     MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
-                    missionService.ReassignmentNotePoster = poster;
 
                     Vessel vessel = new Vessel("no-note-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
@@ -1566,7 +1563,7 @@ namespace Armada.Test.Unit.Suites.Services
                     first.Status = MissionStatusEnum.Pending;
                     first = await testDb.Driver.Missions.CreateAsync(first).ConfigureAwait(false);
                     AssertTrue(await missionService.TryAssignAsync(first, vessel).ConfigureAwait(false), "The first assignment must succeed");
-                    AssertEqual(0, poster.Posts.Count, "A first assignment is not a reassignment");
+                    AssertEqual(0, (await testDb.Driver.Events.EnumerateByMissionAsync(first.Id, 50).ConfigureAwait(false)).Count(e => e.EventType == "mission.reassigned"), "A first assignment is not a reassignment");
                     Mission? finished = await testDb.Driver.Missions.ReadAsync(first.Id).ConfigureAwait(false);
                     finished!.Status = MissionStatusEnum.Complete;
                     await testDb.Driver.Missions.UpdateAsync(finished).ConfigureAwait(false);
@@ -1583,7 +1580,7 @@ namespace Armada.Test.Unit.Suites.Services
                     idle.CurrentDockId = null;
                     await testDb.Driver.Captains.UpdateAsync(idle).ConfigureAwait(false);
                     AssertTrue(await missionService.TryAssignAsync(again, vessel).ConfigureAwait(false), "The relaunch must succeed");
-                    AssertEqual(0, poster.Posts.Count, "A relaunch on the same captain is not a reassignment");
+                    AssertEqual(0, (await testDb.Driver.Events.EnumerateByMissionAsync(again.Id, 50).ConfigureAwait(false)).Count(e => e.EventType == "mission.reassigned"), "A relaunch on the same captain is not a reassignment");
                 }
             });
 
@@ -2653,7 +2650,6 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class StageTwoRestart
         {
             public IMissionService MissionService { get; private set; } = null!;
-            public FakeBoardNotePoster Poster { get; } = new FakeBoardNotePoster();
             public Vessel Vessel { get; private set; } = null!;
             public Mission Stage { get; private set; } = null!;
             public string BareRepo { get; private set; } = "";
@@ -2667,7 +2663,6 @@ namespace Armada.Test.Unit.Suites.Services
                 ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                 captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
                 MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
-                missionService.ReassignmentNotePoster = restart.Poster;
                 restart.MissionService = missionService;
 
                 restart.BareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();

@@ -1147,87 +1147,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("HandleAgentOutput stores bounded Captain notes with mission scope", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                    LoggingModule logging = CreateLogging();
-                    CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
-                    handler.SetCoordinationService(coordination);
-
-                    TenantMetadata tenant = new TenantMetadata("Captain note tenant");
-                    await testDb.Driver.Tenants.CreateAsync(tenant).ConfigureAwait(false);
-                    Captain captain = new Captain("Captain note author", AgentRuntimeEnum.Cursor) { TenantId = tenant.Id };
-                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Captain note vessel", "https://example.test/captain-note.git")
-                    {
-                        TenantId = tenant.Id
-                    }).ConfigureAwait(false);
-                    Voyage voyage = new Voyage("Captain note voyage") { TenantId = tenant.Id };
-                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
-                    Mission mission = new Mission("Captain note mission")
-                    {
-                        TenantId = tenant.Id,
-                        VoyageId = voyage.Id,
-                        VesselId = vessel.Id,
-                        CaptainId = captain.Id
-                    };
-                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
-
-                    int processId = 919192;
-                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
-                    string secret = new string('a', 24);
-                    handler.HandleAgentOutput(processId, "[ARMADA:NOTE] claim uses api_key=" + secret);
-                    await WaitForConditionAsync(async () =>
-                    {
-                        List<CoordinationMessage> current = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                        return current.Count == 1;
-                    }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-
-                    handler.HandleAgentOutput(processId, "[ARMADA:NOTE] second note in same output record\n[ARMADA:NOTE] third note in same output record");
-                    await WaitForConditionAsync(async () =>
-                    {
-                        List<CoordinationMessage> current = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                        return current.Count == 3;
-                    }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-
-                    handler.HandleAgentOutput(processId, "[ARMADA:NOTE]" + "malformed");
-                    handler.HandleAgentOutput(processId, "[ARMADA:NOTE] " + new string('x', 501));
-                    for (int i = 0; i < 21; i++)
-                        handler.HandleAgentOutput(processId, "[ARMADA:NOTE] outcome " + i);
-
-                    await WaitForConditionAsync(async () =>
-                    {
-                        List<CoordinationMessage> current = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                        return current.Count == 20;
-                    }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-
-                    List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                    AssertEqual(20, notes.Count, "only twenty Captain notes are accepted for one mission");
-                    CoordinationMessage? authoredNote = notes.Find(message => message.Content.StartsWith("claim uses", StringComparison.Ordinal));
-                    AssertNotNull(authoredNote, "the normal lifecycle output path writes the claim note");
-                    AssertEqual(CoordinationAuthorTypeEnum.Captain, authoredNote!.AuthorType);
-                    AssertEqual(captain.Id, authoredNote.AuthorId);
-                    AssertEqual(captain.Name, authoredNote.AuthorName);
-                    AssertEqual(mission.Id, authoredNote.MissionId);
-                    AssertEqual(voyage.Id, authoredNote.VoyageId);
-                    AssertEqual(mission.VesselId, authoredNote.VesselId);
-                    AssertEqual(tenant.Id, authoredNote.TenantId);
-                    AssertTrue(notes.Exists(message => message.Content == "second note in same output record"), "each note marker on a multiline record is routed");
-                    AssertTrue(notes.Exists(message => message.Content == "third note in same output record"), "all note markers on a multiline record are routed");
-                    AssertNull(authoredNote.ToParticipantKey, "captain notes are broadcast board records, not private captain-to-captain messages");
-                    AssertFalse(authoredNote.Content.Contains(secret, StringComparison.Ordinal), "credential-shaped values are removed before storage");
-                    AssertFalse(notes.Exists(message => message.Content.Contains(new string('x', 501), StringComparison.Ordinal)), "over-limit notes are rejected");
-                    AssertFalse(notes.Exists(message => message.Content == "malformed"), "malformed markers are ignored by the parser");
-                    List<Signal> signals = await testDb.Driver.Signals.EnumerateRecentAsync(200).ConfigureAwait(false);
-                    AssertFalse(signals.Exists(signal => signal.Payload.Contains(secret, StringComparison.Ordinal)), "raw note content is not copied to the progress-signal store");
-                    Captain unassignedCaptain = new Captain("Unassigned captain", AgentRuntimeEnum.Cursor);
-                    AssertNull(await coordination.PostCaptainNoteAsync(unassignedCaptain, mission, "forged note").ConfigureAwait(false), "a captain cannot write for a mission assigned to another captain");
-                    AssertNull(await coordination.PostCaptainNoteAsync(captain, mission, "  ").ConfigureAwait(false), "empty note content is rejected");
-                }
-            });
-
             await RunTest("HandleAgentOutput bounds single oversized runtime chunk", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2075,7 +1994,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Only the just-completed launch can deliver a final note queued behind completion", async () =>
+            await RunTest("Only the just-completed launch can deliver a final progress signal queued behind completion", async () =>
             {
                 foreach (bool interveningLaunch in new[] { false, true })
                 {
@@ -2083,8 +2002,6 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         AdmiralService admiral = CreateRealAdmiral(testDb.Driver, new IntentionalProcessStops());
                         AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, admiral);
-                        CoordinationService coordination = new CoordinationService(CreateLogging(), testDb.Driver);
-                        handler.SetCoordinationService(coordination);
                         Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("final-note-generation")
                         { State = CaptainStateEnum.Working, ProcessId = 989824 }).ConfigureAwait(false);
                         Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Final note generation")
@@ -2092,7 +2009,7 @@ namespace Armada.Test.Unit.Suites.Services
                         RegisterTrackedProcess(handler, 989824, captain.Id, mission.Id);
                         using (await MissionExecutionBoundary.Locks.AcquireAsync(mission.Id).ConfigureAwait(false))
                         {
-                            handler.HandleAgentOutput(989824, "[ARMADA:NOTE] Final verified same-generation result.");
+                            handler.HandleAgentOutput(989824, "[ARMADA:PROGRESS] Final verified same-generation result.");
                             int completingPid = 989824;
                             if (interveningLaunch)
                             {
@@ -2114,10 +2031,10 @@ namespace Armada.Test.Unit.Suites.Services
                             lock (owners)
                                 return Task.FromResult(((Dictionary<long, int>)pendingField.GetValue(handler)!).Count == 0);
                         }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-                        List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                        AssertEqual(interveningLaunch ? 0 : 1, notes.Count,
-                            "A completed later retry cannot authorize an older queued note");
-                        if (!interveningLaunch) AssertEqual("Final verified same-generation result.", notes[0].Content);
+                        List<Signal> delivered = (await testDb.Driver.Signals.EnumerateRecentAsync(200).ConfigureAwait(false))
+                            .Where(signal => signal.Payload.Contains("Final verified same-generation result.", StringComparison.Ordinal)).ToList();
+                        AssertEqual(interveningLaunch ? 0 : 1, delivered.Count,
+                            "A completed later retry cannot authorize an older queued progress signal");
                     }
                 }
             }).ConfigureAwait(false);
@@ -2474,7 +2391,6 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission judge = (await testDb.Driver.Missions.ReadAsync(rig.JudgeStage!.Id).ConfigureAwait(false))!;
                     AssertTrue(judge.Status != MissionStatusEnum.Cancelled, "The next stage is handed off, not cancelled");
-                    AssertEqual(0, rig.OwnerNotes.Posts.Count, "No owner question is raised");
                     AssertEqual(0, (await rig.ActiveIncidentsAsync().ConfigureAwait(false)).Count, "No incident is opened");
                 }
             });
@@ -2610,9 +2526,9 @@ namespace Armada.Test.Unit.Suites.Services
                 ["next-line-prose"] = "Criterion 3 is not met because the later reviews have not run.\nThe matrix covers every documented row.",
                 ["next-line-rule"] = "Criterion 3 is not met because the later reviews have not run.\n---\n| Row | Status |",
                 ["previous-line-defect"] = "The parser is only half written.\nCriterion 2 is not met because later reviews are pending.",
-                ["real-shape-report"] = "## Acceptance Criteria\n- All five roles produce the same six-row report. - MET. Evidence is in the matrix.\n- Every row cites its source. - MET. Evidence is in the matrix.\n- All five roles review the same six-row report; no tracked changes, vendor-body copies or restricted values. - NOT MET. The current PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews have not run, and the additional Revising Worker stage has not run; only this Worker artifact exists, although `git status --porcelain=v1` returned no output in ExampleSource, ../ExampleDecoder, ../ExampleProduct and ../ExampleGlossary, and this report contains no vendor-body copy or restricted value.\n\nCriterion 3 is NOT MET because the current PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews have not run, and the additional Revising Worker stage has not run; only this Worker artifact exists, although the four checkouts show no tracked change and this report contains no vendor-body copy or restricted value.\n\n[ARMADA:NOTE] Worker finished the six Example batch04 rows; no tracked changes. Criterion 3 is NOT MET because the PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews and the additional Revising Worker stage have not run.",
+                ["real-shape-report"] = "## Acceptance Criteria\n- All five roles produce the same six-row report. - MET. Evidence is in the matrix.\n- Every row cites its source. - MET. Evidence is in the matrix.\n- All five roles review the same six-row report; no tracked changes, vendor-body copies or restricted values. - NOT MET. The current PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews have not run, and the additional Revising Worker stage has not run; only this Worker artifact exists, although `git status --porcelain=v1` returned no output in ExampleSource, ../ExampleDecoder, ../ExampleProduct and ../ExampleGlossary, and this report contains no vendor-body copy or restricted value.\n\nCriterion 3 is NOT MET because the current PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews have not run, and the additional Revising Worker stage has not run; only this Worker artifact exists, although the four checkouts show no tracked change and this report contains no vendor-body copy or restricted value.\n\n[ARMADA:PROGRESS] Worker finished the six Example batch04 rows; no tracked changes. Criterion 3 is NOT MET because the PortingReferenceAnalyst, TestEngineer, Linter and Judge reviews and the additional Revising Worker stage have not run.",
                 ["prior-sentence-out-of-scope"] = "Section 4 is not written. Criterion 2 is not met because the later reviews have not run.",
-                ["note-marker-before"] = "[ARMADA:NOTE] Criterion 3 is not met because the later reviews have not run.",
+                ["note-marker-before"] = "[ARMADA:PROGRESS] Criterion 3 is not met because the later reviews have not run.",
                 ["suffix-item-defect"] = "- Parser coverage. - NOT MET. The parser is unfinished.",
                 ["suffix-item-colon-defect"] = "- Parser coverage. - NOT MET: The parser is unfinished.",
                 ["suffix-item-future"] = "- Parser coverage. - NOT MET. The later reviews have not run.",
@@ -2740,8 +2656,8 @@ namespace Armada.Test.Unit.Suites.Services
                                 : scenario == "list-earlier" ? "Criterion 3 is NOT MET because the later reviews have not run\n- and the earlier analyst omitted required source pages."
                                 : scenario == "paragraph-current" ? "Criterion 3 is NOT MET because the later reviews have not run\n\nand the source study is unfinished."
                                 : scenario == "heading-current" ? "Criterion 3 is NOT MET because the later reviews have not run\n## Remaining work\nThe source study is unfinished."
-                                : scenario == "note-current" ? "Criterion 3 is NOT MET because the later reviews have not run\n[ARMADA:NOTE] and the source study is unfinished."
-                                : scenario == "note-earlier" ? "Criterion 3 is NOT MET because the later reviews have not run\n[ARMADA:NOTE] and the earlier analyst omitted required source pages."
+                                : scenario == "note-current" ? "Criterion 3 is NOT MET because the later reviews have not run\n[ARMADA:PROGRESS] and the source study is unfinished."
+                                : scenario == "note-earlier" ? "Criterion 3 is NOT MET because the later reviews have not run\n[ARMADA:PROGRESS] and the earlier analyst omitted required source pages."
                                 : scenario == "false-criterion" ? "Criterion 3 is NOT MET because the later reviews have not run\ncriterion source study is unfinished."
                                 : scenario == "intermediate-result-current" ? "Criterion 3 is NOT MET because the later reviews have not run\n[ARMADA:RESULT] COMPLETE\nand the source study is unfinished."
                                 : scenario == "bold-future" ? "Criterion 3 is **NOT MET** because the later reviews have not run"
@@ -3538,7 +3454,6 @@ namespace Armada.Test.Unit.Suites.Services
             public Captain Captain { get; private set; } = null!;
             public AgentLifecycleHandler Handler { get; private set; } = null!;
             public MissionService MissionService { get; private set; } = null!;
-            public FakeOwnerDecisionNotePoster OwnerNotes { get; } = new FakeOwnerDecisionNotePoster();
 
             private BlockedStageRig(AgentLifecycleHandlerTests suite, TestDatabase db)
             {
@@ -3568,7 +3483,6 @@ namespace Armada.Test.Unit.Suites.Services
                 ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
                 rig.MissionService = new MissionService(logging, db, settings, dockService, captainService,
                     resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
-                rig.MissionService.BlockedQuestionNotePoster = (mission, content, token) => rig.OwnerNotes.PostOwnerDecisionAsync(content, mission.VesselId, token);
                 rig.MissionService.OnGetMissionOutput = rig.Handler.GetAndClearMissionOutput;
 
                 AutonomousRecoveryOrchestrator recovery = new AutonomousRecoveryOrchestrator(
@@ -3653,7 +3567,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             /// <summary>
-            /// The owner sees the question on one open incident and one owner-addressed note, recovery read the
+            /// The owner sees the question on one open incident, recovery read the
             /// blocked stage and dispatched nothing.
             /// </summary>
             public async Task AssertOwnerSeesQuestionAndNoRescueAsync(string question)
@@ -3663,10 +3577,6 @@ namespace Armada.Test.Unit.Suites.Services
                 _Suite.AssertContains(question, incidents[0].RecoveryNotes ?? String.Empty, "The incident carries the captain's question");
                 _Suite.AssertContains("Autonomous policy stopped before rescue dispatch: " + CaptainBlockedResult.FailureReasonPrefix,
                     incidents[0].RecoveryNotes ?? String.Empty, "Recovery read the blocked stage and held the rescue");
-
-                _Suite.AssertEqual(1, OwnerNotes.Posts.Count, "One owner-addressed note is posted");
-                _Suite.AssertContains(question, OwnerNotes.Posts[0], "The owner note carries the captain's question");
-                _Suite.AssertEqual(Vessel.Id, OwnerNotes.VesselIds[0], "The owner note is tagged with the vessel");
 
                 List<Mission> vesselMissions = await _Db.Driver.Missions.EnumerateByVesselAsync(Vessel.Id).ConfigureAwait(false);
                 _Suite.AssertFalse(vesselMissions.Any(item => item.ParentMissionId == Mission.Id), "No rescue re-runs the blocked stage");

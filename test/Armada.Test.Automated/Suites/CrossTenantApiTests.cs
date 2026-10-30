@@ -1648,8 +1648,6 @@ using System.IO;
                     new AuthRefusalProbe("CheckRunRoutes", "POST", "/api/v1/check-runs", true),
                     new AuthRefusalProbe("CheckRunRoutes", "POST", "/api/v1/check-runs/import", true),
                     new AuthRefusalProbe("CodeIndexRoutes", "GET", "/api/v1/vessels/vsl_missing/code-index/status", false),
-                    new AuthRefusalProbe("CoordinationRoutes", "GET", "/api/v1/coordination/rooms", false),
-                    new AuthRefusalProbe("CoordinationRoutes", "GET", "/api/v1/coordination/rooms", true),
                     new AuthRefusalProbe("DeploymentRoutes", "GET", "/api/v1/deployments", false),
                     new AuthRefusalProbe("DeploymentRoutes", "POST", "/api/v1/deployments", true),
                     new AuthRefusalProbe("DockRoutes", "GET", "/api/v1/docks", false),
@@ -2528,36 +2526,6 @@ using System.IO;
                 HttpResponseMessage response = await _AdminClient.PostAsync("/api/v1/ask",
                     JsonHelper.ToJsonContent(new { Message = "status" })).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode, "A global administrator still asks Armada");
-            }).ConfigureAwait(false);
-
-            // Coordination rooms are found by key alone, so every room is shared across tenants.
-            await RunTest("CoordinationMessages_FromTenantAdmin_Returns403", async () =>
-            {
-                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/coordination/rooms/fleet/messages").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "The shared coordination board requires a global administrator");
-            }).ConfigureAwait(false);
-
-            await RunTest("CoordinationClaims_FromTenantAdmin_Returns403", async () =>
-            {
-                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/coordination/claims").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "The shared coordination board requires a global administrator");
-            }).ConfigureAwait(false);
-
-            // MySQL and SQL Server do not store the coordination board, so there the authorized read is a named 501.
-            await RunTest("CoordinationMessages_FromGlobalAdmin_ReadsBoardOrNamedRefusal", async () =>
-            {
-                HttpResponseMessage response = await _AdminClient.GetAsync("/api/v1/coordination/rooms/fleet/messages").ConfigureAwait(false);
-                if (_DatabaseType == DatabaseTypeEnum.Mysql || _DatabaseType == DatabaseTypeEnum.SqlServer)
-                {
-                    string provider = _DatabaseType == DatabaseTypeEnum.Mysql ? "MySQL" : "SQL Server";
-                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NotImplemented, response.StatusCode, "The " + provider + " provider refuses the coordination board: " + body);
-                    AssertTrue(body.Contains("The " + provider + " database provider does not store the coordination board", StringComparison.Ordinal),
-                        "The refusal names the provider: " + body);
-                    return;
-                }
-
-                AssertEqual(HttpStatusCode.OK, response.StatusCode, "A global administrator still reads the coordination board");
             }).ConfigureAwait(false);
 
             // The route must refuse before the captain runtime starts, so the test never launches a model.

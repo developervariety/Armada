@@ -154,9 +154,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertEqual(testCase.ExpectCalls, client.Calls, "client call count");
                     AssertEqual(testCase.ExpectCreated, router.CreatedCount, "Triaged objectives created");
-                    AssertEqual(testCase.ExpectEvidence, router.EvidenceCount, "evidence notes appended");
+                    AssertEqual(testCase.ExpectEvidence, result.Routes.Count(route => route.Home == FollowUpRoutingAdapter.HomeEvidence), "items routed to the evidence home");
                     AssertEqual(testCase.ExpectLinked, router.LinkedCount, "duplicate links made");
-                    AssertEqual(testCase.ExpectFlagged, router.FlaggedCount, "blocking items flagged for the operator");
+                    AssertEqual(testCase.ExpectFlagged, result.Routes.Count(route => route.Home == FollowUpRoutingAdapter.HomeBlocking), "blocking items routed to the operator");
 
                     // A created objective is Triaged with auto-dispatch off (the router asserts it too);
                     // the model never creates a voyage, and the fake router has no voyage method at all.
@@ -166,7 +166,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(result.Routes.Any(route => route.Home == FollowUpRoutingAdapter.HomeDuplicate && route.TargetObjectiveId == "obj_existing"),
                             "the duplicate route links the existing objective instead of creating one");
                     if (testCase.ExpectFlagged > 0)
-                        AssertEqual(0, router.CreatedCount, "a blocking item creates nothing; it is only flagged");
+                        AssertEqual(0, router.CreatedCount, "a blocking item creates nothing; the operator decides");
 
                     List<ArmadaEvent> typed = await AllTypedDecisionEventsAsync(testDb.Driver).ConfigureAwait(false);
                     if (testCase.ExpectEventType == null)
@@ -197,10 +197,10 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingFollowUpRouter router = new RecordingFollowUpRouter();
                 FollowUpRoutingAdapter adapter = BuildAdapter(testDb.Driver, client, router, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
 
-                await adapter.RouteAsync(SeededFollowUp(), "Port the fault-text seam", CancellationToken.None).ConfigureAwait(false);
+                FollowUpRoutingResult degradedRoutes = await adapter.RouteAsync(SeededFollowUp(), "Port the fault-text seam", CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, router.LinkedCount, "a confidence is not the probability that the item is a duplicate");
-                AssertEqual(1, router.EvidenceCount, "an unconfirmed duplicate degrades to an evidence note");
+                AssertEqual(1, degradedRoutes.Routes.Count(route => route.Home == FollowUpRoutingAdapter.HomeEvidence), "an unconfirmed duplicate degrades to the evidence home");
             });
 
             await RunTest("FollowUpRouting_PerCandidateSameAs_LinksHighestNoul", async () =>
@@ -241,11 +241,11 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingFollowUpRouter router = new RecordingFollowUpRouter { Candidates = new List<FollowUpDuplicateCandidate>() };
                 FollowUpRoutingAdapter adapter = BuildAdapter(testDb.Driver, client, router, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
 
-                await adapter.RouteAsync(SeededFollowUp(), null, CancellationToken.None).ConfigureAwait(false);
+                FollowUpRoutingResult noCandidateRoutes = await adapter.RouteAsync(SeededFollowUp(), null, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, router.LinkedCount, "with no candidate there is nothing to link");
                 AssertEqual(0, router.CreatedCount, "a duplicate with no candidate never invents new work");
-                AssertEqual(1, router.EvidenceCount, "a duplicate with no candidate degrades to an evidence note");
+                AssertEqual(1, noCandidateRoutes.Routes.Count(route => route.Home == FollowUpRoutingAdapter.HomeEvidence), "a duplicate with no candidate degrades to the evidence home");
             });
 
             await RunTest("FollowUpRouting_MultipleItems_RoutedEachOnce", async () =>
@@ -261,8 +261,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FollowUpRoutingResult result = await adapter.RouteAsync(followUp, null, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(1, client.Calls, "independent follow-up items share one request");
-                AssertEqual(3, router.EvidenceCount, "each item routed once");
-                AssertEqual(3, result.Routes.Count, "one route recorded per item");
+                                AssertEqual(3, result.Routes.Count, "one route recorded per item");
             });
 
             await RunTest("FollowUpRouting_ForwardsCallerTokenToClient", async () =>
@@ -290,7 +289,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FollowUpRoutingResult result = await adapter.RouteAsync(SeededFollowUp(), null, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, result.Routes.Count, "a client fault routes nothing");
-                AssertEqual(0, router.CreatedCount + router.EvidenceCount + router.LinkedCount + router.FlaggedCount, "a client fault takes no router action");
+                AssertEqual(0, router.CreatedCount + router.LinkedCount, "a client fault takes no router action");
                 List<ArmadaEvent> typed = await AllTypedDecisionEventsAsync(testDb.Driver).ConfigureAwait(false);
                 AssertEqual(1, typed.Count, "a client fault records one unavailable event");
                 AssertEqual(TypedDecisionRecorder.EventTypeUnavailable, typed[0].EventType, "the fault event is unavailable");
@@ -350,9 +349,7 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class RecordingFollowUpRouter : IFollowUpRouter
         {
             public int CreatedCount { get; private set; }
-            public int EvidenceCount { get; private set; }
             public int LinkedCount { get; private set; }
-            public int FlaggedCount { get; private set; }
 
             public List<FollowUpDuplicateCandidate> Candidates { get; set; } = new List<FollowUpDuplicateCandidate>
             {
@@ -368,21 +365,9 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.FromResult<string?>("obj_created");
             }
 
-            public Task AppendEvidenceNoteAsync(FollowUpRouteRequest request, CancellationToken token)
-            {
-                EvidenceCount++;
-                return Task.CompletedTask;
-            }
-
             public Task LinkDuplicateAsync(FollowUpRouteRequest request, string existingObjectiveId, CancellationToken token)
             {
                 LinkedCount++;
-                return Task.CompletedTask;
-            }
-
-            public Task FlagBlockingForOperatorAsync(FollowUpRouteRequest request, CancellationToken token)
-            {
-                FlaggedCount++;
                 return Task.CompletedTask;
             }
         }

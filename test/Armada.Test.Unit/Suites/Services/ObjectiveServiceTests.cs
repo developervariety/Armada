@@ -753,8 +753,7 @@ namespace Armada.Test.Unit.Suites.Services
                     testDb.Driver,
                     RecordingAdmiral.Create().Service,
                     objectiveService: objectives,
-                    incidentService: new IncidentService(testDb.Driver),
-                    coordinationService: new Armada.Server.CoordinationService(logging, testDb.Driver));
+                    incidentService: new IncidentService(testDb.Driver));
                 AuthContext auth = McpTestCaller.Operator;
                 string tenant = Armada.Core.Constants.DefaultTenantId;
                 string user = Armada.Core.Constants.DefaultUserId;
@@ -831,26 +830,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertFalse(directMissing.Succeeded, "the service refuses an abbreviation with no visible match");
                 AssertContains("Mission not found or not accessible: " + absent, directMissing.Message ?? String.Empty, "the service names the absent link");
-
-                List<AbbreviatedLinkCase> noteCases = new List<AbbreviatedLinkCase>
-                {
-                    new AbbreviatedLinkCase("objectiveId", false, parent.Id, record => null),
-                    new AbbreviatedLinkCase("voyageId", false, voyage.Id, record => ((CoordinationMessage)record).VoyageId),
-                    new AbbreviatedLinkCase("missionId", false, mission.Id, record => ((CoordinationMessage)record).MissionId),
-                    new AbbreviatedLinkCase("incidentId", false, incident.Id, record => ((CoordinationMessage)record).IncidentId)
-                };
-                foreach (AbbreviatedLinkCase noteCase in noteCases)
-                {
-                    object posted = await handlers["armada_coordination_post"](noteCase.Args(TestRecordIds.Abbreviate(noteCase.FullId), "content", "note naming " + noteCase.Field, "authorName", "unit-test")).ConfigureAwait(false);
-                    AssertTrue(posted is CoordinationMessage, "coordination_post resolves " + noteCase.Field + "; actual result: " + JsonSerializer.Serialize(posted));
-                    CoordinationMessage note = (await testDb.Driver.CoordinationMessages.ReadAsync(((CoordinationMessage)posted).Id).ConfigureAwait(false))!;
-                    if (noteCase.Field != "objectiveId")
-                        AssertEqual(noteCase.FullId, noteCase.Stored(note), "coordination_post stores the full " + noteCase.Field);
-                }
-                string missingNote = JsonSerializer.Serialize(await handlers["armada_coordination_post"](new AbbreviatedLinkCase("missionId", false, "", _ => null).Args(absent, "content", "absent", "authorName", "unit-test")).ConfigureAwait(false));
-                AssertContains("\"Reason\":\"not_found\"", missingNote, "coordination_post refuses an abbreviation with no visible match instead of storing it");
-                string ambiguousNote = JsonSerializer.Serialize(await handlers["armada_coordination_post"](new AbbreviatedLinkCase("objectiveId", false, "", _ => null).Args(twins, "content", "ambiguous", "authorName", "unit-test")).ConfigureAwait(false));
-                AssertContains("\"Reason\":\"ambiguous_id\"", ambiguousNote, "coordination_post names an ambiguous abbreviation");
 
                 // The other write tools resolve through the same seam; a delete keeps requiring the full id.
                 Mission child = await testDb.Driver.Missions.CreateAsync(new Mission("child mission") { Id = TestRecordIds.At("msn", now + 4, "childMission"), TenantId = tenant, UserId = user }).ConfigureAwait(false);

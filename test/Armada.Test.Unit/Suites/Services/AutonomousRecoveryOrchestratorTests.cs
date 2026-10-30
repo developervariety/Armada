@@ -4971,12 +4971,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "The incident records the challenge.");
             }).ConfigureAwait(false);
 
-            await RunTest("Challenge round: dispatching the Challenger opens the failure's incident and tells the board once that a rescue will follow", async () =>
+            await RunTest("Challenge round: dispatching the Challenger opens the failure's incident that says a rescue will follow", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 ChallengeFixture fixture = await CreateChallengeFixtureAsync(testDb, "ten_challenge_announce").ConfigureAwait(false);
-                FakeBoardNotePoster board = new FakeBoardNotePoster();
-                fixture.Orchestrator.BoardNotePoster = board;
 
                 await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
                 Mission challenger = fixture.Admiral.DispatchedMissions[0];
@@ -4984,13 +4982,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, pending.Count, "The dispatch tick opens the failure's incident.");
                 AssertContains("Challenger review pending", pending[0].RecoveryNotes ?? "", "The incident says a Challenger is ruling.");
                 AssertContains(challenger.Id, pending[0].RecoveryNotes ?? "", "The incident names the Challenger.");
-                AssertEqual(1, board.Posts.Count, "The dispatch tick posts one board note.");
-                AssertContains("Challenger review pending for Judge " + fixture.Failed.Id + "; rescue will follow", board.Posts[0],
-                    "The board note names the Judge and says a rescue follows.");
-                AssertEqual(fixture.Failed.Id, board.MissionIds[0], "The board note carries the failed Judge mission.");
+                AssertContains("the rescue follows its ruling", pending[0].RecoveryNotes ?? "", "The incident says a rescue follows.");
 
                 await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
-                AssertEqual(1, board.Posts.Count, "A tick that only waits posts nothing more.");
                 AssertEqual(1, (await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false)).Count, "A waiting tick opens no second incident.");
 
                 await CompleteChallengerAsync(testDb, challenger, fixture.OtherModelCaptainId, "{\"findings\":["
@@ -5000,7 +4994,6 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Incident> ruled = await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false);
                 AssertEqual(1, ruled.Count, "The rescue reuses the incident the dispatch tick opened.");
                 AssertEqual(pending[0].Id, ruled[0].Id, "The rescue records on the same incident.");
-                AssertEqual(1, board.Posts.Count, "Only the dispatch tick posts to the board.");
             }).ConfigureAwait(false);
 
             await RunTest("Challenge round: a ruling that arrives after the objective was dispatched again starts no rescue beside the newer voyage", async () =>

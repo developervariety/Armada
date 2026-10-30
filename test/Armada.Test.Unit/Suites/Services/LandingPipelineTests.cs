@@ -2159,7 +2159,6 @@ namespace Armada.Test.Unit.Suites.Services
             public AgentWakeSessionRegistration RegisterAgentWakeSession(AgentWakeSessionRegistration registration) => registration;
             public AgentWakeSessionRegistration? GetAgentWakeSession() => null;
             public AgentWakeStatusSnapshot GetAgentWakeStatus() => new AgentWakeStatusSnapshot();
-            public Task FireBoardWakeAsync(string participantKey, string text, CancellationToken token = default) => Task.CompletedTask;
         }
 
         /// <summary>

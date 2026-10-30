@@ -125,112 +125,46 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"fairShareWithinPriorityBands\":true", statusJson);
             }).ConfigureAwait(false);
 
-            await RunTest("ArmadaObjectiveSchedulerSet_PausedTrue_RecordsOwnerAndReason_AndStatusExposesThem", async () =>
+            await RunTest("ArmadaObjectiveSchedulerSet_PausedTrue_RecordsAuthenticatedCallerAndReason_AndStatusExposesThem", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new ArmadaSettings());
                 Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler);
 
                 object result = await handlers["armada_objective_scheduler_set"](
-                    Args("{\"paused\":true,\"pausedBy\":\"deploy-session\",\"pauseReason\":\"rebuilding the admiral\"}")).ConfigureAwait(false);
+                    Args("{\"paused\":true,\"pausedBy\":\"claimed-name\",\"reason\":\"rebuilding the admiral\"}")).ConfigureAwait(false);
                 string json = JsonSerializer.Serialize(result, _JsonOptions);
                 AssertContains("\"paused\":true", json);
-                AssertContains("\"pausedBy\":\"deploy-session\"", json);
+                AssertContains("\"pausedBy\":\"Test operator\"", json, "the pause is attributed to the authenticated caller, never to an argument");
                 AssertContains("\"pauseReason\":\"rebuilding the admiral\"", json);
-                AssertEqual("deploy-session", scheduler.PausedBy);
+                AssertEqual("Test operator", scheduler.PausedBy);
 
                 object status = await handlers["armada_objective_scheduler_status"](null).ConfigureAwait(false);
-                AssertContains("\"pausedBy\":\"deploy-session\"", JsonSerializer.Serialize(status, _JsonOptions));
+                AssertContains("\"pausedBy\":\"Test operator\"", JsonSerializer.Serialize(status, _JsonOptions));
 
-                await handlers["armada_objective_scheduler_set"](Args("{\"paused\":false}")).ConfigureAwait(false);
+                List<ArmadaEvent> paused = await testDb.Driver.Events.EnumerateByTypeAsync(McpObjectiveSchedulerTools.PausedEventType, 10).ConfigureAwait(false);
+                AssertEqual(1, paused.Count, "a pause records exactly one event");
+                AssertContains("Test operator", paused[0].Payload ?? String.Empty, "the event names the authenticated caller");
+                AssertContains("rebuilding the admiral", paused[0].Payload ?? String.Empty, "the event carries the reason");
+
+                await handlers["armada_objective_scheduler_set"](Args("{\"paused\":true}")).ConfigureAwait(false);
+                AssertEqual(1, (await testDb.Driver.Events.EnumerateByTypeAsync(McpObjectiveSchedulerTools.PausedEventType, 10).ConfigureAwait(false)).Count,
+                    "pausing an already paused scheduler records nothing");
+
+                await handlers["armada_objective_scheduler_set"](Args("{\"paused\":false,\"reason\":\"deploy finished\"}")).ConfigureAwait(false);
                 AssertTrue(scheduler.PausedBy == null && scheduler.PausedUtc == null, "Resume through the tool drops the attribution.");
+                List<ArmadaEvent> resumed = await testDb.Driver.Events.EnumerateByTypeAsync(McpObjectiveSchedulerTools.ResumedEventType, 10).ConfigureAwait(false);
+                AssertEqual(1, resumed.Count, "a resume records exactly one event");
+                AssertContains("Test operator", resumed[0].Payload ?? String.Empty, "the resume event names the authenticated caller");
+                AssertContains("deploy finished", resumed[0].Payload ?? String.Empty, "the resume event carries the reason");
             }).ConfigureAwait(false);
 
-            await RunTest("StdioCatalog_ClearStalePauseIsUnavailableWithoutCoordination_AndRequiresClearedBy", async () =>
+            await RunTest("ArmadaObjectiveSchedulerSet_RegistersNoSeparatePauseClearingTool", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new ArmadaSettings());
-                Dictionary<string, Func<JsonElement?, Task<object>>> without = RegisterHandlers(testDb.Driver, scheduler);
-                AssertTrue(without.ContainsKey("armada_objective_scheduler_clear_stale_pause"), "The clear tool stays visible without coordination.");
-                string unavailable = JsonSerializer.Serialize(await without["armada_objective_scheduler_clear_stale_pause"](
-                    Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
-                AssertContains("Unavailable: coordination board", unavailable, "Missing coordination returns a named unavailable result.");
-
-                CoordinationService coordination = new CoordinationService(new LoggingModule { Settings = { EnableConsole = false } }, testDb.Driver);
-                Dictionary<string, Func<JsonElement?, Task<object>>> with = RegisterHandlers(testDb.Driver, scheduler, null, coordination);
-                AssertTrue(with.ContainsKey("armada_objective_scheduler_clear_stale_pause"));
-                string json = JsonSerializer.Serialize(await with["armada_objective_scheduler_clear_stale_pause"](null).ConfigureAwait(false), _JsonOptions);
-                AssertContains("clearedBy is required", json);
-            }).ConfigureAwait(false);
-
-            await RunTest("ClearStalePause_RefusesAPresentOwner_AndAnUnattributedPause", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                CoordinationService coordination = new CoordinationService(new LoggingModule { Settings = { EnableConsole = false } }, testDb.Driver);
-                ArmadaSettings settings = new ArmadaSettings();
-                settings.AutonomousObjectiveScheduler.Paused = true;
-                settings.AutonomousObjectiveScheduler.PausedBy = "deploy-session";
-                settings.AutonomousObjectiveScheduler.PausedUtc = DateTime.UtcNow.AddHours(-3);
-                settings.AutonomousObjectiveScheduler.PauseReason = "deploy";
-                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, settings);
-                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler, null, coordination);
-
-                // The owner heartbeats now: it is inside the presence window, so its pause stands.
-                await coordination.HeartbeatAsync(CoordinationService.DefaultRoomKey, "deploy-session", "Deploy Session").ConfigureAwait(false);
-                string present = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
-                AssertContains("\"cleared\":false", present);
-                AssertContains("\"canClear\":false", present);
-                AssertContains("inside the 30-minute", present);
-                AssertTrue(scheduler.Paused, "A present owner's pause is not cleared.");
-
-                // An unattributed pause is an operator's to clear.
-                scheduler.Resume();
-                scheduler.Pause();
-                string unattributed = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
-                AssertContains("\"cleared\":false", unattributed);
-                AssertContains("operator", unattributed);
-                AssertTrue(scheduler.Paused, "An unattributed pause is not cleared.");
-                List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                AssertEqual(0, notes.Count, "A refusal announces nothing; there is nothing to announce.");
-            }).ConfigureAwait(false);
-
-            await RunTest("ClearStalePause_ClearsAnAbsentOwnersPauseExactlyOnce_AndAnnouncesIt", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                CoordinationService coordination = new CoordinationService(new LoggingModule { Settings = { EnableConsole = false } }, testDb.Driver);
-                ArmadaSettings settings = new ArmadaSettings();
-                settings.AutonomousObjectiveScheduler.Enabled = true;
-                settings.AutonomousObjectiveScheduler.Paused = true;
-                settings.AutonomousObjectiveScheduler.PausedBy = "codex-deploy";
-                settings.AutonomousObjectiveScheduler.PausedUtc = DateTime.UtcNow.AddMinutes(-45);
-                settings.AutonomousObjectiveScheduler.PauseReason = "deploying build X";
-                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, settings);
-                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler, null, coordination);
-
-                // The owner has never heartbeated, so absence is measured from the 45-minute-old pause.
-                string dry = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\",\"dryRun\":true}")).ConfigureAwait(false), _JsonOptions);
-                AssertContains("\"cleared\":false", dry);
-                AssertContains("\"canClear\":true", dry);
-                AssertTrue(scheduler.Paused, "A dry run changes nothing.");
-
-                string cleared = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
-                AssertContains("\"cleared\":true", cleared);
-                AssertFalse(scheduler.Paused, "The stale pause is cleared.");
-                AssertTrue(scheduler.Enabled, "Clearing a pause never touches Enabled.");
-                AssertTrue(scheduler.PausedBy == null, "Attribution is dropped with the pause.");
-
-                List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                AssertEqual(1, notes.Count, "Exactly one announcement.");
-                AssertContains("Stale pause cleared by operator-session", notes[0].Content);
-                AssertContains("codex-deploy", notes[0].Content);
-                AssertContains("deploying build X", notes[0].Content);
-                AssertContains("absent 45 minutes", notes[0].Content);
-
-                string again = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
-                AssertContains("\"cleared\":false", again);
-                AssertContains("not paused", again);
-                notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                AssertEqual(1, notes.Count, "A second call clears nothing and announces nothing.");
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler);
+                AssertFalse(handlers.ContainsKey("armada_objective_scheduler_clear_stale_pause"), "a pause is cleared through the set tool");
             }).ConfigureAwait(false);
 
             await RunTest("ArmadaObjectiveSchedulerSet_WithNoArgs_ReturnsCurrentStatus", async () =>
@@ -692,8 +626,7 @@ namespace Armada.Test.Unit.Suites.Services
         private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterHandlers(
             DatabaseDriver database,
             AutonomousObjectiveScheduler scheduler,
-            ObjectiveService? objectiveService = null,
-            CoordinationService? coordination = null)
+            ObjectiveService? objectiveService = null)
         {
             objectiveService = objectiveService ?? new ObjectiveService(database);
             Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
@@ -701,8 +634,7 @@ namespace Armada.Test.Unit.Suites.Services
                 (name, _, _, handler) => { handlers[name] = McpTestCaller.Wrap(handler); },
                 scheduler,
                 database,
-                objectiveService,
-                coordination);
+                objectiveService);
             return handlers;
         }
 

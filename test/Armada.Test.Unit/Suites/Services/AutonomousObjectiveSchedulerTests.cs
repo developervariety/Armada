@@ -558,7 +558,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, scheduler.SweepCandidatesExamined, "only the previewed row counts as examined");
             }).ConfigureAwait(false);
 
-            await RunTest("SweepAsync_AVesselWhoseEveryCandidateFailsPreflight_PostsOneBoardNote_UntilTheBlockedSetChanges", async () =>
+            await RunTest("SweepAsync_AVesselWhoseEveryCandidateFailsPreflight_RecordsOneBlockedEvent_UntilTheBlockedSetChanges", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Vessel blockedVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
@@ -625,14 +625,18 @@ namespace Armada.Test.Unit.Suites.Services
                     testDb.Driver, new RecordingAdmiralService(testDb.Driver), settings,
                     objectiveDispatchPreview: preview,
                     refillDebounceDelay: TimeSpan.FromMilliseconds(10));
-                FakeBoardNotePoster poster = new FakeBoardNotePoster();
-                scheduler.BoardNotePoster = poster;
+                async Task<List<string>> BlockedEventsAsync()
+                {
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("objective_scheduler.vessel_preflight_blocked", 50).ConfigureAwait(false);
+                    return events.OrderBy(e => e.CreatedUtc).Select(e => e.Message).ToList();
+                }
 
                 try
                 {
                     await scheduler.SweepAsync().ConfigureAwait(false);
-                    AssertEqual(1, poster.Posts.Count, "one note for the one vessel with nothing dispatchable. Summary: " + scheduler.LastResultSummary);
-                    string note = poster.Posts[0];
+                    List<string> posts = await BlockedEventsAsync().ConfigureAwait(false);
+                    AssertEqual(1, posts.Count, "one event for the one vessel with nothing dispatchable. Summary: " + scheduler.LastResultSummary);
+                    string note = posts[0];
                     AssertContains(blockedVessel.Id, note, "the note names the blocked vessel");
                     AssertContains(unanswered.Id + " (objective_preflight_incomplete)", note, "a row without a recorded preflight is named with its reason");
                     AssertContains(flagged.Id + " (objective_preflight_model_flag)", note, "a row the preview refuses is named with its blocking code");
@@ -642,7 +646,7 @@ namespace Armada.Test.Unit.Suites.Services
                     scheduler.RequestRefill();
                     await WaitForEventTriggeredSweepCountAsync(scheduler, 1).ConfigureAwait(false);
                     await WaitForSweepCompletedAfterAsync(scheduler, firstCompleted).ConfigureAwait(false);
-                    AssertEqual(1, poster.Posts.Count, "an unchanged blocked set posts no second note");
+                    AssertEqual(1, (await BlockedEventsAsync().ConfigureAwait(false)).Count, "an unchanged blocked set records no second event");
 
                     Objective added = await testDb.Driver.Objectives.CreateAsync(new Objective
                     {
@@ -656,8 +660,9 @@ namespace Armada.Test.Unit.Suites.Services
                     scheduler.RequestRefill();
                     await WaitForEventTriggeredSweepCountAsync(scheduler, 2).ConfigureAwait(false);
                     await WaitForSweepCompletedAfterAsync(scheduler, secondCompleted).ConfigureAwait(false);
-                    AssertEqual(2, poster.Posts.Count, "a changed blocked set posts a new note");
-                    AssertContains(added.Id, poster.Posts[1], "the new note names the added row");
+                    List<string> afterChange = await BlockedEventsAsync().ConfigureAwait(false);
+                    AssertEqual(2, afterChange.Count, "a changed blocked set records a new event");
+                    AssertTrue(afterChange.Any(m => m.Contains(added.Id, StringComparison.Ordinal)), "the new event names the added row");
                 }
                 finally
                 {
@@ -1001,10 +1006,10 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(settings.AutonomousObjectiveScheduler.PausedBy == null && settings.AutonomousObjectiveScheduler.PausedUtc == null, "Cleared attribution is mirrored too.");
 
                 scheduler.Pause();
-                AssertTrue(scheduler.Paused && scheduler.PausedBy == null, "An unattributed pause is still a pause; it is the rule that refuses to clear it.");
+                AssertTrue(scheduler.Paused && scheduler.PausedBy == null, "An unattributed pause is still a pause.");
             }).ConfigureAwait(false);
 
-            await RunTest("Pause attribution loads from settings at construction, and the absence threshold has a floor of 30", async () =>
+            await RunTest("Pause attribution loads from settings at construction", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 ArmadaSettings settings = new ArmadaSettings();
@@ -1012,16 +1017,12 @@ namespace Armada.Test.Unit.Suites.Services
                 settings.AutonomousObjectiveScheduler.PausedBy = "peer";
                 settings.AutonomousObjectiveScheduler.PausedUtc = new DateTime(2026, 8, 24, 18, 4, 0, DateTimeKind.Utc);
                 settings.AutonomousObjectiveScheduler.PauseReason = "deploy";
-                settings.AutonomousObjectiveScheduler.StalePauseAbsenceMinutes = 5;
                 AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new RecordingAdmiralService(testDb.Driver), settings);
 
                 AssertTrue(scheduler.Paused);
                 AssertEqual("peer", scheduler.PausedBy);
                 AssertEqual(settings.AutonomousObjectiveScheduler.PausedUtc, scheduler.PausedUtc);
                 AssertEqual("deploy", scheduler.PauseReason);
-                AssertEqual(30, scheduler.StalePauseAbsenceMinutes, "The owner-decided floor is 30 minutes; a smaller setting is clamped up.");
-                settings.AutonomousObjectiveScheduler.StalePauseAbsenceMinutes = 2000;
-                AssertEqual(1440, scheduler.StalePauseAbsenceMinutes, "Clamped to one day at the top.");
             }).ConfigureAwait(false);
 
             await RunTest("A malformed blocker list never dispatches its objective, and the sweep still serves the other rows", async () =>

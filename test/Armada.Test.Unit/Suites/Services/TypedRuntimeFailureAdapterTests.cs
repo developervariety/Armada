@@ -154,14 +154,12 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
             }).ConfigureAwait(false);
 
-            await RunTest("FleetWideAtThreshold_EmitsAccountFaultEventAndBroadcastNote_BenchesNothing", async () =>
+            await RunTest("FleetWideAtThreshold_EmitsAccountFaultEvent_BenchesNothing", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Captain captain = await db.Driver.Captains.CreateAsync(new Captain("fleet-wide-captain") { ApiKey = "sk-should-never-appear-anywhere-0123456789" }).ConfigureAwait(false);
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(KindResult("usage_limit", 0.95, fleetWide: 0.90));
-                FakeBoardNotePoster poster = new FakeBoardNotePoster();
                 TypedRuntimeFailureAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-                adapter.NotePoster = poster;
 
                 RuntimeFailureDecisionInput input = BuildInput(captain);
                 RuntimeFailureKindEnum result = await adapter.DecideAsync(input, RuntimeFailureKindEnum.Crash, CancellationToken.None).ConfigureAwait(false);
@@ -172,10 +170,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, faults.Count, "exactly one account-fault event");
                 AssertContains("ClaudeCode/captain-key", faults[0].Message + faults[0].Payload, "the event names the key family");
                 AssertFalse((faults[0].Message + faults[0].Payload).Contains("sk-should-never-appear", StringComparison.Ordinal), "the event never carries the key");
-
-                AssertEqual(1, poster.Posts.Count, "exactly one broadcast board note");
-                AssertContains("ClaudeCode/captain-key", poster.Posts[0], "the note names the key family");
-                AssertFalse(poster.Posts[0].Contains("sk-should-never-appear", StringComparison.Ordinal), "the note never carries the key");
 
                 Captain? after = await db.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
                 AssertEqual(CaptainStateEnum.Idle, after!.State, "no captain is benched from this path");
@@ -188,14 +182,11 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Captain captain = await db.Driver.Captains.CreateAsync(new Captain("local-fault-captain")).ConfigureAwait(false);
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(KindResult("usage_limit", 0.95, fleetWide: 0.89));
-                FakeBoardNotePoster poster = new FakeBoardNotePoster();
                 TypedRuntimeFailureAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-                adapter.NotePoster = poster;
 
                 await adapter.DecideAsync(BuildInput(captain), RuntimeFailureKindEnum.Crash, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, await CountEventsAsync(db, TypedRuntimeFailureAdapter.AccountFaultSuspectedEventType).ConfigureAwait(false), "no account-fault event below 0.9");
-                AssertEqual(0, poster.Posts.Count, "no board note below 0.9");
             }).ConfigureAwait(false);
         }
     }

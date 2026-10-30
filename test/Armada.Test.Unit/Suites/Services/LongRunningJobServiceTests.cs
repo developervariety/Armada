@@ -337,21 +337,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, unreadable);
             });
 
-            await RunTest("A failed job is reported with its objective and the session that submitted it", async () =>
+            await RunTest("A failed job is reported with its objective", async () =>
             {
                 string journal = NewJournalDirectory();
                 TaskCompletionSource<LongRunningJob> reported = new TaskCompletionSource<LongRunningJob>(TaskCreationOptions.RunContinuationsAsynchronously);
-                string? callingSession = "example-session";
                 LongRunningJobService jobs = new LongRunningJobService(
                     journalDirectory: journal,
-                    onJobFailedAsync: job => { reported.TrySetResult(job); return Task.CompletedTask; },
-                    requesterKeyProvider: () => callingSession);
+                    onJobFailedAsync: job => { reported.TrySetResult(job); return Task.CompletedTask; });
                 LongRunningJob accepted = jobs.Start("voyage_dispatch", async _ =>
                 {
                     await Task.Delay(50);
                     throw new InvalidOperationException("refused in the background");
                 }, "obj_failed");
-                callingSession = "a-later-caller";
                 Task finished = await Task.WhenAny(reported.Task, Task.Delay(TimeSpan.FromSeconds(10)));
                 AssertTrue(finished == reported.Task, "a failed job is reported");
                 LongRunningJob job = await reported.Task;
@@ -359,8 +356,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(LongRunningJobStatusEnum.Failed, job.Status);
                 AssertEqual("obj_failed", job.ObjectiveId);
                 AssertContains("refused in the background", job.FailureMessage ?? "");
-                AssertEqual("example-session", accepted.RequestedByParticipantKey, "the submitter is read when the job is accepted");
-                AssertEqual("example-session", job.RequestedByParticipantKey, "the failure names the submitter, not a later caller");
             });
 
             await RunTest("A job that cannot be journalled is refused, not accepted into memory", () =>
@@ -399,12 +394,10 @@ namespace Armada.Test.Unit.Suites.Services
                     LongRunningJob pending = jobs.Start("voyage_dispatch", _ => gate.Task, "obj_pending", "vsl_pending");
 
                     Func<JsonElement?, Task<object>>? handler = null;
-                    McpCoordinationTools.Register(
+                    McpDispatchHoldTools.Register(
                         (name, _, _, h) => { if (name == "armada_dispatch_hold") handler = h; },
                         testDb.Driver,
-                        new CoordinationService(logging, testDb.Driver),
                         hold,
-                        null,
                         jobs);
                     AssertNotNull(handler);
 
@@ -423,7 +416,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A restarted admiral records a lost dispatch job on its objective and to its submitter on the board, and armada_job_status reads Lost", async () =>
+            await RunTest("A restarted admiral records a lost dispatch job on its objective, and armada_job_status reads Lost", async () =>
             {
                 string tempDir = Path.Combine(Path.GetTempPath(), "armada_job_restart_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDir);
@@ -453,8 +446,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = "Accepted",
                     SubmittedAtUtc = DateTime.UtcNow.AddMinutes(-1),
                     ObjectiveId = objective.Id,
-                    VesselId = "vsl_example",
-                    RequestedByParticipantKey = "example-session"
+                    VesselId = "vsl_example"
                 }));
 
                 LoggingModule logging = new LoggingModule();
@@ -489,15 +481,6 @@ namespace Armada.Test.Unit.Suites.Services
                             + String.Join(", ", events.Select(e => e.EventType)));
                         AssertContains(jobId, lostEvents[0].Message);
                         AssertContains("job_lost_on_restart", lostEvents[0].Message);
-
-                        CoordinationRoom? room = await driver.CoordinationRooms.ReadByKeyAsync(CoordinationRoom.DefaultKey);
-                        AssertNotNull(room, "the loss reaches the coordination board");
-                        List<CoordinationMessage> notes = (await driver.CoordinationMessages.EnumerateByRoomAsync(room!.Id, null, 500))
-                            .Where(m => m.Content.Contains(jobId, StringComparison.Ordinal)).ToList();
-                        AssertEqual(1, notes.Count, "the loss is one board note");
-                        AssertEqual("example-session", notes[0].ToParticipantKey, "the note is addressed to the session that submitted the job");
-                        AssertContains("job_lost_on_restart", notes[0].Content);
-                        AssertContains(objective.Id, notes[0].Content);
                     }
                 }
                 finally

@@ -31,7 +31,6 @@ namespace Armada.Test.Unit.Suites.Services
             TestDatabase testDb,
             DispatchHold? dispatchHold = null,
             Func<Armada.Core.Settings.DefinitionOfDoneSettings>? gateSettings = null,
-            Func<string, CancellationToken, Task>? postBoardNoteAsync = null,
             Func<DateTime>? clock = null)
         {
             LoggingModule logging = new LoggingModule();
@@ -42,7 +41,7 @@ namespace Armada.Test.Unit.Suites.Services
             ReleaseService releases = new ReleaseService(testDb.Driver, workflowProfiles, logging);
             IncidentService incidents = new IncidentService(testDb.Driver);
 
-            return new AutomaticCheckRunOrchestrator(testDb.Driver, checkRuns, releases, incidents, logging, dispatchHold, gateSettings, postBoardNoteAsync, clock);
+            return new AutomaticCheckRunOrchestrator(testDb.Driver, checkRuns, releases, incidents, logging, dispatchHold, gateSettings, clock);
         }
 
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb)
@@ -674,21 +673,18 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A memory hold is reported at each interval, posts one board note after the note delay, and records its end", async () =>
+            await RunTest("A memory hold is reported at each interval and records its end", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     DateTime now = new DateTime(2026, 1, 5, 6, 0, 0, DateTimeKind.Utc);
-                    List<string> notes = new List<string>();
                     Armada.Core.Settings.DefinitionOfDoneSettings settings = new Armada.Core.Settings.DefinitionOfDoneSettings
                     {
-                        HostSlotWaitReportMinutes = 5,
-                        HostSlotWaitBoardNoteMinutes = 10
+                        HostSlotWaitReportMinutes = 5
                     };
                     AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(
                         testDb,
                         gateSettings: () => settings,
-                        postBoardNoteAsync: (content, token) => { notes.Add(content); return Task.CompletedTask; },
                         clock: () => now);
 
                     DateTime since = now;
@@ -715,16 +711,6 @@ namespace Armada.Test.Unit.Suites.Services
                     now = since.AddMinutes(5);
                     await orchestrator.ReportWaitsAsync(held, CancellationToken.None).ConfigureAwait(false);
                     AssertEqual(1, await CountAsync(AutomaticCheckRunOrchestrator.MemoryWaitContinuingEvent).ConfigureAwait(false), "the hold is reported again after the interval");
-                    AssertEqual(0, notes.Count, "no board note before the note delay");
-
-                    now = since.AddMinutes(10);
-                    await orchestrator.ReportWaitsAsync(held, CancellationToken.None).ConfigureAwait(false);
-                    now = since.AddMinutes(11);
-                    await orchestrator.ReportWaitsAsync(held, CancellationToken.None).ConfigureAwait(false);
-                    AssertEqual(1, notes.Count, "one board note per hold once it lasts the note delay");
-                    AssertContains("4,100 MB available, floor 6,144 MB", notes[0], "the note names the memory reading");
-                    AssertContains("1. definition-of-done gate for mission msn_gate; 2. check chk_waiting (Build) for a vessel", notes[0], "the note names every waiting request in order");
-                    AssertContains("for 10 min", notes[0], "the note names how long the hold has lasted");
 
                     now = since.AddMinutes(12);
                     await orchestrator.ReportWaitsAsync(new HostSlotSnapshot(), CancellationToken.None).ConfigureAwait(false);
@@ -739,10 +725,8 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     DateTime now = new DateTime(2026, 1, 5, 7, 0, 0, DateTimeKind.Utc);
-                    List<string> notes = new List<string>();
                     AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(
                         testDb,
-                        postBoardNoteAsync: (content, token) => { notes.Add(content); return Task.CompletedTask; },
                         clock: () => now);
 
                     DateTime since = now;
@@ -758,11 +742,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("1. check chk_first (Build) for a vessel; 2. check chk_second (UnitTest) for a vessel", started[0].Message, "the event names every waiting request in order");
                     AssertEqual(0, (await testDb.Driver.Events.EnumerateByTypeAsync(AutomaticCheckRunOrchestrator.MemoryWaitStartedEvent, 10).ConfigureAwait(false)).Count,
                         "a busy slot is not reported as a memory hold");
-
-                    now = since.AddMinutes(10);
-                    await orchestrator.ReportWaitsAsync(busy, CancellationToken.None).ConfigureAwait(false);
-                    AssertEqual(1, notes.Count, "a busy slot that lasts the note delay posts one board note");
-                    AssertContains("for 10 min", notes[0], "the note names how long requests have waited");
 
                     now = since.AddMinutes(11);
                     HostSlotSnapshot free = new HostSlotSnapshot { SlotCount = 2, HolderKey = "msn_gate", HolderDescription = "definition-of-done gate for mission msn_gate", HolderSinceUtc = since };

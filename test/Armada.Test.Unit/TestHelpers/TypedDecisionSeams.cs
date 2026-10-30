@@ -84,9 +84,7 @@ namespace Armada.Test.Unit.TestHelpers
             public Task<IReadOnlyList<FollowUpDuplicateCandidate>> GetDuplicateCandidatesAsync(string? vesselId, int limit, CancellationToken token)
                 => Task.FromResult<IReadOnlyList<FollowUpDuplicateCandidate>>(new List<FollowUpDuplicateCandidate>());
             public Task<string?> CreateTriagedObjectiveAsync(FollowUpRouteRequest request, CancellationToken token) => Task.FromResult<string?>(null);
-            public Task AppendEvidenceNoteAsync(FollowUpRouteRequest request, CancellationToken token) => Task.CompletedTask;
             public Task LinkDuplicateAsync(FollowUpRouteRequest request, string existingObjectiveId, CancellationToken token) => Task.CompletedTask;
-            public Task FlagBlockingForOperatorAsync(FollowUpRouteRequest request, CancellationToken token) => Task.CompletedTask;
         }
 
         /// <summary>A mission on the given vessel with the known mission id.</summary>
@@ -439,16 +437,6 @@ namespace Armada.Test.Unit.TestHelpers
                     }, CancellationToken.None).ConfigureAwait(false);
                     return MissionId;
                 }),
-                new SeamDriver("inbox_triage", "board_notes", null, async (SeamContext ctx) =>
-                {
-                    InboxTriageAdapter adapter = new InboxTriageAdapter(ctx.Typed, ctx.Client, ctx.Recorder, Quiet());
-                    await adapter.TriageBoardNotesAsync(new List<BoardNoteTriageInput>
-                    {
-                        new BoardNoteTriageInput { Id = "note_subject_link", AuthorType = "captain", Content = "The decoder port is blocked on a fixture.", MissionId = MissionId, VesselIds = new List<string> { ctx.VesselId } }
-                    }, CancellationToken.None).ConfigureAwait(false);
-                    return MissionId;
-                }),
-
                 // Captain helper tools: the mission the captain names, resolved from the database.
                 CaptainToolDriver("premise_check", McpTypedDecisionTools.CheckPremiseToolName, missionId => new { restatement = "I will port the decoder.", missionId }),
                 CaptainToolDriver("memory_record", McpTypedDecisionTools.MemoryTriageToolName, missionId => new { candidate = "The decoder reads frames in order.", missionId }),
