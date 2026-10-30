@@ -2417,15 +2417,17 @@ namespace Armada.Test.Unit.Suites.Services
                     string firstDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
                     string secondDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
                     string workerDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    string adoptedDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
                     Directory.CreateDirectory(firstDir);
                     Directory.CreateDirectory(secondDir);
                     Directory.CreateDirectory(workerDir);
+                    Directory.CreateDirectory(adoptedDir);
                     try
                     {
                         await service.GenerateClaudeMdAsync(firstDir, judge, vessel);
                         string evidenceBrief = await File.ReadAllTextAsync(Path.Combine(firstDir, "CLAUDE.md"));
                         AssertContains(JudgeCheckEvidence.Heading, evidenceBrief, "the Judge brief carries the Check evidence section");
-                        AssertContains("Independent UnitTest Check `" + passing.Id + "`", evidenceBrief, "the passing Check is named by id");
+                        AssertContains("Executed: UnitTest Check `" + passing.Id + "`", evidenceBrief, "an executed Check is named by id as executed");
                         AssertContains("passed at commit `" + reviewedCommit + "`", evidenceBrief, "the section names the commit the Check measured");
                         AssertContains("run only focused tests", evidenceBrief, "a measured commit asks only for focused tests");
                         AssertContains(nativeSlop.Id, evidenceBrief, "the Judge receives the exact native Slop Check identity");
@@ -2448,10 +2450,28 @@ namespace Armada.Test.Unit.Suites.Services
                         await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
                         await service.GenerateClaudeMdAsync(secondDir, judge, vessel);
                         string staleBrief = await File.ReadAllTextAsync(Path.Combine(secondDir, "CLAUDE.md"));
-                        AssertContains("No passing independent UnitTest Check is recorded for commit `" + newerCommit + "`", staleBrief,
+                        AssertContains("No passing UnitTest Check is recorded for commit `" + newerCommit + "`", staleBrief,
                             "a green for another commit is not evidence for the commit under review");
                         AssertContains("Run the full test suite in the FOREGROUND", staleBrief, "without evidence the Judge runs the full suite");
                         AssertFalse(staleBrief.Contains(passing.Id, StringComparison.Ordinal), "the stale Check is not cited");
+
+                        // A UnitTest Check that adopted the Worker's definition-of-done pass ran no command of its own.
+                        CheckRun adoptedUnit = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            VoyageId = voyage.Id, Label = "UnitTest", Type = CheckRunTypeEnum.UnitTest,
+                            Status = CheckRunStatusEnum.Passed, Command = "dotnet test", CommitHash = newerCommit,
+                            CompletedUtc = DateTime.UtcNow,
+                            SatisfiedBy = new CheckRunSatisfiedBy
+                            {
+                                MissionId = worker.Id, Label = "unit-test", CommitHash = newerCommit
+                            }
+                        }).ConfigureAwait(false);
+                        await service.GenerateClaudeMdAsync(adoptedDir, judge, vessel);
+                        string adoptedBrief = await File.ReadAllTextAsync(Path.Combine(adoptedDir, "CLAUDE.md"));
+                        string adoptedLead = adoptedBrief.Split('\n').Single(line => line.StartsWith("Adopted from DoD: UnitTest Check `" + adoptedUnit.Id + "`", StringComparison.Ordinal));
+                        AssertContains("mission `" + worker.Id + "` at commit `" + newerCommit + "`", adoptedLead, "the lead names the gate pass the Check adopted");
+                        AssertContains("this Check ran no command", adoptedLead, "the lead does not describe the adopted pass as a run of its own");
+                        AssertFalse(adoptedBrief.Contains("Executed: UnitTest Check `" + adoptedUnit.Id + "`", StringComparison.Ordinal), "an adopted Check is not labeled executed");
 
                         await service.GenerateClaudeMdAsync(workerDir, worker, vessel);
                         string workerBrief = await File.ReadAllTextAsync(Path.Combine(workerDir, "CLAUDE.md"));
@@ -2459,7 +2479,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                     finally
                     {
-                        foreach (string dir in new[] { firstDir, secondDir, workerDir })
+                        foreach (string dir in new[] { firstDir, secondDir, workerDir, adoptedDir })
                         {
                             try { Directory.Delete(dir, true); } catch { }
                         }

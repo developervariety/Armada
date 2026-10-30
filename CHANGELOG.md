@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Judge Check evidence names executed and adopted Checks
+
+- The Judge brief section is `## Check Evidence`. Its lead says `Executed` when the passing UnitTest Check ran its command, or `Adopted from DoD` with the definition-of-done gate's mission and commit when the Check took that gate's pass; an adopted Check states that it ran no command. Which tests the Judge runs, and every gate requirement, are unchanged.
+
 ### Coordination board removed
 
 - The coordination board is gone: its rooms, messages, participants and claims, the `armada_coordination_*` tools, the `/api/v1/coordination` routes, the `armada board` command and the `coordination_*` tables. A migration drops the four board tables on every provider (SQLite 144, PostgreSQL 149, MySQL 137, SQL Server 140). `coordination_leases` is a separate lock store and stays.

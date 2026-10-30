@@ -283,7 +283,7 @@ namespace Armada.Core.Services
         private const string _JudgeTestSelectionMarker = "## Choosing Which Tests To Run";
 
         /// <summary>
-        /// The test-selection rule added to the Judge persona: a passing independent UnitTest Check for the
+        /// The test-selection rule added to the Judge persona: a passing UnitTest Check for the
         /// exact commit under review is the suite evidence, so the Judge runs focused tests for the changed
         /// code instead of a second full suite; it runs the full suite when no such Check exists or the diff
         /// changes test infrastructure or build configuration. The section governs the Verdict section's test
@@ -294,7 +294,7 @@ namespace Armada.Core.Services
             _JudgeTestSelectionMarker + "\n" +
             "This section decides which tests you run before your verdict; where this template says to run the test suite, " +
             "run the tests this section names. When the brief's `" + JudgeCheckEvidence.Heading + "` section names a passing " +
-            "independent UnitTest Check for the exact commit under review, cite that Check by id as your test evidence and run " +
+            "UnitTest Check for the exact commit under review, cite that Check by id as your test evidence and run " +
             "only focused tests for the code the diff changes, giving each command and its result as evidence. Run the full " +
             "test suite in the FOREGROUND and wait for it to finish when no passing UnitTest Check exists for that commit, or " +
             "when the diff changes test infrastructure or build configuration. The [DOD:DOC-ONLY] rule still applies: a " +
