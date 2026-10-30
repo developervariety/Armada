@@ -20,6 +20,7 @@ namespace Armada.Core.Services
         private static int _InFlight = 0;
         private static int _Limit = 0;
         private static Dictionary<string, string> _GateWaits = new Dictionary<string, string>(StringComparer.Ordinal);
+        private static Dictionary<string, string> _WorkWaits = new Dictionary<string, string>(StringComparer.Ordinal);
 
         #endregion
 
@@ -58,6 +59,24 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Record which pending voyage checks the runner holds back because the work they measure is not final.
+        /// </summary>
+        /// <param name="waits">Check run id to the reason the voyage's work is not final yet.</param>
+        public static void PublishWorkWaits(IReadOnlyDictionary<string, string>? waits)
+        {
+            Dictionary<string, string> copy = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (waits != null)
+            {
+                foreach (KeyValuePair<string, string> pair in waits) copy[pair.Key] = pair.Value;
+            }
+
+            lock (_Sync)
+            {
+                _WorkWaits = copy;
+            }
+        }
+
+        /// <summary>
         /// Why a pending check the runner has not started still waits, or null when nothing holds it.
         /// </summary>
         /// <param name="checkRunId">The check run id.</param>
@@ -70,6 +89,11 @@ namespace Armada.Core.Services
                 {
                     return "waiting for the running definition-of-done gate of mission " + missionId
                         + ", which runs the same suite on this vessel; a gate that passes the same command on the same commit satisfies this check";
+                }
+
+                if (!String.IsNullOrWhiteSpace(checkRunId) && _WorkWaits.TryGetValue(checkRunId, out string? workWait))
+                {
+                    return workWait;
                 }
 
                 if (_Limit <= 0 || _InFlight < _Limit) return null;

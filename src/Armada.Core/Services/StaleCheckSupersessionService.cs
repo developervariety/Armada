@@ -136,16 +136,43 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The first stage of the voyage that can still commit before the work under review is judged,
+        /// or null when there is none.
+        /// </summary>
+        /// <remarks>
+        /// A stage counts when it may still commit (<see cref="MayStillCommit"/>) and can start before
+        /// the Judge that reviews the current work ends. A stage whose dependency chain reaches a Judge
+        /// that still holds its dependents back (one that is held for operator review, or whose status
+        /// does not release a dependent) cannot be assigned until that Judge ends, so it cannot commit
+        /// before the verdict. Counting it would hold back the Checks that verdict waits on, and neither
+        /// would ever move. A stage beside the Judge, or after a Judge that has released its dependents,
+        /// still counts.
+        /// </remarks>
+        /// <param name="missions">The voyage's missions, in any order.</param>
+        /// <returns>The stage that can still commit, or null.</returns>
+        public static Mission? FindStageThatMayStillCommit(IEnumerable<Mission>? missions)
+        {
+            if (missions == null) return null;
+            List<Mission> list = missions.Where(mission => mission != null).ToList();
+            Dictionary<string, Mission> byId = list
+                .Where(mission => !String.IsNullOrWhiteSpace(mission.Id))
+                .GroupBy(mission => mission.Id, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            return list.FirstOrDefault(mission => MayStillCommit(mission) && !WaitsOnUnreleasedJudge(mission, byId));
+        }
+
+        /// <summary>
         /// Whether a voyage-armed Check would measure final work if it ran now: some stage has
         /// committed work (<see cref="SelectWorkUnderReview"/>) and no stage can still commit on top
-        /// of it (<see cref="MayStillCommit"/>).
+        /// of it before the work is judged (<see cref="FindStageThatMayStillCommit"/>).
         /// </summary>
         /// <remarks>
         /// Only the run at the last commit decides the Judge gate; a run while a later stage can still
         /// commit is superseded as soon as that stage commits, so it spends the host command slot for
-        /// no verdict. The Judge itself never counts as a committing stage, so the Check becomes
-        /// runnable no later than when the Judge is the only stage left, and the Judge's hold on a
-        /// missing green still ends.
+        /// no verdict. The Judge itself never counts as a committing stage, and neither does a stage
+        /// that cannot start until the Judge ends, so the Check becomes runnable no later than when the
+        /// Judge and the stages behind it are all that is left, and the Judge's hold on a missing green
+        /// still ends.
         /// </remarks>
         /// <param name="missions">The voyage's missions, in any order.</param>
         /// <returns>The mission carrying final work, or null while there is none.</returns>
@@ -153,7 +180,7 @@ namespace Armada.Core.Services
         {
             if (missions == null) return null;
             List<Mission> list = missions.Where(mission => mission != null).ToList();
-            if (list.Any(MayStillCommit)) return null;
+            if (FindStageThatMayStillCommit(list) != null) return null;
             return SelectWorkUnderReview(list);
         }
 
@@ -197,6 +224,40 @@ namespace Armada.Core.Services
             if (!VoyageLanes.IsFanOut(lanes)) return SelectFinalWorkUnderReview(list);
             VoyageLane? lane = VoyageLanes.SingleLaneOfRecord(lanes, run);
             return lane == null ? null : SelectFinalLaneWork(lane);
+        }
+
+        /// <summary>
+        /// Why a particular voyage-armed record has no final work to measure yet, for the record's view.
+        /// </summary>
+        /// <remarks>
+        /// Uses the same selection as <see cref="SelectFinalWorkUnderReviewFor"/>: it names the stage that
+        /// can still commit before the work is judged, or says that no stage has committed the work the
+        /// record measures.
+        /// </remarks>
+        /// <param name="run">The record.</param>
+        /// <param name="missions">The voyage's missions, in any order.</param>
+        /// <returns>The reason.</returns>
+        public static string DescribeWorkWaitFor(CheckRun? run, IEnumerable<Mission>? missions)
+        {
+            List<Mission> list = missions?.Where(mission => mission != null).ToList() ?? new List<Mission>();
+            IReadOnlyList<VoyageLane> lanes = VoyageLanes.Resolve(list);
+            IEnumerable<Mission> scope = list;
+            if (VoyageLanes.IsFanOut(lanes))
+            {
+                VoyageLane? lane = VoyageLanes.SingleLaneOfRecord(lanes, run);
+                if (lane == null)
+                    return "waiting for the voyage's work: the voyage has split and this check measures no single lane's own work";
+                scope = lane.Missions;
+            }
+
+            Mission? blocker = FindStageThatMayStillCommit(scope);
+            if (blocker != null)
+            {
+                return "waiting for mission " + blocker.Id + " (" + (blocker.Persona ?? "stage") + ", " + blocker.Status
+                    + "), which can still commit on top of the work this check measures; the check starts once no such stage remains";
+            }
+
+            return "waiting for a stage of the voyage to commit the work this check measures";
         }
 
         /// <summary>
@@ -342,8 +403,27 @@ namespace Armada.Core.Services
 
         private static Mission? SelectFinalLaneWork(VoyageLane lane)
         {
-            if (lane.Missions.Any(MayStillCommit)) return null;
+            if (FindStageThatMayStillCommit(lane.Missions) != null) return null;
             return SelectLaneWork(lane);
+        }
+
+        private static bool WaitsOnUnreleasedJudge(Mission mission, Dictionary<string, Mission> byId)
+        {
+            // A dependency outside the list ends the walk: the stage then counts, which keeps the Check waiting.
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            if (!String.IsNullOrWhiteSpace(mission.Id)) seen.Add(mission.Id);
+            string? parentId = mission.DependsOnMissionId;
+            while (!String.IsNullOrWhiteSpace(parentId)
+                && seen.Add(parentId)
+                && byId.TryGetValue(parentId, out Mission? parent))
+            {
+                if (PersonaCatalog.Matches(parent.Persona, PersonaCatalog.Judge)
+                    && (parent.HeldForOperatorReview || !MissionService.IsDependencySatisfyingStatus(parent.Status)))
+                    return true;
+                parentId = parent.DependsOnMissionId;
+            }
+
+            return false;
         }
 
         private static bool IsVoyageGateType(CheckRun run)

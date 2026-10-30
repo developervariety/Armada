@@ -92,6 +92,32 @@ namespace Armada.Test.Unit.Suites.Services
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
+        private static async Task<(Mission Worker, Mission Judge, Mission Recorder)> CreateHeldReviewChainAsync(
+            TestDatabase testDb, Vessel vessel, Voyage voyage)
+        {
+            Mission worker = await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Worker,
+                MissionStatusEnum.WorkProduced, "armada/worker/msn-chain-one", "worker111").ConfigureAwait(false);
+            Mission judge = await CreateDependentStageAsync(testDb, vessel, voyage, PersonaCatalog.Judge, worker).ConfigureAwait(false);
+            judge.Status = MissionStatusEnum.WorkProduced;
+            judge.HeldForOperatorReview = true;
+            judge.HeldForOperatorReviewReason = JudgeRevisionCheckWaitHold.BuildReason(DateTime.UtcNow, worker.CommitHash, null);
+            judge = await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+            Mission recorder = await CreateDependentStageAsync(testDb, vessel, voyage, PersonaCatalog.Recorder, judge).ConfigureAwait(false);
+            return (worker, judge, recorder);
+        }
+
+        private static async Task<Mission> CreateDependentStageAsync(
+            TestDatabase testDb, Vessel vessel, Voyage voyage, string persona, Mission dependency)
+        {
+            Mission mission = new Mission("[" + persona + "] Stage of the work", "Stage of the work");
+            mission.VesselId = vessel.Id;
+            mission.VoyageId = voyage.Id;
+            mission.Persona = persona;
+            mission.Status = MissionStatusEnum.Pending;
+            mission.DependsOnMissionId = dependency.Id;
+            return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
         /// <summary>Run all armed-check eligibility tests.</summary>
         protected override async Task RunTestsAsync()
         {
@@ -292,6 +318,71 @@ namespace Armada.Test.Unit.Suites.Services
                     bool eligible = await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false);
 
                     AssertFalse(eligible, "a pending stage that can still commit would replace the measured commit, so the check must wait");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Armed check runs while a later route chain waits on the held Judge", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("two-chain-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                    (Mission worker, Mission judge, Mission recorder) = await CreateHeldReviewChainAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                    Mission laterWorker = await CreateDependentStageAsync(testDb, vessel, voyage, PersonaCatalog.Worker, recorder).ConfigureAwait(false);
+                    await CreateDependentStageAsync(testDb, vessel, voyage, PersonaCatalog.TestEngineer, laterWorker).ConfigureAwait(false);
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    AssertTrue(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                        "a chain that cannot start before the held Judge ends cannot commit before it, so the Judge's Checks run");
+                    CheckRun stamped = await orchestrator.StampWorkUnderReviewAsync(armed, default).ConfigureAwait(false);
+                    AssertEqual(worker.CommitHash, stamped.CommitHash, "the Check measures the commit the Judge reviewed");
+
+                    judge.HeldForOperatorReview = false;
+                    judge.HeldForOperatorReviewReason = null;
+                    judge.Status = MissionStatusEnum.Complete;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    AssertFalse(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                        "once the Judge releases its dependents the later chain can commit, so the check waits for it");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Armed check still waits for a sibling stage that does not depend on the Judge", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("two-chain-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                    (Mission worker, Mission judge, Mission recorder) = await CreateHeldReviewChainAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                    await CreateDependentStageAsync(testDb, vessel, voyage, PersonaCatalog.Worker, recorder).ConfigureAwait(false);
+                    Mission sibling = await CreateDependentStageAsync(testDb, vessel, voyage, PersonaCatalog.Worker, worker).ConfigureAwait(false);
+                    judge.StageOrder = 2;
+                    sibling.StageOrder = 2;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(sibling).ConfigureAwait(false);
+                    List<Mission> missions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertFalse(VoyageLanes.IsFanOut(VoyageLanes.Resolve(missions)),
+                        "a stage in the Judge's parallel group keeps the voyage one lane, so the record measures its work");
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    AssertFalse(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                        "a stage beside the Judge can commit before the Judge ends, so the check waits for it");
+
+                    try
+                    {
+                        await orchestrator.RunSweepAsync().ConfigureAwait(false);
+                        CheckRun? waiting = await testDb.Driver.CheckRuns.ReadAsync(armed.Id).ConfigureAwait(false);
+                        AssertEqual(CheckRunStatusEnum.Pending, waiting!.Status, "the check stays pending while the stage can still commit");
+                        CheckRunSlotWait? view = CheckRunSlotWait.Describe(waiting, new HostSlotSnapshot());
+                        AssertContains(sibling.Id, view!.QueueReason ?? String.Empty, "the check's view names the stage it waits for");
+                        AssertFalse((view.Guidance ?? String.Empty).Contains("runs by itself", StringComparison.Ordinal),
+                            "the guidance does not promise a start the check may never reach");
+                    }
+                    finally
+                    {
+                        AutomaticCheckRunPlaces.PublishWorkWaits(null);
+                    }
                 }
             }).ConfigureAwait(false);
 

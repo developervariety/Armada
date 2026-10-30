@@ -119,6 +119,10 @@ namespace Armada.Server
         // gate's mission id. Replaced on every scan.
         private readonly ConcurrentDictionary<string, string> _GateWaits = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
+        // Voyage checks the latest eligibility scan held back because the work they measure is not final, keyed
+        // by check run id, with the reason. Replaced on every scan.
+        private readonly ConcurrentDictionary<string, string> _WorkWaits = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
         private readonly WaitReport _RunnerFullWait = new WaitReport(
             "wait", RunnerFullStartedEvent, RunnerFullContinuingEvent, RunnerFullEndedEvent,
             "The automatic check runner has a free place or no check waits for one");
@@ -266,7 +270,9 @@ namespace Armada.Server
             }
 
             _GateWaits.Clear();
+            _WorkWaits.Clear();
             List<CheckRun> eligible = await FindEligiblePendingChecksAsync(capacity, hold, token).ConfigureAwait(false);
+            AutomaticCheckRunPlaces.PublishWorkWaits(new Dictionary<string, string>(_WorkWaits, StringComparer.Ordinal));
             await ReportGateOverlapAsync(slot, token).ConfigureAwait(false);
             if (eligible.Count == 0) return started;
 
@@ -792,7 +798,12 @@ namespace Armada.Server
                 // a later stage replaces, and that green is superseded without deciding anything.
                 List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(run.VoyageId!, token).ConfigureAwait(false);
                 // On a voyage that has split, only the record's own lane decides when its work is final.
-                if (StaleCheckSupersessionService.SelectFinalWorkUnderReviewFor(run, missions) == null) return false;
+                if (StaleCheckSupersessionService.SelectFinalWorkUnderReviewFor(run, missions) == null)
+                {
+                    _WorkWaits[run.Id] = StaleCheckSupersessionService.DescribeWorkWaitFor(run, missions);
+                    return false;
+                }
+
                 return !IsBehindRunningGate(run, missions);
             }
 

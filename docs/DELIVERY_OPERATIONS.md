@@ -469,7 +469,12 @@ or a Testing or Review stage with no completion time, since a running captain
 reports those as progress, other than the Judge, a persona whose normal result is an empty diff, or a
 read-only mission), so the Check measures the commit the Judge reviews instead
 of an intermediate one a later stage replaces (on a split voyage, only the
-stages of the record's own lane count); a mission-linked Check after its mission completes, a release-linked Check when
+stages of the record's own lane count). A stage whose dependency chain reaches a
+Judge that still holds its dependents back (held for operator review, or in a
+status that does not release a dependent) does not count: it cannot start, and
+so cannot commit, before that Judge's verdict, which itself waits on these
+Checks. While such a Check waits, its `slotWait.queueReason` names the stage
+that can still commit, or says that no stage has committed the work yet; a mission-linked Check after its mission completes, a release-linked Check when
 the release is ready, and an unlinked Check when its vessel is idle. A Pending
 Check of a voyage that ended without completing is cancelled with its reason
 (`voyage_cancelled` or `voyage_failed`), which the discard writes into the
@@ -506,7 +511,9 @@ at most three named tests re-runs them alone under the same rule as the gate
 the host command slot; it passes only when that re-run passes, and its summary
 then reads `passed on isolated re-run` with the full run's failure. The records live in the admiral's memory, so after a
 restart the Check runs its command. An operator's `run_check` or
-`retry_check_run` always runs the command.
+`retry_check_run` always runs the command. `retry_check_run` on a Pending
+record runs that record in place under its own ID as an operator run, so the
+automatic runner neither starts nor discards it meanwhile.
 
 A passing gate's mission evaluation keeps a redacted, digest-backed capture of
 its last successful full vessel unit-test command, or its build command when no

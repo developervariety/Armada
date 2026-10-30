@@ -140,7 +140,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "retry_check_run",
-                "Retry a previously completed structured check run using the same resolved scope and command context. Like run_check, it waits a bounded time: a retry still waiting for the host-wide slot returns unfinished with slotWait and keeps running. A retry runs to completion even when its voyage has ended.",
+                "Retry a structured check run using the same resolved scope and command context. A finished record is retried as a new record; a Pending record runs in place under its own ID, as an operator run that always executes its command and that the automatic runner neither starts nor discards meanwhile. Like run_check, it waits a bounded time: a retry still waiting for the host-wide slot returns unfinished with slotWait and keeps running. A retry runs to completion even when its voyage has ended.",
                 new
                 {
                     type = "object",

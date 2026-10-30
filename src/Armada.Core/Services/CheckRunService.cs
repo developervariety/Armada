@@ -846,7 +846,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Retry a previously completed check run.
+        /// Retry a check run: a finished record as a new record, a Pending record in place as an operator run.
         /// </summary>
         /// <remarks>
         /// A retry is an operator run: it executes to its end even when the Check's voyage has ended,

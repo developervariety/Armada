@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A route chain behind a held Judge does not hold back the Judge's Checks
+
+- A voyage-armed Check no longer waits for a stage whose dependency chain reaches a Judge that still holds its dependents back (held for operator review, or in a status that does not release a dependent). Such a stage cannot commit before the verdict, and the verdict waits on the Check, so neither moved. A stage beside the Judge, or after a Judge that has released its dependents, still holds the Check back. Split voyages apply the same rule within the record's lane.
+- A voyage Check the automatic runner holds back for unfinished work names why in `slotWait.queueReason`: the stage that can still commit, or that no stage has committed the work yet. The slot-wait guidance says the check starts when that condition ends.
+- The `retry_check_run` description states that a Pending record runs in place under its own ID as an operator run that always executes its command.
+
 ### Pending Judge review does not fail completed research
 
 - A completed report that defers only because the Judge review "has not run" hands off to its actual pending downstream Judge. Unfinished current work and missing, cancelled, unrelated or foreign reviewers still block completion.
