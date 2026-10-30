@@ -89,6 +89,50 @@ namespace Armada.Test.Unit.Suites.Battery
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Dispatcher_ReleasedCaptainWaitsForMatchingGateAndFinalOutcome", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("battery", "test")).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("battery")).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("battery", "test")
+                    {
+                        VoyageId = voyage.Id, CaptainId = captain.Id, IsEvaluation = true,
+                        Status = MissionStatusEnum.WorkProduced, CommitHash = new string('a', 40)
+                    }).ConfigureAwait(false);
+                    IAdmiralService admiral = DispatchProxy.Create<IAdmiralService, BatteryAdmiral>();
+                    ((BatteryAdmiral)(object)admiral).Voyage = voyage;
+                    BatteryTaskDispatcher dispatcher = new BatteryTaskDispatcher(admiral, testDb.Driver, new LoggingModule(),
+                        (_, _) => Task.CompletedTask, TimeSpan.FromMilliseconds(5));
+                    Task<BatteryDispatchResult> pending = dispatcher.RunAsync(new BatteryDispatchRequest(new Vessel("battery", "/tmp/fixture"), captain, "task", "prompt", 5000));
+                    await Task.WhenAny(pending, Task.Delay(100)).ConfigureAwait(false);
+                    bool returnedWithoutGate = pending.IsCompleted;
+                    DefinitionOfDoneEvaluationRecord gate = new DefinitionOfDoneEvaluationRecord
+                    {
+                        Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Passed,
+                        CaptainId = captain.Id, CommitHash = new string('b', 40)
+                    };
+                    ArmadaEvent gateEvent = new ArmadaEvent(DefinitionOfDoneEvaluationRecord.EventType, "Gate finished")
+                    { MissionId = mission.Id, Payload = JsonSerializer.Serialize(gate) };
+                    await testDb.Driver.Events.CreateAsync(gateEvent).ConfigureAwait(false);
+                    await Task.WhenAny(pending, Task.Delay(100)).ConfigureAwait(false);
+                    bool returnedForOtherCommit = pending.IsCompleted;
+                    gate.CommitHash = mission.CommitHash;
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent(DefinitionOfDoneEvaluationRecord.EventType, "Gate finished")
+                    { MissionId = mission.Id, Payload = JsonSerializer.Serialize(gate) }).ConfigureAwait(false);
+                    await Task.WhenAny(pending, Task.Delay(100)).ConfigureAwait(false);
+                    bool returnedBeforeOutcome = pending.IsCompleted;
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent("mission.work_produced", "Completion settled")
+                    { MissionId = mission.Id }).ConfigureAwait(false);
+                    BatteryDispatchResult result = await pending.ConfigureAwait(false);
+                    AssertFalse(returnedWithoutGate, "captain release alone must not start grading");
+                    AssertFalse(returnedForOtherCommit, "a gate for another commit must not start grading");
+                    AssertFalse(returnedBeforeOutcome, "the gate record precedes final completion handling");
+                    AssertFalse(result.TimedOut);
+                    AssertEqual(MissionStatusEnum.WorkProduced, result.Mission!.Status);
+                }
+            });
+
             await RunTest("Dispatcher_WaitsForCompletionAndReadsTheFinalFailure", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

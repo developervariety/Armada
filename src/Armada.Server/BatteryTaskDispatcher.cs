@@ -3,6 +3,7 @@ namespace Armada.Server
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -16,7 +17,8 @@ namespace Armada.Server
     /// <summary>
     /// Real battery dispatch: one evaluation voyage on the fixture vessel with the Worker persona, requesting the
     /// captain under test. The fixture vessel's landing mode is None. Dispatch waits until completion handling
-    /// releases the captain, then grades an isolated checkout of the recorded commit. A timeout cancels the voyage.
+    /// records the matching gate and final outcome and releases the captain, then grades an isolated checkout of
+    /// the recorded commit. A timeout cancels the voyage.
     /// </summary>
     public class BatteryTaskDispatcher : IBatteryTaskDispatcher
     {
@@ -112,6 +114,9 @@ namespace Armada.Server
                     bool completing = false;
                     foreach (Mission mission in missions)
                     {
+                        if ((mission.Status == MissionStatusEnum.WorkProduced || mission.Status == MissionStatusEnum.Review
+                            || mission.Status == MissionStatusEnum.Complete)
+                            && !await HasCompletionEvidenceAsync(mission, token).ConfigureAwait(false)) completing = true;
                         if (String.IsNullOrEmpty(mission.CaptainId)) continue;
                         Captain? assigned = await _Database.Captains.ReadAsync(mission.CaptainId!, token).ConfigureAwait(false);
                         if (assigned?.CurrentMissionId == mission.Id) completing = true;
@@ -160,6 +165,42 @@ namespace Armada.Server
             }
 
             return result;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task<bool> HasCompletionEvidenceAsync(Mission mission, CancellationToken token)
+        {
+            EnumerationResult<ArmadaEvent> gates = await _Database.Events.EnumerateAsync(new EnumerationQuery
+            { MissionId = mission.Id, EventType = DefinitionOfDoneEvaluationRecord.EventType, PageSize = 1 }, token).ConfigureAwait(false);
+            ArmadaEvent? latest = gates.Objects.FirstOrDefault(item => SameOwner(item, mission));
+            if (latest == null || String.IsNullOrWhiteSpace(latest.Payload)) return false;
+            DefinitionOfDoneEvaluationRecord? gate;
+            try
+            {
+                gate = JsonSerializer.Deserialize<DefinitionOfDoneEvaluationRecord>(latest.Payload);
+            }
+            catch (JsonException ex)
+            {
+                _Logging.Warn(_Header + "cannot verify completion gate for " + mission.Id + ": " + ex.Message);
+                return false;
+            }
+            if (gate == null || gate.Outcome != DefinitionOfDoneEvaluationOutcomeEnum.Passed
+                || gate.StartedUtc < (mission.StartedUtc ?? mission.CreatedUtc)
+                || gate.RecoveryAttempts != mission.RecoveryAttempts || gate.CaptainId != mission.CaptainId
+                || gate.DockId != mission.DockId || String.IsNullOrWhiteSpace(mission.CommitHash)
+                || !String.Equals(gate.CommitHash, mission.CommitHash, StringComparison.OrdinalIgnoreCase)) return false;
+            EnumerationResult<ArmadaEvent> outcomes = await _Database.Events.EnumerateAsync(new EnumerationQuery
+            { MissionId = mission.Id, EventType = "mission.work_produced", PageSize = 1 }, token).ConfigureAwait(false);
+            return outcomes.Objects.Any(item => SameOwner(item, mission) && item.CreatedUtc >= gate.CompletedUtc);
+        }
+
+        private static bool SameOwner(ArmadaEvent item, Mission mission)
+        {
+            return (item.TenantId ?? Constants.DefaultTenantId) == (mission.TenantId ?? Constants.DefaultTenantId)
+                && (item.UserId ?? Constants.DefaultUserId) == (mission.UserId ?? Constants.DefaultUserId);
         }
 
         #endregion

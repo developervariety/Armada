@@ -124,6 +124,8 @@ permitted validation; see [pipelines](PIPELINES.md) and [personas](PERSONAS.md).
 
 Use the fixture Battery for controlled model tasks; see [Fixture Battery](BATTERY.md). Check the fixture vessel's workflow resolution before collecting results. Evaluation missions with a requested captain wait for that captain when it is unavailable and record `WaitForRequested`. Keep captain wait time separate from execution time, and keep setup failures separate from model-quality results.
 
+Grading requires the current attempt's passed Definition-of-Done record at the recorded commit and the later final completion event. Captain release alone does not prove completion. A missing or mismatched record keeps the task waiting under its existing timeout.
+
 ## Judge lenses and bounded reviews
 
 Judge reviews use three lenses: correctness, safety and blast radius, and

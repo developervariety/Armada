@@ -17,6 +17,10 @@ upstream integrations and excludes changes already present at that baseline.
 - New events: `mission.reassigned` when a mission moves to a different captain, and `dispatch.hold_engaged`, `dispatch.hold_cleared` and `dispatch.hold_restored` when the dispatch hold changes state.
 - `armada_campaign_status` returns the objective tree and closeout only. `armada_dispatch_hold` keeps its behavior and records events.
 
+### Fixture grading completion
+
+- Fixture grading waits for a passed Definition-of-Done record for the current captain, dock, commit and attempt, followed by the final completion event. An early captain release cannot start grading or reset the fixture while its gate still runs.
+
 ### Mission metadata validation
 
 - REST, MCP and WebSocket mission metadata updates refuse unknown or non-patchable fields by name before saving any field. Sending a preference, status or recovery counter cannot silently succeed without changing it.
