@@ -170,7 +170,7 @@ namespace Armada.Core.Services
                 mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
                 string? stageRefusal = await RescueStageContract.DescribeRefusalAsync(_Database, mission?.VoyageId, token).ConfigureAwait(false);
                 if (stageRefusal != null) throw new InvalidOperationException(stageRefusal);
-                string? pinRefusal = await SiblingPinOverride.DescribeLandingRefusalAsync(_Database, _Git, mission?.VoyageId, token).ConfigureAwait(false);
+                string? pinRefusal = await SiblingPinOverride.EvaluateLandingAsync(_Database, _Git, mission, token).ConfigureAwait(false);
                 if (pinRefusal != null) throw new InvalidOperationException(pinRefusal);
                 string? noLanding = MissionLandingEligibility.RefusalReason(mission);
                 if (noLanding != null)
@@ -1055,7 +1055,7 @@ namespace Armada.Core.Services
                     await TransitionEntryToFailureAsync(entry, stageRefusal, token).ConfigureAwait(false);
                     return false;
                 }
-                string? pinRefusal = await SiblingPinOverride.DescribeLandingRefusalAsync(_Database, _Git, landingMission?.VoyageId, token).ConfigureAwait(false);
+                string? pinRefusal = await SiblingPinOverride.EvaluateLandingAsync(_Database, _Git, landingMission, token).ConfigureAwait(false);
                 if (pinRefusal != null)
                 {
                     await TransitionEntryToFailureAsync(entry, pinRefusal, token).ConfigureAwait(false);

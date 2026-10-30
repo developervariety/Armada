@@ -914,6 +914,98 @@ namespace Armada.Test.Unit.Suites.Services
             // Cleanup regression: a worktree-backed isolated checkout must be removed from the
             // repository's worktree registration when the check completes, so repeated checks do not
             // accumulate stale worktree entries in the shared vessel repository.
+            await RunTest("Build check of an objective that provisions a sibling pin runs beside that pinned sibling and receives the pin", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_pin", "usr_iso_pin").ConfigureAwait(false);
+
+                SourceRepoWithRef producerRepo = await CreateSourceRepoWithFeatureRefAsync().ConfigureAwait(false);
+                string consumerRepo = await CreateSourceRepoAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-pin-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel producer = CreateVessel("ten_iso_pin", "usr_iso_pin", producerRepo.RepoPath);
+                    producer.Name = "PinProducer";
+                    producer = await testDb.Driver.Vessels.CreateAsync(producer).ConfigureAwait(false);
+
+                    Vessel consumer = CreateVessel("ten_iso_pin", "usr_iso_pin", workingDirectory);
+                    consumer.Name = "PinConsumer";
+                    consumer.LocalPath = consumerRepo;
+                    consumer.SiblingRepos = System.Text.Json.JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = producer.Id, RelativePath = "../Producer", BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly, DefaultBranch = "main" }
+                    });
+                    consumer = await testDb.Driver.Vessels.CreateAsync(consumer).ConfigureAwait(false);
+
+                    // The pin is the producer's unlanded feature commit; its main never has the marker.
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pinned check voyage") { TenantId = "ten_iso_pin", UserId = "usr_iso_pin" }).ConfigureAwait(false);
+                    Objective objective = new Objective { TenantId = "ten_iso_pin", UserId = "usr_iso_pin", Title = "measure against the candidate" };
+                    objective.VoyageIds.Add(voyage.Id);
+                    objective.Preparation.RequiredSiblingInputs.Add(new ObjectivePreparationSiblingInput
+                    {
+                        VesselRef = producer.Id,
+                        RelativePath = "../Producer",
+                        PinnedCommit = producerRepo.FeatureCommitHash.Substring(0, 12),
+                        ProvisionPinnedCommit = true
+                    });
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("pinned consumer stage")
+                    {
+                        TenantId = "ten_iso_pin",
+                        UserId = "usr_iso_pin",
+                        VoyageId = voyage.Id,
+                        VesselId = consumer.Id
+                    }).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_iso_pin",
+                        UserId = "usr_iso_pin",
+                        Name = "Pinned Sibling Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = consumer.Id,
+                        BuildCommand = OperatingSystem.IsWindows()
+                            ? "git -C ..\\Producer rev-parse HEAD & echo pin=%ARMADA_SIBLING_PIN_PRODUCER% & type ..\\Producer\\" + producerRepo.MarkerFileName
+                            : "git -C ../Producer rev-parse HEAD && echo pin=$ARMADA_SIBLING_PIN_PRODUCER && cat ../Producer/" + producerRepo.MarkerFileName
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_pin", "usr_iso_pin", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = consumer.Id,
+                        MissionId = mission.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    }).ConfigureAwait(false);
+
+                    string output = run.Output ?? String.Empty;
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status, output);
+                    AssertContains(producerRepo.FeatureCommitHash + "\n", output.Replace("\r\n", "\n"));
+                    AssertContains("pin=" + producerRepo.FeatureCommitHash, output);
+                    AssertContains(producerRepo.MarkerContent, output);
+
+                    string producerWorktrees = await RunGitAsync(producerRepo.RepoPath, "worktree", "list").ConfigureAwait(false);
+                    AssertFalse(producerWorktrees.Contains("armada-chk-", StringComparison.OrdinalIgnoreCase),
+                        "the pinned sibling worktree is unregistered after the check completes");
+                    AssertEqual("main", await RunGitAsync(producerRepo.RepoPath, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false),
+                        "the producer repository's own checkout is not moved");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(workingDirectory);
+                    SafeDeleteDirectory(consumerRepo);
+                    SafeDeleteDirectory(producerRepo.RepoPath);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Isolated checkout removes its worktree registration after the check completes", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

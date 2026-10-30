@@ -14,6 +14,15 @@ upstream integrations and excludes changes already present at that baseline.
 ### Suite lease acquire waits at most 45 seconds
 
 - `armada_suite_lease` `acquire` accepts `waitSeconds` from 0 to 45 and treats a larger value as 45, so a queued answer arrives before the 60-second request timeout that common MCP clients apply. The default wait (30 seconds), queue order and slot limits are unchanged. A tool-boundary regression uses a controlled clock to prove that a 120-second request answers queued at the 45-second clamp, before a 60-second client timeout.
+
+### Gates and Checks build against a provisioned sibling pin
+
+- Every gate and Check command of a mission whose objective provisions a sibling pin receives the full pinned commit in `ARMADA_SIBLING_PIN_<SIBLING>`, so a workflow profile verifies the pinned sibling instead of moving it to the default branch. Build and UnitTest Checks of such a mission run in a nested isolated checkout with each pinned sibling checked out at its pin beside it. An unresolved pin stops the gate and fails the Check with `sibling_pin_unresolved`; a pinned checkout that cannot be made fails with `sibling_pin_override_checkout_failed`; a Harbor-routed Check refuses with `check_harbor_sibling_pin_override_unsupported`. Missions without a provisioned pin are unchanged.
+
+### Owner flag lets a consumer land before its pinned sibling commit
+
+- A required sibling input that sets `landBeforeSibling: true` with `provisionPinnedCommit` lets the consumer land while its pinned sibling commit is not yet on the sibling vessel's default branch. The landing records a `mission.landed_ahead_of_sibling` event once per mission. Without the flag, landing still refuses with `sibling_pin_unlanded`.
+
 ### Sibling pin override provisions an unlanded sibling commit per dispatch
 
 - A required sibling input with `provisionPinnedCommit: true` makes every dock of the objective's dispatch check out its `pinnedCommit` in that dock's own sibling checkout, from any ref of the sibling repository that holds it. Docks without the override keep the declared branch, and no sibling ref is created, landed or moved. Dispatch preview resolves the commit and names the override (`required_sibling_pin_provisioned`) instead of applying the ancestor rule, and still refuses a commit the repository does not hold. The brief and a `dock.sibling_pin_override` event name the pinned commit. Landing refuses with `sibling_pin_unlanded` until the commit is on the sibling vessel's default branch. Without the flag, pinned commits behave as before.

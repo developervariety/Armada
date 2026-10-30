@@ -456,7 +456,28 @@ the ancestor rule, and names the override (`required_sibling_pin_provisioned`,
 informational). The consumer's work is valid only for that commit, so landing
 refuses with `sibling_pin_unlanded` until the pin is an ancestor of the sibling
 vessel's default branch; retry the landing once the sibling lands it, or
-re-measure at the landed tip and clear the override.
+re-measure at the landed tip and clear the override. The owner may set
+`landBeforeSibling: true` on the input to let the consumer land first. That
+landing records a `mission.landed_ahead_of_sibling` event, once per mission,
+naming the unlanded commit; the sibling's own gate then measures against the
+landed consumer.
+
+Every gate and Check command of a mission under the override receives each
+pin, resolved to the full commit, in an environment variable named
+`ARMADA_SIBLING_PIN_` plus the sibling directory name in upper case, with each
+character that is not a letter or digit replaced by `_` (`../Producer` gives
+`ARMADA_SIBLING_PIN_PRODUCER`). A workflow profile that verifies or refreshes
+its sibling reads that variable, checks that the sibling HEAD is the pinned
+commit, and does not move it to the default branch. A Build or UnitTest Check
+of such a mission runs in a nested isolated checkout,
+`<check-root>/<Vessel>`, with each pinned sibling checked out detached at its
+pin at its relative path inside the same root; the Check never uses a sibling
+checkout another run shares. A pin that does not resolve stops the gate and
+fails the Check with `sibling_pin_unresolved`, a Check whose pinned checkout
+cannot be made fails with `sibling_pin_override_checkout_failed`, and a
+Harbor-routed Check refuses with
+`check_harbor_sibling_pin_override_unsupported`. No command runs against an
+unresolved pin.
 
 The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a

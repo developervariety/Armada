@@ -1124,7 +1124,8 @@ namespace Armada.Server.Mcp.Tools
                                 relativePath = new { type = "string", description = "Required checkout path relative to the target dock" },
                                 requiredArtifactPaths = new { type = "array", maxItems = 20, items = new { type = "string" } },
                                 pinnedCommit = new { type = "string", description = "Optional sibling commit the evidence was measured at. Without provisionPinnedCommit, dispatch refuses a pin that is not an ancestor of the provisioned sibling branch." },
-                                provisionPinnedCommit = new { type = "boolean", description = "When true, each dock of this dispatch checks out pinnedCommit in its own sibling checkout, from any ref of the sibling repository that holds it. The consumer lands only after the pin is an ancestor of the sibling vessel's default branch. Requires pinnedCommit." }
+                                provisionPinnedCommit = new { type = "boolean", description = "When true, each dock of this dispatch checks out pinnedCommit in its own sibling checkout, from any ref of the sibling repository that holds it. The consumer lands only after the pin is an ancestor of the sibling vessel's default branch, unless landBeforeSibling is set. Requires pinnedCommit." },
+                                landBeforeSibling = new { type = "boolean", description = "Owner exception: the consumer may land before the provisioned pin is on the sibling vessel's default branch; the landing records mission.landed_ahead_of_sibling. Requires provisionPinnedCommit." }
                             },
                             required = new[] { "vesselRef", "relativePath" }
                         }
