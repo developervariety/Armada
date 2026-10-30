@@ -9,7 +9,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Suite lease acquire waits at most 45 seconds
 
-- `armada_suite_lease` `acquire` accepts `waitSeconds` from 0 to 45 and treats a larger value as 45, so a queued answer arrives before the 60-second request timeout that common MCP clients apply. The default wait (30 seconds), queue order and slot limits are unchanged.
+- `armada_suite_lease` `acquire` accepts `waitSeconds` from 0 to 45 and treats a larger value as 45, so a queued answer arrives before the 60-second request timeout that common MCP clients apply. The default wait (30 seconds), queue order and slot limits are unchanged. A tool-boundary regression uses a controlled clock to prove that a 120-second request answers queued at the 45-second clamp, before a 60-second client timeout.
 
 ### Recovery preserves required stages and excludes concurrent restarts
 
@@ -18,7 +18,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Suite lease acquire answers within a bound
 
-- `armada_suite_lease` `acquire` waits at most `waitSeconds` (default 30, at most 120) and then answers `granted`, `held` or `queued` with the queue position, so a captain never waits past its MCP client's call timeout. A queued request stays queued after the call returns or is cancelled, and the next `acquire` keeps its place. `captain.suite_lease_wait` is recorded once per queued request. `release` while queued answers `withdrawn` and gives up the place. Slot limits, queue order and the definition-of-done time limit are unchanged.
+- `armada_suite_lease` `acquire` waits at most `waitSeconds` (default 30, at most 45) and then answers `granted`, `held` or `queued` with the queue position, within the supported client request timeout. A queued request stays queued after the call returns or is cancelled, and the next `acquire` keeps its place. `captain.suite_lease_wait` is recorded once per queued request. `release` while queued answers `withdrawn` and gives up the place. Slot limits, queue order and the definition-of-done time limit are unchanged.
 
 ### Battery packs readable in the image
 

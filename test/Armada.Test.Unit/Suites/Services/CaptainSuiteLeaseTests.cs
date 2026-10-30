@@ -17,6 +17,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
+    using Microsoft.Extensions.Time.Testing;
     using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
 
     /// <summary>
@@ -293,6 +294,54 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("An acquire above 45 seconds returns queued at the clamp before a 60-second client timeout", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("lease-clamp-vessel", "https://example.invalid/lease-clamp.git")).ConfigureAwait(false);
+                    Mission holder = await CreateMissionAsync(testDb, vessel, "lease clamp holder").ConfigureAwait(false);
+                    Mission waiter = await CreateMissionAsync(testDb, vessel, "lease clamp waiter").ConfigureAwait(false);
+                    LeaseWaitClock clock = new LeaseWaitClock();
+                    Func<JsonElement?, Task<object>>? tool = null;
+                    McpSuiteLeaseTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == McpSuiteLeaseTools.ToolName) tool = handler;
+                    }, testDb.Driver, null, clock);
+                    AssertNotNull(tool, "the suite lease tool is registered");
+                    Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                    int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        HostWideCommandLock.SetSlotCount(2);
+                        HostWideCommandLock.SetVesselSlotCount(1);
+                        await CaptainSuiteLeaseRegistry.AcquireAsync(holder.Id, vessel.Id, CancellationToken.None).ConfigureAwait(false);
+                        DateTimeOffset started = clock.GetUtcNow();
+                        Task<JsonElement> response = CallAsync(tool!, waiter, new { action = "acquire", waitSeconds = 120 });
+                        await clock.InitialWaitCreated.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                        clock.Advance(TimeSpan.FromMilliseconds(25));
+                        await clock.BoundWaitCreated.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                        clock.Advance(TimeSpan.FromSeconds(44));
+                        AssertFalse(response.IsCompleted, "the acquire still waits below its clamped deadline");
+                        clock.Advance(TimeSpan.FromSeconds(1));
+                        Task finished = await Task.WhenAny(response, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
+                        AssertTrue(finished == response, "a request for 120 seconds must answer queued at 45 seconds, before the client's 60-second timeout");
+                        JsonElement result = await response.ConfigureAwait(false);
+                        AssertEqual("queued", result.GetProperty("Status").GetString(), "the held slot produces a queued answer, not a grant");
+                        AssertEqual(1, result.GetProperty("Position").GetInt32(), "the queued request retains its first place");
+                        AssertTrue(clock.GetUtcNow() - started < TimeSpan.FromSeconds(60), "the answer precedes the client timeout");
+                        AssertTrue(CaptainSuiteLeaseRegistry.IsWaiting(waiter.Id), "the queued request survives the bounded tool call");
+                    }
+                    finally
+                    {
+                        CaptainSuiteLeaseRegistry.ReleaseForMission(waiter.Id);
+                        CaptainSuiteLeaseRegistry.ReleaseForMission(holder.Id);
+                        RestoreLock(previousReader, previousFloor);
+                    }
+                }
+            });
+
             await RunTest("A captain process exit releases its suite lease and frees the vessel slot for the gate", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -428,6 +477,24 @@ namespace Armada.Test.Unit.Suites.Services
             MissionService missions = new MissionService(logging, database, settings, docks, captains,
                 resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             return new AdmiralService(logging, database, settings, captains, missions, new VoyageService(logging, database), docks);
+        }
+
+        private sealed class LeaseWaitClock : FakeTimeProvider
+        {
+            private readonly TaskCompletionSource _InitialWaitCreated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource _BoundWaitCreated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _TimerCount;
+
+            public Task InitialWaitCreated => _InitialWaitCreated.Task;
+            public Task BoundWaitCreated => _BoundWaitCreated.Task;
+
+            public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+            {
+                ITimer timer = base.CreateTimer(callback, state, dueTime, period);
+                if (Interlocked.Increment(ref _TimerCount) == 1) _InitialWaitCreated.TrySetResult();
+                else _BoundWaitCreated.TrySetResult();
+                return timer;
+            }
         }
 
         private static void RestoreLock(Func<long?> previousReader, int previousFloor)

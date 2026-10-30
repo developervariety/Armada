@@ -43,10 +43,12 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Tool registration delegate.</param>
         /// <param name="database">Database driver.</param>
         /// <param name="logging">Logging module.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, LoggingModule? logging = null)
+        /// <param name="timeProvider">Clock used for the acquire deadline and its delay; defaults to system time.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, LoggingModule? logging = null, TimeProvider? timeProvider = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             if (database == null) throw new ArgumentNullException(nameof(database));
+            TimeProvider clock = timeProvider ?? TimeProvider.System;
 
             register(
                 ToolName,
@@ -105,17 +107,17 @@ namespace Armada.Server.Mcp.Tools
                         CancellationToken.None);
 
                     int waitSeconds = Math.Clamp(request.WaitSeconds ?? DefaultWaitSeconds, 0, MaxWaitSeconds);
-                    DateTime waitUntilUtc = DateTime.UtcNow.AddMilliseconds(Math.Max(waitSeconds * 1000, MinimumWaitMilliseconds));
-                    await WaitForGrantAsync(acquire, TimeSpan.FromMilliseconds(MinimumWaitMilliseconds)).ConfigureAwait(false);
+                    DateTimeOffset waitUntilUtc = clock.GetUtcNow().AddMilliseconds(Math.Max(waitSeconds * 1000, MinimumWaitMilliseconds));
+                    await WaitForGrantAsync(acquire, TimeSpan.FromMilliseconds(MinimumWaitMilliseconds), clock).ConfigureAwait(false);
                     if (!acquire.IsCompleted && !alreadyQueued)
                     {
                         await RecordWaitAsync(database, logging, mission, CaptainSuiteLeaseRegistry.ReadWaitPosition(missionId)).ConfigureAwait(false);
                     }
 
-                    TimeSpan remaining = waitUntilUtc - DateTime.UtcNow;
+                    TimeSpan remaining = waitUntilUtc - clock.GetUtcNow();
                     if (!acquire.IsCompleted && remaining > TimeSpan.Zero)
                     {
-                        await WaitForGrantAsync(acquire, remaining).ConfigureAwait(false);
+                        await WaitForGrantAsync(acquire, remaining, clock).ConfigureAwait(false);
                     }
 
                     if (!acquire.IsCompleted)
@@ -150,11 +152,11 @@ namespace Armada.Server.Mcp.Tools
 
         // Waits for the grant, the bound, or the end of the call, whichever comes first. Ending the call
         // stops this wait only; the queued request keeps its place.
-        private static async Task WaitForGrantAsync(Task<IDisposable> acquire, TimeSpan bound)
+        private static async Task WaitForGrantAsync(Task<IDisposable> acquire, TimeSpan bound, TimeProvider clock)
         {
             try
             {
-                await Task.WhenAny(acquire, Task.Delay(bound, McpCallerContext.CallToken)).ConfigureAwait(false);
+                await Task.WhenAny(acquire, Task.Delay(bound, clock, McpCallerContext.CallToken)).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
