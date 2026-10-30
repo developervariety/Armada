@@ -41,7 +41,7 @@ namespace Armada.Server
         public bool Paused => Section.Paused;
 
         /// <summary>
-        /// Participant key of the session that set the pause, or null when unattributed.
+        /// Identity of the authenticated caller that set the pause, or null when unattributed.
         /// </summary>
         public string? PausedBy => Section.PausedBy;
 
@@ -59,12 +59,6 @@ namespace Armada.Server
         /// Minutes between scheduled sweep ticks.
         /// </summary>
         public int IntervalMinutes => Section.IntervalMinutes;
-
-        /// <summary>
-        /// Minutes the pausing session must be absent before its pause may be cleared as stale.
-        /// Read from settings on each call so a settings edit takes effect without a restart.
-        /// </summary>
-        public int StalePauseAbsenceMinutes => Section.StalePauseAbsenceMinutes;
 
         /// <summary>
         /// Maximum number of objectives with simultaneously active linked voyages.
@@ -191,13 +185,7 @@ namespace Armada.Server
         public long EventTriggeredSweepCount => Interlocked.Read(ref _EventTriggeredSweepCount);
 
         /// <summary>
-        /// Posts the board note that names a vessel whose every auto-dispatch candidate a sweep skipped on dispatch
-        /// preflight. Null posts nothing; the skip events are recorded either way.
-        /// </summary>
-        public IBoardNotePoster? BoardNotePoster { get; set; }
-
-        /// <summary>
-        /// Most objectives one preflight-blocked board note names; the note gives the full count.
+        /// Most objectives one preflight-blocked event names; the event gives the full count.
         /// </summary>
         public const int MaxBlockedObjectivesNamed = 20;
 
@@ -340,7 +328,7 @@ namespace Armada.Server
         /// pause, when and why: a pause outlives the session that set it, and without an owner
         /// nobody can tell a live deploy window from a departed peer's leftover.
         /// </summary>
-        /// <param name="pausedBy">Participant key of the pausing session, or null.</param>
+        /// <param name="pausedBy">Identity of the authenticated caller that pauses, or null.</param>
         /// <param name="reason">Why the pause is set, or null.</param>
         public void Pause(string? pausedBy = null, string? reason = null)
         {
@@ -1300,14 +1288,13 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Post one board note per vessel whose every candidate this sweep skipped on dispatch preflight, naming
-        /// the objectives and their blocking issue codes. A vessel whose blocked set matches its last note posts
+        /// Record one event per vessel whose every candidate this sweep skipped on dispatch preflight, naming
+        /// the objectives and their blocking issue codes. A vessel whose blocked set matches its last event records
         /// nothing; a vessel that is no longer fully blocked is forgotten, so a later block is announced again.
         /// </summary>
         private async Task AnnouncePreflightBlocksAsync(PreflightBlockTally tally, CancellationToken token)
         {
             List<string> notes = new List<string>();
-            List<string> noteVessels = new List<string>();
             lock (_PreflightBlockLock)
             {
                 foreach (string vesselId in _PostedPreflightBlocks.Keys.ToList())
@@ -1331,7 +1318,6 @@ namespace Armada.Server
                     notes.Add("Objective scheduler: every auto-dispatch candidate on vessel " + vesselId + " is blocked by dispatch preflight, "
                         + "so nothing on it dispatches (" + blocked.Count + " objective(s)): " + named + more
                         + ". Preview one to read its issues.");
-                    noteVessels.Add(vesselId);
                 }
             }
 
@@ -1339,16 +1325,6 @@ namespace Armada.Server
             {
                 _Logging.Warn(_Header + notes[i]);
                 await EmitSystemEventAsync("objective_scheduler.vessel_preflight_blocked", notes[i], token).ConfigureAwait(false);
-                IBoardNotePoster? poster = BoardNotePoster;
-                if (poster == null) continue;
-                try
-                {
-                    await poster.PostBroadcastAsync(notes[i], noteVessels[i], null, token).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _Logging.Warn(_Header + "could not post the preflight-blocked note for vessel " + noteVessels[i] + ": " + ex.Message);
-                }
             }
         }
 
@@ -1369,7 +1345,7 @@ namespace Armada.Server
         {
             ObjectiveDispatchPreviewIssue? repeat = preview.Issues.FirstOrDefault(item => item.Code == ObjectiveReviewRepeatGuard.IssueCode);
             if (repeat != null)
-                await ReviewRepeatStopNotice.PostAsync(_Database, _Logging, objective, repeat, null, token).ConfigureAwait(false);
+                await ReviewRepeatStopNotice.RecordAsync(_Database, objective, repeat, token).ConfigureAwait(false);
             string issueCodes = ErrorCodes(preview);
             string chains = preview.BlockingChains.Count > 0
                 ? " Blocking chains: " + String.Join("; ", preview.BlockingChains.Select(chain => String.Join(" -> ", chain))) + "."
@@ -1649,7 +1625,7 @@ namespace Armada.Server
 
                 try
                 {
-                    await VoyageDispatchOrigin.RecordAsync(_Database, voyage, null, token,
+                    await VoyageDispatchOrigin.RecordAsync(_Database, voyage, token,
                         ObjectiveReviewRepeatGuard.InputHash(objective, admittedPreview?.ResolvedStartCommit),
                         admittedPreview?.ResolvedStartCommit).ConfigureAwait(false);
                     await admission.RecordVoyageCreatedAsync(voyage, token).ConfigureAwait(false);

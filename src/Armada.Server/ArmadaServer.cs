@@ -154,7 +154,6 @@ using WatsonWebserver.Core.Routing;
         private RemoteDashboardRelayService _RemoteDashboardRelay = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
         private ObjectiveRefinementCoordinator _ObjectiveRefinementSessions = null!;
-        private CoordinationService _CoordinationService = null!;
         private CaptainLogScreenService _CaptainLogScreen = null!;
         private Armada.Core.Services.DispatchHold _DispatchHold = null!;
         private Armada.Core.Services.DispatchHoldSnapshot? _RestoredDispatchHold = null;
@@ -192,7 +191,7 @@ using WatsonWebserver.Core.Routing;
         private OwnerDigestRunner? _OwnerDigestRunner = null;
         private PapercutMemorySweepRunner? _PapercutMemorySweepRunner = null;
         // D11 inbox_triage and D12 followup_routing adapters. Null until the live typed-decision client
-        // exists; the inbox/coordination and audit MCP tools receive them through the registrar.
+        // exists; the inbox and audit MCP tools receive them through the registrar.
         private InboxTriageAdapter? _InboxTriageAdapter;
         private FollowUpRoutingAdapter? _FollowUpRoutingAdapter;
         private Armada.Core.Services.Interfaces.IFollowUpRouter? _FollowUpRouter;
@@ -321,7 +320,6 @@ using WatsonWebserver.Core.Routing;
                 journalDirectory: Path.Combine(_Settings.DataDirectory, "jobs"),
                 onJobFailedAsync: RecordBackgroundJobFailureAsync,
                 warn: message => _Logging.Warn(_Header + message),
-                requesterKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 progressProbeAsync: IsBackgroundJobMakingProgressAsync);
             _AskActions = new AskActionService(_Database, _LongRunningJobs, _Logging);
             _VesselCheckoutImports = new VesselCheckoutImportService(_Database, _Settings);
@@ -521,8 +519,7 @@ using WatsonWebserver.Core.Routing;
             _RunbookService = new RunbookService(_Database, _Logging);
             _AutomaticCheckRuns = new AutomaticCheckRunOrchestrator(
                 _Database, _CheckRunService, _ReleaseService, _IncidentService, _Logging, _DispatchHold,
-                () => _Settings.DefinitionOfDone,
-                PostHostSlotNoteAsync);
+                () => _Settings.DefinitionOfDone);
             _AutonomousRecovery = new AutonomousRecoveryOrchestrator(
                 _Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging,
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService,
@@ -886,26 +883,11 @@ using WatsonWebserver.Core.Routing;
                 _ObjectiveDispatchPreviewService,
                 _DispatchStalenessAdapter));
 
-            _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
-            await PostRestoredDispatchHoldNoteAsync().ConfigureAwait(false);
-            _AutonomousRecovery.BoardNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Autonomous Recovery");
-            _ObjectiveScheduler.BoardNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Objective Scheduler");
-            _DiskLifecycle.BoardNotes = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "History Archive");
-            _AgentLifecycle.SetCoordinationService(_CoordinationService);
-            // Every stored fleet event of a mirrored type becomes a board note, whichever service wrote it.
-            CoordinationFleetEventMirror.Attach(_Database, _CoordinationService, _Logging);
-            _CoordinationService.BoardWakeEmitter = async (participantKey, text, token) =>
-            {
-                // participantKey null targets the registered AgentWake session.
-                AgentWakeSessionRegistration? registered = _RemoteTriggerService.GetAgentWakeSession();
-                string? target = participantKey ?? registered?.ParticipantKey;
-                if (String.IsNullOrEmpty(target)) return;
-                await _RemoteTriggerService.FireBoardWakeAsync(target!, text, token).ConfigureAwait(false);
-            };
+            await RecordRestoredDispatchHoldAsync().ConfigureAwait(false);
 
             // The read-only captain-log screen. It holds the screening settings section by reference so
             // an operator edit reaches it without a restart, and it is driven by the health loop below.
-            // Its only writes are one voyage-tagged board note and one event per screened mission.
+            // Its only write is one event per screened mission.
             // D8 log_watch is the model pass of the same screen, beside the deterministic one. It holds
             // the decision's own mode and threshold, so an Off decision makes no call and reports nothing;
             // its course-flag event is written through the database so it carries the mission's owner scope.
@@ -924,34 +906,21 @@ using WatsonWebserver.Core.Routing;
                 {
                     new DeterministicLogScreenPass(_Settings.CaptainLogScreening),
                     new LogWatchScreenPass(logWatchAdapter)
-                },
-                new CoordinationVoyageNotePoster(_CoordinationService, "Captain Log Screen", _Logging));
+                });
 
             // D5 preflight text-half adapter. Always wired; without a key the effective mode is Off, so
             // the preview stays fully deterministic. It runs after the
-            // deterministic preflight block in the preview. The coordination service also posts
-            // owner notes for the stage-handoff decision below.
+            // deterministic preflight block in the preview.
             {
-                CoordinationOwnerDecisionNotePoster ownerNotePoster = new CoordinationOwnerDecisionNotePoster(
-                    _CoordinationService,
-                    () => _RemoteTriggerService.GetAgentWakeSession()?.ParticipantKey,
-                    _Logging, _Database);
                 _ObjectiveDispatchPreviewService.PreflightAdapter = new PreflightTextAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Logging);
 
                 // D19 stage necessity (dispatch preview) and D20 handoff outcome (stage handoff). Each
-                // follows its mode in the decisions map; set Off, the adapter returns the deterministic rule. The D20 owner note uses this coordination poster.
+                // follows its mode in the decisions map; set Off, the adapter returns the deterministic rule.
                 _ObjectiveDispatchPreviewService.StageNecessityAdapter = new TypedStageNecessityAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
-                missionService.HandoffOwnerNotePoster = ownerNotePoster;
-                missionService.BlockedQuestionNotePoster = ownerNotePoster.PostBlockedQuestionAsync;
-                missionService.ReassignmentNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Mission Assignment");
-                // D3 runtime_failure reports a fleet-wide provider fault as a broadcast board note. The
-                // adapter was built before the coordination service existed, so the poster is set here.
-                if (admiralService.RuntimeFailureAdapter != null)
-                    admiralService.RuntimeFailureAdapter.NotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging);
                 // D21 revision_kind (Judge NEEDS_REVISION), D22 test_covers (TestEngineer handoff), and
                 // D24 lint_finding (Linter handoff). Each follows its mode in the decisions map; set Off,
                 // the seam runs its deterministic path.
@@ -996,9 +965,8 @@ using WatsonWebserver.Core.Routing;
                     missionService.PriorArtAdapter = priorArtAdapter;
                 }
 
-                // D13 owner_digest runner. It reuses the owner-addressed note poster above, ranks each
-                // owner-decision candidate with its adapter, and — driven daily by the health loop —
-                // posts one owner-addressed digest note and one owner_decisions.digest event per UTC
+                // D13 owner_digest runner. It ranks each owner-decision candidate with its adapter and,
+                // driven daily by the health loop, records one owner_decisions.digest event per UTC
                 // day. It is dormant until the owner_digest decision is enabled, and never answers a
                 // question. The hit collector reads only owner-decision preparation claims that an
                 // anchor change re-opened; other sources attach as they land.
@@ -1009,7 +977,6 @@ using WatsonWebserver.Core.Routing;
                 _OwnerDigestRunner = new OwnerDigestRunner(
                     _Settings.TypedDecisions,
                     ownerDigestAdapter,
-                    ownerNotePoster,
                     ownerDigestHits.CollectAsync,
                     _Database,
                     () => DateTime.UtcNow,
@@ -1035,15 +1002,15 @@ using WatsonWebserver.Core.Routing;
                 _ObjectiveRefinementSessions.CriteriaLintAdapter = new CriteriaLintAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Logging);
 
-                // D11 inbox_triage: annotate and sort inbox items and board notes by attention. Threaded
-                // into the inbox and coordination-read MCP tools through the registrar.
+                // D11 inbox_triage: annotate and sort inbox items by attention. Threaded
+                // into the inbox MCP tool through the registrar.
                 _InboxTriageAdapter = new InboxTriageAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Logging);
 
                 // D12 followup_routing: give each Judge follow-up a home (Triaged objective, evidence
-                // note, or link). The router creates no voyage; a blocking item is flagged for the owner.
+                // note, or link). The router creates no voyage.
                 ServerFollowUpRouter followUpRouter = new ServerFollowUpRouter(
-                    _Database, _ObjectiveService, _CoordinationService, ownerNotePoster, _Logging);
+                    _Database, _ObjectiveService, _Logging);
                 _FollowUpRoutingAdapter = new FollowUpRoutingAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, followUpRouter, _Logging);
                 _FollowUpRouter = followUpRouter;
@@ -1123,18 +1090,6 @@ using WatsonWebserver.Core.Routing;
             // refused; nothing falls back to a default administrative identity.
             _McpServer.Authenticator = AuthenticateMcpRequestAsync;
             _McpServer.ToolAuthorizer = McpToolAccessPolicy.IsAllowed;
-
-            // Deliver directed wakes on whatever tool the session calls next. Before this,
-            // a wake reached a session only through the two coordination tools below, so a
-            // session monitoring a voyage could hold unread mail for the whole run.
-            _McpServer.WakeBannerExcludedTools.Add("armada_coordination_read");
-            _McpServer.WakeBannerExcludedTools.Add("armada_coordination_heartbeat");
-            _McpServer.PendingWakeProvider = async (participantKey, token) =>
-            {
-                List<Signal> wakes = await _CoordinationService
-                    .EnumerateUnreadWakesAsync(participantKey, token).ConfigureAwait(false);
-                return wakes.Select(wake => wake.Payload ?? String.Empty).ToList();
-            };
 
             RegisterMcpTools();
 
@@ -1805,10 +1760,6 @@ using WatsonWebserver.Core.Routing;
             new SignalRoutes(_Database, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
-            // Coordination board (chatroom)
-            new CoordinationRoutes(_Database, _CoordinationService, _JsonOptions)
-                .Register(_App, authenticate, _AuthorizationService);
-
             // Events
             new EventRoutes(_Database, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -2280,14 +2231,12 @@ using WatsonWebserver.Core.Routing;
                 terminalVoyageMissions: _TerminalVoyageMissions,
                 diskLifecycle: _DiskLifecycle,
                 longRunningJobs: _LongRunningJobs,
-                coordinationService: _CoordinationService,
                 dispatchHold: _DispatchHold,
                 objectiveDispatchPreviewService: _ObjectiveDispatchPreviewService,
                 statusTransitions: _StatusTransitions,
                 harborJobs: _HarborJobService,
                 typedDecisionClient: _TypedDecisionClient,
                 typedDecisionRecorder: _TypedDecisionRecorder,
-                typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 typedDecisionEval: _TypedDecisionEval,
                 typedDecisionSamples: _TypedDecisionSamples,
                 papercutMergeAdapter: _PapercutMergeAdapter,
@@ -2305,60 +2254,27 @@ using WatsonWebserver.Core.Routing;
                 askThreads: _AskThreads,
                 askToolPermissions: _AskToolPermissions,
                 batteryRuns: _BatteryRuns);
-
         }
 
         /// <summary>
-        /// Post one system note naming the reason and setter of a dispatch hold that startup restored,
-        /// so every session sees that the hold survived the restart.
+        /// Record a dispatch.hold_restored event naming the reason and setter of a dispatch hold that
+        /// startup restored, so the history shows that the hold survived the restart.
         /// </summary>
-        private async Task PostRestoredDispatchHoldNoteAsync()
+        private async Task RecordRestoredDispatchHoldAsync()
         {
             Armada.Core.Services.DispatchHoldSnapshot? restored = _RestoredDispatchHold;
             if (restored == null) return;
 
             try
             {
-                await _CoordinationService.PostMessageAsync(
-                    CoordinationService.DefaultRoomKey,
-                    CoordinationAuthorTypeEnum.System,
-                    authorId: null,
-                    authorName: "armada",
-                    content: Armada.Core.Services.DispatchHold.RestoredNote(restored),
-                    token: _TokenSource.Token).ConfigureAwait(false);
+                await Armada.Core.Services.DispatchHoldEvents.RecordRestoredAsync(_Database, restored, _TokenSource.Token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "restored dispatch hold note not posted: " + ex.Message);
+                _Logging.Warn(_Header + "restored dispatch hold event not recorded: " + ex.Message);
             }
         }
 
-        /// <summary>
-        /// Post a host command slot report to the default coordination room. The board is created after
-        /// the check orchestrator, so the note reads it at post time.
-        /// </summary>
-        private async Task PostHostSlotNoteAsync(string content, CancellationToken token)
-        {
-            if (_CoordinationService == null)
-            {
-                _Logging.Warn(_Header + "host command slot report not posted, the coordination board is not available: " + content);
-                return;
-            }
-
-            await _CoordinationService.PostMessageAsync(
-                CoordinationService.DefaultRoomKey,
-                CoordinationAuthorTypeEnum.System,
-                authorId: null,
-                authorName: "Host Command Slot",
-                content: content,
-                token: token).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// Record a background job that ended Failed or Lost as an event on its objective, or on the
-        /// job itself when it names none, and post a board note addressed to the session that submitted
-        /// it, so the failure reaches the submitter without a poll of the job.
-        /// </summary>
         /// <summary>
         /// Answer, for a background job past the stale limit, whether its underlying work is still
         /// advancing, so the reaper keeps a healthy long job instead of failing it on a flat limit.
@@ -2403,6 +2319,10 @@ using WatsonWebserver.Core.Routing;
             return false;
         }
 
+        /// <summary>
+        /// Record a background job that ended Failed or Lost as an event on its objective, or on the
+        /// job itself when it names none.
+        /// </summary>
         private async Task RecordBackgroundJobFailureAsync(LongRunningJob job)
         {
             bool lost = job.Status == LongRunningJobStatusEnum.Lost;
@@ -2416,22 +2336,6 @@ using WatsonWebserver.Core.Routing;
                 job.ObjectiveId != null ? "objective" : "job",
                 job.ObjectiveId ?? job.JobId,
                 vesselId: job.VesselId).ConfigureAwait(false);
-
-            if (String.IsNullOrWhiteSpace(job.RequestedByParticipantKey)) return;
-            if (_CoordinationService == null)
-            {
-                _Logging.Warn(_Header + "job " + job.JobId + " ended " + job.Status
-                    + " but the coordination board is not available, so no note reached " + job.RequestedByParticipantKey);
-                return;
-            }
-            await _CoordinationService.PostMessageAsync(
-                CoordinationService.DefaultRoomKey,
-                CoordinationAuthorTypeEnum.System,
-                authorId: null,
-                authorName: "Background Jobs",
-                content: message + (job.ObjectiveId != null ? " Objective " + job.ObjectiveId + "." : ""),
-                vesselId: job.VesselId,
-                toParticipantKey: job.RequestedByParticipantKey).ConfigureAwait(false);
         }
 
         private async Task EmitEventAsync(string eventType, string message,
@@ -2468,9 +2372,6 @@ using WatsonWebserver.Core.Routing;
                         voyageId = voyageId
                     }, Armada.Server.WebSocket.WebSocketDeliveryScope.ForOwner(evt.TenantId, evt.UserId));
                 }
-
-                // A mirrored fleet event reaches the coordination board through the event-store
-                // observer attached at startup, like every other producer of that event type.
 
                 await _RemoteTunnel.PublishEventAsync(eventType, new
                 {

@@ -78,7 +78,7 @@ namespace Armada.Server.Mcp.Tools
                         includeContext = new { type = "boolean", description = "Include ProjectContext and StyleGuide on vessels (default false; returns length hints when false)" },
                         includeTestOutput = new { type = "boolean", description = "Include TestOutput on merge queue entries and Output on checks (default false; returns testOutputLength / outputLength hints when false)" },
                         includePayload = new { type = "boolean", description = "Include full Payload on events (default false; returns payloadLength hint when false)" },
-                        includeMessage = new { type = "boolean", description = "Include each signal's stored Payload on signals (default false; returns PayloadLength when false). A Wake for an addressed board note carries the note's id as [msg=<id>] and at most its first 500 characters; when cut it says how long the note is. Read the note whole with armada_coordination_read messageId=<id>." }
+                        includeMessage = new { type = "boolean", description = "Include each signal's stored Payload on signals (default false; returns PayloadLength when false)." }
                     },
                     required = new[] { "entityType" }
                 },

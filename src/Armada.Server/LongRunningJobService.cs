@@ -89,7 +89,6 @@ namespace Armada.Server
         private readonly string? _JournalDirectory;
         private readonly Func<LongRunningJob, Task>? _OnJobFailedAsync;
         private readonly Action<string>? _Warn;
-        private readonly Func<string?>? _RequesterKeyProvider;
         private readonly Func<LongRunningJob, CancellationToken, Task<bool>>? _ProgressProbeAsync;
         private int _JournalFailures = 0;
         private DateTime _LastPruneUtc = DateTime.MinValue;
@@ -105,8 +104,6 @@ namespace Armada.Server
         /// <param name="journalDirectory">Directory the job journal is written to; null holds jobs in memory only.</param>
         /// <param name="onJobFailedAsync">Called once for every job that ends Failed or Lost.</param>
         /// <param name="warn">Receives every journal or callback failure, so none is silent.</param>
-        /// <param name="requesterKeyProvider">Returns the participant key of the calling session. It is read when a job
-        /// is accepted, in the request that submits it, and recorded as <see cref="LongRunningJob.RequestedByParticipantKey"/>.</param>
         /// <param name="progressProbeAsync">Asked, for a job that has passed the stale limit, whether its underlying
         /// work is still observably advancing. A job that is still making progress is kept instead of reaped, so the
         /// stale limit does not fail a job whose long operation is healthy. A null probe, or one that returns false,
@@ -116,14 +113,12 @@ namespace Armada.Server
             string? journalDirectory = null,
             Func<LongRunningJob, Task>? onJobFailedAsync = null,
             Action<string>? warn = null,
-            Func<string?>? requesterKeyProvider = null,
             Func<LongRunningJob, CancellationToken, Task<bool>>? progressProbeAsync = null)
         {
             _MaxRetainedTerminalJobs = Math.Max(1, maxRetainedTerminalJobs);
             _JournalDirectory = String.IsNullOrWhiteSpace(journalDirectory) ? null : journalDirectory;
             _OnJobFailedAsync = onJobFailedAsync;
             _Warn = warn;
-            _RequesterKeyProvider = requesterKeyProvider;
             _ProgressProbeAsync = progressProbeAsync;
             if (_JournalDirectory != null) Directory.CreateDirectory(_JournalDirectory);
         }
@@ -425,8 +420,7 @@ namespace Armada.Server
                 SubmittedAtUtc = DateTime.UtcNow,
                 ObjectiveId = String.IsNullOrWhiteSpace(objectiveId) ? null : objectiveId.Trim(),
                 VesselId = String.IsNullOrWhiteSpace(vesselId) ? null : vesselId.Trim(),
-                SubjectId = String.IsNullOrWhiteSpace(subjectId) ? null : subjectId.Trim(),
-                RequestedByParticipantKey = ReadRequesterKey()
+                SubjectId = String.IsNullOrWhiteSpace(subjectId) ? null : subjectId.Trim()
             };
 
             // Durable before accepted: a job that cannot be journalled is refused here rather than
@@ -546,21 +540,6 @@ namespace Armada.Server
                 // flat stale limit applies, and the failure is counted and reported, never swallowed.
                 ReportFailure("job " + job.JobId + " progress could not be checked before the stale reap, so the limit applies: " + ex.Message);
                 return false;
-            }
-        }
-
-        private string? ReadRequesterKey()
-        {
-            if (_RequesterKeyProvider == null) return null;
-            try
-            {
-                string? key = _RequesterKeyProvider();
-                return String.IsNullOrWhiteSpace(key) ? null : key.Trim();
-            }
-            catch (Exception ex)
-            {
-                ReportFailure("the submitting session's participant key could not be read, so a failure of this job is not addressed to it: " + ex.Message);
-                return null;
             }
         }
 

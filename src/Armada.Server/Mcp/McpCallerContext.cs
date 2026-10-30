@@ -30,6 +30,23 @@ namespace Armada.Server.Mcp
         public static AuthContext? Current => _Current.Value;
 
         /// <summary>
+        /// A label for the authenticated caller of the current tool call, for attribution only: the
+        /// principal display name, else the credential id, else the user id. Null when no caller is set
+        /// or the caller carries none of the three. It is not an authorization credential.
+        /// </summary>
+        public static string? CallerIdentity
+        {
+            get
+            {
+                AuthContext? caller = _Current.Value;
+                if (caller == null || !caller.IsAuthenticated) return null;
+                if (!String.IsNullOrWhiteSpace(caller.PrincipalDisplay)) return caller.PrincipalDisplay!.Trim();
+                if (!String.IsNullOrWhiteSpace(caller.CredentialId)) return caller.CredentialId!.Trim();
+                return String.IsNullOrWhiteSpace(caller.UserId) ? null : caller.UserId!.Trim();
+            }
+        }
+
+        /// <summary>
         /// Cancellation of the tool call that is running now: the transport cancels it when the client cancels or
         /// disconnects. <see cref="CancellationToken.None"/> when the transport set none.
         /// </summary>

@@ -102,7 +102,6 @@ namespace Armada.Server
         private readonly StaleCheckSupersessionService _Supersession;
         private readonly DispatchHold? _DispatchHold;
         private readonly Func<DefinitionOfDoneSettings>? _GateSettings;
-        private readonly Func<string, CancellationToken, Task>? _PostBoardNoteAsync;
         private readonly Func<DateTime> _Clock;
         private DateTime? _ReportedHoldSetByUtc = null;
 
@@ -143,7 +142,6 @@ namespace Armada.Server
         /// <param name="logging">Logging module.</param>
         /// <param name="dispatchHold">Fleet-wide dispatch hold, or null.</param>
         /// <param name="gateSettings">Reads the current gate settings for the memory-wait report intervals, or null for the defaults.</param>
-        /// <param name="postBoardNoteAsync">Posts a system note to the coordination board, or null when no board is available.</param>
         /// <param name="clock">UTC clock, or null for the system clock.</param>
         public AutomaticCheckRunOrchestrator(
             DatabaseDriver database,
@@ -153,7 +151,6 @@ namespace Armada.Server
             LoggingModule logging,
             DispatchHold? dispatchHold = null,
             Func<DefinitionOfDoneSettings>? gateSettings = null,
-            Func<string, CancellationToken, Task>? postBoardNoteAsync = null,
             Func<DateTime>? clock = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -164,7 +161,6 @@ namespace Armada.Server
             _Supersession = new StaleCheckSupersessionService(_Database, _Logging);
             _DispatchHold = dispatchHold;
             _GateSettings = gateSettings;
-            _PostBoardNoteAsync = postBoardNoteAsync;
             _Clock = clock ?? (() => DateTime.UtcNow);
         }
 
@@ -327,8 +323,7 @@ namespace Armada.Server
         /// Report every wait that keeps a started or pending check from running: the host command slot
         /// held for free memory, every host command slot busy while requests wait, and every place of this
         /// runner taken while more checks are pending. Each wait records an event when it starts, one at
-        /// each report interval while it lasts and one when it ends, and posts one board note once it has
-        /// lasted the note delay. A waiting check has no process, so without this a queue of checks reads
+        /// each report interval while it lasts and one when it ends. A waiting check has no process, so without this a queue of checks reads
         /// like an idle one.
         /// </summary>
         /// <param name="slot">A snapshot of the host-wide slot.</param>
@@ -378,13 +373,12 @@ namespace Armada.Server
 
             if (!active) return;
 
-            string? description = null;
+            string description;
             if (!report.SinceUtc.HasValue)
             {
                 report.SinceUtc = sinceWhenNew;
                 report.Identity = identity;
                 report.ReportedUtc = now;
-                report.NotePosted = false;
                 description = await describe(report.SinceUtc.Value).ConfigureAwait(false);
                 _Logging.Info(_Header + description);
                 await WriteWaitEventAsync(report.StartedEvent, description, report, slot, report.SinceUtc.Value, token).ConfigureAwait(false);
@@ -395,30 +389,6 @@ namespace Armada.Server
                 description = await describe(report.SinceUtc.Value).ConfigureAwait(false);
                 _Logging.Info(_Header + description);
                 await WriteWaitEventAsync(report.ContinuingEvent, description, report, slot, report.SinceUtc.Value, token).ConfigureAwait(false);
-            }
-
-            if (report.NotePosted || settings.HostSlotWaitBoardNoteMinutes <= 0) return;
-            if (now - report.SinceUtc.Value < TimeSpan.FromMinutes(settings.HostSlotWaitBoardNoteMinutes)) return;
-
-            report.NotePosted = true;
-            description ??= await describe(report.SinceUtc.Value).ConfigureAwait(false);
-            if (_PostBoardNoteAsync == null)
-            {
-                _Logging.Warn(_Header + description + " No board is available, so no note was posted.");
-                return;
-            }
-
-            try
-            {
-                await _PostBoardNoteAsync(description, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + report.Noun + " board note failed: " + ex.Message + "; " + description);
             }
         }
 
@@ -545,8 +515,8 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// One kind of wait being reported: its event names, and while it lasts, when it started, when it
-        /// was last reported and whether its board note is posted. Written only inside the sweep gate.
+        /// One kind of wait being reported: its event names, and while it lasts, when it started and when it
+        /// was last reported. Written only inside the sweep gate.
         /// </summary>
         private sealed class WaitReport
         {
@@ -567,7 +537,6 @@ namespace Armada.Server
             public DateTime? SinceUtc { get; set; } = null;
             public string? Identity { get; set; } = null;
             public DateTime ReportedUtc { get; set; } = DateTime.MinValue;
-            public bool NotePosted { get; set; } = false;
         }
 
         /// <summary>

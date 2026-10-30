@@ -124,8 +124,6 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="recorder">Typed-decision recorder that writes the one event per call.</param>
         /// <param name="settings">Armada settings supplying <c>typedDecisions</c>.</param>
         /// <param name="logging">Optional logging module.</param>
-        /// <param name="participantKeyProvider">Returns the calling captain's participant key for the
-        /// current request, or null. Used to attribute the event when no mission id is supplied.</param>
         public static void Register(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -133,7 +131,6 @@ namespace Armada.Server.Mcp.Tools
             TypedDecisionRecorder recorder,
             ArmadaSettings settings,
             LoggingModule? logging = null,
-            Func<string?>? participantKeyProvider = null,
             IPriorArtRetriever? priorArtRetriever = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
@@ -142,7 +139,7 @@ namespace Armada.Server.Mcp.Tools
             if (settings == null) throw new ArgumentNullException(nameof(settings));
 
             ITypedDecisionClient effectiveClient = client ?? new NullTypedDecisionClient();
-            Func<string?> participantKey = participantKeyProvider ?? (() => null);
+            Func<string?> callerIdentity = () => McpCallerContext.CallerIdentity;
 
             register(
                 TypedDecisionToolName,
@@ -171,7 +168,7 @@ namespace Armada.Server.Mcp.Tools
                     recorder,
                     settings,
                     logging,
-                    participantKey,
+                    callerIdentity,
                     buildStateAndQuestions: null).ConfigureAwait(false));
 
             register(
@@ -204,7 +201,7 @@ namespace Armada.Server.Mcp.Tools
                     recorder,
                     settings,
                     logging,
-                    participantKey,
+                    callerIdentity,
                     buildStateAndQuestions: BuildScoreItems,
                     formatResult: FormatScoreItems).ConfigureAwait(false));
 
@@ -235,7 +232,7 @@ namespace Armada.Server.Mcp.Tools
                     recorder,
                     settings,
                     logging,
-                    participantKey,
+                    callerIdentity,
                     buildStateAndQuestions: BuildPremiseCheck,
                     formatResultWithRedactedState: FormatPremiseCheck).ConfigureAwait(false));
 
@@ -262,7 +259,7 @@ namespace Armada.Server.Mcp.Tools
                     recorder,
                     settings,
                     logging,
-                    participantKey,
+                    callerIdentity,
                     buildStateAndQuestions: BuildMemoryTriage).ConfigureAwait(false));
 
             register(
@@ -287,7 +284,7 @@ namespace Armada.Server.Mcp.Tools
                     recorder,
                     settings,
                     logging,
-                    participantKey,
+                    callerIdentity,
                     buildStateAndQuestions: null,
                     buildStateAndQuestionsAsync: (root, mission, token) =>
                         BuildPriorArtAsync(root, mission, priorArtRetriever, database, logging, token),
@@ -315,7 +312,7 @@ namespace Armada.Server.Mcp.Tools
                     recorder,
                     settings,
                     logging,
-                    participantKey,
+                    callerIdentity,
                     buildStateAndQuestions: BuildChangeQuality).ConfigureAwait(false));
 
             register(
@@ -340,7 +337,7 @@ namespace Armada.Server.Mcp.Tools
                     recorder,
                     settings,
                     logging,
-                    participantKey,
+                    callerIdentity,
                     buildStateAndQuestions: BuildCorpusPrelabel).ConfigureAwait(false));
 
             register(
@@ -357,7 +354,7 @@ namespace Armada.Server.Mcp.Tools
                     },
                     required = new[] { "name", "context" }
                 },
-                async (args) => await HandleCustomAsync(args, database, effectiveClient, recorder, settings, logging, participantKey).ConfigureAwait(false));
+                async (args) => await HandleCustomAsync(args, database, effectiveClient, recorder, settings, logging, callerIdentity).ConfigureAwait(false));
         }
 
         #endregion
@@ -371,7 +368,7 @@ namespace Armada.Server.Mcp.Tools
             TypedDecisionRecorder recorder,
             ArmadaSettings settings,
             LoggingModule? logging,
-            Func<string?> participantKeyProvider)
+            Func<string?> callerIdentityProvider)
         {
             try
             {
@@ -413,28 +410,28 @@ namespace Armada.Server.Mcp.Tools
 
                 if (!settings.TypedDecisions.CaptainTool.Enabled)
                 {
-                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
+                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, callerIdentityProvider(), TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
                     return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
                 }
 
                 string? killed = KillSwitchReasonOf(settings.TypedDecisions);
                 if (killed != null)
                 {
-                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable(killed), killed).ConfigureAwait(false);
+                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, callerIdentityProvider(), TypedDecisionResultUnavailable(killed), killed).ConfigureAwait(false);
                     return Unavailable(killed, KillSwitchMessage);
                 }
 
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, recorder, settings.TypedDecisions, logging ?? new LoggingModule());
-                CustomDecisionOutcome outcome = await adapter.RunAsync(name!, context, mission, mission?.CaptainId, CancellationToken.None, participantKeyProvider(), RunCustomToolName).ConfigureAwait(false);
+                CustomDecisionOutcome outcome = await adapter.RunAsync(name!, context, mission, mission?.CaptainId, CancellationToken.None, callerIdentityProvider(), RunCustomToolName).ConfigureAwait(false);
 
                 if (outcome.Status == "not_found")
                 {
-                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("not_found"), "not_found").ConfigureAwait(false);
+                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, callerIdentityProvider(), TypedDecisionResultUnavailable("not_found"), "not_found").ConfigureAwait(false);
                     return Unavailable("invalid", "No custom decision named '" + name + "'. Create it in the dashboard first.");
                 }
                 if (outcome.Status == "inactive")
                 {
-                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, participantKeyProvider(), TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
+                    await RecordAsync(recorder, RunCustomToolName, decisionPoint, redactedContext, mission, callerIdentityProvider(), TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
                     return Unavailable("disabled", "The custom decision '" + name + "' is Off. Decide it yourself.");
                 }
                 if (outcome.Result == null || !outcome.Result.Available)
@@ -489,7 +486,7 @@ namespace Armada.Server.Mcp.Tools
             TypedDecisionRecorder recorder,
             ArmadaSettings settings,
             LoggingModule? logging,
-            Func<string?> participantKeyProvider,
+            Func<string?> callerIdentityProvider,
             Func<JsonElement, ParsedDecision?>? buildStateAndQuestions,
             Func<JsonElement, Mission?, CancellationToken, Task<ParsedDecision?>>? buildStateAndQuestionsAsync = null,
             Func<TypedDecisionResult, ParsedDecision, object>? formatResult = null,
@@ -504,7 +501,7 @@ namespace Armada.Server.Mcp.Tools
 
                 // Resolve the calling mission for event scope. A captain credential's own mission wins
                 // over a supplied id; otherwise a supplied id that resolves scopes the event, and an
-                // absent or unresolved id falls back to the participant key, so a captain that does not
+                // absent or unresolved id falls back to the caller identity, so a captain that does not
                 // pass its id is still observable. Resolved first because an async builder (prior art)
                 // uses the mission to know which vessel to search.
                 string? missionId = ResolveCallMissionId(root, toolName, logging);
@@ -542,7 +539,7 @@ namespace Armada.Server.Mcp.Tools
 
                 TypedDecisionCaptainToolSettings toolSettings = settings.TypedDecisions.CaptainTool;
 
-                string? participantKey = participantKeyProvider();
+                string? callerIdentity = callerIdentityProvider();
                 // The state is redacted here, before any egress and before the hash, so a disabled or
                 // dormant call still records a hash of exactly what WOULD have left, and never the state.
                 RedactedDecisionState redactedDecisionState = DecisionStateRedactor.RedactState(parsed.State, toolSettings.MaxStateChars);
@@ -555,7 +552,7 @@ namespace Armada.Server.Mcp.Tools
                 string? refusal = TypedDecisionEgress.Refusal(settings.TypedDecisions, decisionPoint, mission?.VesselId, () => parsed.State);
                 if (refusal != null)
                 {
-                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable(refusal), refusal).ConfigureAwait(false);
+                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, callerIdentity, TypedDecisionResultUnavailable(refusal), refusal).ConfigureAwait(false);
                     return Unavailable(refusal, String.Equals(refusal, TypedDecisionEgress.ExcludedVesselReason, StringComparison.Ordinal)
                         ? "This vessel's content may not leave the host. Decide it yourself."
                         : "This state carries content that may not leave the host. Decide it yourself.");
@@ -564,7 +561,7 @@ namespace Armada.Server.Mcp.Tools
                 // 1. The tool is disabled: no egress, one event, unavailable.
                 if (!toolSettings.Enabled)
                 {
-                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
+                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, callerIdentity, TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
                     return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
                 }
 
@@ -572,7 +569,7 @@ namespace Armada.Server.Mcp.Tools
                 string? killed = KillSwitchReasonOf(settings.TypedDecisions);
                 if (killed != null)
                 {
-                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable(killed), killed).ConfigureAwait(false);
+                    await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, callerIdentity, TypedDecisionResultUnavailable(killed), killed).ConfigureAwait(false);
                     return Unavailable(killed, KillSwitchMessage);
                 }
 
@@ -586,7 +583,7 @@ namespace Armada.Server.Mcp.Tools
                     ResolvedTypedDecision resolved = settings.TypedDecisions.For(decisionPoint);
                     if (resolved.Mode == TypedDecisionModeEnum.Off)
                     {
-                        await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
+                        await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, callerIdentity, TypedDecisionResultUnavailable("disabled"), "dormant").ConfigureAwait(false);
                         return Unavailable("disabled", "This helper is dormant. Decide it yourself.");
                     }
                     shadow = resolved.Mode == TypedDecisionModeEnum.Shadow;
@@ -603,7 +600,7 @@ namespace Armada.Server.Mcp.Tools
                 TypedDecisionResult result = await client.DecideAsync(request, CancellationToken.None).ConfigureAwait(false);
 
                 string outcome = !result.Available ? "unavailable" : shadow ? "shadow" : "delivered";
-                await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, participantKey, result, outcome).ConfigureAwait(false);
+                await RecordAsync(recorder, toolName, decisionPoint, redactedState, mission, callerIdentity, result, outcome).ConfigureAwait(false);
 
                 if (!result.Available)
                     return Unavailable(result.UnavailableReason ?? "unavailable", "The typed-decision system did not answer. Decide it yourself.");
@@ -629,7 +626,7 @@ namespace Armada.Server.Mcp.Tools
             string decisionPoint,
             string redactedState,
             Mission? mission,
-            string? participantKey,
+            string? callerIdentity,
             TypedDecisionResult result,
             string outcome)
         {
@@ -658,7 +655,7 @@ namespace Armada.Server.Mcp.Tools
                 RedactedState = redactedState,
                 Mission = mission,
                 CaptainId = mission?.CaptainId,
-                ParticipantKey = participantKey,
+                CallerIdentity = callerIdentity,
                 ToolName = toolName
             };
 

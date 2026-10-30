@@ -18,7 +18,7 @@ namespace Armada.Server.Mcp
             "armada_mission_change_summary", "armada_mission_attempts", "armada_job_status", "list_objectives", "get_objective",
             "list_backlog", "get_backlog_item", "preview_objective_dispatch", "get_check_run",
             "get_persona", "get_pipeline", "get_prompt_template", "list_prompt_templates", "get_playbook",
-            "armada_coordination_read", "armada_campaign_status", "token_usage_summary",
+            "armada_campaign_status", "token_usage_summary",
             "armada_index_status", "armada_code_search", "armada_fleet_code_search",
             "armada_get_merge_entry", "armada_list_incidents", "armada_get_incident"
         };

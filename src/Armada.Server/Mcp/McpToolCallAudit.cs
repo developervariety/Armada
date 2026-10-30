@@ -13,11 +13,6 @@ namespace Armada.Server.Mcp
         public string ToolName { get; set; } = String.Empty;
 
         /// <summary>
-        /// Server-assigned or request participant key.
-        /// </summary>
-        public string? ParticipantKey { get; set; } = null;
-
-        /// <summary>
         /// Serialized tool arguments, limited by the HTTP server.
         /// </summary>
         public string? ArgumentsJson { get; set; } = null;

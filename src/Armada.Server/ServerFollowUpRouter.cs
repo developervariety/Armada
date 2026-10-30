@@ -15,13 +15,13 @@ namespace Armada.Server
 
     /// <summary>
     /// The Server-side <see cref="IFollowUpRouter"/> the D12 <c>followup_routing</c> adapter uses to
-    /// give a Judge follow-up a home. It performs exactly one additive action per home and NEVER
+    /// give a Judge follow-up a home. It performs at most one additive action per home and NEVER
     /// creates a voyage, dispatches, lands, or approves anything:
     /// <list type="bullet">
     /// <item>a Triaged objective is created with auto-dispatch OFF;</item>
-    /// <item>an evidence note is posted to the coordination board;</item>
     /// <item>a duplicate is linked by appending an evidence link to the existing open objective;</item>
-    /// <item>a blocking item is flagged for the operator with an owner-addressed board note.</item>
+    /// <item>an evidence note and a blocking item take no action here: the durable follow-up row and the
+    /// recorded decision hold them.</item>
     /// </list>
     /// Every method is best-effort and never throws into the adapter.
     /// </summary>
@@ -30,12 +30,9 @@ namespace Armada.Server
         #region Private-Members
 
         private const string _Header = "[ServerFollowUpRouter] ";
-        private const string _AuthorName = "Follow-up Routing";
 
         private readonly DatabaseDriver _Database;
         private readonly ObjectiveService _Objectives;
-        private readonly IOwnerDecisionNotePoster _OwnerNotePoster;
-        private readonly CoordinationService _Coordination;
         private readonly LoggingModule _Logging;
 
         #endregion
@@ -47,20 +44,14 @@ namespace Armada.Server
         /// </summary>
         /// <param name="database">Database driver for objective lookup.</param>
         /// <param name="objectives">Objective service used to create and link objectives.</param>
-        /// <param name="coordination">Coordination service used to post the evidence note.</param>
-        /// <param name="ownerNotePoster">Owner-addressed note poster used to flag a blocking item.</param>
         /// <param name="logging">Logging module.</param>
         public ServerFollowUpRouter(
             DatabaseDriver database,
             ObjectiveService objectives,
-            CoordinationService coordination,
-            IOwnerDecisionNotePoster ownerNotePoster,
             LoggingModule logging)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Objectives = objectives ?? throw new ArgumentNullException(nameof(objectives));
-            _Coordination = coordination ?? throw new ArgumentNullException(nameof(coordination));
-            _OwnerNotePoster = ownerNotePoster ?? throw new ArgumentNullException(nameof(ownerNotePoster));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
@@ -125,35 +116,6 @@ namespace Armada.Server
         }
 
         /// <inheritdoc />
-        public async Task AppendEvidenceNoteAsync(FollowUpRouteRequest request, CancellationToken token)
-        {
-            if (request == null) return;
-            try
-            {
-                string content = "[followup] Evidence note from Judge " + request.FollowUp.JudgeVerdict
-                    + (String.IsNullOrWhiteSpace(request.ObjectiveTitle) ? "" : " on \"" + request.ObjectiveTitle + "\"")
-                    + ": " + request.ItemText;
-                await _Coordination.PostMessageAsync(
-                    CoordinationService.DefaultRoomKey,
-                    CoordinationAuthorTypeEnum.System,
-                    authorId: null,
-                    authorName: _AuthorName,
-                    content: content,
-                    voyageId: request.FollowUp.VoyageId,
-                    missionId: null,
-                    vesselId: request.FollowUp.VesselId,
-                    incidentId: null,
-                    tenantId: null,
-                    toParticipantKey: null,
-                    token: token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "could not append evidence note: " + ex.Message);
-            }
-        }
-
-        /// <inheritdoc />
         public async Task LinkDuplicateAsync(FollowUpRouteRequest request, string existingObjectiveId, CancellationToken token)
         {
             if (request == null || String.IsNullOrWhiteSpace(existingObjectiveId)) return;
@@ -174,19 +136,6 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "could not link duplicate follow-up: " + ex.Message);
             }
         }
-
-        /// <inheritdoc />
-        public async Task FlagBlockingForOperatorAsync(FollowUpRouteRequest request, CancellationToken token)
-        {
-            if (request == null) return;
-            // A blocking follow-up is a human decision: flag it, never create a voyage for it.
-            string content = "[followup] A Judge follow-up may block progress and needs an operator decision"
-                + (String.IsNullOrWhiteSpace(request.ObjectiveTitle) ? "" : " on \"" + request.ObjectiveTitle + "\"")
-                + ": " + request.ItemText
-                + ". The system does not create a voyage for it; decide the follow-up voyage yourself.";
-            await _OwnerNotePoster.PostOwnerDecisionAsync(content, request.FollowUp.VesselId, token).ConfigureAwait(false);
-        }
-
         #endregion
 
         #region Private-Methods

@@ -31,8 +31,7 @@ namespace Armada.Server.Mcp.Tools
                         sessionId = new { type = "string", description = "Optional session ID for Claude or Codex resume. OpenCode always starts fresh and ignores resume state." },
                         command = new { type = "string", description = "Optional command override for this runtime." },
                         workingDirectory = new { type = "string", description = "Optional working directory to use when Armada wakes the session." },
-                        clientName = new { type = "string", description = "Optional client name/version for diagnostics." },
-                        participantKey = new { type = "string", description = "Optional coordination-board participant key. Addressed notes for this key can start this registered session." }
+                        clientName = new { type = "string", description = "Optional client name/version for diagnostics." }
                     },
                     required = new[] { "runtime" }
                 },
@@ -54,8 +53,7 @@ namespace Armada.Server.Mcp.Tools
                             SessionId = request.SessionId,
                             Command = request.Command,
                             WorkingDirectory = request.WorkingDirectory,
-                            ClientName = request.ClientName,
-                            ParticipantKey = request.ParticipantKey
+                            ClientName = request.ClientName
                         });
                     }
                     catch (Exception ex)
@@ -72,7 +70,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_agentwake_status",
-                "Return the effective AgentWake configuration, persistent participant key, and last transient session registration.",
+                "Return the effective AgentWake configuration and last transient session registration.",
                 new
                 {
                     type = "object",
@@ -88,8 +86,6 @@ namespace Armada.Server.Mcp.Tools
                         status.DeliveryMode,
                         status.Runtime,
                         status.ProcessDeliveryEnabled,
-                        status.ConfiguredParticipantKey,
-                        status.EffectiveParticipantKey,
                         HasSession = status.Session != null,
                         status.Session
                     });

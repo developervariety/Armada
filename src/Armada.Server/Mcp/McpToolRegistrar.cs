@@ -95,7 +95,6 @@ namespace Armada.Server.Mcp
             UnlandedBranchService? unlandedBranches = null,
             Armada.Core.Services.DiskLifecycleService? diskLifecycle = null,
             LongRunningJobService? longRunningJobs = null,
-            Armada.Server.CoordinationService? coordinationService = null,
             Armada.Core.Services.DispatchHold? dispatchHold = null,
             Armada.Core.Services.TerminalVoyageMissionReconciler? terminalVoyageMissions = null,
             ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null,
@@ -103,7 +102,6 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.HarborJobService? harborJobs = null,
             Armada.Core.Services.Interfaces.ITypedDecisionClient? typedDecisionClient = null,
             Armada.Core.Services.TypedDecisionRecorder? typedDecisionRecorder = null,
-            Func<string?>? typedDecisionParticipantKeyProvider = null,
             Armada.Core.Services.TypedDecisionEvalService? typedDecisionEval = null,
             Armada.Core.Services.TypedDecisions.TypedDecisionSampleStore? typedDecisionSamples = null,
             Armada.Core.Services.PapercutMergeAdapter? papercutMergeAdapter = null,
@@ -163,8 +161,9 @@ namespace Armada.Server.Mcp
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration, missionOperations.Notifier, captainModelProbe);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
-            McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter, longRunningJobs);
-            McpSignalTools.Register(register, database, () => remoteTriggerService?.GetAgentWakeStatus().EffectiveParticipantKey);
+            McpCampaignStatusTools.Register(register, database);
+            McpDispatchHoldTools.Register(register, database, dispatchHold, longRunningJobs);
+            McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database, missionOperations.Notifier);
             McpTokenUsageTools.Register(register, database);
             McpProductionTools.Register(register, database);
@@ -192,7 +191,7 @@ namespace Armada.Server.Mcp
                     McpOperationalAssetTools.Register(register, database, workflowProfiles, environments, runbookService);
             }
             if (incidentService != null) McpIncidentTools.Register(register, incidentService, objectiveService);
-            if (objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService, coordinationService);
+            if (objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
@@ -229,7 +228,6 @@ namespace Armada.Server.Mcp
                     typedRecorder,
                     effectiveSettings,
                     logging,
-                    typedDecisionParticipantKeyProvider,
                     priorArtRetriever);
 
                 // The operator-facing data tools over the same programme: record that a gated outcome

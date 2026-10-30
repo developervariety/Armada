@@ -98,12 +98,6 @@ namespace Armada.Server
         public AuthContext? ObjectiveAuthContext { get; set; }
 
         /// <summary>
-        /// Coordination participant key of the session that requested the dispatch, or null when none is known.
-        /// A claim this participant holds is its own reservation, so it is not announced as a dispatch overlap.
-        /// </summary>
-        public string? DispatcherParticipantKey { get; set; } = null;
-
-        /// <summary>
         /// Ordered playbooks applied at the voyage level.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

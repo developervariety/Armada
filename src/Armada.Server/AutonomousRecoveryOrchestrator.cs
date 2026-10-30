@@ -119,12 +119,6 @@ namespace Armada.Server
         /// </summary>
         public DispatchContextPackStager? ContextPackStager { get; set; }
 
-        /// <summary>
-        /// Posts recovery notes every operator session should see on the coordination board, such as a
-        /// pending Challenger review. Set by the server after construction; when null, no note is posted.
-        /// </summary>
-        public IBoardNotePoster? BoardNotePoster { get; set; }
-
         // Missions whose withheld nudge already produced an event, so a finished captain yields one
         // event rather than one per sweep tick; every withheld nudge is still counted and logged.
         // An entry is dropped once no Working captain holds the mission.
@@ -1246,7 +1240,7 @@ namespace Armada.Server
                             _Database, owningObjective, owningObjective.StartFromRef, token).ConfigureAwait(false);
                         if (repeat != null)
                         {
-                            await ReviewRepeatStopNotice.PostAsync(_Database, _Logging, owningObjective, repeat, null, token).ConfigureAwait(false);
+                            await ReviewRepeatStopNotice.RecordAsync(_Database, owningObjective, repeat, token).ConfigureAwait(false);
                             decision = RecoveryDecision.Blocked(repeat.Code + ": " + repeat.Message);
                         }
                     }
@@ -1265,7 +1259,7 @@ namespace Armada.Server
                 }
 
                 // The challenge round runs before any runbook work. The tick that dispatches the Challenger
-                // opens the failure's incident and tells the board a rescue will follow, so no operator
+                // opens the failure's incident and notes that a rescue will follow, so no operator
                 // rescues the failure by hand meanwhile; a challenge still being ruled on writes nothing
                 // on later ticks. It only narrows a rescue: a block whose every finding is refuted becomes
                 // an operator decision, never a pass.
@@ -4074,17 +4068,6 @@ namespace Armada.Server
                     + challenge.Findings.Count + " blocking findings of Judge " + failed.Id
                     + "; the rescue follows its ruling. Do not rescue this failure by hand.")
             }, token).ConfigureAwait(false);
-
-            IBoardNotePoster? poster = BoardNotePoster;
-            if (poster != null)
-            {
-                await poster.PostBroadcastAsync(
-                    "Challenger review pending for Judge " + failed.Id + "; rescue will follow (incident " + incident.Id
-                    + ", Challenger " + challenge.ChallengerMissionId + ").",
-                    failed.VesselId,
-                    failed.Id,
-                    token).ConfigureAwait(false);
-            }
         }
 
         private Task<ArmadaEvent?> ReadJudgeChallengeDispatchAsync(Mission failed, CancellationToken token)

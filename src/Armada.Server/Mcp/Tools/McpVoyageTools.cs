@@ -206,7 +206,6 @@ namespace Armada.Server.Mcp.Tools
                         ObjectiveId = request.ObjectiveId,
                         ForcePreflight = request.ForcePreflight,
                         ObjectiveAuthContext = McpCallerContext.Require(),
-                        DispatcherParticipantKey = ArmadaMcpHttpServer.CurrentParticipantKey,
                         SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                         Settings = settings,
                         CaptainAssignments = request.CaptainAssignments,

@@ -66,7 +66,6 @@ namespace Armada.Helm
             AnsiConsole.MarkupLine("[dim]Per-command help:[/] armada <command> --help   (also -h, /?, -?)");
 
             HelpHeading("Common");
-            HelpRow("board [--limit N]", "Show the shared coordination board");
             HelpRow("go \"<task>\"", "Dispatch a task in natural language");
             HelpRow("status [--all]", "System status dashboard (--all for everything)");
             HelpRow("watch [--interval N]", "Live-updating status dashboard");
@@ -259,11 +258,6 @@ namespace Armada.Helm
                     .WithDescription("Show items awaiting your attention")
                     .WithExample("inbox")
                     .WithExample("inbox", "--critical");
-
-                config.AddCommand<BoardCommand>("board")
-                    .WithDescription("Show the coordination board: recent notes, claims, active sessions")
-                    .WithExample("board")
-                    .WithExample("board", "--limit", "50");
 
                 config.AddCommand<AskCommand>("ask")
                     .WithDescription("Ask Armada about fleet state in plain language")
