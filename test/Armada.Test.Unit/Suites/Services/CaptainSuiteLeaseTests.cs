@@ -216,6 +216,83 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A queued armada_suite_lease acquire answers within its wait bound and a retry keeps its place", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("lease-queue-vessel", "https://example.invalid/lease-queue.git")).ConfigureAwait(false);
+                    Mission holder = await CreateMissionAsync(testDb, vessel, "lease queue holder").ConfigureAwait(false);
+                    Mission first = await CreateMissionAsync(testDb, vessel, "lease queue first").ConfigureAwait(false);
+                    Mission second = await CreateMissionAsync(testDb, vessel, "lease queue second").ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? tool = null;
+                    McpSuiteLeaseTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == McpSuiteLeaseTools.ToolName) tool = handler;
+                    }, testDb.Driver, null);
+                    AssertNotNull(tool, "the suite lease tool is registered");
+
+                    Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                    int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        HostWideCommandLock.SetSlotCount(2);
+                        HostWideCommandLock.SetVesselSlotCount(1);
+                        await CaptainSuiteLeaseRegistry.AcquireAsync(holder.Id, vessel.Id, CancellationToken.None).ConfigureAwait(false);
+
+                        JsonElement queuedFirst = await CallAsync(tool!, first, new { action = "acquire", waitSeconds = 1 }).ConfigureAwait(false);
+                        AssertEqual("queued", queuedFirst.GetProperty("Status").GetString(), "an acquire behind a held vessel slot answers queued");
+                        AssertEqual(1, queuedFirst.GetProperty("Position").GetInt32(), "the first queued request is at position 1");
+
+                        // A transport timeout cancels the call; the queued request must survive it.
+                        using (CancellationTokenSource timedOut = new CancellationTokenSource())
+                        {
+                            timedOut.Cancel();
+                            JsonElement afterTimeout = await CallAsync(tool!, first, new { action = "acquire", waitSeconds = 1 }, timedOut.Token).ConfigureAwait(false);
+                            AssertEqual("queued", afterTimeout.GetProperty("Status").GetString(), "a cancelled call leaves the request queued");
+                        }
+
+                        JsonElement queuedSecond = await CallAsync(tool!, second, new { action = "acquire", waitSeconds = 0 }).ConfigureAwait(false);
+                        AssertEqual(2, queuedSecond.GetProperty("Position").GetInt32(), "a later mission queues behind the first");
+
+                        JsonElement retryFirst = await CallAsync(tool!, first, new { action = "acquire", waitSeconds = 0 }).ConfigureAwait(false);
+                        AssertEqual(1, retryFirst.GetProperty("Position").GetInt32(), "a retry keeps the first request's place");
+                        AssertTrue(CaptainSuiteLeaseRegistry.IsActive(first.Id), "a queued request counts as an active lease between calls, so it is not a stall");
+
+                        EnumerationResult<ArmadaEvent> waits = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                        {
+                            MissionId = first.Id,
+                            EventType = CaptainSuiteLeaseRegistry.WaitEventType,
+                            PageNumber = 1,
+                            PageSize = 10
+                        }).ConfigureAwait(false);
+                        AssertEqual(1, waits.Objects.Count, "one wait event per queued request, not one per retry");
+
+                        JsonElement withdrawn = await CallAsync(tool!, second, new { action = "release" }).ConfigureAwait(false);
+                        AssertEqual("withdrawn", withdrawn.GetProperty("Status").GetString(), "release while queued withdraws the request");
+                        AssertFalse(CaptainSuiteLeaseRegistry.IsActive(second.Id), "a withdrawn request holds and waits for nothing");
+
+                        CaptainSuiteLeaseRegistry.Release(holder.Id);
+                        JsonElement granted = await CallAsync(tool!, first, new { action = "acquire", waitSeconds = 5 }).ConfigureAwait(false);
+                        string grantedStatus = granted.GetProperty("Status").GetString() ?? String.Empty;
+                        AssertTrue(grantedStatus == "granted" || grantedStatus == "held", "the queued request is granted once the holder releases, got " + grantedStatus);
+                        AssertFalse(CaptainSuiteLeaseRegistry.IsActive(second.Id), "the withdrawn mission is never granted the slot");
+
+                        JsonElement released = await CallAsync(tool!, first, new { action = "release" }).ConfigureAwait(false);
+                        AssertEqual("released", released.GetProperty("Status").GetString(), "release frees the granted lease");
+                    }
+                    finally
+                    {
+                        CaptainSuiteLeaseRegistry.ReleaseForMission(holder.Id);
+                        CaptainSuiteLeaseRegistry.ReleaseForMission(first.Id);
+                        CaptainSuiteLeaseRegistry.ReleaseForMission(second.Id);
+                        RestoreLock(previousReader, previousFloor);
+                    }
+                }
+            });
+
             await RunTest("A captain process exit releases its suite lease and frees the vessel slot for the gate", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -305,6 +382,29 @@ namespace Armada.Test.Unit.Suites.Services
                     RestoreLock(previousReader, previousFloor);
                 }
             });
+        }
+
+        private static Task<Mission> CreateMissionAsync(TestDatabase testDb, Vessel vessel, string title)
+        {
+            return testDb.Driver.Missions.CreateAsync(new Mission(title)
+            {
+                TenantId = Constants.DefaultTenantId,
+                UserId = Constants.DefaultUserId,
+                VesselId = vessel.Id,
+                Status = MissionStatusEnum.InProgress
+            });
+        }
+
+        private static async Task<JsonElement> CallAsync(Func<JsonElement?, Task<object>> tool, Mission mission, object args, CancellationToken callToken = default)
+        {
+            AuthContext caller = McpTestCaller.Operator;
+            caller.MissionId = mission.Id;
+            using (McpCallerContext.Begin(caller))
+            using (McpCallerContext.BeginCall(callToken))
+            {
+                object result = await tool(JsonSerializer.SerializeToElement(args)).WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                return JsonSerializer.SerializeToElement(result);
+            }
         }
 
         private static ArmadaSettings CreateSettings()

@@ -1326,14 +1326,33 @@ one with `POST /api/v1/battery/runs`.
 ### armada_suite_lease
 
 Acquire or release the Armada suite lease before a full-suite run (for example
-`scripts/check.sh`). Args: `action` (`acquire` or `release`). The lease takes
-the per-vessel suite slot and then a host command slot, the same slots the
+`scripts/check.sh`). Args: `action` (`acquire` or `release`) and, for
+`acquire`, optional `waitSeconds` (0-120, default 30). The lease takes the
+per-vessel suite slot and then a host command slot, the same slots the
 definition-of-done gate and armed checks use (`docs/reference/backend-dod.md`).
 A mission credential acts only for its own mission; a caller with no mission
-credential is refused (`mission_required`). `acquire` waits if the slots are
-held and records `captain.suite_lease_wait` with the wait position; that wait
-is not a stall. `release` frees the slots. When the captain process exits or the
-mission ends, a held lease is released and a waiting acquire is cancelled.
+credential is refused (`mission_required`).
+
+`acquire` waits at most `waitSeconds` for a grant, so it always answers inside
+an MCP client's call timeout:
+
+| `Status` | Meaning |
+| --- | --- |
+| `granted` | The lease is granted to this call. |
+| `held` | The mission already holds the lease. |
+| `queued` | The slots are held. `Position` is the request's place in the queue. |
+
+A queued request stays in the queue after the call returns, including when the
+client cancels or times out the call. The next `acquire` from the same mission
+joins that request and keeps its place; it does not queue again. The acquire
+that queues a request records `captain.suite_lease_wait` with the position when
+the wait starts; a retry records no second event. A queued request counts as an active lease for stall detection, so
+its wait is not a stall.
+
+`release` frees a held lease (`released`), withdraws a queued request
+(`withdrawn`), or answers `idle` when the mission has neither. When the captain
+process exits or the mission ends, a held lease is released and a queued request
+is cancelled.
 
 ### armada_mission_change_summary
 
