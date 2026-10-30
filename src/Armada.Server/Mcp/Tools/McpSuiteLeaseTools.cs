@@ -22,8 +22,11 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Seconds an acquire waits for a grant before it answers queued, when the caller names none.</summary>
         public const int DefaultWaitSeconds = 30;
 
-        /// <summary>Longest wait an acquire accepts. It stays well inside an MCP client's call timeout.</summary>
-        public const int MaxWaitSeconds = 120;
+        /// <summary>
+        /// Longest wait an acquire accepts. It stays below the 60-second request timeout that common MCP
+        /// clients apply, so a queued answer arrives before the client abandons the call.
+        /// </summary>
+        public const int MaxWaitSeconds = 45;
 
         // A short floor so a queued request has entered the host lock's queue before its position is read.
         private const int MinimumWaitMilliseconds = 25;

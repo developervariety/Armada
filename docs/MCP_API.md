@@ -1327,14 +1327,15 @@ one with `POST /api/v1/battery/runs`.
 
 Acquire or release the Armada suite lease before a full-suite run (for example
 `scripts/check.sh`). Args: `action` (`acquire` or `release`) and, for
-`acquire`, optional `waitSeconds` (0-120, default 30). The lease takes the
-per-vessel suite slot and then a host command slot, the same slots the
-definition-of-done gate and armed checks use (`docs/reference/backend-dod.md`).
+`acquire`, optional `waitSeconds` (0-45, default 30; a larger value is treated
+as 45). The lease takes the per-vessel suite slot and then a host command
+slot, the same slots the definition-of-done gate and armed checks use
+(`docs/reference/backend-dod.md`).
 A mission credential acts only for its own mission; a caller with no mission
 credential is refused (`mission_required`).
 
 `acquire` waits at most `waitSeconds` for a grant, so it always answers inside
-an MCP client's call timeout:
+the 60-second request timeout that common MCP clients apply:
 
 | `Status` | Meaning |
 | --- | --- |

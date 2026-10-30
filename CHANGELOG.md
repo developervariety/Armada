@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Suite lease acquire waits at most 45 seconds
+
+- `armada_suite_lease` `acquire` accepts `waitSeconds` from 0 to 45 and treats a larger value as 45, so a queued answer arrives before the 60-second request timeout that common MCP clients apply. The default wait (30 seconds), queue order and slot limits are unchanged.
+
 ### Recovery preserves required stages and excludes concurrent restarts
 
 - Autonomous rescues replay the recorded pipeline from its first required stage, including both Worker stages and every review duty. Existing confirmed stage skips retain their authority. Landing, queued landing execution, and objective completion refuse a shortened rescue with a named missing-stage reason. A later complete recovery can satisfy the contract without erasing the failed attempts.
