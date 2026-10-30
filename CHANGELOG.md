@@ -7,6 +7,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Coordination board removed
+
+- The coordination board is gone: its rooms, messages, participants and claims, the `armada_coordination_*` tools, the `/api/v1/coordination` routes, the `armada board` command and the `coordination_*` tables. A migration drops the four board tables on every provider (SQLite 144, PostgreSQL 149, MySQL 137, SQL Server 140). `coordination_leases` is a separate lock store and stays.
+- Components that posted board notes record events instead: the disk lifecycle, archive and background-job failures, the autonomous recovery orchestrator, the objective scheduler's preflight blocks, runtime failure account faults, the owner digest and captain log screening.
+- Briefs carry no "Board Notes" section. `[ARMADA:NOTE]` is an unknown marker and creates nothing.
+- The participant key is gone: the participant header, the wake banner, `[to=key]` wakes, `AgentWakeSettings.ParticipantKey`, the `participantKey` argument of `armada_register_agentwake_session`, and the key fields on the AgentWake status snapshot and on tool-call audits. Typed-decision events attribute a call to the authenticated caller (`caller_identity`). Settings and job journals that still carry removed fields load; the fields are ignored.
+- `armada_objective_scheduler_clear_stale_pause` and the stale-pause rule are removed. `armada_objective_scheduler_set` records `objective_scheduler.paused` and `objective_scheduler.resumed` events naming the authenticated caller and an optional `reason`, and `pausedBy` is the authenticated caller.
+- New events: `mission.reassigned` when a mission moves to a different captain, and `dispatch.hold_engaged`, `dispatch.hold_cleared` and `dispatch.hold_restored` when the dispatch hold changes state.
+- `armada_campaign_status` returns the objective tree and closeout only. `armada_dispatch_hold` keeps its behavior and records events.
+
 ### Mission metadata validation
 
 - REST, MCP and WebSocket mission metadata updates refuse unknown or non-patchable fields by name before saving any field. Sending a preference, status or recovery counter cannot silently succeed without changing it.
