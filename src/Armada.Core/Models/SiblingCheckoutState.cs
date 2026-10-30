@@ -33,6 +33,9 @@ namespace Armada.Core.Models
         /// <summary>Commit the objective pinned for this sibling, or null when it pins none.</summary>
         public string? PinnedCommit { get; set; } = null;
 
+        /// <summary>True when the objective's sibling pin override provisioned <see cref="PinnedCommit"/> as this checkout.</summary>
+        public bool PinProvisioned { get; set; } = false;
+
         /// <summary>True when the pin is an ancestor of HEAD, false when it is not, null when unknown.</summary>
         public bool? PinIsAncestor { get; set; } = null;
 

@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Sibling pin override provisions an unlanded sibling commit per dispatch
+
+- A required sibling input with `provisionPinnedCommit: true` makes every dock of the objective's dispatch check out its `pinnedCommit` in that dock's own sibling checkout, from any ref of the sibling repository that holds it. Docks without the override keep the declared branch, and no sibling ref is created, landed or moved. Dispatch preview resolves the commit and names the override (`required_sibling_pin_provisioned`) instead of applying the ancestor rule, and still refuses a commit the repository does not hold. The brief and a `dock.sibling_pin_override` event name the pinned commit. Landing refuses with `sibling_pin_unlanded` until the commit is on the sibling vessel's default branch. Without the flag, pinned commits behave as before.
+
 ### Recovery preserves required stages and excludes concurrent restarts
 
 - Autonomous rescues replay the recorded pipeline from its first required stage, including both Worker stages and every review duty. Existing confirmed stage skips retain their authority. Landing, queued landing execution, and objective completion refuse a shortened rescue with a named missing-stage reason. A later complete recovery can satisfy the contract without erasing the failed attempts.

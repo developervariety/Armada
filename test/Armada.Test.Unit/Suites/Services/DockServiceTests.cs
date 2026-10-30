@@ -1024,6 +1024,109 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProvisionAsync checks out an objective's provisioned sibling pin in that dock alone, and the consumer lands only after the pin lands", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    GitService git = new GitService(logging);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-sibling-pin-" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        // The producer holds a candidate commit on a side branch only; its main never has it.
+                        string producerSource = Path.Combine(rootDir, "producer");
+                        GitServiceTests.SeedTemplateRepository(producerSource);
+                        await RunGitAsync(producerSource, "checkout", "-q", "-b", "candidate").ConfigureAwait(false);
+                        File.WriteAllText(Path.Combine(producerSource, "candidate.txt"), "unlanded producer change");
+                        await RunGitAsync(producerSource, "add", "candidate.txt").ConfigureAwait(false);
+                        await RunGitAsync(producerSource, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "candidate").ConfigureAwait(false);
+                        string pin = (await RunGitAsync(producerSource, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                        await RunGitAsync(producerSource, "checkout", "-q", "main").ConfigureAwait(false);
+                        string producerMain = (await RunGitAsync(producerSource, "rev-parse", "main").ConfigureAwait(false)).Trim();
+
+                        string consumerSource = Path.Combine(rootDir, "consumer");
+                        GitServiceTests.SeedTemplateRepository(consumerSource);
+
+                        Vessel producer = new Vessel("pin-producer", producerSource);
+                        producer.DefaultBranch = "main";
+                        producer = await testDb.Driver.Vessels.CreateAsync(producer).ConfigureAwait(false);
+
+                        Vessel consumer = new Vessel("pin-consumer", consumerSource);
+                        consumer.DefaultBranch = "main";
+                        consumer.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                        {
+                            new SiblingRepo
+                            {
+                                VesselRef = producer.Id,
+                                RelativePath = "../Producer",
+                                BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                                DefaultBranch = "main"
+                            }
+                        });
+                        consumer = await testDb.Driver.Vessels.CreateAsync(consumer).ConfigureAwait(false);
+
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pinned consumer voyage")).ConfigureAwait(false);
+                        Objective objective = new Objective { Title = "measure the consumer against the candidate" };
+                        objective.VoyageIds.Add(voyage.Id);
+                        objective.Preparation.RequiredSiblingInputs.Add(new ObjectivePreparationSiblingInput
+                        {
+                            VesselRef = producer.Id,
+                            RelativePath = "../Producer",
+                            PinnedCommit = pin,
+                            ProvisionPinnedCommit = true
+                        });
+                        objective = await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                        Mission pinnedMission = await testDb.Driver.Missions.CreateAsync(new Mission("pinned stage") { VoyageId = voyage.Id, VesselId = consumer.Id }).ConfigureAwait(false);
+                        Mission plainMission = await testDb.Driver.Missions.CreateAsync(new Mission("plain mission") { VesselId = consumer.Id }).ConfigureAwait(false);
+                        Captain captainOne = await testDb.Driver.Captains.CreateAsync(new Captain("captain-pin-1")).ConfigureAwait(false);
+                        Captain captainTwo = await testDb.Driver.Captains.CreateAsync(new Captain("captain-pin-2")).ConfigureAwait(false);
+
+                        Dock? pinnedDock = await service.ProvisionAsync(consumer, captainOne, "armada/captain-pin-1/" + pinnedMission.Id, pinnedMission.Id).ConfigureAwait(false);
+                        Dock? plainDock = await service.ProvisionAsync(consumer, captainTwo, "armada/captain-pin-2/" + plainMission.Id, plainMission.Id).ConfigureAwait(false);
+                        AssertNotNull(pinnedDock, "the pinned dock should be provisioned");
+                        AssertNotNull(plainDock, "the concurrent dock should be provisioned");
+
+                        string pinnedSibling = Path.GetFullPath(Path.Combine(pinnedDock!.WorktreePath!, "../Producer"));
+                        string plainSibling = Path.GetFullPath(Path.Combine(plainDock!.WorktreePath!, "../Producer"));
+                        AssertEqual(pin, (await RunGitAsync(pinnedSibling, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "the opted-in dock's sibling HEAD is the pinned commit");
+                        AssertTrue(File.Exists(Path.Combine(pinnedSibling, "candidate.txt")), "the opted-in dock reads the unlanded producer change");
+                        AssertEqual(producerMain, (await RunGitAsync(plainSibling, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "a concurrent dock without the override keeps the declared branch");
+                        AssertFalse(File.Exists(Path.Combine(plainSibling, "candidate.txt")), "the concurrent dock never sees the pinned tree");
+
+                        List<ArmadaEvent> overrides = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_pin_override").ConfigureAwait(false);
+                        AssertEqual(1, overrides.Count, "only the opted-in dock records the override");
+                        AssertEqual(pinnedDock.Id, overrides[0].EntityId, "the override event names the dock that received the pinned tree");
+                        AssertContains(pin, overrides[0].Payload ?? String.Empty, "the override event carries the pinned commit");
+
+                        string producerBare = (await testDb.Driver.Vessels.ReadAsync(producer.Id).ConfigureAwait(false))!.LocalPath!;
+                        AssertEqual(producerMain, (await RunGitAsync(producerBare, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(), "the override never moves the producer's main");
+
+                        string? refusal = await SiblingPinOverride.DescribeLandingRefusalAsync(testDb.Driver, git, voyage.Id).ConfigureAwait(false);
+                        AssertNotNull(refusal, "the consumer cannot land while the pinned producer commit is unlanded");
+                        AssertStartsWith(SiblingPinOverride.LandingRefusalPrefix, refusal!, "the refusal is named");
+                        AssertNull(await SiblingPinOverride.DescribeLandingRefusalAsync(testDb.Driver, git, plainMission.VoyageId).ConfigureAwait(false), "a mission without the override is not gated");
+
+                        await RunGitAsync(producerBare, "update-ref", "refs/heads/main", pin, producerMain).ConfigureAwait(false);
+                        AssertNull(await SiblingPinOverride.DescribeLandingRefusalAsync(testDb.Driver, git, voyage.Id).ConfigureAwait(false), "once the producer lands the pin, the consumer may land");
+                    }
+                    finally
+                    {
+                        try { if (Directory.Exists(rootDir)) Directory.Delete(rootDir, true); } catch { }
+                        try { if (Directory.Exists(settings.DocksDirectory)) Directory.Delete(settings.DocksDirectory, true); } catch { }
+                        try { if (Directory.Exists(settings.ReposDirectory)) Directory.Delete(settings.ReposDirectory, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("ProvisionAsync reuses an existing sibling checkout instead of destroying a concurrent dock's build", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

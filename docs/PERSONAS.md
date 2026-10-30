@@ -411,7 +411,9 @@ A brief also matches the dock it lands in and the tools the captain has:
   hold, and a sibling provisioning did not produce, named as absent. When the
   objective pins a sibling commit (`pinnedCommit` on a required sibling input),
   the line says whether the pin is an ancestor of HEAD and lists the assigned
-  paths changed since it. The provisioned HEAD controls.
+  paths changed since it. When the input also sets `provisionPinnedCommit`,
+  the line names the sibling pin override and confirms that HEAD is the pinned
+  commit. The provisioned HEAD controls.
 - Claude Code, Codex and Cursor launches receive each provisioned sibling
   checkout as a workspace root (`--add-dir`), so built-in search and file tools
   reach it. Other runtimes keep their tools inside the dock, and the section
@@ -437,6 +439,24 @@ Dispatch preview refuses a pinned sibling commit that the sibling repository
 does not hold (`required_sibling_pin_unresolved`) or that is not an ancestor of
 the branch docks provision (`required_sibling_pin_not_ancestor`), and warns
 when the sibling cannot be read to check it.
+
+A required sibling input that sets `provisionPinnedCommit: true` with its
+`pinnedCommit` is a sibling pin override. Every dock of the objective's
+dispatch checks out the pinned commit, detached, in its own sibling checkout
+beside its own checkout, from any ref of the sibling repository that holds it.
+A dock without the override keeps the declared branch, and no sibling ref is
+created, landed or moved. Each stage's dock and its definition-of-done gate
+therefore build against the pinned tree. Each provisioning records a
+`dock.sibling_pin_override` event naming the dock, the objective and the
+commit. A dock that cannot check out the pin fails with
+`dock.sibling_provision_failed`, and a Harbor-routed dock refuses the override
+(`dock_harbor_sibling_pin_override_unsupported`). Preview refuses an override
+whose repository cannot be read or does not hold the commit, does not apply
+the ancestor rule, and names the override (`required_sibling_pin_provisioned`,
+informational). The consumer's work is valid only for that commit, so landing
+refuses with `sibling_pin_unlanded` until the pin is an ancestor of the sibling
+vessel's default branch; retry the landing once the sibling lands it, or
+re-measure at the landed tip and clear the override.
 
 The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a

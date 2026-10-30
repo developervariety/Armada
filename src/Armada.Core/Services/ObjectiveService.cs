@@ -2499,6 +2499,8 @@ namespace Armada.Core.Services
                 sibling.PinnedCommit = Normalize(sibling.PinnedCommit);
                 if (sibling.PinnedCommit != null)
                     EnsureMaximumLength(sibling.PinnedCommit, _MaxPreparationAnchorChars, "Objective preparation sibling pinned commit");
+                if (sibling.ProvisionPinnedCommit && sibling.PinnedCommit == null)
+                    throw new InvalidOperationException("Objective preparation sibling input " + sibling.RelativePath + " sets provisionPinnedCommit without a pinned commit.");
             }
 
             SanitizeExecutionRequirements(objective.Preparation);

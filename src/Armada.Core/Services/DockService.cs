@@ -422,7 +422,8 @@ namespace Armada.Core.Services
                 // Provision declared sibling repositories alongside this dock so consumer repos
                 // that resolve cross-repo sources via parent-probe paths can build inside the dock.
                 // No-op for vessels that declare no siblings (single-repo vessels are unaffected).
-                await ProvisionSiblingReposAsync(vessel, worktreePath, branchName, dock.Id, token).ConfigureAwait(false);
+                Objective? siblingObjective = await ReadSiblingObjectiveAsync(vessel, missionId, token).ConfigureAwait(false);
+                await ProvisionSiblingReposAsync(vessel, worktreePath, branchName, dock.Id, siblingObjective, token).ConfigureAwait(false);
 
                 try
                 {
@@ -1308,7 +1309,8 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task FailBuildParticipantSiblingAsync(Vessel vessel, string dockId, SiblingRepo sibling, string? siblingWorktreePath, string reason, CancellationToken token)
         {
-            string message = "Dock " + dockId + " could not provision required build-participant sibling '"
+            string message = "Dock " + dockId + " could not provision required "
+                + (sibling.BuildParticipant ? "build-participant " : "pinned ") + "sibling '"
                 + sibling.RelativePath + "' for vessel " + vessel.Id + ": " + reason;
             _Logging.Warn(_Header + message);
 
@@ -1326,7 +1328,7 @@ namespace Armada.Core.Services
                     VesselId = vessel.Id,
                     SiblingRelativePath = sibling.RelativePath,
                     SiblingWorktreePath = siblingWorktreePath,
-                    BuildParticipant = true,
+                    BuildParticipant = sibling.BuildParticipant,
                     Reason = reason
                 });
                 await _Database.Events.CreateAsync(failedEvent, token).ConfigureAwait(false);
@@ -1343,7 +1345,18 @@ namespace Armada.Core.Services
             throw new InvalidOperationException(message);
         }
 
-        private async Task ProvisionSiblingReposAsync(Vessel vessel, string worktreePath, string dockBranchName, string dockId, CancellationToken token)
+        /// <summary>
+        /// The objective linked to a mission's voyage, read only when the vessel declares siblings, so a sibling
+        /// pin override can be applied. A mission without a voyage or objective reads as null.
+        /// </summary>
+        private async Task<Objective?> ReadSiblingObjectiveAsync(Vessel vessel, string? missionId, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(missionId) || vessel.GetSiblingRepos().Count == 0) return null;
+            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            return await VoyageObjectiveResolver.ResolveAsync(_Database, mission?.VoyageId, token).ConfigureAwait(false);
+        }
+
+        private async Task ProvisionSiblingReposAsync(Vessel vessel, string worktreePath, string dockBranchName, string dockId, Objective? objective, CancellationToken token)
         {
             List<SiblingRepo> siblings = vessel.GetSiblingRepos();
             if (siblings.Count == 0) return;
@@ -1360,12 +1373,13 @@ namespace Armada.Core.Services
                 // its own) through its worktree and artifact copy.
                 Stopwatch? siblingElapsed = null;
                 string siblingOutcome = ArmadaMetrics.OutcomeFailure;
+                string? pinnedCommit = SiblingPinOverride.PinFor(objective, sibling);
                 try
                 {
                     string? siblingRepoPath = await ResolveSiblingRepoPathAsync(sibling, token).ConfigureAwait(false);
                     if (String.IsNullOrEmpty(siblingRepoPath))
                     {
-                        if (sibling.BuildParticipant)
+                        if (sibling.BuildParticipant || pinnedCommit != null)
                         {
                             throw new InvalidOperationException("could not resolve source for build-participant sibling repo (relativePath=" + sibling.RelativePath + ")");
                         }
@@ -1376,6 +1390,13 @@ namespace Armada.Core.Services
 
                     string siblingWorktreePath = Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath));
                     siblingElapsed = Stopwatch.StartNew();
+
+                    if (pinnedCommit != null)
+                    {
+                        await ProvisionPinnedSiblingAsync(vessel, worktreePath, dockId, sibling, siblingRepoPath, siblingWorktreePath, pinnedCommit, objective!, token).ConfigureAwait(false);
+                        siblingOutcome = ArmadaMetrics.OutcomeSuccess;
+                        continue;
+                    }
 
                     // Branch-compat rule: when the strategy is MatchBranchElseDefault and the dock branch
                     // already exists in the sibling repo, check out that same-named branch so the sibling
@@ -1458,7 +1479,9 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    if (sibling.BuildParticipant)
+                    // The objective's tree is measured against a pinned sibling, so a dock without it is as
+                    // broken as one missing a build-participant sibling.
+                    if (sibling.BuildParticipant || pinnedCommit != null)
                     {
                         // A required build-participant sibling failed to provision. Record a loud
                         // event and fail the dock so the operator sees a provisioning fault instead
@@ -1474,6 +1497,98 @@ namespace Armada.Core.Services
                     if (siblingElapsed != null)
                         ArmadaMetrics.RecordCheckout(ArmadaMetrics.CheckoutSibling, siblingElapsed.Elapsed, siblingOutcome, false);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Check out an objective's pinned sibling commit in this dock's own sibling checkout. The commit is
+        /// resolved in the sibling repository from any ref that holds it and is checked out detached, so no
+        /// sibling ref is created, landed or moved. The override is refused where the checkout would not belong
+        /// to this dock alone. A checkout already at the pin is reused; one at another commit is this dock's own
+        /// and is rebuilt. Each provisioning records <c>dock.sibling_pin_override</c>.
+        /// </summary>
+        private async Task ProvisionPinnedSiblingAsync(
+            Vessel vessel,
+            string worktreePath,
+            string dockId,
+            SiblingRepo sibling,
+            string siblingRepoPath,
+            string siblingWorktreePath,
+            string pinnedCommit,
+            Objective objective,
+            CancellationToken token)
+        {
+            string dockRoot = Path.GetFullPath(Path.GetDirectoryName(Path.GetFullPath(worktreePath)) ?? worktreePath);
+            string dockRootPrefix = dockRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!IsNestedDock(vessel, worktreePath) || !siblingWorktreePath.StartsWith(dockRootPrefix, StringComparison.Ordinal))
+                throw new InvalidOperationException("sibling_pin_override_not_isolated: sibling " + sibling.RelativePath
+                    + " does not resolve inside this dock's own directory " + dockRoot);
+
+            string? commit = await _Git.GetRevisionCommitShaAsync(siblingRepoPath, pinnedCommit, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(commit))
+                throw new InvalidOperationException("sibling_pin_override_unresolved: pinned commit " + pinnedCommit
+                    + " does not exist in the repository of sibling " + sibling.RelativePath);
+
+            if (Directory.Exists(siblingWorktreePath))
+            {
+                string? head = SiblingWorktreeHasContent(siblingWorktreePath)
+                    ? await _Git.GetHeadCommitHashAsync(siblingWorktreePath, token).ConfigureAwait(false)
+                    : null;
+                if (!String.Equals(head, commit, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (await _Git.IsWorktreeRegisteredAsync(siblingRepoPath, siblingWorktreePath, token).ConfigureAwait(false))
+                    {
+                        try { await _Git.RemoveWorktreeAsync(siblingWorktreePath, token).ConfigureAwait(false); }
+                        catch (Exception removeEx) when (!(removeEx is OperationCanceledException))
+                        {
+                            _Logging.Warn(_Header + "git worktree remove failed for pinned sibling " + siblingWorktreePath + "; removing the directory directly: " + removeEx.Message);
+                        }
+                    }
+                    await ForceRemoveDirectoryAsync(siblingWorktreePath, token).ConfigureAwait(false);
+                    await _Git.PruneWorktreesAsync(siblingRepoPath, token).ConfigureAwait(false);
+                }
+            }
+
+            if (!Directory.Exists(siblingWorktreePath))
+                await _Git.CreateDetachedWorktreeAtCommitAsync(siblingRepoPath, siblingWorktreePath, commit!, token).ConfigureAwait(false);
+
+            string? provisioned = await _Git.GetHeadCommitHashAsync(siblingWorktreePath, token).ConfigureAwait(false);
+            if (!String.Equals(provisioned, commit, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("sibling_pin_override_head_mismatch: sibling " + sibling.RelativePath
+                    + " HEAD is " + (provisioned ?? "unknown") + ", not pinned commit " + commit);
+
+            _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (pinned commit " + commit + ") for vessel " + vessel.Id);
+            await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+            await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
+
+            try
+            {
+                ArmadaEvent overrideEvent = new ArmadaEvent("dock.sibling_pin_override",
+                    "Dock " + dockId + " provisioned sibling " + sibling.RelativePath + " at pinned commit " + commit
+                    + " for objective " + objective.Id + ".");
+                overrideEvent.TenantId = vessel.TenantId;
+                overrideEvent.UserId = vessel.UserId;
+                overrideEvent.EntityType = "dock";
+                overrideEvent.EntityId = dockId;
+                overrideEvent.VesselId = vessel.Id;
+                overrideEvent.Payload = JsonSerializer.Serialize(new
+                {
+                    DockId = dockId,
+                    VesselId = vessel.Id,
+                    ObjectiveId = objective.Id,
+                    SiblingRelativePath = sibling.RelativePath,
+                    SiblingWorktreePath = siblingWorktreePath,
+                    PinnedCommit = commit
+                });
+                await _Database.Events.CreateAsync(overrideEvent, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record dock.sibling_pin_override for dock " + dockId + ": " + ex.Message);
             }
         }
 

@@ -325,6 +325,13 @@ namespace Armada.Server
                 return;
             }
 
+            string? pinRefusal = await SiblingPinOverride.DescribeLandingRefusalAsync(_Database, _Git, mission.VoyageId).ConfigureAwait(false);
+            if (pinRefusal != null)
+            {
+                await RefuseLandingAsync(mission, MissionStatusEnum.LandingFailed, pinRefusal).ConfigureAwait(false);
+                return;
+            }
+
             // A mission whose deliverable is a ruling or a report is never merged, pushed or enqueued.
             // Its completion records the result only.
             string? noLanding = Armada.Core.Services.MissionLandingEligibility.RefusalReason(mission);

@@ -1672,6 +1672,12 @@ namespace Armada.Core.Services
             ObjectiveDispatchPreview result,
             CancellationToken token)
         {
+            if (required.ProvisionPinnedCommit)
+            {
+                await EvaluateProvisionedSiblingPinAsync(required, requiredVessel, result, token).ConfigureAwait(false);
+                return;
+            }
+
             string pinned = required.PinnedCommit!.Trim();
             string repositoryPath = RepositoryPath(requiredVessel);
             string branch = !String.IsNullOrWhiteSpace(declaration.DefaultBranch)
@@ -1713,6 +1719,43 @@ namespace Armada.Core.Services
                     "Pinned sibling commit " + ShortCommit(pinCommit) + " could not be checked against branch " + branch + ".",
                     required.VesselRef);
             }
+        }
+
+        /// <summary>
+        /// A provisioned pin is the tree every dock of the dispatch checks out, so it must exist in the sibling
+        /// repository under some ref; whether it has landed is checked at landing, not here. The preview names the
+        /// override so the operator sees which sibling tree the dispatch measures.
+        /// </summary>
+        private async Task EvaluateProvisionedSiblingPinAsync(
+            ObjectivePreparationSiblingInput required,
+            Vessel requiredVessel,
+            ObjectiveDispatchPreview result,
+            CancellationToken token)
+        {
+            string pinned = required.PinnedCommit!.Trim();
+            string repositoryPath = RepositoryPath(requiredVessel);
+            if (!await _Git.IsRepositoryAsync(repositoryPath, token).ConfigureAwait(false))
+            {
+                AddIssue(result, "required_sibling_pin_unverified", "provisioning", ReadinessSeverityEnum.Error,
+                    "The sibling repository cannot be read, so provisioned pin " + pinned + " cannot be resolved.",
+                    required.VesselRef);
+                return;
+            }
+
+            string? pinCommit = await _Git.GetRevisionCommitShaAsync(repositoryPath, pinned, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(pinCommit))
+            {
+                AddIssue(result, "required_sibling_pin_unresolved", "provisioning", ReadinessSeverityEnum.Error,
+                    "Pinned sibling commit " + pinned + " does not exist in " + required.VesselRef
+                    + ", so no dock can provision it. Pin a commit the sibling repository holds.",
+                    required.VesselRef);
+                return;
+            }
+
+            AddIssue(result, "required_sibling_pin_provisioned", "provisioning", ReadinessSeverityEnum.Info,
+                "Every dock of this dispatch checks out " + required.VesselRef + " at pinned commit " + ShortCommit(pinCommit)
+                + " in its own sibling checkout. The consumer lands only after that commit is on the sibling's default branch.",
+                required.VesselRef);
         }
 
         private static string ShortCommit(string commit)

@@ -1882,6 +1882,11 @@ text or evidence; other claims keep their state. A claim that cites no path, an
 unreadable or oversized change, and a `startFromRef` or `vesselIds` change mark
 every dependent claim `NeedsRecheck`. The invalidation reason names the changed
 cited paths.
+Each `requiredSiblingInputs` entry may set `pinnedCommit` and
+`provisionPinnedCommit`. `provisionPinnedCommit: true` requires `pinnedCommit`
+and makes every dock of the dispatch check out that commit in its own sibling
+checkout; landing waits until the commit is on the sibling vessel's default
+branch (`docs/PERSONAS.md`).
 `confirmStageSkip: true` explicitly confirms the skip supplied in preparation,
 or the existing skip when preparation is omitted. Armada records the authenticated
 operator, server time, and a server-issued proof; inbound `confirmedBy`,
