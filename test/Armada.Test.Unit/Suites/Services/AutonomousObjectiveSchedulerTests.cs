@@ -2753,6 +2753,13 @@ namespace Armada.Test.Unit.Suites.Services
                     TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, VoyageId = rescueVoyage.Id, DependsOnMissionId = rescueWorker.Id, Status = MissionStatusEnum.Complete
                 }).ConfigureAwait(false);
 
+                foreach (string title in new[] { "Rescue architect", "Rescue test engineer", "Rescue recorder" })
+                    await testDb.Driver.Missions.CreateAsync(new Mission(title)
+                    {
+                        TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                        VoyageId = rescueVoyage.Id, Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+
                 Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
                     TenantId = Constants.DefaultTenantId,
@@ -2926,6 +2933,12 @@ namespace Armada.Test.Unit.Suites.Services
                         Status = VoyageStatusEnum.Complete
                     }).ConfigureAwait(false);
                     voyageIds.Add(rescueVoyage.Id);
+                    if (failure.Id == failureA.Id)
+                        await testDb.Driver.Missions.CreateAsync(new Mission("Recovered dependent of chain A")
+                        {
+                            TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                            VoyageId = rescueVoyage.Id, Status = MissionStatusEnum.Complete
+                        }).ConfigureAwait(false);
                     await testDb.Driver.Missions.CreateAsync(new Mission("Rescue for " + failure.Title)
                     {
                         TenantId = Constants.DefaultTenantId,
@@ -3005,6 +3018,11 @@ namespace Armada.Test.Unit.Suites.Services
                     Description = RescueMissionMarker.Marker,
                     ParentMissionId = rootFailure.Id,
                     Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Recovered downstream stage")
+                {
+                    TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                    VoyageId = rescueVoyage.Id, Status = MissionStatusEnum.Complete
                 }).ConfigureAwait(false);
                 Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {

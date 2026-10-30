@@ -37,6 +37,7 @@ namespace Armada.Core.Services
 
             List<Mission> original = candidate;
             string originalVoyageId = voyageId;
+            string? originalAnchorId = null;
             HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal) { voyageId };
             while (root != null)
             {
@@ -50,12 +51,31 @@ namespace Armada.Core.Services
                 if (!visited.Add(parent.VoyageId))
                     return "rescue_required_stage_contract_unavailable: recovery ancestry contains a cycle";
                 originalVoyageId = parent.VoyageId;
+                originalAnchorId = parent.Id;
                 original = await database.Missions.EnumerateByVoyageAsync(originalVoyageId, token).ConfigureAwait(false);
                 root = original.FirstOrDefault(item => RescueMissionMarker.IsAutoRescue(item)
                     && !String.IsNullOrWhiteSpace(item.ParentMissionId));
             }
 
             Pipeline? recorded = await VoyagePipelineRecord.ReadAsync(database, originalVoyageId, null, token).ConfigureAwait(false);
+            // Legacy voyages can contain several independent dependency chains. A rescue
+            // owes its original connected chain, not unrelated work in the same voyage.
+            if (recorded == null && originalAnchorId != null)
+            {
+                HashSet<string> component = new HashSet<string>(StringComparer.Ordinal) { originalAnchorId };
+                bool changed;
+                do
+                {
+                    changed = false;
+                    foreach (Mission item in original)
+                    {
+                        if (String.IsNullOrWhiteSpace(item.DependsOnMissionId)) continue;
+                        if (component.Contains(item.Id)) changed |= component.Add(item.DependsOnMissionId);
+                        if (component.Contains(item.DependsOnMissionId)) changed |= component.Add(item.Id);
+                    }
+                } while (changed);
+                original = original.Where(item => component.Contains(item.Id)).ToList();
+            }
             List<PipelineStage> required = recorded?.Stages ?? original.Select((item, index) =>
                 new PipelineStage(item.StageOrder ?? index + 1, item.Persona ?? "Worker")).ToList();
             if (required.Count == 0)
@@ -77,7 +97,7 @@ namespace Armada.Core.Services
             if (recorded != null && candidate.All(item => item.StageOrder.HasValue))
             {
                 foreach (PipelineStage stage in required)
-                    if (!candidate.Any(item => item.StageOrder == stage.Order && PersonaCatalog.Matches(item.Persona, stage.PersonaName)))
+                    if (!candidate.Any(item => item.StageOrder == stage.Order && PersonaCatalog.Matches(item.Persona ?? "Worker", stage.PersonaName)))
                         missing.Add(stage.PersonaName + "(" + stage.Order + ")");
             }
             else
@@ -85,7 +105,7 @@ namespace Armada.Core.Services
                 // Legacy mission rows may not carry orders. Preserve repeated roles by count,
                 // rather than accepting one Worker as proof for both Worker stages.
                 foreach (IGrouping<string, PipelineStage> group in required.GroupBy(item => item.PersonaName, StringComparer.OrdinalIgnoreCase))
-                    if (candidate.Count(item => PersonaCatalog.Matches(item.Persona, group.Key)) < group.Count())
+                    if (candidate.Count(item => PersonaCatalog.Matches(item.Persona ?? "Worker", group.Key)) < group.Count())
                         missing.Add(group.Key + " x" + group.Count());
             }
             return missing.Count == 0 ? null : MissingStageCode + ": " + String.Join(", ", missing);
