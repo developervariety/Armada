@@ -165,8 +165,7 @@ item but could not remove the item records one
 `disk_lifecycle.archive_free_failed` event and names each such item in the
 report's `Errors`; the item stays, and the next pass retries the removal
 without uploading its files again. Each event names the run, the count and up
-to five items with their failures, and the pass posts one board note that
-carries both. The report carries `ArchivedItems` (files verified in the
+to five items with their failures. The report carries `ArchivedItems` (files verified in the
 archive by the pass, uploaded now or already stored), `ArchiveReusedItems`
 (those already stored, so not uploaded), `ArchivedBytes`, `ArchiveFailures`,
 `ArchiveFreeFailures` and `ArchiveManifestKey`.
@@ -175,7 +174,7 @@ When a read-back verify is refused because the object store's download or
 transaction cap is exceeded (HTTP 403 with a cap body), the pass stops verifying
 after the first such refusal rather than sending one more capped request per
 remaining file. It records one `disk_lifecycle.archive_cap_reached` event and
-posts one board note naming the run and the number of history items kept, keeps
+naming the run and the number of history items kept, keeps
 every remaining history item locally, and sets `ArchiveTransactionCapReached`
 and `ArchiveSkippedForCap` on the report. The cap must be raised before uploads
 resume. A 403 that is not a cap (auth, permission or signature) is still

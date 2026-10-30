@@ -83,12 +83,11 @@ The model-endpoint health loop runs beside the heartbeat loop and waits `Heartbe
 
 The Admiral can screen the log each in-progress mission is writing, read-only, on a cadence. A
 sweep reads a bounded tail of the mission's live log, runs every registered screening pass over it,
-and on a finding posts one voyage-tagged coordination-board note naming the rule classes with one
-line of evidence each, plus one `captain.log_screen` event. The voyage tag is what carries the note
-into that voyage's next stage brief.
+and on a finding records one `captain.log_screen` event naming the rule classes with one
+line of evidence each.
 
 The screen never cancels, pauses, mails, re-dispatches, kills or steers a mission. Its only writes
-are the board note and the event.
+is the event.
 
 The shipped pass is deterministic: it matches mechanical shapes with no model call and no provider
 key. Its rule classes are `unproved_fix` (a success claim whose evidence is a tool's own success
@@ -240,9 +239,9 @@ When a sweep that reaches every candidate skips each candidate of one vessel on
 dispatch preflight (an unrecorded preflight, or a preview Error other than an
 unfinished dependency), and no candidate of that vessel dispatched or was skipped
 for capacity, the vessel has nothing dispatchable. The scheduler records an
-`objective_scheduler.vessel_preflight_blocked` event and posts one board note
+`objective_scheduler.vessel_preflight_blocked` event
 that names the vessel and up to 20 of the objectives with their blocking codes.
-It posts again only when that set of objectives or codes changes, and forgets
+It records again only when that set of objectives or codes changes, and forgets
 the vessel once it is no longer fully blocked.
 
 An objective saved as `ReadyForDispatch` must have complete recorded preflight

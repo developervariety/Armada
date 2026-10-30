@@ -205,7 +205,6 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/runtimes/mux/...` | GET | AdminOnly | Global admin only. The routes read the server's own Mux endpoint configuration and pass a caller-chosen config directory to the Mux CLI |
 | `/api/v1/doctor` | GET | Authenticated | The settings path, database location and runtime binary paths appear only for a global admin; every other caller receives the same checks without them. Counts are scoped to the caller's tenant |
 | any `.../enumerate` | POST | Level of the matching `GET` list | An enumerate route reads through a POST body, so it takes the level of the list it mirrors and applies the same caller scope |
-| `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant. SQLite and PostgreSQL store the board; on MySQL and SQL Server the room, message, claim and presence routes return `501 Not Implemented` with `Code` `NotImplemented`, `Error` `BadRequest`, and the message `The <provider> database provider does not store the coordination board; use SQLite or PostgreSQL.` `GET /api/v1/coordination/presence?activeWithinMinutes=15` returns one entry per participant active in any room, with the rooms it was seen in. A message post may omit `AuthorName` and a presence heartbeat may omit `DisplayName`: the value is the `AuthorId` or `ParticipantKey` participant's last board name, then the name of the credential the request authenticated with (then, for presence, the participant key). |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
 | `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline by name as the caller sees it (the caller's own tenant first, then a built-in record) and require edit rights under the ownership rule. Every tenant uses a built-in pipeline, so only a global admin may update one; anyone else receives `403`. REST, MCP and WebSocket share one pipeline service, so a payload is validated and stored the same way on each |
 
@@ -465,7 +464,7 @@ All error responses use a consistent JSON format with `Error`, `Description`, `M
 | 504 | `GatewayTimeout` | `BadRequest` |
 
   The body's `StatusCode` follows `Error` (400 for `BadRequest`, 500 for `InternalError`). The HTTP status is 501, 503 or 504. Clients use the HTTP status and `Code`.
-  Planning sessions, objective refinement sessions and the coordination board return 501 with `Code` `NotImplemented` when the database provider does not support the operation. Vessel model-context building returns 501 with that code when the server has no context service, and 504 with `Code` `GatewayTimeout` when the build times out. Git branch inventory and repository health return 503 with `Code` `ServiceUnavailable` when that service is absent. A branch write with no write service returns 503 with `Reason` `unavailable` on the branch-write body. Local checkout import returns 503 with `Error` `InternalError` and `Code` `ServiceUnavailable`.
+  Planning sessions and objective refinement sessions return 501 with `Code` `NotImplemented` when the database provider does not support the operation. Vessel model-context building returns 501 with that code when the server has no context service, and 504 with `Code` `GatewayTimeout` when the build times out. Git branch inventory and repository health return 503 with `Code` `ServiceUnavailable` when that service is absent. A branch write with no write service returns 503 with `Reason` `unavailable` on the branch-write body. Local checkout import returns 503 with `Error` `InternalError` and `Code` `ServiceUnavailable`.
 - Every route builds its authentication and authorization refusals through one shared mapping, so a `401`
   body carries `NotAuthorized` and a `403` body carries `Forbidden`. A route may name what the caller lacks in
   `Message` (for example `Administrator access required`); the `Error` code matches the status.
@@ -4684,8 +4683,7 @@ accepted.
       "FailureMessage": "dispatch_hold_active: ...",
       "ObjectiveId": "obj_abc123",
       "VesselId": "vsl_abc123",
-      "SubjectId": null,
-      "RequestedByParticipantKey": "example-session"
+      "SubjectId": null
     }
   ],
   "TotalRecords": 1,
@@ -4693,9 +4691,7 @@ accepted.
 }
 ```
 
-List entries omit `Result`; read one job for it. `RequestedByParticipantKey`
-is the MCP session that submitted the job, or null for a job submitted without
-one; a `Failed` or `Lost` job posts a board note addressed to it. `UnreadableJournalRecords`
+List entries omit `Result`; read one job for it. `UnreadableJournalRecords`
 counts journal records the Admiral could not read. Each one is also written to
 the Admiral log as a warning, so a shorter list is never silent.
 

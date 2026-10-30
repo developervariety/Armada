@@ -291,26 +291,18 @@ clears the stored value as it does on REST.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_objective_scheduler_status` |
-| Write | `armada_objective_scheduler_set`, `armada_mark_objective_auto_dispatchable`, `armada_objective_scheduler_clear_stale_pause` |
+| Write | `armada_objective_scheduler_set`, `armada_mark_objective_auto_dispatchable` |
 
 Scheduler state changed through MCP is persisted to the loaded settings file
 and survives an Admiral restart. A pause set through `paused=true` should carry
-`pausedBy` (your participant key) and `pauseReason`; both are persisted and
-shown by `armada_objective_scheduler_status`. A pause outlives the session that
-set it, so without an owner nobody can tell a live deploy window from a
-departed peer's leftover.
+`reason`; the authenticated caller and the reason are persisted, shown by
+`armada_objective_scheduler_status`, and recorded in an event. A pause outlives
+the session that set it, so the recorded caller and reason tell a live deploy
+window from a leftover.
 
-`armada_objective_scheduler_clear_stale_pause` is the autonomy layer's one
-permitted write to the pause: clear only, never engage. It succeeds only when
-the pause names its owner, the owner is absent from the coordination presence
-window, and the absence exceeds
-`autonomousObjectiveScheduler.stalePauseAbsenceMinutes` (floor 30, twice the
-presence default; a deploy with verification finishes well inside that). It
-wakes every active session and posts a board note naming the stale owner, the
-recorded reason, the set time and the measured absence, then clears once and
-persists. An unattributed pause is refused and stays an operator's to clear.
-The dispatch hold is never touched: only `armada_dispatch_hold action=clear`
-releases it.
+An operator clears a scheduler pause with `armada_objective_scheduler_set
+paused=false`. Clearing the pause never releases the dispatch hold: only
+`armada_dispatch_hold action=clear` releases it.
 Pass `dryRun=true` to read the decision and evidence without acting. Scheduler dispatches use the same Build and
 UnitTest Check arming path as operator dispatches. A dispatch hold blocks both.
 The Admiral also requests a debounced immediate sweep when an eligible objective
@@ -423,104 +415,15 @@ mission goes to the captain that holds the mission when it is sent, and unread
 mail of a mission moves to the next captain when the mission is assigned to a
 different one. A mission with no captain yet leaves the mail without a recipient
 until its next captain takes the mission. When a mission moves to a different
-captain, the Admiral posts one `[reassigned]` system note on the coordination
-board naming the mission and both captains. A caller that is not a global
+captain, the Admiral records one `mission.reassigned` event naming the mission and
+both captains. A caller that is not a global
 administrator may address only a captain in its own tenant; any other `captainId`
 answers `captain_not_found` and stores nothing.
 
-#### Coordination Board (Chatroom)
+#### Campaign status
 
-Every coordination tool resolves a blank room key, `fleet`, and the literal
-word `default` to the one shared room (`CoordinationRoom.NormalizeKey`). These
-aliases must not create separate boards or hide notes from other sessions.
-
-The coordination board is a shared room where concurrent operator sessions and
-the dashboard post short notes about what they are doing, so no session is
-surprised by a voyage another session dispatched. Notes are visible through board reads. General notes stay advisory;
-voyage-tagged notes can enter the next stage brief on supported providers.
-SQLite and PostgreSQL store the board. On MySQL and SQL Server each coordination
-tool returns an `Error` naming the provider (`The MySQL database provider does not
-store the coordination board; use SQLite or PostgreSQL.`).
-
-**Campaign rooms.** A campaign is an objective tree whose root carries a
-`campaign:<name>` tag; the nearest tagged ancestor is the campaign root. Each
-campaign has its own room, keyed `campaign-<name>` (lowercased, with characters
-outside letters, digits, `.` and `_` reduced to `-`), created on first use like
-the fleet room. The fleet room stays the all-hands channel and the default for
-every tool.
-
-- A claim on an objective in a campaign, and a note posted with an `objectiveId`
-  in a campaign, land in the campaign room when no `roomKey` is given. An
-  explicit `roomKey` always wins. Other claims and notes, and captain notes,
-  land in the fleet room.
-- A mirrored fleet event (voyage dispatched or cancelled, mission completed,
-  failed or cancelled) always lands in the fleet room. When the event's voyage
-  serves an objective in a campaign, a copy also lands in the campaign room. The
-  copy carries no voyage id, so a voyage-tagged brief injection never repeats it.
-- Voyage-tagged notes reach the next stage brief whatever room holds them.
-- A heartbeat in any room keeps every claim its participant holds alive, in
-  every room.
-- `GET /api/v1/coordination/presence` returns presence across every room, one
-  entry per participant naming the rooms it was seen in. The dashboard presence
-  strip shows that aggregate.
-
-- `armada_coordination_post` — post a note. Claim work before you start it;
-  report outcomes when you finish. Pass `objectiveId` to route a campaign note
-  to its campaign room. Address a note with `toParticipantKey` set to the
-  recipient's participant key; a display or author name a key used in the last
-  24 hours is delivered to that key (to each key, when several use it), and
-  `AddressNotice` on the result names every key the note reaches.
-  `authorName` is optional: without it the note carries the caller's
-  identity, which is the participant's last board name (the
-  `X-Armada-Participant` key, else `authorId`), then the name of the
-  credential the call authenticated with, then the participant key. A name you
-  pass wins. A call with none of these is refused with an error that names
-  `authorName`, `authorId` and the `X-Armada-Participant` header.
-- `armada_coordination_read` — read recent notes plus who is active. Read this
-  before dispatching voyages or touching incidents so you do not duplicate a
-  peer session's work. `SharedParticipantKeys` lists each participant key that
-  posted or heartbeated under several names within the presence window and
-  switched back and forth; several sessions share such a key. A session that
-  sends the participant header reads as that key, and a different
-  `participantKey` argument is refused with an error naming both keys, unless
-  it is the bridge's configured base key or a name the header key posted or
-  heartbeated under in the last 24 hours. The read returns notes addressed to
-  your key and to such a name.
-  Long broadcast notes come back previewed at 600 characters with
-  `Truncated=true`, and the result carries `TruncatedMessageCount` and a
-  `TruncationHint`; notes addressed to you (your key or such a name) are
-  always whole. Pass
-  `messageId` to read one note whole (the result's `Message`), or
-  `includeFullContent=true` to read every note whole.
-- `armada_coordination_heartbeat` — refresh your presence while working. The
-  heartbeat and read responses carry `UnreadWakes` when notes are addressed to
-  your participant key: PAUSE and address those before continuing, then
-  acknowledge each with `armada_mark_signal_read`. This is how a session inside
-  a blocking loop learns it was handed work at the next tool boundary. The
-  heartbeat result carries `SharedParticipantKey` when another session uses
-  your key under a different name; move one session to its own key.
-  `displayName` is optional and defaults the same way as a post's
-  `authorName`.
-- `armada_coordination_claim` — claim a vessel or objective before non-trivial
-  work so peers see who owns it; heartbeats keep the claim alive, and a claim
-  expires unless refreshed. `action` is required: a missing action returns a
-  `missing_action` error and an unknown action returns an error naming the valid
-  values, so a claim call that omits the action never reads back an empty claim
-  list as a successful reservation. The header key stands in for `participantKey`, and
-  `displayName` defaults the same way as a post's `authorName`. Claims of type `host` or
-  `suite` record advisory windows with a fixed expiry: 15 minutes by default,
-  from one minute to two hours. Presence does not extend these windows, and an
-  expired window never releases an execution slot or stops a running suite.
-  Vessel and objective work claims still renew with presence. A voyage
-  dispatched on a claimed vessel or objective posts a `[claims]` overlap note
-  that names each other holder. `armada_dispatch` sends the request's
-  participant key with the dispatch, so a claim that key holds is the
-  dispatcher's own and is not announced. A dispatch with no participant key
-  (the scheduler, REST) announces every active claim.
 - `armada_campaign_status` — return a campaign's whole matrix (lanes, slices,
-  status, evidence) in one call, with recent fleet notes and, under
-  `CampaignRooms`, recent notes from each root's campaign room. Reading it does
-  not create a room.
+  status, evidence) in one call.
   It includes a closeout count over every descendant, including levels outside
   the summary tree. Open or cancelled scope, and completed rows without direct or
   completed-child evidence, prevent parent completion. `includeSlices=true`
@@ -529,68 +432,12 @@ every tool.
   criterion, its exact source and its required checks; a link or main-branch
   ancestry alone is not enough.
 
-#### Identify your session so wakes reach you on any tool
-
-MCP has no channel that can interrupt a running agent. Armada's MCP transport
-is stateless, so the server cannot push, and no client turns an inbound
-notification into a model turn. A tool result is the only content a session is
-certain to read, so a pending wake rides back on one.
-
-Send the caller's participant key on every MCP request:
-
-```
-X-Armada-Participant: <participantKey>
-```
-
-Armada then appends an `[ARMADA WAKE]` block to the result of whichever tool
-the session calls next, so `armada_status` or `armada_voyage_status` delivers
-mail just as `armada_coordination_read` does. Without the header a session is
-anonymous and receives no wake — that is deliberate, because the server would
-otherwise have to guess whose mail to hand out.
-
-Configure it per client:
-
-- SSH stdio bridge: set `ARMADA_PARTICIPANT_KEY` in the MCP server's `env`.
-  `scripts/mcp-ssh-http-bridge.mjs` turns it into the header. The same `env`
-  must also set `ARMADA_MCP_AUTH_HEADER_FILE`, or every request is refused.
-- Several sessions on one bridge configuration: also set
-  `ARMADA_PARTICIPANT_KEY_UNIQUE=1`. Each bridge process (one per client
-  session) then sends the configured key plus a random six-character suffix,
-  fixed for the life of that process, as `X-Armada-Participant`, and the
-  configured key as `X-Armada-Participant-Base`. Each session gets its own
-  mailbox: it receives and acknowledges only its own wakes. The session never
-  needs the suffix. `armada_coordination_read` and
-  `armada_coordination_heartbeat` accept the configured key, or no key, as the
-  session's own; their results name the full key as `YourParticipantKey`; and a
-  note addressed to the session's display name reaches its key. Without the flag
-  every session on the configuration shares one key, and the board reports it
-  under `SharedParticipantKeys`.
-- Direct HTTP clients: add the header to the server entry's `headers` object.
-- Bounded helpers: `scripts/autonomy/spawn-helper.sh` writes the header into the
-  generated per-helper config. An `AUTONOMY_CLAUDE_MCP_CONFIG` you supply
-  yourself must carry the header, or the helper gets no wakes.
-
-Delivery is not acknowledgement. The banner repeats on every tool result until
-the session calls `armada_mark_signal_read`; a wake that stopped appearing
-before it was read would be a lost wake. The two coordination tools above are
-excluded, because they already return the same wakes in their own payload.
-
-Who may acknowledge a Wake follows who it woke. A session that sends the
-participant header may mark read a Wake addressed to it (`[to=<its key>]`), and
-the effective AgentWake participant (`armada_agentwake_status`) may also mark
-read an UNADDRESSED Wake — a mission-outcome or critical wake prefixed
-`[vsl=...]` or `[CRITICAL]` — because that is the session such a wake starts.
-Any other authenticated key is refused with the owner named; an anonymous
-caller (no header) remains unrestricted. Mail and Nudge signals are consumed by
-the stage handoff and are never acknowledged through this tool.
-
 #### Do not wait by polling. Subscribe.
 
-The banner is reliable but not immediate: a session that calls no tool sees
-nothing until it does. The instinct is to close that gap with a blocking poll --
-a shell `while` loop inside one `ssh_exec` call. Do not. That shape was measured
-on one operator session (2026-08-23 23:19Z to 01:50Z) and it costs more than it
-looks:
+A session that calls no tool sees nothing until it does. The instinct is to
+close that gap with a blocking poll -- a shell `while` loop inside one
+`ssh_exec` call. Do not. That shape was measured on one operator session
+(2026-08-23 23:19Z to 01:50Z) and it costs more than it looks:
 
 - 68 assistant messages, of which only FIVE carried visible text. The operator
   saw nothing for seven minutes at a stretch, and fourteen minutes before the
@@ -598,12 +445,11 @@ looks:
 - Three of five turns ended `state=interrupted, stopReason=tool_use`, each within
   four seconds of a failed `ssh_exec`. Two of those restarted the underlying
   session, which is why the run finished one item and wrote a handoff.
-- While the loop runs the session makes no MCP calls, so a directed board note
-  cannot reach it either. A helper waiting on an answer times out against a lead
-  that is technically alive.
+- While the loop runs the session makes no MCP calls, so it cannot react to
+  anything else that happens.
 
-The Admiral's WebSocket hub already broadcasts every voyage, mission, incident
-and board change. Subscribe to it instead, and let each change arrive as an
+The Admiral's WebSocket hub already broadcasts every voyage, mission and
+incident change. Subscribe to it instead, and let each change arrive as an
 event:
 
 Each client has an independent bounded output queue. A slow client does not
@@ -635,7 +481,7 @@ purged voyage is empty and does not stop future live delivery.
 ```sh
 ssh <server> 'ARMADA_API_KEY="$(<read the admiral API key>)" \
     node <armada-checkout>/scripts/autonomy/watch-armada.mjs \
-    --voyage <voyage-id> --participant <your-key> --exit-on-terminal'
+    --voyage <voyage-id> --exit-on-terminal'
 ```
 
 The hub refuses a session that does not authenticate. Set `ARMADA_API_KEY` to
@@ -647,12 +493,10 @@ a protected environment file.
 Drive it with the harness's Monitor tool, so every line becomes a notification.
 Each mission line is a stage boundary, which is the only window where a
 correction still reaches the next brief. `--exit-on-terminal` ends the watch when
-the voyage finishes. `--all-notes` widens it to the whole board; `--quiet-captains`
-drops the stall lines.
+the voyage finishes. `--quiet-captains` drops the stall lines.
 
 The watcher notifies and nothing more. It never reads, acknowledges, or consumes
-a wake, so the banner and `armada_mark_signal_read` remain the delivery and
-acknowledgement path.
+a wake, so `armada_mark_signal_read` remains the acknowledgement path.
 
 ### 8.10 Incidents
 
@@ -757,11 +601,12 @@ deployment names a different candidate, or when the environment's
 The hold is fleet-wide: while it is engaged every new dispatch is refused,
 whichever session or scheduler asks, and in-flight voyages continue. Engage it
 with a reason before an Admiral rebuild. The hold is stored in the database:
-a restart restores it before any dispatch path runs and posts one system note
-on the coordination board naming its reason and setter, and it stays engaged
-until `action=clear`. `setBy` names the session that engaged it; without it the hold takes
-the caller's participant board name, then the name of the credential the call
-authenticated with, and an engage that carries neither is refused. Hold changes require an authorized operator.
+a restart restores it before any dispatch path runs and records one
+`dispatch.hold_restored` event naming its reason and setter, and it stays engaged
+until `action=clear`. Engaging records `dispatch.hold_engaged` and clearing
+records `dispatch.hold_cleared`. `setBy` names the session that engaged it;
+without it the hold takes the name of the credential the call authenticated
+with, and an engage that carries neither is refused. Hold changes require an authorized operator.
 
 The refusal happens at submission, before any job is accepted: every operator
 entry point answers `dispatch_hold_active` with `SetBy`, `SetByUtc` and
@@ -822,26 +667,25 @@ dispatch no work. Missions added to them later go through the admiral
 dispatch, which the hold refuses.
 
 AgentWake is a process-delivery transport, not the work queue or the source of
-truth. Put the authorized operator key in `remoteTrigger.agentWake.participantKey` when
-addressed process wakes must work after an Admiral restart. A registration with
-its own `participantKey` temporarily overrides the configured key and remains
-useful for a controlled probe or a resumable Claude or Codex session. An
-addressed board note always creates a Wake signal. With delivery mode
-`SpawnProcess` or `Both`, a note for the effective participant key also starts
-the runtime process. With `StoredWake`, or when no key matches, the signal
-remains for the next heartbeat or read. `armada_agentwake_status` reports the
-configured key, effective key, delivery mode, runtime, and transient session.
+truth. A mission outcome that needs an operator writes an unaddressed Wake
+signal (prefixed `[vsl=...]` or `[CRITICAL]`). With delivery mode
+`SpawnProcess` or `Both`, the signal also starts the runtime process. With
+`StoredWake`, the signal remains stored until a session reads it with
+`armada_enumerate entityType=signals signalType=Wake`.
+`armada_agentwake_status` reports the delivery mode, runtime, and transient
+session. A registration with `armada_register_agentwake_session` temporarily
+overrides the configured session and remains useful for a controlled probe or a
+resumable Claude or Codex session.
 
-Nothing is pushed under any delivery mode. The row waits until the session next
-calls a tool, and the participant header above is what lets that call carry it.
+Nothing is pushed under any delivery mode. Any authenticated caller may
+acknowledge a Wake with `armada_mark_signal_read`. Mail and Nudge signals are
+consumed by the stage handoff and are never acknowledged through this tool.
 Settings accept only `SpawnProcess`, `StoredWake`, or `Both`; any other value is
 rejected with an error that lists them.
 
 OpenCode does not resume an earlier conversation for AgentWake. It starts a
-fresh session by design. Put the complete task in the addressed note and make
-the bootstrap prompt reconstruct state from the coordination board and durable
-memory. Never give the same participant key to a resident process and an
-AgentWake registration.
+fresh session by design. Make the bootstrap prompt reconstruct state from the
+Armada status tools and durable memory.
 
 ### 8.19 Backup, Restore, And Server Control
 
@@ -944,7 +788,7 @@ rest of the expired history to the next pass, and archives an expired folder of
 at least `diskLifecycle.archiveBundleMinFiles` files (default 50) as one
 `.tar.gz` object that counts as one file; a pass whose uploads fail
 verification keeps each failed item, records a `disk_lifecycle.archive_failed`
-event and posts a board note, and an archived item that cannot be removed is
+event, and an archived item that cannot be removed is
 named in `Errors`, recorded as a `disk_lifecycle.archive_free_failed` event and
 retried by the next pass without a second upload. Deny-listed files
 such as credentials and settings files are never uploaded and never freed.
@@ -1267,8 +1111,7 @@ provisioned and its base is verified, the work is applied as uncommitted changes
 when the new checkout is clean and its HEAD is the commit the saved work was made
 on. `mission.work_snapshot_applied` records the resume. When the work is not applied
 -- the checkout is on another commit, or the apply conflicts -- the checkout is left
-unchanged, `mission.work_snapshot_skipped` names the reason, and one `[work not
-restored]` note on the coordination board names the `recover/` ref that still holds
+unchanged, `mission.work_snapshot_skipped` names the reason, and the event also names the `recover/` ref that still holds
 the work. A `recover/` ref that an earlier assignment of the same mission already
 applied or reported is not reported again. A mission with no saved work records
 nothing.

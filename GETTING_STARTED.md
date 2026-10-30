@@ -90,64 +90,35 @@ For Cursor captains, save the API key on the account card. The browser login is
 an optional probe and is not used to launch captains. API-key usage is shown as
 Unknown because Cursor does not provide a usage reading for this login.
 
-## Coordination Board (Chatroom)
+## Coordinating several operator sessions
 
-When several operator sessions dispatch work at the same time, each one needs to
-know what the others are doing. The coordination board is a shared chatroom for
-exactly that. Find it in the dashboard under `Chatroom`.
+When several operator sessions dispatch work at the same time, they coordinate
+outside Armada, in the operators' own session threads: each session announces
+the vessel or objective it is about to dispatch to and asks its peers before it
+acts. Armada records what happened as events, signals and incidents, which the
+dashboard shows under `Needs You` and `Activity`.
 
-```text
-Coordination Board
-    |
-    +--> Every session posts what it is about to do (claim)
-    +--> Every session reads the board before it acts
-    +--> The admiral posts a [fleet] system note when a voyage is dispatched or
-         cancelled and when a mission completes, fails or is cancelled
-    +--> Presence chips show who is active right now
-```
-
-1. Start Armada and open `http://localhost:7890/dashboard`
-2. Go to `Chatroom`
-3. Before dispatching, read recent notes: `armada_coordination_read` from your
-   operator session, or just look at the page
-4. Post a claim before you start: `armada_coordination_post` with what you are
-   doing and the voyage you are starting
-5. Report outcomes the same way when work finishes
-
-Notes can be ADDRESSED to one session (`toParticipantKey`), which emits a Wake:
-that session's next heartbeat or read returns `UnreadWakes`, telling it to pause
-and pick up the handed work. Acknowledge each handled Wake with
-`armada_mark_signal_read`. If the key is the effective AgentWake participant
-key and delivery mode is `SpawnProcess` or `Both`, the note also starts the
-configured runtime. Put the key in `remoteTrigger.agentWake.participantKey`
-when it must survive restarts; a transient registration can override it for a
-controlled session. OpenCode starts a fresh session, so the note must contain
-the task and the session must reconstruct context from the board and durable
-memory. The signal row is retained even if process delivery does not start.
+Armada can start a fresh session when a mission outcome needs an operator.
+Configure AgentWake delivery in `remoteTrigger.agentWake`. Acknowledge each
+handled Wake signal with `armada_mark_signal_read`. The signal row is retained
+even if process delivery does not start.
 
 For optional host-side, read-only helpers, use the bounded launcher and its
 contract test:
 
 ```bash
 scripts/autonomy/spawn-helper.sh spawn census /tmp/census-task.md /path/to/repo
-scripts/autonomy/spawn-helper.sh offer ready /tmp/fallback-task.md ops-session /path/to/repo
 scripts/autonomy/test-spawn-helper.sh
 ```
 
 The built-in objective scheduler dispatches ready objectives. Host-side
-helpers are an operator layer; see section 4.11 of the operations guide. Do not register a launcher-managed helper for AgentWake under the same
-participant key.
-The `offer` command gives the operator session four minutes to assign replacement work
-before the helper starts its fallback. See
-`docs/autonomy/helper-offer-prompt.md` for a manual helper prompt.
+helpers are an operator layer; see section 4.11 of the operations guide.
 Claude launcher mode passes a generated Armada-only MCP file to strict mode;
 the default local URL is `http://127.0.0.1:7891/mcp`. Set the helper working
 directory to a common ancestor when its read-only task needs more than one
 checkout.
 
-Notes tagged with a voyage reach that voyage's next stage brief. All other
-notes are advisory context for humans and operator sessions; use signals to
-reach a captain mid-pipeline.
+Use signals to reach a captain mid-pipeline.
 
 ## Planning Workflow
 
@@ -341,7 +312,7 @@ live schemas with paginated `tools/list`. See `docs/armada-ops.md` and
 Supported captains receive the local endpoint (`http://localhost:7891/mcp`) in
 their runtime configuration by default. Set `SeedDockRuntimeMcpConfig=false`
 only when the deployment intentionally removes all Armada tools from captains.
-Normal missions use coordination and evidence tools only; fleet-control and
+Normal missions use status and evidence tools only; fleet-control and
 deployment actions remain operator work unless the mission assigns them.
 
 ---

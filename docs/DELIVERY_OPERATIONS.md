@@ -421,10 +421,7 @@ Checks held back behind a running definition-of-done gate
 `definitionOfDone.hostSlotWaitReportMinutes` (default 5, clamped to 1-60) while
 it lasts, and an `_ended` event with its length. Each event names the memory
 reading and floor, every slot holder and since when it holds its slot, and every
-waiting request in order. Once a wait has lasted
-`definitionOfDone.hostSlotWaitBoardNoteMinutes` (default 10, clamped to 0-1440,
-0 posts nothing), one system note per wait on the coordination board says the
-same. Both settings apply on reload.
+waiting request in order. The setting applies on reload.
 
 Raising the count above 1 risks false failures. Concurrent full suites contend
 for the same CPU, memory and disk, and on a host without the capacity for them

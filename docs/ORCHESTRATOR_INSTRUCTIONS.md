@@ -15,15 +15,15 @@ schema discovery and transport behavior.
 
 ## Session Start
 
-1. Read the coordination board and heartbeat with one stable participant key.
-   Drain full `UnreadWakes` payloads first and acknowledge processed signals
-   with `armada_mark_signal_read`.
+1. Read pending Wake signals with `armada_enumerate` and `entityType=signals`,
+   and acknowledge processed signals with `armada_mark_signal_read`. Check the
+   operators' session threads for work other sessions have announced.
 2. Call `armada_status` and inspect the dispatch hold and objective scheduler.
 3. Enumerate active voyages, missions, captains, merge entries, incidents,
    objectives, and Checks with small pages.
 4. Drain the audit queue.
 5. Read each relevant open objective in full.
-6. Check incidents, active claims, and the merge queue before new dispatches.
+6. Check incidents and the merge queue before new dispatches.
 
 ## Work Intake
 
@@ -61,8 +61,8 @@ Keep an active loop while work runs.
 - Read mission and captain logs when progress is unclear.
 - Use captain diagnostics before deep process inspection.
 - Poll incidents and Checks.
-- Heartbeat between monitor-loop iterations. Handle and acknowledge directed
-  `UnreadWakes` before you continue.
+- Read pending Wake signals between monitor-loop iterations. Handle and
+  acknowledge them before you continue.
 - Send missing context to a Pending downstream stage. Signals enter its brief
   at handoff; they do not change a running captain's frozen brief.
 - Do not steer a terminal mission.
@@ -122,16 +122,13 @@ For non-trivial work, prefer this flow:
 
 ## Concurrent Sessions And Autonomous Cycles
 
-Use one stable coordination participant key. Read and heartbeat before work,
-drain full `UnreadWakes` payloads between monitor iterations, and acknowledge
-each processed Wake. Addressed notes always retain a signal and can also start
-the effective AgentWake process owner in `SpawnProcess` or `Both` mode. A
-persistent settings key survives restarts; a transient registration can
-override it. OpenCode
-wakes are fresh sessions, so the note carries the task and the session rebuilds
-state from the board and durable memory.
+Concurrent operator sessions coordinate with each other in the operators' own
+session threads, outside Armada: announce the vessel or objective you are about
+to dispatch to before you act, and ask peers before an Admiral rebuild.
+A mission-outcome Wake signal is always retained and can also start the
+effective AgentWake process owner in `SpawnProcess` or `Both` mode. Any
+authenticated caller may acknowledge it. OpenCode wakes are fresh sessions, so
+the session rebuilds state from the Armada status tools and durable memory.
 
 The objective scheduler is the built-in unattended dispatcher.
-Bounded read-only helpers use `scripts/autonomy/spawn-helper.sh`; `offer` mode
-allows a bounded operator reassignment window before fallback work. Do not assign
-one participant key to both a resident helper and AgentWake.
+Bounded read-only helpers use `scripts/autonomy/spawn-helper.sh`.

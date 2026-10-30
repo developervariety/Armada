@@ -155,7 +155,7 @@ itself names must still name a stage of the chosen pipeline.
 
 A stage whose final result is `[ARMADA:RESULT] BLOCKED` is a failure of this
 kind: it does not hand off, its later stages are cancelled, and no rescue runs.
-Its question goes to the owner on an incident and a board note. See
+Its question goes to the owner on an incident. See
 [PERSONAS.md](PERSONAS.md#a-stage-that-ends-armadaresult-blocked-waits-for-the-owner).
 
 An Architect stage hands off one Worker chain per mission block in its
@@ -222,7 +222,7 @@ unnamed entries. The plan still hands off. See
 [OPERATIONAL_ASSETS.md](OPERATIONAL_ASSETS.md) for the field.
 
 New generated handoff blocks have matching mission-specific opening and closing
-markers. The closing marker follows the voyage board notes. Repeated preparation
+markers. Repeated preparation
 replaces only a complete matching block; compaction also stays inside that pair.
 Plain operator text outside the pair stays unchanged. Legacy or malformed blocks
 with no matching close remain whole because their operator-note boundary is unknown.
@@ -233,8 +233,7 @@ length and UTF-8 SHA-256, the verdict, every blocking finding, and the
 follow-up, residual and added-tests sections, within a 4,000-character bound.
 It sits after the bounded output preview and the diff. Description, metadata,
 and total-budget trimming pin each report heading and complete-output reference
-before trimming the narrative. Voyage board notes cannot displace those
-references. Compaction of older blocks retains their report essentials.
+before trimming the narrative. Compaction of older blocks retains their report essentials.
 
 Blocking findings are read from the Judge sections (Correctness, Failure Modes,
 Tests, Evidence, Residual Risks, Verdict and the criteria sections) and from
@@ -427,7 +426,7 @@ stage continues until `hasMore` is false and checks `complete` and `sha256`.
 Every rescue stage receives the current owning objective's canonical brief.
 The objective named by the original voyage takes precedence over an umbrella
 that lists the same voyage. Save binding revision requirements on the objective;
-coordination chat does not become an acceptance contract.
+a session thread does not become an acceptance contract.
 
 Rescue admission checks declared execution requirements through the same
 read-only environment probe as objective preview. A missing requirement leaves
@@ -553,7 +552,7 @@ review. Workflow profiles and Checks provide command evidence.
 ## Captain Boundary
 
 Pipeline captains receive Armada's local MCP configuration at launch so they
-can use coordination and evidence tools consistently. Give each captain its
+can use status and evidence tools consistently. Give each captain its
 mission, dock, repository context, selected playbooks, and runtime tools. The
 operator still owns dispatch, monitoring, landing, recovery, and closure unless
 the mission explicitly delegates one of those actions.

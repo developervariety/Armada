@@ -24,7 +24,7 @@
     {
       "topic": "ops.standard-workflow.inspect",
       "path": "docs/ops/05-standard-workflow.md#42-inspect-before-dispatch",
-      "summary": "Read the target repo rules and history; read the coordination board; record prepared facts and preflight.",
+      "summary": "Read the target repo rules and history; check the operators' session threads; record prepared facts and preflight.",
       "read_when": "You are about to dispatch and must confirm the work is real, not already done, and not claimed.",
       "applies_to": ["orchestrator"],
       "tier": "leaf",
