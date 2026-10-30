@@ -2578,8 +2578,6 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageIds = new List<string> { original.Id, rescue.Id },
                     EvidenceLinks = new List<string> { "retained-source-and-test-proof" }
                 }).ConfigureAwait(false);
-                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver,
-                    new RecordingAdmiralService(testDb.Driver), EnabledSchedulerSettings());
                 int prematureCompletions = 0;
                 for (int attempt = 0; attempt < 3; attempt++)
                 {
@@ -2587,6 +2585,9 @@ namespace Armada.Test.Unit.Suites.Services
                     objective.Status = ObjectiveStatusEnum.InProgress;
                     objective.LastUpdateUtc = DateTime.UtcNow;
                     await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+                    // Fresh observations model successive real ticks without sleeping through the interval.
+                    AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver), EnabledSchedulerSettings());
                     await scheduler.SweepAsync().ConfigureAwait(false);
                     objective = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
                     if (objective.Status == ObjectiveStatusEnum.Completed) prematureCompletions++;
@@ -2597,6 +2598,30 @@ namespace Armada.Test.Unit.Suites.Services
                     .EnumerateByTypeAsync("objective_scheduler.completion_refused").ConfigureAwait(false);
                 AssertTrue(refusals.Exists(item => (item.Message ?? "").Contains("required_stage", StringComparison.Ordinal)),
                     "The row must have a named required-stage refusal instead of silently staying open.");
+
+                Voyage completeRescue = await testDb.Driver.Voyages.CreateAsync(new Voyage("Full required recovery")
+                { Status = VoyageStatusEnum.Complete }).ConfigureAwait(false);
+                predecessor = null;
+                foreach (PipelineStage stage in pipeline.Stages)
+                {
+                    Mission created = await testDb.Driver.Missions.CreateAsync(new Mission(stage.PersonaName)
+                    {
+                        VoyageId = completeRescue.Id, Persona = stage.PersonaName, StageOrder = stage.Order,
+                        ParentMissionId = predecessor == null ? failed!.Id : null,
+                        Description = RescueMissionMarker.Marker, DependsOnMissionId = predecessor,
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    predecessor = created.Id;
+                }
+                objective.VoyageIds.Add(completeRescue.Id);
+                objective.LastUpdateUtc = DateTime.UtcNow;
+                await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+                AutonomousObjectiveScheduler finalSweep = CreateScheduler(testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver), EnabledSchedulerSettings());
+                await finalSweep.SweepAsync().ConfigureAwait(false);
+                AssertEqual(ObjectiveStatusEnum.Completed,
+                    (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!.Status,
+                    "A later full-contract recovery can complete without deleting the earlier invalid rescue history.");
             }).ConfigureAwait(false);
 
             await RunTest("ReconcileObjective_FailedOriginalWithCompletedRescue_ReconcilesToCompleted", async () =>
