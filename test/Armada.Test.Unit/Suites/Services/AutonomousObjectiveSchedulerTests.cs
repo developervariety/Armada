@@ -2530,6 +2530,74 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, armed.Objects.Count, "Disabling arming must disable it on every dispatch path.");
             }).ConfigureAwait(false);
 
+            await RunTest("ReconcileObjective_ShortRescueNeverCompletesRequiredStageContract", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Pipeline pipeline = new Pipeline("RequiredReview")
+                {
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Architect"), new PipelineStage(2, "Worker"),
+                        new PipelineStage(3, "TestEngineer"), new PipelineStage(4, "Linter"),
+                        new PipelineStage(5, "Worker"), new PipelineStage(6, "Judge")
+                    }
+                };
+                Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage("Original required review")
+                { Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
+                await VoyagePipelineRecord.RecordAsync(testDb.Driver, null, original, pipeline).ConfigureAwait(false);
+                string? predecessor = null;
+                Mission? failed = null;
+                foreach (PipelineStage stage in pipeline.Stages)
+                {
+                    Mission created = await testDb.Driver.Missions.CreateAsync(new Mission(stage.PersonaName)
+                    {
+                        VoyageId = original.Id, Persona = stage.PersonaName, StageOrder = stage.Order,
+                        DependsOnMissionId = predecessor,
+                        Status = stage.Order == 6 ? MissionStatusEnum.Failed : MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    predecessor = created.Id;
+                    if (stage.Order == 6) failed = created;
+                }
+                Voyage rescue = await testDb.Driver.Voyages.CreateAsync(new Voyage("Short completed rescue")
+                { Status = VoyageStatusEnum.Complete }).ConfigureAwait(false);
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Revision")
+                {
+                    VoyageId = rescue.Id, Persona = "Worker", StageOrder = 5,
+                    ParentMissionId = failed!.Id, Description = RescueMissionMarker.Marker,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Review")
+                {
+                    VoyageId = rescue.Id, Persona = "Judge", StageOrder = 6,
+                    DependsOnMissionId = worker.Id, Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Required-stage completion", Status = ObjectiveStatusEnum.InProgress,
+                    AutoDispatchEnabled = false,
+                    VoyageIds = new List<string> { original.Id, rescue.Id },
+                    EvidenceLinks = new List<string> { "retained-source-and-test-proof" }
+                }).ConfigureAwait(false);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver), EnabledSchedulerSettings());
+                int prematureCompletions = 0;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    objective = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                    objective.Status = ObjectiveStatusEnum.InProgress;
+                    await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+                    await scheduler.SweepAsync().ConfigureAwait(false);
+                    objective = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                    if (objective.Status == ObjectiveStatusEnum.Completed) prematureCompletions++;
+                }
+                AssertEqual(0, prematureCompletions,
+                    "A completed Worker/Judge rescue cannot satisfy the six-stage contract on any reopened sweep; AutoOFF is not a reconciliation guard.");
+                List<ArmadaEvent> refusals = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.completion_refused").ConfigureAwait(false);
+                AssertTrue(refusals.Exists(item => (item.Message ?? "").Contains("required_stage", StringComparison.Ordinal)),
+                    "The row must have a named required-stage refusal instead of silently staying open.");
+            }).ConfigureAwait(false);
+
             await RunTest("ReconcileObjective_FailedOriginalWithCompletedRescue_ReconcilesToCompleted", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
