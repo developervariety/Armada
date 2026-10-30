@@ -65,6 +65,24 @@ namespace Armada.Test.Database
                 MigrationScenarioRunner.AssertHistory(before, committed);
                 await driver.InitializeAsync(token).ConfigureAwait(false);
                 DatabaseAssert.Equal(committed.Count, (await history.ReadHistoryAsync(token).ConfigureAwait(false)).Count, "Restart does not add a second migration");
+                using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+                {
+                    await connection.OpenAsync(token).ConfigureAwait(false);
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "DELETE FROM schema_migrations WHERE version=" + version + ";";
+                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                }
+                await driver.InitializeAsync(token).ConfigureAwait(false);
+                DatabaseAssert.Equal(committed.Count, (await history.ReadHistoryAsync(token).ConfigureAwait(false)).Count,
+                    "Equivalent existing columns can replay without changing prior history");
+                MigrationScenarioRunner.AssertHistory(before, await history.ReadHistoryAsync(token).ConfigureAwait(false));
+                DatabaseAssert.True((await driver.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false))!.GeneratedArtifacts == null,
+                    "Replayed policy migration keeps the existing null default");
+                DatabaseAssert.True((await driver.Missions.ReadAsync(missionId, token).ConfigureAwait(false))!.GeneratedArtifactReview == null,
+                    "Replayed review migration keeps the existing null default");
+                Console.WriteLine("PASS generated-artifact equivalent-column replay");
                 await driver.Missions.DeleteAsync(missionId, token).ConfigureAwait(false);
                 await driver.Vessels.DeleteAsync(vesselId, token).ConfigureAwait(false);
             }

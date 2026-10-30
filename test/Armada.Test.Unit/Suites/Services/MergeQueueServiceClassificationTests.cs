@@ -284,7 +284,8 @@ namespace Armada.Test.Unit.Suites.Services
         /// optionally approve it and hold the Judge, then process the entry. Returns the entry and the target before and after.
         /// </summary>
         private async Task<GeneratedCandidateQueueResult> ProcessRegeneratedCandidateAsync(
-            Func<string, string, GeneratedArtifactReviewBinding> bind, bool approve, bool hold)
+            Func<string, string, GeneratedArtifactReviewBinding> bind, bool approve, bool hold,
+            MissionStatusEnum? rejectedStatus = null, string? preparationFailure = null, bool alreadyLanded = false)
         {
             string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_regen_" + Guid.NewGuid().ToString("N"));
             try
@@ -341,6 +342,20 @@ namespace Armada.Test.Unit.Suites.Services
                         await testDb.Driver.Missions.UpdateAsync(approvedJudge).ConfigureAwait(false);
                     }
 
+                    if (rejectedStatus.HasValue)
+                    {
+                        Mission rejected = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        rejected.Status = rejectedStatus.Value;
+                        await testDb.Driver.Missions.UpdateAsync(rejected).ConfigureAwait(false);
+                    }
+                    if (alreadyLanded)
+                    {
+                        await RunGitAsync(repos.RemoteDir, "update-ref", "refs/heads/main", tip).ConfigureAwait(false);
+                        await RunGitAsync(repos.BareDir, "update-ref", "refs/heads/main", tip).ConfigureAwait(false);
+                        await RunGitAsync(repos.RemoteDir, "update-ref", "-d", "refs/heads/" + repos.CaptainBranch).ConfigureAwait(false);
+                        await RunGitAsync(repos.BareDir, "update-ref", "-d", "refs/heads/" + repos.CaptainBranch).ConfigureAwait(false);
+                    }
+
                     Mission recorder = await testDb.Driver.Missions.CreateAsync(new Mission("Recorder", "Record the work")
                     {
                         VesselId = vessel.Id,
@@ -364,11 +379,20 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingMergeFailureClassifier classifier = new RecordingMergeFailureClassifier(
                         new MergeFailureClassification(MergeFailureClassEnum.TextConflict, "Recording classifier", new List<string>()));
                     MergeQueueService service = new MergeQueueService(logging, testDb.Driver, CreateSettings(), new GitService(logging), classifier);
+                    int preparationCalls = 0;
+                    if (preparationFailure != null)
+                        service.GeneratedArtifactPreparer = (_, _, _) =>
+                        {
+                            preparationCalls++;
+                            return Task.FromResult(new GeneratedArtifactLandingResult { Outcome = "Failed", Reason = preparationFailure });
+                        };
                     await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
+                    if (preparationFailure != null) await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
 
                     MergeEntry updated = (await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
                     string mainAfter = await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false);
-                    return new GeneratedCandidateQueueResult { Entry = updated, MainBefore = mainBefore, MainAfter = mainAfter, Tip = tip };
+                    return new GeneratedCandidateQueueResult { Entry = updated, MainBefore = mainBefore, MainAfter = mainAfter,
+                        Tip = tip, PreparationCalls = preparationCalls };
                 }
             }
             finally
@@ -692,6 +716,35 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(MergeStatusEnum.Landed, result.Entry.Status, "an approved exact candidate on its prepared target lands; output: " + result.Entry.TestOutput);
                 AssertEqual(result.Tip, result.MainAfter, "the target moves onto the approved candidate");
             });
+
+            foreach (MissionStatusEnum rejected in new[] { MissionStatusEnum.Failed, MissionStatusEnum.Cancelled })
+            await RunTest("A parked generated candidate ends when its Judge is " + rejected, async () =>
+            {
+                GeneratedCandidateQueueResult result = await ProcessRegeneratedCandidateAsync((t, m) => Binding(t, m),
+                    false, false, rejectedStatus: rejected).ConfigureAwait(false);
+                AssertEqual(MergeStatusEnum.Failed, result.Entry.Status);
+                AssertContains("generated_candidate_review_rejected", (result.Entry.TestOutput ?? String.Empty) + result.Entry.MergeFailureSummary);
+                AssertEqual(result.MainBefore, result.MainAfter);
+            }).ConfigureAwait(false);
+            foreach (string failure in new[] { "generated_command_failed", "generated_candidate_branch_in_use", "generated_candidate_operator_hold" })
+            await RunTest("Re-preparation failure has a bounded queue outcome: " + failure, async () =>
+            {
+                GeneratedCandidateQueueResult result = await ProcessRegeneratedCandidateAsync((t, m) => Binding(t, new string('d', 40)),
+                    true, false, preparationFailure: failure).ConfigureAwait(false);
+                bool waits = failure != "generated_command_failed";
+                AssertEqual(waits ? MergeStatusEnum.Queued : MergeStatusEnum.Failed, result.Entry.Status);
+                AssertEqual(waits ? 2 : 1, result.PreparationCalls, "A hard failure never runs the generator again on another pass.");
+                AssertContains(failure, (result.Entry.TestOutput ?? String.Empty) + result.Entry.MergeFailureSummary);
+                AssertEqual(result.MainBefore, result.MainAfter);
+            }).ConfigureAwait(false);
+            await RunTest("A removed generated source branch reconciles work already on the target", async () =>
+            {
+                GeneratedCandidateQueueResult result = await ProcessRegeneratedCandidateAsync((t, m) => Binding(t, m),
+                    true, false, alreadyLanded: true).ConfigureAwait(false);
+                AssertEqual(MergeStatusEnum.Cancelled, result.Entry.Status);
+                AssertContains("already in", result.Entry.TestOutput ?? String.Empty);
+                AssertEqual(result.Tip, result.MainAfter);
+            }).ConfigureAwait(false);
 
             await RunGeneratedCandidatePreparationTestsAsync().ConfigureAwait(false);
 

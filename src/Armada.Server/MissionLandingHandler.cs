@@ -415,6 +415,15 @@ namespace Armada.Server
             bool effectivePush = configuration.AutoPush;
             bool effectivePr = configuration.AutoCreatePullRequests;
             bool effectiveMerge = configuration.AutoMergePullRequests;
+            if (effectivePr)
+            {
+                string? generatedPrRefusal = await DescribeGeneratedPrRefusalAsync(mission, vessel, dock).ConfigureAwait(false);
+                if (generatedPrRefusal != null)
+                {
+                    await RefuseLandingAsync(mission, MissionStatusEnum.LandingFailed, generatedPrRefusal).ConfigureAwait(false);
+                    return;
+                }
+            }
 
             bool landingModeIsNone = resolvedLandingMode == LandingModeEnum.None;
             bool landingModeIsMergeQueue = resolvedLandingMode == LandingModeEnum.MergeQueue;
@@ -1698,6 +1707,31 @@ namespace Armada.Server
                     await EmitBranchCleanupFailedAsync(missionId, branchName, workingDirectory, remoteBranchEx.Message).ConfigureAwait(false);
                 }
             }
+        }
+
+        private async Task<string?> DescribeGeneratedPrRefusalAsync(Mission mission, Vessel? vessel, Dock dock)
+        {
+            Mission? current = await _Database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+            Vessel? currentVessel = vessel == null ? null : await _Database.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+            Mission? judge = current == null ? null
+                : await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, current).ConfigureAwait(false);
+            if (judge != null)
+            {
+                if (judge.HeldForOperatorReview) return "generated_candidate_operator_hold";
+                if (GeneratedArtifactReviewRule.IsAwaitingApproval(judge)) return "generated_candidate_review_pending";
+                string? repository = dock.HostCheckout == null ? currentVessel?.LocalPath
+                    : HarborCheckoutAddress.ForDock(dock.Id) + "/repository";
+                if (String.IsNullOrWhiteSpace(repository) || String.IsNullOrWhiteSpace(dock.BranchName)
+                    || String.IsNullOrWhiteSpace(currentVessel?.DefaultBranch))
+                    return "generated_candidate_source_unresolved";
+                string? source = await _Git.GetRevisionCommitShaAsync(repository, "refs/heads/" + dock.BranchName).ConfigureAwait(false);
+                string? target = await _Git.GetRevisionCommitShaAsync(repository, "refs/heads/" + currentVessel.DefaultBranch).ConfigureAwait(false);
+                if (source == null || target == null) return "generated_candidate_source_unresolved";
+                string? refusal = GeneratedArtifactReviewRule.PublicationRefusal(judge, target, source);
+                if (refusal != null) return refusal;
+            }
+            return (currentVessel ?? vessel)?.GeneratedArtifacts != null || judge != null
+                ? "generated_artifacts_pull_request_unsupported" : null;
         }
 
         private async Task RunHarborMutationAsync(Dock? dock, string workflowId, Func<Task> operation)

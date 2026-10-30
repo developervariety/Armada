@@ -16,8 +16,15 @@ namespace Armada.Core.Services
         {
             Mission? judge = await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, mission, token).ConfigureAwait(false);
             if (judge == null) return false;
-            string target = await ResolveCommitAsync(repository, "refs/heads/" + entry.TargetBranch, token).ConfigureAwait(false);
-            string source = await ResolveCommitAsync(repository, "refs/heads/" + entry.BranchName, token).ConfigureAwait(false);
+            if (judge.GeneratedArtifactReview?.ApprovedUtc == null
+                && (judge.Status == MissionStatusEnum.Failed || judge.Status == MissionStatusEnum.Cancelled))
+            {
+                await TransitionEntryToFailureAsync(entry, "generated_candidate_review_rejected", token, fireRecovery: false).ConfigureAwait(false);
+                return true;
+            }
+            string? target = await TryResolveCommitAsync(repository, "refs/heads/" + entry.TargetBranch, token).ConfigureAwait(false);
+            string? source = await TryResolveCommitAsync(repository, "refs/heads/" + entry.BranchName, token).ConfigureAwait(false);
+            if (target == null || source == null) return false;
             string? refusal = judge.HeldForOperatorReview ? "generated_candidate_operator_hold"
                 : GeneratedArtifactReviewRule.PublicationRefusal(judge, target, source);
             if (refusal == "generated_candidate_target_drift" && judge.GeneratedArtifactReview?.ApprovedUtc != null
@@ -29,12 +36,17 @@ namespace Armada.Core.Services
                 && (refusal == "generated_candidate_target_drift" || refusal == "generated_candidate_source_changed"))
             {
                 GeneratedArtifactLandingResult prepared = await GeneratedArtifactPreparer(mission, entry.TargetBranch, token).ConfigureAwait(false);
-                if (prepared.Outcome == "Failed" && prepared.Reason == "generated_candidate_drift_limit")
+                if (prepared.Outcome == "Failed")
                 {
-                    await TransitionEntryToFailureAsync(entry, prepared.Reason, token, fireRecovery: false).ConfigureAwait(false);
-                    return true;
+                    if (!GeneratedArtifactReviewRule.IsTemporaryPreparationWait(prepared.Reason)
+                        && prepared.Reason != "generated_candidate_operator_hold")
+                    {
+                        await TransitionEntryToFailureAsync(entry, prepared.Reason ?? "generated_preparation_failed", token,
+                            fireRecovery: false).ConfigureAwait(false);
+                        return true;
+                    }
+                    refusal += ": " + prepared.Reason;
                 }
-                if (prepared.Outcome == "Failed") refusal += ": " + prepared.Reason;
             }
             if (refusal == null)
             {

@@ -18,12 +18,13 @@ namespace Armada.Test.Unit.Suites.Routes
     {
         private async Task RunGeneratedCandidateAssignmentTestAsync()
         {
-            foreach (bool oldChecksOnly in new[] { true, false })
-            await RunTest("Generated candidate assignment keeps its source and requires exact-candidate Checks ("
-                + (oldChecksOnly ? "old Checks refused" : "current Checks approve") + ")", async () =>
+            foreach (string modeSource in new[] { "old Checks refused", "vessel", "global", "voyage" })
+            await RunTest("Generated candidate assignment and exact-source approval with " + modeSource, async () =>
             {
+                bool oldChecksOnly = modeSource == "old Checks refused";
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
                 {
+                    harness.Settings.LandingMode = modeSource == "global" ? LandingModeEnum.LocalMerge : LandingModeEnum.None;
                     string root = Path.Combine(harness.Settings.ReposDirectory, "generated-review-assignment");
                     Directory.CreateDirectory(root);
                     string source = Path.Combine(root, "source");
@@ -49,10 +50,12 @@ namespace Armada.Test.Unit.Suites.Routes
                     {
                         TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
                         LocalPath = bare, WorkingDirectory = source, DefaultBranch = main,
-                        LandingMode = LandingModeEnum.LocalMerge, BranchCleanupPolicy = BranchCleanupPolicyEnum.None
+                        LandingMode = modeSource == "global" || modeSource == "voyage" ? null : LandingModeEnum.LocalMerge,
+                        BranchCleanupPolicy = BranchCleanupPolicyEnum.None
                     }).ConfigureAwait(false);
                     Voyage voyage = await harness.Driver.Voyages.CreateAsync(new Voyage("Candidate source review")
-                    { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, Status = VoyageStatusEnum.InProgress,
+                        LandingMode = modeSource == "voyage" ? LandingModeEnum.LocalMerge : null }).ConfigureAwait(false);
                     Mission prior = await harness.Driver.Missions.CreateAsync(new Mission("Earlier reviewer")
                     {
                         TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,

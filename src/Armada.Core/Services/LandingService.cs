@@ -429,6 +429,7 @@ namespace Armada.Core.Services
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
+            LandingModeEnum? effectiveLandingMode = await ResolveNativeLandingModeAsync(vessel, mission, token).ConfigureAwait(false);
             Mission? currentReviewMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
             Mission? currentReviewJudge = currentReviewMission == null ? null
                 : await GeneratedArtifactReviewResolver.ResolveJudgeAsync(_Database, currentReviewMission, token).ConfigureAwait(false);
@@ -608,7 +609,7 @@ namespace Armada.Core.Services
                         // Any other mode pushes BEFORE the bare target moves. Advancing the bare first
                         // left a merge only the bare held whenever origin rejected the push, and the
                         // branch sweep and the next sync then treated that work as landed.
-                        if (vessel.LandingMode != LandingModeEnum.LocalMerge)
+                        if (effectiveLandingMode != LandingModeEnum.LocalMerge)
                         {
                             await _Git.PushHeadToBranchAsync(worktreePath, "origin", targetBranch, token).ConfigureAwait(false);
                             _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
@@ -933,6 +934,13 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task<LandingModeEnum?> ResolveNativeLandingModeAsync(Vessel vessel, Mission mission, CancellationToken token)
+        {
+            Voyage? voyage = String.IsNullOrWhiteSpace(mission.VoyageId) ? null
+                : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return LandingConfigurationResolver.Resolve(_Settings, vessel, voyage).LandingMode;
+        }
+
         private async Task<bool> SyncUserWorkingDirectoryAfterLandingAsync(Vessel vessel, Mission mission, string targetBranch, CancellationToken token)
         {
             if (String.IsNullOrEmpty(vessel.WorkingDirectory))
@@ -940,6 +948,7 @@ namespace Armada.Core.Services
                 return true;
             }
 
+            LandingModeEnum? effectiveLandingMode = await ResolveNativeLandingModeAsync(vessel, mission, token).ConfigureAwait(false);
             bool syncAttempted = false;
             try
             {
@@ -952,7 +961,7 @@ namespace Armada.Core.Services
                 if (!hasTrackedChanges && String.Equals(currentBranch, targetBranch, StringComparison.Ordinal))
                 {
                     syncAttempted = true;
-                    if (vessel.LandingMode == LandingModeEnum.LocalMerge)
+                    if (effectiveLandingMode == LandingModeEnum.LocalMerge)
                     {
                         await _Git.MergeBranchLocalAsync(
                             vessel.WorkingDirectory,
@@ -971,7 +980,7 @@ namespace Armada.Core.Services
                     string? divergence = await DescribeWorkingDirectoryDivergenceAsync(vessel, targetBranch, token).ConfigureAwait(false);
                     if (divergence != null)
                     {
-                        string? preserved = vessel.LandingMode == LandingModeEnum.LocalMerge
+                        string? preserved = effectiveLandingMode == LandingModeEnum.LocalMerge
                             ? await PreserveWorkingCheckoutOnlyCommitsAsync(vessel, mission, targetBranch, token).ConfigureAwait(false)
                             : null;
                         mission.FailureReason = preserved != null ? divergence + " " + preserved : divergence;
@@ -984,7 +993,7 @@ namespace Armada.Core.Services
                     return true;
                 }
 
-                if (vessel.LandingMode == LandingModeEnum.LocalMerge)
+                if (effectiveLandingMode == LandingModeEnum.LocalMerge)
                 {
                     mission.FailureReason = "working_directory_sync_failed: configured checkout is "
                         + (!hasTrackedChanges ? "on branch " + (currentBranch ?? "(unknown)") : "has uncommitted tracked changes")
@@ -1000,7 +1009,7 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
-                if (vessel.LandingMode == LandingModeEnum.LocalMerge)
+                if (effectiveLandingMode == LandingModeEnum.LocalMerge)
                 {
                     mission.FailureReason = "working_directory_sync_failed: " + ex.Message;
 

@@ -19,7 +19,8 @@ namespace Armada.Core.Services
                 || String.IsNullOrWhiteSpace(judge.VoyageId) || GeneratedArtifactLandingRetry == null) return;
             Vessel? vessel = String.IsNullOrWhiteSpace(judge.VesselId) ? null
                 : await _Database.Vessels.ReadAsync(judge.VesselId, token).ConfigureAwait(false);
-            if (vessel?.LandingMode != LandingModeEnum.LocalMerge) return;
+            Voyage? voyage = await _Database.Voyages.ReadAsync(judge.VoyageId, token).ConfigureAwait(false);
+            if (vessel == null || LandingConfigurationResolver.Resolve(_Settings, vessel, voyage).LandingMode != LandingModeEnum.LocalMerge) return;
             List<Mission> stages = await _Database.Missions.EnumerateByVoyageAsync(judge.VoyageId, token).ConfigureAwait(false);
             foreach (Mission leaf in stages)
             {

@@ -83,6 +83,84 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            foreach (string state in new[] { "policy", "pending", "held", "source changed", "approved" })
+            await RunTest("Generated-artifact PR publication refuses " + state + " before a branch push", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StubGitService git = new StubGitService
+                    { DiffResult = "diff --git a/src/feature.txt b/src/feature.txt\n--- a/src/feature.txt\n+++ b/src/feature.txt\n@@ -1 +1 @@\n-old\n+new\n" };
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.AutoMergePullRequests = false;
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver,
+                        LandingModeEnum.PullRequest, BranchCleanupPolicyEnum.None).ConfigureAwait(false);
+                    entities.Mission.Status = MissionStatusEnum.WorkProduced;
+                    entities.Mission.Persona = "Recorder";
+                    entities.Mission.BranchName = entities.Dock.BranchName;
+                    entities.Mission.DiffSnapshot = git.DiffResult;
+                    string source = new string('a', 40);
+                    string target = new string('b', 40);
+                    string candidate = state == "source changed" ? new string('c', 40) : source;
+                    git.RevisionCommitShas[entities.Vessel.LocalPath + "|refs/heads/main"] = target;
+                    git.RevisionCommitShas[entities.Vessel.LocalPath + "|refs/heads/" + entities.Dock.BranchName] = source;
+                    string expected = "generated_artifacts_pull_request_unsupported";
+                    if (state == "policy")
+                    {
+                        entities.Vessel.GeneratedArtifacts = new GeneratedArtifactPolicy
+                        { Paths = new List<string> { "manifest.json" }, RegenerateCommand = "sh tools/regenerate.sh" };
+                        await testDb.Driver.Vessels.UpdateAsync(entities.Vessel).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("Retained candidate Judge")
+                        {
+                            VesselId = entities.Vessel.Id, Persona = "Judge", Status = MissionStatusEnum.Complete,
+                            BranchName = entities.Dock.BranchName, CommitHash = source
+                        }).ConfigureAwait(false);
+                        judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        GeneratedArtifactReviewBinding binding = new GeneratedArtifactReviewBinding
+                        {
+                            SourceCommit = source, CandidateCommit = candidate, TargetBaseCommit = target,
+                            PreparationAttempt = 1, RequestedUtc = DateTime.UtcNow
+                        };
+                        AssertTrue(await testDb.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(judge, binding, true).ConfigureAwait(false));
+                        if (state != "pending")
+                        {
+                            judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                            judge.Status = MissionStatusEnum.WorkProduced;
+                            await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                            judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                            GeneratedArtifactReviewBinding approved = new GeneratedArtifactReviewBinding
+                            {
+                                SourceCommit = source, CandidateCommit = candidate, TargetBaseCommit = target,
+                                PreparationAttempt = 1, RequestedUtc = binding.RequestedUtc, ApprovedUtc = DateTime.UtcNow
+                            };
+                            AssertTrue(await testDb.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(judge, approved, false).ConfigureAwait(false),
+                                "Fixture approval isolates the PR publication boundary, not the real approval path.");
+                        }
+                        if (state == "held")
+                        {
+                            judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                            judge.HeldForOperatorReview = true;
+                            judge.HeldForOperatorReviewReason = "Existing operator decision";
+                            await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                            expected = "generated_candidate_operator_hold";
+                        }
+                        else if (state == "pending") expected = "generated_candidate_review_pending";
+                        else if (state == "source changed") expected = "generated_candidate_source_changed";
+                        entities.Mission.DependsOnMissionId = judge.Id;
+                    }
+                    await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+                    await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+                    Mission after = (await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false))!;
+                    AssertContains(expected, after.FailureReason ?? String.Empty);
+                    AssertEqual(0, git.PushCalls.Count, "A refused candidate never reaches the forge.");
+                    AssertEqual(0, git.PrCalls.Count, "A refused candidate creates no PR.");
+                }
+            }).ConfigureAwait(false);
+
             foreach (string landingPath in new[] { "direct", "queue", "existing queue" })
             {
                 await RunTest("Short rescue refuses " + landingPath + " landing before branch writes", async () =>
