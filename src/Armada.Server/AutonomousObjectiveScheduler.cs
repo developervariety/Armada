@@ -943,7 +943,21 @@ namespace Armada.Server
                 try
                 {
                     bool allLanded = await AllLinkedVoyagesCompletedAsync(objective, token).ConfigureAwait(false);
-                    if (!allLanded) continue;
+                    if (!allLanded)
+                    {
+                        foreach (string voyageId in objective.VoyageIds.Distinct(StringComparer.Ordinal))
+                        {
+                            Voyage? linked = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
+                            if (linked?.Status != VoyageStatusEnum.Complete) continue;
+                            string? refusal = await RescueStageContract.DescribeRefusalAsync(_Database, voyageId, token).ConfigureAwait(false);
+                            if (refusal == null) continue;
+                            await EmitObjectiveEventAsync("objective_scheduler.completion_refused",
+                                "Objective " + objective.Id + " remains open: " + refusal,
+                                objective, null, token).ConfigureAwait(false);
+                            break;
+                        }
+                        continue;
+                    }
 
                     AuthContext objectiveAuth = BuildAuth(objective);
                     ObjectiveUpsertRequest req = new ObjectiveUpsertRequest
@@ -1019,12 +1033,21 @@ namespace Armada.Server
                 }
             }
 
+            HashSet<string> verifiedRescueVoyageIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string rescueId in rescueVoyageIds)
+            {
+                if (voyagesById[rescueId].Status != VoyageStatusEnum.Complete) continue;
+                if (await RescueStageContract.DescribeRefusalAsync(_Database, rescueId, token).ConfigureAwait(false) == null)
+                    verifiedRescueVoyageIds.Add(rescueId);
+            }
+
             List<Voyage> originalVoyages = voyagesById.Values
                 .Where(voyage => !rescueVoyageIds.Contains(voyage.Id))
                 .ToList();
             if (originalVoyages.Count == 0) return false;
 
-            bool anyComplete = voyagesById.Values.Any(voyage => voyage.Status == VoyageStatusEnum.Complete);
+            bool anyComplete = voyagesById.Values.Any(voyage => voyage.Status == VoyageStatusEnum.Complete
+                && (!rescueVoyageIds.Contains(voyage.Id) || verifiedRescueVoyageIds.Contains(voyage.Id)));
             foreach (Voyage voyage in originalVoyages)
             {
                 if (voyage.Status == VoyageStatusEnum.Complete)
@@ -1038,7 +1061,7 @@ namespace Armada.Server
 
                 if (!AreFailedChainsRecovered(
                     missionsByVoyage[voyage.Id],
-                    rescueVoyageIds,
+                    verifiedRescueVoyageIds,
                     voyagesById,
                     missionsByVoyage,
                     dependencyMissionsById)) return false;

@@ -207,59 +207,67 @@ namespace Armada.Core.Services
             CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            string? ineligible = FindIneligibility(mission, out _);
-            if (ineligible != null) throw new InvalidOperationException(ineligible);
-            Voyage? voyage = await ReadVoyageAsync(mission, token).ConfigureAwait(false);
-            MissionRestartReopenPlan? reopen = null;
-            if (voyage != null && TerminalVoyageMissionRule.IsTerminalVoyage(voyage.Status))
+            using (IDisposable recoveryLock = await MissionRecoveryGuard.AcquireAsync(_Database, mission.Id, token).ConfigureAwait(false))
             {
-                reopen = await PlanUpstreamFailureReopenAsync(mission, voyage, token).ConfigureAwait(false);
-                if (reopen.Refusal != null) throw new InvalidOperationException(reopen.Refusal);
-            }
-            if (String.IsNullOrWhiteSpace(mission.VesselId))
-                throw new InvalidOperationException("Mission does not have an associated vessel.");
+                mission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("Mission no longer exists.");
+                string? activeRescue = await MissionRecoveryGuard.FindActiveDescendantAsync(_Database, mission, token).ConfigureAwait(false);
+                if (activeRescue != null)
+                    throw new InvalidOperationException("active_rescue_descendant: restart refused while rescue descendant " + activeRescue + " is active.");
+                string? ineligible = FindIneligibility(mission, out _);
+                if (ineligible != null) throw new InvalidOperationException(ineligible);
+                Voyage? voyage = await ReadVoyageAsync(mission, token).ConfigureAwait(false);
+                MissionRestartReopenPlan? reopen = null;
+                if (voyage != null && TerminalVoyageMissionRule.IsTerminalVoyage(voyage.Status))
+                {
+                    reopen = await PlanUpstreamFailureReopenAsync(mission, voyage, token).ConfigureAwait(false);
+                    if (reopen.Refusal != null) throw new InvalidOperationException(reopen.Refusal);
+                }
+                if (String.IsNullOrWhiteSpace(mission.VesselId))
+                    throw new InvalidOperationException("Mission does not have an associated vessel.");
 
-            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
-            if (vessel == null) throw new InvalidOperationException("Vessel not found: " + mission.VesselId);
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (vessel == null) throw new InvalidOperationException("Vessel not found: " + mission.VesselId);
 
-            await using FleetCapacityReservation admission = await _Capacity
-                .AcquireAsync(vessel, mission.VoyageId, token).ConfigureAwait(false);
+                await using FleetCapacityReservation admission = await _Capacity
+                    .AcquireAsync(vessel, mission.VoyageId, token).ConfigureAwait(false);
 
-            if (!String.IsNullOrWhiteSpace(title)) mission.Title = title;
-            if (!String.IsNullOrWhiteSpace(description)) mission.Description = description;
-            CarryRejectedJudgeFindings(mission);
-            mission.Status = MissionStatusEnum.Pending;
-            mission.CreatedUtc = DateTime.UtcNow;
-            mission.CaptainId = null;
-            mission.BranchName = null;
-            mission.PrUrl = null;
-            mission.CommitHash = null;
-            mission.DockId = null;
-            mission.ProcessId = null;
-            mission.DiffSnapshot = null;
-            mission.FailureReason = null;
-            TerminalVoyageMissionRule.ClearReconciledOutcome(mission);
-            mission.StartedUtc = null;
-            mission.CompletedUtc = null;
-            mission.LastUpdateUtc = DateTime.UtcNow;
-            if (reopen != null && voyage != null) await ApplyReopenAsync(mission, voyage, vessel, reopen, token).ConfigureAwait(false);
-            mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-            try
-            {
-                await admission.VerifyOwnershipAsync(token).ConfigureAwait(false);
-            }
-            catch
-            {
-                mission.Status = MissionStatusEnum.Cancelled;
-                mission.FailureReason = "Mission restart cancelled because fleet-capacity admission was lost.";
-                mission.CompletedUtc = DateTime.UtcNow;
+                if (!String.IsNullOrWhiteSpace(title)) mission.Title = title;
+                if (!String.IsNullOrWhiteSpace(description)) mission.Description = description;
+                CarryRejectedJudgeFindings(mission);
+                mission.Status = MissionStatusEnum.Pending;
+                mission.CreatedUtc = DateTime.UtcNow;
+                mission.CaptainId = null;
+                mission.BranchName = null;
+                mission.PrUrl = null;
+                mission.CommitHash = null;
+                mission.DockId = null;
+                mission.ProcessId = null;
+                mission.DiffSnapshot = null;
+                mission.FailureReason = null;
+                TerminalVoyageMissionRule.ClearReconciledOutcome(mission);
+                mission.StartedUtc = null;
+                mission.CompletedUtc = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, CancellationToken.None).ConfigureAwait(false);
-                throw;
-            }
+                if (reopen != null && voyage != null) await ApplyReopenAsync(mission, voyage, vessel, reopen, token).ConfigureAwait(false);
+                mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                try
+                {
+                    await admission.VerifyOwnershipAsync(token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    mission.Status = MissionStatusEnum.Cancelled;
+                    mission.FailureReason = "Mission restart cancelled because fleet-capacity admission was lost.";
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, CancellationToken.None).ConfigureAwait(false);
+                    throw;
+                }
 
-            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Restarted, "restarted", _Logging, token).ConfigureAwait(false);
-            return mission;
+                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Restarted, "restarted", _Logging, token).ConfigureAwait(false);
+                return mission;
+            }
         }
 
         /// <summary>

@@ -292,7 +292,9 @@ namespace Armada.Server
             }
             catch (InvalidOperationException ex) when (ex is not FleetCapacityAdmissionException)
             {
-                return MissionRestartResult.Refused(mission, MissionRestartService.NotRestartableCode, ex.Message);
+                return MissionRestartResult.Refused(mission,
+                    ex.Message.StartsWith("active_rescue_descendant:", StringComparison.Ordinal)
+                        ? "active_rescue_descendant" : MissionRestartService.NotRestartableCode, ex.Message);
             }
 
             // The restart signal belongs to the mission it reports, so the mission's owner sees it.

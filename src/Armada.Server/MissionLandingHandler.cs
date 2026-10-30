@@ -318,6 +318,13 @@ namespace Armada.Server
                 return;
             }
 
+            string? stageRefusal = await RescueStageContract.DescribeRefusalAsync(_Database, mission.VoyageId).ConfigureAwait(false);
+            if (stageRefusal != null)
+            {
+                await RefuseLandingAsync(mission, MissionStatusEnum.LandingFailed, stageRefusal).ConfigureAwait(false);
+                return;
+            }
+
             // A mission whose deliverable is a ruling or a report is never merged, pushed or enqueued.
             // Its completion records the result only.
             string? noLanding = Armada.Core.Services.MissionLandingEligibility.RefusalReason(mission);

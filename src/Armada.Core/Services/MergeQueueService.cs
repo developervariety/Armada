@@ -168,6 +168,8 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(entry.MissionId))
             {
                 mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                string? stageRefusal = await RescueStageContract.DescribeRefusalAsync(_Database, mission?.VoyageId, token).ConfigureAwait(false);
+                if (stageRefusal != null) throw new InvalidOperationException(stageRefusal);
                 string? noLanding = MissionLandingEligibility.RefusalReason(mission);
                 if (noLanding != null)
                 {
@@ -1042,6 +1044,16 @@ namespace Armada.Core.Services
 
         private async Task<bool> AdvanceLandingStateMachineOneStepAsync(MergeEntry entry, string repoPath, CancellationToken token)
         {
+            if (!String.IsNullOrWhiteSpace(entry.MissionId))
+            {
+                Mission? landingMission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                string? stageRefusal = await RescueStageContract.DescribeRefusalAsync(_Database, landingMission?.VoyageId, token).ConfigureAwait(false);
+                if (stageRefusal != null)
+                {
+                    await TransitionEntryToFailureAsync(entry, stageRefusal, token).ConfigureAwait(false);
+                    return false;
+                }
+            }
             HarborQueueContext? harbor = await ReadHarborQueueContextAsync(entry, token).ConfigureAwait(false);
             if (harbor != null)
                 return await AdvanceHarborLandingStateMachineOneStepAsync(entry, harbor, token).ConfigureAwait(false);

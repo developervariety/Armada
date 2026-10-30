@@ -89,8 +89,6 @@ namespace Armada.Server
         private readonly ProviderProgressTracker? _ProviderProgress;
         // Per-mission policy gates. An entry lives only while a policy application for that mission
         // holds or waits on it, so the map never grows with the number of missions ever handled.
-        private readonly Dictionary<string, MissionLockEntry> _MissionLocks = new Dictionary<string, MissionLockEntry>(StringComparer.Ordinal);
-        private readonly object _MissionLocksSync = new object();
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
         // How long a produced mission with no voyage waits before the drain enqueues it, so the landing
         // handoff that produced it has finished.
@@ -399,7 +397,7 @@ namespace Armada.Server
         /// </summary>
         internal int MissionLockCount
         {
-            get { lock (_MissionLocksSync) { return _MissionLocks.Count; } }
+            get { return MissionRecoveryGuard.LockCount; }
         }
 
         /// <summary>
@@ -1136,17 +1134,7 @@ namespace Armada.Server
 
         private async Task<bool> ApplyFailurePolicyAsync(string? tenantId, string missionId, CancellationToken token)
         {
-            MissionLockEntry missionLock = EnterMissionLock(missionId);
-            try
-            {
-                await missionLock.Gate.WaitAsync(token).ConfigureAwait(false);
-            }
-            catch
-            {
-                LeaveMissionLock(missionId, missionLock);
-                throw;
-            }
-
+            IDisposable missionLock = await MissionRecoveryGuard.AcquireAsync(_Database, missionId, token).ConfigureAwait(false);
             try
             {
                 Mission? latest = await ReadMissionAsync(tenantId, missionId, token).ConfigureAwait(false);
@@ -1402,43 +1390,8 @@ namespace Armada.Server
             }
             finally
             {
-                missionLock.Gate.Release();
-                LeaveMissionLock(missionId, missionLock);
+                missionLock.Dispose();
             }
-        }
-
-        private MissionLockEntry EnterMissionLock(string missionId)
-        {
-            lock (_MissionLocksSync)
-            {
-                if (!_MissionLocks.TryGetValue(missionId, out MissionLockEntry? entry))
-                {
-                    entry = new MissionLockEntry();
-                    _MissionLocks[missionId] = entry;
-                }
-                entry.Users++;
-                return entry;
-            }
-        }
-
-        private void LeaveMissionLock(string missionId, MissionLockEntry entry)
-        {
-            lock (_MissionLocksSync)
-            {
-                entry.Users--;
-                if (entry.Users == 0)
-                {
-                    _MissionLocks.Remove(missionId);
-                    entry.Gate.Dispose();
-                }
-            }
-        }
-
-        private sealed class MissionLockEntry
-        {
-            public SemaphoreSlim Gate { get; } = new SemaphoreSlim(1, 1);
-
-            public int Users { get; set; }
         }
 
         private async Task<Mission?> ReadMissionAsync(string? tenantId, string missionId, CancellationToken token)
@@ -2253,7 +2206,16 @@ namespace Armada.Server
                 failedMission,
                 owningObjective,
                 token).ConfigureAwait(false);
-            PipelineStage? recoveryWorkerStage = ResolveRescueAnchorStage(recoveryPipeline, failedMission, rescuePersona);
+            bool chainReReview = !MissionService.IsPlannerPersona(rescuePersona)
+                && (IsReviewerPersona(failedMission.Persona) || !String.IsNullOrEmpty(failedMission.VoyageId));
+            if (!String.IsNullOrWhiteSpace(failedMission.VoyageId) && recoveryPipeline != null
+                && recoveryPipeline.Stages.Any(stage => PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.Worker))
+                && recoveryPipeline.Stages.Any(stage => PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.Judge)))
+                chainReReview = true;
+            PipelineStage? recoveryWorkerStage = chainReReview
+                ? recoveryPipeline?.Stages.OrderBy(stage => stage.Order).ThenBy(stage => stage.Id, StringComparer.Ordinal).FirstOrDefault()
+                : ResolveRescueAnchorStage(recoveryPipeline, failedMission, rescuePersona);
+            if (chainReReview && recoveryWorkerStage != null) rescuePersona = recoveryWorkerStage.PersonaName;
             Mission rescue = new Mission
             {
                 TenantId = failedMission.TenantId,
@@ -2296,9 +2258,6 @@ namespace Armada.Server
             // pipeline's later stages, ending in the Judge, onto the rescue in every such case. A
             // planner rescue emits a plan, not a landing, and a standalone mission with no voyage
             // never had review stages; both keep a standalone rescue.
-            bool chainReReview = !MissionService.IsPlannerPersona(rescuePersona)
-                && (IsReviewerPersona(failedMission.Persona) || !String.IsNullOrEmpty(failedMission.VoyageId));
-
             RescueStagePlan stagePlan = await PrepareRescueStagePlanAsync(
                 failedMission, rescue, attemptNumber, recoveryPipeline, rescuePlaybooks, owningObjective, chainReReview, token)
                 .ConfigureAwait(false);
@@ -2346,7 +2305,10 @@ namespace Armada.Server
             if (carriedSkips.Count > 0)
                 stages = carriedSkips[carriedSkips.Count - 1].RemainingStages;
 
-            CarriedStageSkip? noTestSkip = ApplyNoTestObjectiveSkip(failedMission, rescue.Persona, stages, owningObjective);
+            // A no-test hint cannot remove a duty from an explicit pipeline contract. Existing
+            // confirmed skips are carried above; the fallback-only policy is retained for legacy work.
+            CarriedStageSkip? noTestSkip = recoveryPipeline == null
+                ? ApplyNoTestObjectiveSkip(failedMission, rescue.Persona, stages, owningObjective) : null;
             if (noTestSkip != null)
             {
                 _Logging.Info(_Header + "rescue of mission " + failedMission.Id + " skips TestEngineer: " + noTestSkip.Request.Reason);
@@ -3060,17 +3022,14 @@ namespace Armada.Server
         {
             if (recoveryPipeline != null)
             {
-                // The chain continues after the rescued stage: a Linter rescue is followed by the
-                // stages after the Linter, not by a second analyst and TestEngineer pass. A persona
-                // the pipeline does not name anchors at its Worker stage.
-                PipelineStage? workerStage = ResolveRescueAnchorStage(recoveryPipeline, failedMission, rescuePersona)
-                    ?? recoveryPipeline.Stages
-                    .OrderBy(item => item.Order)
-                    .FirstOrDefault(item => String.Equals(item.PersonaName, "Worker", StringComparison.OrdinalIgnoreCase));
+                // Recovery replays the recorded contract, including stages before a revising
+                // Worker. A tail after the nearest Worker cannot stand in for required reviews.
+                PipelineStage? workerStage = recoveryPipeline.Stages.OrderBy(item => item.Order)
+                    .ThenBy(item => item.Id, StringComparer.Ordinal).FirstOrDefault();
                 if (workerStage != null)
                 {
                     List<PipelineStage> selectedStages = recoveryPipeline.Stages
-                        .Where(item => item.Order > workerStage.Order)
+                        .Where(item => item.Order >= workerStage.Order && item.Id != workerStage.Id)
                         .OrderBy(item => item.Order)
                         .ThenBy(item => item.Id, StringComparer.Ordinal)
                         .ToList();
