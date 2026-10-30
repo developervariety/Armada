@@ -83,7 +83,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            foreach (string landingPath in new[] { "direct", "queue" })
+            foreach (string landingPath in new[] { "direct", "queue", "existing queue" })
             {
                 await RunTest("Short rescue refuses " + landingPath + " landing before branch writes", async () =>
                 {
@@ -128,11 +128,23 @@ namespace Armada.Test.Unit.Suites.Services
                                 CreateSettings(), git, new MergeFailureClassifier());
                             MergeEntry entry = new MergeEntry { VesselId = entities.Vessel.Id,
                                 MissionId = entities.Mission.Id, BranchName = entities.Dock.BranchName!, TargetBranch = "main" };
-                            string refusal = "";
-                            try { await queue.EnqueueAsync(entry).ConfigureAwait(false); }
-                            catch (InvalidOperationException ex) { refusal = ex.Message; }
-                            AssertContains("rescue_required_stage_missing", refusal, "Queue admission names the missing contract.");
-                            AssertEqual(0, (await queue.ListAsync().ConfigureAwait(false)).Count, "No entry is admitted for a short rescue.");
+                            if (landingPath == "existing queue")
+                            {
+                                // A pre-upgrade queue entry must hit the execution guard too.
+                                entry.Status = MergeStatusEnum.Queued;
+                                await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+                                MergeEntry? processed = await queue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                                AssertEqual(MergeStatusEnum.Failed, processed!.Status, "An existing short rescue cannot advance.");
+                                AssertContains("rescue_required_stage_missing", processed.TestOutput ?? "", "The stored entry names the contract.");
+                            }
+                            else
+                            {
+                                string refusal = "";
+                                try { await queue.EnqueueAsync(entry).ConfigureAwait(false); }
+                                catch (InvalidOperationException ex) { refusal = ex.Message; }
+                                AssertContains("rescue_required_stage_missing", refusal, "Queue admission names the missing contract.");
+                                AssertEqual(0, (await queue.ListAsync().ConfigureAwait(false)).Count, "No entry is admitted for a short rescue.");
+                            }
                         }
                         AssertEqual(0, git.MergeBranchCalls.Count, "No merge executes for missing required roles.");
                     }

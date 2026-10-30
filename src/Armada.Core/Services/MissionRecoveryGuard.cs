@@ -63,6 +63,9 @@ namespace Armada.Core.Services
                         if (stage.Id != mission.Id && !IsTerminal(stage.Status)) return stage.Id;
                         parents.Enqueue(stage.Id);
                     }
+                    Voyage? voyage = await database.Voyages.ReadAsync(child.VoyageId, token).ConfigureAwait(false);
+                    if (voyage?.Status == VoyageStatusEnum.Open || voyage?.Status == VoyageStatusEnum.InProgress)
+                        return child.Id;
                 }
             }
             return null;

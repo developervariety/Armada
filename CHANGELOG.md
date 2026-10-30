@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Recovery preserves required stages and excludes concurrent restarts
+
+- Autonomous rescues replay the recorded pipeline from its first required stage, including both Worker stages and every review duty. Existing confirmed stage skips retain their authority. Landing, queued landing execution, and objective completion refuse a shortened rescue with a named missing-stage reason. A later complete recovery can satisfy the contract without erasing the failed attempts.
+- Operator restart and automatic rescue share the same failure-family lock. Restart re-reads the mission under that lock and refuses while a rescue descendant or its voyage is active, naming the descendant. Existing attempt counters and retained reports are preserved.
+
 ### Suite lease acquire answers within a bound
 
 - `armada_suite_lease` `acquire` waits at most `waitSeconds` (default 30, at most 120) and then answers `granted`, `held` or `queued` with the queue position, so a captain never waits past its MCP client's call timeout. A queued request stays queued after the call returns or is cancelled, and the next `acquire` keeps its place. `captain.suite_lease_wait` is recorded once per queued request. `release` while queued answers `withdrawn` and gives up the place. Slot limits, queue order and the definition-of-done time limit are unchanged.

@@ -76,6 +76,15 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.Failed, stored.Status, "The refused original is not reopened.");
                     AssertEqual("Retained original failure evidence.", stored.AgentOutput, "The original report is retained.");
                     AssertEqual(1, stored.RecoveryAttempts, "The original recovery counter is retained, not reset by a stale restart copy.");
+                    Voyage finishing = await testDb.Driver.Voyages.CreateAsync(new Voyage("Recovery finishing landing")
+                    { TenantId = failed.TenantId, UserId = failed.UserId, Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    rescue.VoyageId = finishing.Id;
+                    rescue.Status = MissionStatusEnum.Complete;
+                    await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
+                    refusal = "";
+                    try { await new MissionRestartService(testDb.Driver, settings).RestartAsync(failed).ConfigureAwait(false); }
+                    catch (InvalidOperationException ex) { refusal = ex.Message; }
+                    AssertContains(rescue.Id, refusal, "A rescue whose stages ended but whose voyage still lands remains active.");
                 }
             }).ConfigureAwait(false);
 
