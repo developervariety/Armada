@@ -25,6 +25,12 @@ namespace Armada.Core.Services
         /// <summary>Event type recorded when startup restores a stored hold.</summary>
         public const string RestoredEventType = "dispatch.hold_restored";
 
+        /// <summary>Event type recorded when a vessel hold is engaged.</summary>
+        public const string VesselEngagedEventType = "vessel.hold_engaged";
+
+        /// <summary>Event type recorded when a vessel hold is cleared.</summary>
+        public const string VesselClearedEventType = "vessel.hold_cleared";
+
         #endregion
 
         #region Public-Methods
@@ -73,9 +79,53 @@ namespace Armada.Core.Services
                 new { restored.Reason, restored.SetBy, restored.SetByUtc }, token);
         }
 
+        /// <summary>
+        /// Record that a vessel hold was engaged.
+        /// </summary>
+        /// <param name="database">Database driver whose Events collection receives the event.</param>
+        /// <param name="hold">The engaged vessel hold.</param>
+        /// <param name="token">Cancellation token.</param>
+        public static Task RecordVesselEngagedAsync(DatabaseDriver database, DispatchHoldSnapshot hold, CancellationToken token = default)
+        {
+            if (hold == null) throw new ArgumentNullException(nameof(hold));
+            string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
+            return RecordVesselAsync(database, VesselEngagedEventType, hold.VesselId,
+                "Vessel " + hold.VesselId + " held by " + holder + ": " + hold.Reason,
+                new { hold.VesselId, hold.Reason, hold.SetBy, hold.SetByUtc }, token);
+        }
+
+        /// <summary>
+        /// Record that a vessel hold was cleared.
+        /// </summary>
+        /// <param name="database">Database driver whose Events collection receives the event.</param>
+        /// <param name="cleared">The vessel hold that was cleared.</param>
+        /// <param name="clearedBy">Identity of the caller that cleared the hold, or null.</param>
+        /// <param name="token">Cancellation token.</param>
+        public static Task RecordVesselClearedAsync(DatabaseDriver database, DispatchHoldSnapshot cleared, string? clearedBy, CancellationToken token = default)
+        {
+            if (cleared == null) throw new ArgumentNullException(nameof(cleared));
+            string who = String.IsNullOrWhiteSpace(clearedBy) ? "unknown" : clearedBy!;
+            return RecordVesselAsync(database, VesselClearedEventType, cleared.VesselId,
+                "Vessel " + cleared.VesselId + " hold cleared by " + who + ". It had been held for: " + cleared.Reason,
+                new { cleared.VesselId, cleared.Reason, cleared.SetBy, cleared.SetByUtc, ClearedBy = clearedBy }, token);
+        }
+
         #endregion
 
         #region Private-Methods
+
+        private static Task RecordVesselAsync(DatabaseDriver database, string eventType, string? vesselId, string message, object payload, CancellationToken token)
+        {
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            ArmadaEvent evt = new ArmadaEvent(eventType, message)
+            {
+                EntityType = "vessel",
+                EntityId = vesselId,
+                VesselId = vesselId,
+                Payload = JsonSerializer.Serialize(payload)
+            };
+            return database.Events.CreateAsync(evt, token);
+        }
 
         private static Task RecordAsync(DatabaseDriver database, string eventType, string message, object payload, CancellationToken token)
         {

@@ -423,6 +423,8 @@ namespace Armada.Server
             foreach (KeyValuePair<string, HoldDeferredRescue> deferred in _HoldDeferredRescues.ToArray())
             {
                 token.ThrowIfCancellationRequested();
+                // A rescue deferred by a vessel hold waits for that vessel's hold, not only the fleet-wide one.
+                if (_DispatchHold?.VesselSnapshot(deferred.Value.VesselId) != null) continue;
                 if (!_HoldDeferredRescues.TryRemove(deferred.Key, out HoldDeferredRescue? _)) continue;
 
                 _Logging.Info(_Header + "dispatch hold cleared; re-evaluating the rescue deferred for mission " + deferred.Key);
@@ -449,7 +451,8 @@ namespace Armada.Server
             await LinkIncidentToOwningObjectivesAsync(auth, mission, incident, token).ConfigureAwait(false);
 
             string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
-            string holdDetail = "dispatch_hold engaged by " + holder + " at " + hold.SetByUtc.ToString("u") + ": " + hold.Reason;
+            string holdDetail = (String.IsNullOrWhiteSpace(hold.VesselId) ? "dispatch_hold" : "vessel_hold on " + hold.VesselId)
+                + " engaged by " + holder + " at " + hold.SetByUtc.ToString("u") + ": " + hold.Reason;
             await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
             {
                 RecoveryNotes = AppendNote(incident.RecoveryNotes,
@@ -457,7 +460,7 @@ namespace Armada.Server
                     + "the rescue is re-evaluated on the first recovery sweep after the hold clears.")
             }, token).ConfigureAwait(false);
 
-            _HoldDeferredRescues[mission.Id] = new HoldDeferredRescue(mission.TenantId, hold.SetByUtc);
+            _HoldDeferredRescues[mission.Id] = new HoldDeferredRescue(mission.TenantId, hold.SetByUtc, hold.VesselId);
             _Logging.Info(_Header + "rescue for mission " + mission.Id + " deferred: " + holdDetail);
             await EmitEventAsync("autonomous_recovery.rescue_deferred_dispatch_hold",
                 "Autonomous rescue for failed mission " + mission.Id + " deferred: " + holdDetail + ".",
@@ -467,15 +470,18 @@ namespace Armada.Server
 
         private sealed class HoldDeferredRescue
         {
-            public HoldDeferredRescue(string? tenantId, DateTime holdSetByUtc)
+            public HoldDeferredRescue(string? tenantId, DateTime holdSetByUtc, string? vesselId)
             {
                 TenantId = tenantId;
                 HoldSetByUtc = holdSetByUtc;
+                VesselId = vesselId;
             }
 
             public string? TenantId { get; }
 
             public DateTime HoldSetByUtc { get; }
+
+            public string? VesselId { get; }
         }
 
         // Recovery is closed for a voyage that ended Complete or Cancelled. A Failed voyage stays
@@ -1203,14 +1209,14 @@ namespace Armada.Server
                     return true;
                 }
 
-                // A rescue is a dispatch, so it obeys the fleet-wide dispatch hold through the same
-                // admission rule every other dispatch path calls. It is checked before any incident,
+                // A rescue is a dispatch, so it obeys the fleet-wide dispatch hold and its vessel's hold through
+                // the same admission rule every other dispatch path calls. It is checked before any incident,
                 // runbook, or voyage work so a held tick writes nothing but the named deferral.
                 if (decision.DispatchRescue && !latest.IsReadOnlyMode && _DispatchHold != null)
                 {
                     try
                     {
-                        _DispatchHold.ThrowIfActive();
+                        _DispatchHold.ThrowIfActive(latest.VesselId);
                     }
                     catch (DispatchHoldActiveException held)
                     {
@@ -2680,9 +2686,9 @@ namespace Armada.Server
             RescueStagePlan stagePlan,
             CancellationToken token)
         {
-            // The rescue voyage is written before the admiral admits the Worker, so the hold is
+            // The rescue voyage is written before the admiral admits the Worker, so the holds are
             // checked first; otherwise a held dispatch leaves a created-then-cancelled voyage.
-            _DispatchHold?.ThrowIfActive();
+            _DispatchHold?.ThrowIfActive(failedMission.VesselId);
 
             // Capacity is checked before the voyage is written too: a refusal after the insert would leave an
             // empty voyage behind on every sweep that retries the rescue while the fleet is full.

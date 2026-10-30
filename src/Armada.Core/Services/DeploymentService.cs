@@ -87,6 +87,7 @@ namespace Armada.Core.Services
             if (request == null) throw new ArgumentNullException(nameof(request));
 
             ResolvedDeploymentDraft draft = await ResolveDraftAsync(auth, null, request, token).ConfigureAwait(false);
+            await RefuseHeldVesselAsync(draft.Vessel.Id, token).ConfigureAwait(false);
             Deployment deployment = new Deployment
             {
                 TenantId = draft.Vessel.TenantId,
@@ -221,6 +222,7 @@ namespace Armada.Core.Services
 
             Vessel vessel = await ReadAccessibleVesselAsync(auth, deployment.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
+            await RefuseHeldVesselAsync(vessel.Id, token).ConfigureAwait(false);
             DeploymentEnvironment environment = await _Environments.ReadAsync(auth, deployment.EnvironmentId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Environment not found or not accessible.");
             WorkflowProfile? profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, deployment.WorkflowProfileId, token).ConfigureAwait(false);
@@ -1486,6 +1488,16 @@ namespace Armada.Core.Services
             throw new InvalidOperationException("deployment_candidate_frozen: deployment " + existing.Id + " was approved or executed for "
                 + DescribeCandidate(existing.SourceRef, existing.SourceCommit, existing.ArtifactIdentity)
                 + "; create a new deployment to ship a different source or artifact.");
+        }
+
+        // A vessel hold refuses creating and approving a deployment of the vessel. It is read from the store, not from an
+        // in-memory hold, because every host that builds a deployment service must see the same hold. A rollback is
+        // not refused: it restores the previous release and is the way back out of a bad deploy.
+        private async Task RefuseHeldVesselAsync(string vesselId, CancellationToken token)
+        {
+            List<DispatchHoldSnapshot> holds = await _Database.DispatchHolds.ReadVesselsAsync(token).ConfigureAwait(false);
+            DispatchHoldSnapshot? hold = holds.FirstOrDefault(held => String.Equals(held.VesselId, vesselId, StringComparison.Ordinal));
+            if (hold != null) throw new DispatchHoldActiveException(hold, DispatchHold.RefusalMessage(hold));
         }
 
         private static void RefuseApprovalOfDifferentCandidate(Deployment deployment, string? expectedSourceCommit, string? expectedArtifactIdentity)

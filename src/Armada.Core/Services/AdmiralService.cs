@@ -305,7 +305,7 @@ namespace Armada.Core.Services
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
             CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
-            _DispatchHold?.ThrowIfActive();
+            _DispatchHold?.ThrowIfActive(vesselId);
 
             // Verify vessel exists
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
@@ -423,7 +423,7 @@ namespace Armada.Core.Services
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
             CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
-            _DispatchHold?.ThrowIfActive();
+            _DispatchHold?.ThrowIfActive(vesselId);
 
             // Verify vessel exists
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
@@ -621,7 +621,7 @@ namespace Armada.Core.Services
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
             CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
-            _DispatchHold?.ThrowIfActive();
+            _DispatchHold?.ThrowIfActive(vesselId);
 
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (vessel == null) throw new InvalidOperationException("Vessel not found: " + vesselId);
@@ -801,7 +801,7 @@ namespace Armada.Core.Services
         public async Task<Mission> DispatchMissionQueuedAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            _DispatchHold?.ThrowIfActive();
+            _DispatchHold?.ThrowIfActive(mission.VesselId);
             if (mission.SelectedPlaybooks != null && mission.SelectedPlaybooks.Count > 0 && !String.IsNullOrEmpty(mission.TenantId))
             {
                 await _Playbooks.ResolveSelectionsAsync(mission.TenantId, mission.SelectedPlaybooks, token).ConfigureAwait(false);
@@ -875,7 +875,7 @@ namespace Armada.Core.Services
         public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            _DispatchHold?.ThrowIfActive();
+            _DispatchHold?.ThrowIfActive(mission.VesselId);
             if (mission.SelectedPlaybooks != null && mission.SelectedPlaybooks.Count > 0 && !String.IsNullOrEmpty(mission.TenantId))
             {
                 await _Playbooks.ResolveSelectionsAsync(mission.TenantId, mission.SelectedPlaybooks, token).ConfigureAwait(false);

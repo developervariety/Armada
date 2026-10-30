@@ -174,6 +174,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunSharedHoldTestAsync();
             await RunEntryPointComparisonTestAsync();
+            await RunVesselHoldTestsAsync();
         }
 
         private async Task RunSharedHoldTestAsync()
@@ -313,6 +314,254 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, rescues.Count, "the deferred rescue is dispatched on the first sweep after clear");
                     AssertTrue(!String.IsNullOrEmpty(rescues[0].VoyageId) && rescues[0].VoyageId != parent.Id,
                         "the rescue runs in its own rescue voyage");
+                }
+            });
+        }
+
+        private async Task RunVesselHoldTestsAsync()
+        {
+            await RunTest("A vessel hold survives a restart and is stored, engaged and cleared apart from the fleet hold", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DispatchHold first = new DispatchHold(testDb.Driver.DispatchHolds);
+                    await first.EngageVesselAsync("vsl_held", "consumer gap open", "session-a");
+                    await first.EngageVesselAsync("vsl_second", "second reason", "session-b");
+                    await first.EngageAsync("redeploy window", "session-c");
+                    await first.ClearAsync();
+                    await first.ClearVesselAsync("vsl_second");
+
+                    DispatchHold restarted = new DispatchHold(testDb.Driver.DispatchHolds);
+                    AssertNull(await restarted.RestoreAsync(), "clearing the fleet hold leaves no fleet hold");
+                    List<DispatchHoldSnapshot> vessels = restarted.VesselHolds();
+                    AssertEqual(1, vessels.Count, "only the vessel hold still engaged is restored; clearing the fleet hold or another vessel leaves it");
+                    AssertEqual("vsl_held", vessels[0].VesselId);
+                    AssertEqual("consumer gap open", vessels[0].Reason);
+                    AssertEqual("session-a", vessels[0].SetBy);
+
+                    Exception? held = Capture(() => restarted.ThrowIfActive("vsl_held"));
+                    AssertTrue(held is DispatchHoldActiveException, "the restored vessel hold refuses its vessel");
+                    AssertEqual(DispatchHoldActiveException.VesselReasonCode, ((DispatchHoldActiveException)held!).Code);
+                    AssertStartsWith(DispatchHoldActiveException.VesselReasonCode, held.Message);
+                    AssertContains("consumer gap open", held.Message);
+                    AssertNull(Capture(() => restarted.ThrowIfActive("vsl_second")), "a cleared vessel is not held");
+                    AssertNull(Capture(() => restarted.ThrowIfActive()), "a vessel hold does not hold the fleet");
+
+                    await restarted.EngageAsync("second window", "session-c");
+                    await restarted.ClearVesselAsync("vsl_held");
+                    DispatchHold again = new DispatchHold(testDb.Driver.DispatchHolds);
+                    DispatchHoldSnapshot? fleet = await again.RestoreAsync();
+                    AssertNotNull(fleet, "clearing a vessel hold leaves the fleet hold");
+                    AssertEqual("second window", fleet!.Reason);
+                    AssertEqual(0, again.VesselHolds().Count);
+                }
+            });
+
+            await RunTest("armada_vessel_hold engages, reports and clears one vessel and records events", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Name = "tool-held",
+                        RepoUrl = "https://git.example.com/tool-held.git",
+                        DefaultBranch = "main"
+                    });
+                    DispatchHold hold = new DispatchHold(testDb.Driver.DispatchHolds);
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    McpDispatchHoldTools.Register((name, _, _, h) => { if (name == "armada_vessel_hold") handler = h; }, testDb.Driver, hold);
+                    AssertNotNull(handler, "armada_vessel_hold must be registered");
+
+                    string missing = JsonSerializer.Serialize(await handler!(JsonSerializer.SerializeToElement(new { action = "engage", vesselId = "vsl_absent", reason = "x", setBy = "s" })), _JsonOpts);
+                    AssertContains("not found", missing, "an unknown vessel is refused");
+                    AssertEqual(0, hold.VesselHolds().Count);
+
+                    await handler(JsonSerializer.SerializeToElement(new { action = "engage", vesselId = vessel.Id, reason = "consumer gap open", setBy = "session-a" }));
+                    string status = JsonSerializer.Serialize(await handler(JsonSerializer.SerializeToElement(new { action = "status", vesselId = vessel.Id })), _JsonOpts);
+                    AssertContains("\"active\":true", status);
+                    AssertContains("consumer gap open", status);
+                    AssertNull(hold.Snapshot(), "a vessel hold engages no fleet hold");
+
+                    string cleared = JsonSerializer.Serialize(await handler(JsonSerializer.SerializeToElement(new { action = "clear", vesselId = vessel.Id })), _JsonOpts);
+                    AssertContains("\"cleared\":true", cleared);
+                    AssertNull(hold.VesselSnapshot(vessel.Id));
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateRecentAsync(50);
+                    AssertEqual(1, events.Count(e => e.EventType == DispatchHoldEvents.VesselEngagedEventType && e.VesselId == vessel.Id), "one engaged event names the vessel");
+                    AssertEqual(1, events.Count(e => e.EventType == DispatchHoldEvents.VesselClearedEventType && e.VesselId == vessel.Id), "one cleared event names the vessel");
+                }
+            });
+
+            await RunTest("A vessel hold refuses operator, planning, scheduler and rescue dispatch for its vessel only, and all resume after clear", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    DispatchHold hold = new DispatchHold();
+                    AdmiralService admiral = BuildAdmiral(testDb, logging, hold, 10);
+
+                    async Task<Vessel> VesselAsync(string name)
+                    {
+                        return await testDb.Driver.Vessels.CreateAsync(new Vessel
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId,
+                            Name = name,
+                            RepoUrl = "https://git.example.com/" + name + ".git",
+                            DefaultBranch = "main"
+                        });
+                    }
+
+                    Vessel held = await VesselAsync("vh-held");
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, held, "Worker", "TestEngineer", "Judge", "Linter").ConfigureAwait(false);
+                    Vessel other = await VesselAsync("vh-other");
+                    // The rescue has its own held vessel: the admiral admits one active voyage per vessel, so a rescue
+                    // sharing a vessel with the scheduler's voyage would wait for that voyage, not for the hold.
+                    Vessel heldRescue = await VesselAsync("vh-held-rescue");
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, heldRescue, "Worker", "TestEngineer", "Judge", "Linter").ConfigureAwait(false);
+
+                    Objective heldObjective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Held vessel objective",
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { held.Id }
+                    });
+                    Objective otherObjective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Other vessel objective",
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { other.Id }
+                    });
+                    Voyage parent = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent voyage", "pipeline")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Status = VoyageStatusEnum.Failed
+                    });
+                    Mission failed = await testDb.Driver.Missions.CreateAsync(new Mission
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VesselId = heldRescue.Id,
+                        VoyageId = parent.Id,
+                        Persona = "Worker",
+                        Title = "Failed worker",
+                        Description = "Original mission description",
+                        Status = MissionStatusEnum.Failed,
+                        FailureReason = "DoD gate failed: classification=TestFail; unit-test command exited 1",
+                        CommitHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                        LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                    });
+                    PlanningSession planningSession = await testDb.Driver.PlanningSessions.CreateAsync(new PlanningSession
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VesselId = held.Id,
+                        Title = "Held planning",
+                        Status = PlanningSessionStatusEnum.Active
+                    });
+                    await testDb.Driver.PlanningSessionMessages.CreateAsync(new PlanningSessionMessage
+                    {
+                        PlanningSessionId = planningSession.Id,
+                        Role = "Assistant",
+                        Sequence = 1,
+                        Content = "Implement the planned change."
+                    });
+                    string planningRoot = Path.Combine(Path.GetTempPath(), "armada_vessel_hold_planning_" + Guid.NewGuid().ToString("N"));
+                    ArmadaSettings planningSettings = new ArmadaSettings
+                    {
+                        DataDirectory = planningRoot,
+                        DatabasePath = Path.Combine(planningRoot, "unused.db"),
+                        LogDirectory = Path.Combine(planningRoot, "logs"),
+                        DocksDirectory = Path.Combine(planningRoot, "docks"),
+                        ReposDirectory = Path.Combine(planningRoot, "repos")
+                    };
+                    planningSettings.InitializeDirectories();
+                    PlanningSessionCoordinator planning = new PlanningSessionCoordinator(
+                        logging,
+                        testDb.Driver,
+                        planningSettings,
+                        new DockService(logging, testDb.Driver, planningSettings, new GitService(logging)),
+                        admiral,
+                        new Armada.Runtimes.AgentRuntimeFactory(logging),
+                        (a, b, c, d, e, f, g, h) => Task.CompletedTask,
+                        null,
+                        new ObjectiveService(testDb.Driver));
+
+                    ArmadaSettings schedulerSettings = new ArmadaSettings
+                    {
+                        AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                        {
+                            Enabled = true,
+                            IntervalMinutes = 1,
+                            MaxConcurrentVoyages = 10
+                        }
+                    };
+                    IncidentService incidents = new IncidentService(testDb.Driver);
+                    AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                        testDb.Driver, admiral, incidents, new RunbookService(testDb.Driver, logging), new ArmadaSettings(), logging,
+                        null, null, null, null, null, null, null, null, hold);
+
+                    await hold.EngageVesselAsync(held.Id, "consumer gap open", "session-hold");
+                    await hold.EngageVesselAsync(heldRescue.Id, "consumer gap open", "session-hold");
+
+                    Exception? operatorRefusal = await CaptureAsync(() => admiral.DispatchMissionAsync(new Mission { Title = "operator", VesselId = held.Id }));
+                    AssertTrue(operatorRefusal is DispatchHoldActiveException, "operator dispatch to the held vessel is refused");
+                    AssertStartsWith(DispatchHoldActiveException.VesselReasonCode, operatorRefusal!.Message);
+                    Mission otherMission = await admiral.DispatchMissionAsync(new Mission { Title = "operator", VesselId = other.Id });
+                    AssertStartsWith("msn_", otherMission.Id, "operator dispatch to another vessel is admitted");
+
+                    Exception? planningRefusal = await CaptureAsync(() => planning.DispatchAsync(planningSession, new PlanningSessionDispatchRequest { Title = "held planning" }));
+                    AssertTrue(planningRefusal is DispatchHoldActiveException, "planning dispatch for the held vessel is refused; got " + planningRefusal?.GetType().Name);
+
+                    AutonomousObjectiveScheduler heldScheduler = BuildScheduler(testDb, admiral, schedulerSettings, logging, hold);
+                    await heldScheduler.SweepAsync();
+                    AssertEqual(0, (await testDb.Driver.Objectives.ReadAsync(heldObjective.Id))!.VoyageIds.Count, "the scheduler admits nothing on the held vessel");
+                    AssertEqual(1, (await testDb.Driver.Objectives.ReadAsync(otherObjective.Id))!.VoyageIds.Count,
+                        "the scheduler still dispatches another vessel; skip=" + heldScheduler.LastSkipReason + " summary=" + heldScheduler.LastResultSummary);
+                    ObjectiveSchedulerSkippedObjective? heldSkip = heldScheduler.LastSweepSkippedObjectives.FirstOrDefault(skip => skip.ObjectiveId == heldObjective.Id);
+                    AssertNotNull(heldSkip, "the sweep lists the held vessel's objective as skipped");
+                    AssertEqual("vessel_hold", heldSkip!.Reason, "the skip names the vessel hold");
+                    AssertContains("consumer gap open", heldSkip.Detail ?? String.Empty, "the skip carries the hold reason");
+                    AssertTrue(heldScheduler.LastSweepSkippedObjectives.All(skip => skip.ObjectiveId != otherObjective.Id), "the other vessel's objective is not skipped");
+
+                    await orchestrator.HandleMissionOutcomeAsync(failed, false);
+                    await orchestrator.SweepAsync();
+                    await orchestrator.SweepAsync();
+                    List<Mission> heldRescues = (await testDb.Driver.Missions.EnumerateByVesselAsync(heldRescue.Id)).Where(m => m.ParentMissionId == failed.Id).ToList();
+                    AssertEqual(0, heldRescues.Count, "no rescue is dispatched for the held vessel");
+                    AuthContext auth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, true, "UnitTest");
+                    EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery { MissionId = failed.Id, PageNumber = 1, PageSize = 10 });
+                    AssertEqual(1, incidentPage.Objects.Count);
+                    string notes = incidentPage.Objects[0].RecoveryNotes ?? String.Empty;
+                    AssertEqual(1, CountOccurrences(notes, "vessel_hold on " + heldRescue.Id), "repeat sweeps under one vessel hold record the deferral once; notes: " + notes);
+                    AssertEqual(0, (await testDb.Driver.Missions.ReadAsync(failed.Id))!.RecoveryAttempts, "a deferred rescue spends no recovery budget");
+
+                    await hold.ClearVesselAsync(held.Id);
+                    await orchestrator.SweepAsync();
+                    AssertEqual(0, (await testDb.Driver.Missions.EnumerateByVesselAsync(heldRescue.Id)).Count(m => m.ParentMissionId == failed.Id),
+                        "clearing another vessel's hold does not release this vessel's deferred rescue");
+                    await hold.ClearVesselAsync(heldRescue.Id);
+
+                    Mission heldMission = await admiral.DispatchMissionAsync(new Mission { Title = "operator", VesselId = held.Id });
+                    AssertStartsWith("msn_", heldMission.Id, "operator dispatch resumes after clear");
+                    AutonomousObjectiveScheduler clearScheduler = BuildScheduler(testDb, admiral, schedulerSettings, logging, hold);
+                    await clearScheduler.SweepAsync();
+                    AssertEqual(1, (await testDb.Driver.Objectives.ReadAsync(heldObjective.Id))!.VoyageIds.Count,
+                        "the scheduler dispatches the held vessel after clear; skip=" + clearScheduler.LastSkipReason);
+                    await orchestrator.SweepAsync();
+                    List<Mission> rescues = (await testDb.Driver.Missions.EnumerateByVesselAsync(heldRescue.Id)).Where(m => m.ParentMissionId == failed.Id).ToList();
+                    AssertEqual(1, rescues.Count, "the deferred rescue is dispatched on the first sweep after its vessel's hold clears");
                 }
             });
         }

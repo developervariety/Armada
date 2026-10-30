@@ -92,6 +92,67 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = "action must be engage, clear, or status" };
                     });
             }
+
+            {
+                register(
+                    "armada_vessel_hold",
+                    "Engage, clear, or inspect the hold on ONE vessel. A held vessel refuses new dispatch (manual dispatch, planning-session dispatch, objective scheduler admission and autonomous rescue) and refuses creating or approving a deployment of the vessel; every other vessel is unaffected. Rollback of a deployment is not refused. In-flight voyages on the vessel continue. The hold is stored in the database, survives an admiral restart, and stays until you clear it. Refusals carry the code vessel_hold_active. Engaging or clearing records a vessel.hold_engaged or vessel.hold_cleared event. Status without vesselId lists every vessel hold; the fleet-wide hold is armada_dispatch_hold.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            action = new { type = "string", description = "engage | clear | status" },
+                            vesselId = new { type = "string", description = "The vessel. Required for engage and clear; optional for status." },
+                            reason = new { type = "string", description = "Why the vessel is held. Required for engage." },
+                            setBy = new { type = "string", description = "Your session or operator name for engage. Omit it to use the name of the credential you authenticated with. A value you pass wins." }
+                        },
+                        required = new[] { "action" }
+                    },
+                    async (args) =>
+                    {
+                        VesselHoldArgs request = JsonSerializer.Deserialize<VesselHoldArgs>(args!.Value, _JsonOptions)!;
+                        string action = String.IsNullOrWhiteSpace(request.Action) ? "status" : request.Action!.Trim().ToLowerInvariant();
+                        if (dispatchHold == null)
+                            return McpToolUnavailable.Create("vessel hold");
+                        string? vesselId = String.IsNullOrWhiteSpace(request.VesselId) ? null : request.VesselId!.Trim();
+
+                        if (String.Equals(action, "status", StringComparison.Ordinal))
+                        {
+                            if (vesselId == null)
+                                return (object)new { Holds = dispatchHold.VesselHolds(), FleetHold = dispatchHold.Snapshot() };
+                            DispatchHoldSnapshot? held = dispatchHold.VesselSnapshot(vesselId);
+                            return (object)new { VesselId = vesselId, Active = held != null, Hold = held, FleetHold = dispatchHold.Snapshot() };
+                        }
+
+                        if (!String.Equals(action, "engage", StringComparison.Ordinal) && !String.Equals(action, "clear", StringComparison.Ordinal))
+                            return (object)new { Error = "action must be engage, clear, or status" };
+                        if (vesselId == null)
+                            return (object)new { Error = "vesselId is required to " + action + " a vessel hold" };
+
+                        if (String.Equals(action, "clear", StringComparison.Ordinal))
+                        {
+                            DispatchHoldSnapshot? previous = await dispatchHold.ClearVesselAsync(vesselId).ConfigureAwait(false);
+                            if (previous != null)
+                                await DispatchHoldEvents.RecordVesselClearedAsync(database, previous, McpCallerContext.CallerIdentity).ConfigureAwait(false);
+                            return (object)new { VesselId = vesselId, Active = false, Cleared = previous != null };
+                        }
+
+                        if (String.IsNullOrWhiteSpace(request.Reason))
+                            return (object)new { Error = "reason is required when engaging a vessel hold" };
+                        if (await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false) == null)
+                            return (object)new { Error = "vessel " + vesselId + " was not found" };
+                        string? setBy = String.IsNullOrWhiteSpace(request.SetBy)
+                            ? McpCallerContext.CallerIdentity
+                            : request.SetBy!.Trim();
+                        if (String.IsNullOrWhiteSpace(setBy))
+                            return (object)new { Error = "setBy is required when engaging a vessel hold and the call carries no named credential - name your session so others know who to ask" };
+
+                        DispatchHoldSnapshot engaged = await dispatchHold.EngageVesselAsync(vesselId, request.Reason!, setBy).ConfigureAwait(false);
+                        await DispatchHoldEvents.RecordVesselEngagedAsync(database, engaged).ConfigureAwait(false);
+                        return (object)new { VesselId = vesselId, Active = true, Hold = engaged };
+                    });
+            }
         }
 
         private static List<RunningGateRow> RunningGates()
@@ -164,6 +225,14 @@ namespace Armada.Server.Mcp.Tools
 
             /// <summary>Vessel the job acts on, when known.</summary>
             public string? VesselId { get; set; }
+        }
+
+        private sealed class VesselHoldArgs
+        {
+            public string? Action { get; set; } = null;
+            public string? VesselId { get; set; } = null;
+            public string? Reason { get; set; } = null;
+            public string? SetBy { get; set; } = null;
         }
 
         private sealed class DispatchHoldArgs

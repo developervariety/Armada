@@ -597,6 +597,7 @@ deployment names a different candidate, or when the environment's
 | Risk | Tools |
 | --- | --- |
 | Write | `armada_dispatch_hold` |
+| Write | `armada_vessel_hold` |
 
 The hold is fleet-wide: while it is engaged every new dispatch is refused,
 whichever session or scheduler asks, and in-flight voyages continue. Engage it
@@ -661,6 +662,32 @@ mission in its own dock and is not a new dispatch, so when the heartbeat
 confirms a stalled captain while the hold is engaged, it stops the stalled
 process and relaunches the agent within `MaxRecoveryAttempts`, as it does with
 no hold. Later stages of in-flight voyages are assigned the same way.
+
+`armada_vessel_hold` holds one vessel and leaves every other vessel running.
+`action=engage` needs `vesselId` and `reason`; `setBy` follows the same rule as
+the fleet hold. While a vessel is held:
+
+- manual dispatch, planning-session dispatch and mission dispatch for the
+  vessel are refused with `vessel_hold_active`, naming the vessel, setter, time
+  and reason;
+- the objective scheduler skips each objective on the vessel with skip reason
+  `vessel_hold` and one `objective_scheduler.skipped_vessel_hold` event per
+  sweep, and still dispatches objectives on other vessels;
+- autonomous recovery defers a rescue for the vessel as it does under the fleet
+  hold, with `vessel_hold on <vessel>` in the `RecoveryNotes` line, and
+  re-evaluates it on the first sweep after the vessel hold clears;
+- creating or approving a deployment of the vessel is refused with
+  `vessel_hold_active`. The deploy guard reads the hold from the database, so
+  every host that serves deployments sees it. Rollback is not refused; it is the
+  way back out of a bad deploy.
+
+In-flight voyages on the vessel continue, stalled captains are relaunched, and
+automatic Checks run, as under the fleet hold. A vessel hold is stored in the
+database beside the fleet hold, restored at startup, and engaged and cleared
+independently of it and of other vessels. Engaging records
+`vessel.hold_engaged` and clearing records `vessel.hold_cleared`. `status` with
+`vesselId` reports that vessel; without it, every vessel hold plus the fleet
+hold. The tool is served by the Admiral; the stdio host reports it unavailable.
 
 Empty voyages created through REST, WebSocket or the remote-control tunnel
 dispatch no work. Missions added to them later go through the admiral

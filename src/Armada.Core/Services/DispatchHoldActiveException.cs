@@ -17,6 +17,16 @@ namespace Armada.Core.Services
         public const string ReasonCode = "dispatch_hold_active";
 
         /// <summary>
+        /// Machine-readable code for a refusal by a vessel hold.
+        /// </summary>
+        public const string VesselReasonCode = "vessel_hold_active";
+
+        /// <summary>
+        /// The refusal code: <see cref="VesselReasonCode"/> for a vessel hold, otherwise <see cref="ReasonCode"/>.
+        /// </summary>
+        public string Code => CodeFor(Hold);
+
+        /// <summary>
         /// The hold that refused the dispatch.
         /// </summary>
         public DispatchHoldSnapshot Hold { get; }
@@ -34,6 +44,20 @@ namespace Armada.Core.Services
             : base(message)
         {
             Hold = hold ?? throw new ArgumentNullException(nameof(hold));
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// The refusal code for a hold.
+        /// </summary>
+        /// <param name="hold">The hold.</param>
+        /// <returns><see cref="VesselReasonCode"/> for a vessel hold, otherwise <see cref="ReasonCode"/>.</returns>
+        public static string CodeFor(DispatchHoldSnapshot? hold)
+        {
+            return String.IsNullOrWhiteSpace(hold?.VesselId) ? ReasonCode : VesselReasonCode;
         }
 
         #endregion

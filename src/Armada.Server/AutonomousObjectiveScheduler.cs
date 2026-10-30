@@ -663,6 +663,25 @@ namespace Armada.Server
                     }
                     token.ThrowIfCancellationRequested();
 
+                    // A held vessel refuses dispatch, so its rows are skipped by name before they spend the
+                    // sweep's candidate and time bounds; rows for every other vessel still dispatch.
+                    DispatchHoldSnapshot? vesselHold = objective.VesselIds
+                        .Select(vesselId => _DispatchHold?.VesselSnapshot(vesselId))
+                        .FirstOrDefault(held => held != null);
+                    if (vesselHold != null)
+                    {
+                        preflightBlocks.Other(objective);
+                        SkipObjective(skipReasons, objective, "vessel_hold", vesselHold.VesselId + ": " + vesselHold.Reason);
+                        await EmitObjectiveEventAsync("objective_scheduler.skipped_vessel_hold",
+                            "Autonomous scheduler skipped objective " + objective.Id + ": vessel " + vesselHold.VesselId
+                                + " is held by " + (String.IsNullOrWhiteSpace(vesselHold.SetBy) ? "unknown" : vesselHold.SetBy)
+                                + " since " + vesselHold.SetByUtc.ToString("u") + ": " + vesselHold.Reason + ".",
+                            objective,
+                            vesselHold.VesselId,
+                            token).ConfigureAwait(false);
+                        continue;
+                    }
+
                     // A row whose recorded preflight does not admit dispatch can never dispatch, and the
                     // preview applies exactly this rule from the same record. Skip it before the preview:
                     // a preview costs seconds, and spending the sweep's candidate and time bounds on rows

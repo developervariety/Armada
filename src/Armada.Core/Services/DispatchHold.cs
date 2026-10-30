@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
@@ -14,6 +16,9 @@ namespace Armada.Core.Services
     /// Without a store the hold lives in memory only.
     /// In-flight work is not held: later stages of a dispatched voyage are assigned and a stalled captain is
     /// relaunched in its dock while the hold is engaged.
+    /// A vessel hold (<see cref="EngageVesselAsync"/>) applies the same refusal to one vessel only, and also refuses
+    /// creating or approving a deployment of that vessel. It is persisted and restored the same way, and the
+    /// fleet-wide hold and each vessel hold are stored, engaged and cleared independently.
     /// </summary>
     public class DispatchHold
     {
@@ -25,6 +30,7 @@ namespace Armada.Core.Services
         private string? _SetBy = null;
         private DateTime _SetByUtc = DateTime.UtcNow;
         private readonly IDispatchHoldMethods? _Store;
+        private readonly Dictionary<string, DispatchHoldSnapshot> _Vessels = new Dictionary<string, DispatchHoldSnapshot>(StringComparer.Ordinal);
 
         #endregion
 
@@ -83,6 +89,13 @@ namespace Armada.Core.Services
         public async Task<DispatchHoldSnapshot?> RestoreAsync(CancellationToken token = default)
         {
             if (_Store == null) return null;
+            List<DispatchHoldSnapshot> vessels = await _Store.ReadVesselsAsync(token).ConfigureAwait(false);
+            lock (_Lock)
+            {
+                _Vessels.Clear();
+                foreach (DispatchHoldSnapshot vessel in vessels) _Vessels[vessel.VesselId!] = vessel;
+            }
+
             DispatchHoldSnapshot? stored = await _Store.ReadAsync(token).ConfigureAwait(false);
             if (stored == null) return null;
             lock (_Lock)
@@ -144,6 +157,84 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Hold one vessel: dispatch and deploy for it are refused until the hold is cleared, while every other vessel
+        /// is unaffected. Engaging again replaces the vessel's reason. Persisted when the hold has a store.
+        /// </summary>
+        /// <param name="vesselId">The vessel.</param>
+        /// <param name="reason">Why the vessel is held.</param>
+        /// <param name="setBy">Who set the hold.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The vessel hold.</returns>
+        public async Task<DispatchHoldSnapshot> EngageVesselAsync(string vesselId, string reason, string? setBy = null, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentException("A vessel id is required to hold a vessel.", nameof(vesselId));
+            if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentException("A reason is required to hold a vessel.", nameof(reason));
+            DispatchHoldSnapshot hold = new DispatchHoldSnapshot { VesselId = vesselId, Reason = reason, SetBy = setBy, SetByUtc = DateTime.UtcNow };
+            if (_Store != null) await _Store.SaveVesselAsync(hold, token).ConfigureAwait(false);
+            lock (_Lock)
+            {
+                _Vessels[vesselId] = hold;
+            }
+
+            return hold;
+        }
+
+        /// <summary>
+        /// Clear one vessel's hold. Persisted when the hold has a store.
+        /// </summary>
+        /// <param name="vesselId">The vessel.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The hold that was cleared, or null when the vessel was not held.</returns>
+        public async Task<DispatchHoldSnapshot?> ClearVesselAsync(string vesselId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentException("A vessel id is required to clear a vessel hold.", nameof(vesselId));
+            if (_Store != null) await _Store.ClearVesselAsync(vesselId, token).ConfigureAwait(false);
+            lock (_Lock)
+            {
+                if (!_Vessels.TryGetValue(vesselId, out DispatchHoldSnapshot? previous)) return null;
+                _Vessels.Remove(vesselId);
+                return previous;
+            }
+        }
+
+        /// <summary>
+        /// The hold on one vessel, or null when it is not held.
+        /// </summary>
+        /// <param name="vesselId">The vessel.</param>
+        /// <returns>The vessel hold, or null.</returns>
+        public DispatchHoldSnapshot? VesselSnapshot(string? vesselId)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) return null;
+            lock (_Lock)
+            {
+                return _Vessels.TryGetValue(vesselId, out DispatchHoldSnapshot? hold) ? Copy(hold) : null;
+            }
+        }
+
+        /// <summary>
+        /// Every vessel hold, ordered by vessel id.
+        /// </summary>
+        /// <returns>The vessel holds.</returns>
+        public List<DispatchHoldSnapshot> VesselHolds()
+        {
+            lock (_Lock)
+            {
+                return _Vessels.Values.OrderBy(hold => hold.VesselId, StringComparer.Ordinal).Select(Copy).ToList();
+            }
+        }
+
+        /// <summary>
+        /// Refuse a dispatch for a vessel: throws when the fleet-wide hold is engaged or the vessel is held.
+        /// </summary>
+        /// <param name="vesselId">The vessel the dispatch is for; null checks the fleet-wide hold only.</param>
+        public void ThrowIfActive(string? vesselId)
+        {
+            ThrowIfActive();
+            DispatchHoldSnapshot? hold = VesselSnapshot(vesselId);
+            if (hold != null) throw new DispatchHoldActiveException(hold, RefusalMessage(hold));
+        }
+
+        /// <summary>
         /// The one dispatch-hold admission rule. Every path that creates a voyage or dispatches a
         /// mission calls this before it writes anything. Throws
         /// <see cref="DispatchHoldActiveException"/> (an InvalidOperationException) when the hold
@@ -189,9 +280,25 @@ namespace Armada.Core.Services
         {
             if (hold == null) throw new ArgumentNullException(nameof(hold));
             string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
+            if (!String.IsNullOrWhiteSpace(hold.VesselId))
+            {
+                return DispatchHoldActiveException.VesselReasonCode + ": Vessel " + hold.VesselId + " is held since "
+                    + hold.SetByUtc.ToString("u") + " (set by " + holder + "): " + hold.Reason
+                    + " Nothing was accepted or created for this vessel; other vessels are not held."
+                    + " Dispatch or deploy again once the vessel hold is cleared (armada_vessel_hold action=clear).";
+            }
             return DispatchHoldActiveException.ReasonCode + ": Dispatch hold active since " + hold.SetByUtc.ToString("u") +
                 " (set by " + holder + "): " + hold.Reason +
                 " Nothing was accepted or created. Dispatch again once the hold is cleared (armada_dispatch_hold action=clear after Armada is redeployed).";
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static DispatchHoldSnapshot Copy(DispatchHoldSnapshot hold)
+        {
+            return new DispatchHoldSnapshot { VesselId = hold.VesselId, Reason = hold.Reason, SetBy = hold.SetBy, SetByUtc = hold.SetByUtc };
         }
 
         #endregion

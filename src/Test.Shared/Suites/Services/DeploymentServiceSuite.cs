@@ -190,6 +190,58 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("vessel_hold_refuses_create_and_approve_for_its_vessel_only", "A vessel hold refuses creating and approving a deployment of its vessel, leaves another vessel deployable, and lifts on clear", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DeploymentService deployments = CreateDeploymentService(testDb);
+
+                string tenantId = "ten_deploy_vessel_hold";
+                string userId = "usr_deploy_vessel_hold";
+                string heldDirectory = CreateWorkingDirectory("deployment-held");
+                string otherDirectory = CreateWorkingDirectory("deployment-other");
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+                    (Vessel held, DeploymentUpsertRequest heldRequest) = await CreateApprovalVesselAsync(testDb, tenantId, userId, heldDirectory).ConfigureAwait(false);
+                    (Vessel other, DeploymentUpsertRequest otherRequest) = await CreateApprovalVesselAsync(testDb, tenantId, userId, otherDirectory).ConfigureAwait(false);
+
+                    Deployment pending = await deployments.CreateAsync(auth, heldRequest).ConfigureAwait(false);
+                    AssertEqual(DeploymentStatusEnum.PendingApproval, pending.Status);
+
+                    // The hold is engaged through a separate instance over the same store, as another host would.
+                    DispatchHold engagingHost = new DispatchHold(testDb.Driver.DispatchHolds);
+                    await engagingHost.EngageVesselAsync(held.Id, "consumer gap open", "session-hold").ConfigureAwait(false);
+
+                    string createRefusal = await RefusalAsync(() => deployments.CreateAsync(auth, heldRequest)).ConfigureAwait(false);
+                    AssertStartsWith(DispatchHoldActiveException.VesselReasonCode, createRefusal);
+                    AssertContains(held.Id, createRefusal);
+                    AssertContains("consumer gap open", createRefusal);
+                    List<Deployment> heldDeployments = await testDb.Driver.Deployments.EnumerateAllAsync(new DeploymentQuery { VesselId = held.Id }).ConfigureAwait(false);
+                    AssertEqual(1, heldDeployments.Count, "a refused create writes no deployment");
+
+                    string approveRefusal = await RefusalAsync(() => deployments.ApproveAsync(auth, pending.Id, "Ship it.")).ConfigureAwait(false);
+                    AssertStartsWith(DispatchHoldActiveException.VesselReasonCode, approveRefusal);
+                    Deployment stillPending = NotNull(await testDb.Driver.Deployments.ReadAsync(pending.Id).ConfigureAwait(false));
+                    AssertEqual(DeploymentStatusEnum.PendingApproval, stillPending.Status);
+                    AssertTrue(String.IsNullOrWhiteSpace(stillPending.DeployCheckRunId), "a refused approval runs no deploy");
+
+                    Deployment otherPending = await deployments.CreateAsync(auth, otherRequest).ConfigureAwait(false);
+                    Deployment otherApproved = await deployments.ApproveAsync(auth, otherPending.Id, "Ship it.").ConfigureAwait(false);
+                    AssertEqual(DeploymentStatusEnum.Succeeded, otherApproved.Status, "another vessel deploys while one vessel is held");
+
+                    await engagingHost.ClearVesselAsync(held.Id).ConfigureAwait(false);
+                    Deployment approved = await deployments.ApproveAsync(auth, pending.Id, "Ship it.").ConfigureAwait(false);
+                    AssertEqual(DeploymentStatusEnum.Succeeded, approved.Status, "the held vessel deploys once its hold clears");
+                }
+                finally
+                {
+                    TryDeleteDirectory(heldDirectory);
+                    TryDeleteDirectory(otherDirectory);
+                }
+            }));
+
             cases.Add(CaseAsync("pinned_commit_ships_after_branch_moves", "A deployment ships the commit its ref named at create, even after the branch moves before approval", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -479,6 +531,40 @@ namespace Test.Shared.Suites.Services
                 BuildCommand = "echo build",
                 Environments = environments
             };
+        }
+
+        private static async Task<(Vessel Vessel, DeploymentUpsertRequest Request)> CreateApprovalVesselAsync(TestDatabase testDb, string tenantId, string userId, string workingDirectory)
+        {
+            Vessel draft = CreateVessel(tenantId, userId, workingDirectory);
+            draft.Name = "Deployment Vessel " + Path.GetFileName(workingDirectory);
+            Vessel vessel = await testDb.Driver.Vessels.CreateAsync(draft).ConfigureAwait(false);
+            WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(CreateWorkflowProfile(tenantId, userId, vessel.Id, new List<WorkflowEnvironmentProfile>
+            {
+                new WorkflowEnvironmentProfile
+                {
+                    EnvironmentName = "production",
+                    DeployCommand = "echo deploy-production"
+                }
+            })).ConfigureAwait(false);
+            DeploymentEnvironment environment = await testDb.Driver.Environments.CreateAsync(new DeploymentEnvironment
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                VesselId = vessel.Id,
+                Name = "production",
+                Kind = EnvironmentKindEnum.Production,
+                IsDefault = true,
+                Active = true,
+                RequiresApproval = true
+            }).ConfigureAwait(false);
+            return (vessel, new DeploymentUpsertRequest
+            {
+                VesselId = vessel.Id,
+                WorkflowProfileId = profile.Id,
+                EnvironmentId = environment.Id,
+                Title = "Held Deploy",
+                AutoExecute = true
+            });
         }
 
         private static CheckRun NotNull(CheckRun? run)

@@ -36,6 +36,11 @@ namespace Armada.Core.Services
         public string Reason { get; set; } = String.Empty;
 
         /// <summary>
+        /// The held vessel, or null for the fleet-wide hold.
+        /// </summary>
+        public string? VesselId { get; set; } = null;
+
+        /// <summary>
         /// What the caller should do next.
         /// </summary>
         public string Action { get; set; } = "Nothing was accepted or created. Dispatch again after the hold is cleared; ask its owner.";
@@ -55,6 +60,8 @@ namespace Armada.Core.Services
             return new DispatchHoldRefusal
             {
                 Error = DispatchHold.RefusalMessage(hold),
+                Code = DispatchHoldActiveException.CodeFor(hold),
+                VesselId = hold.VesselId,
                 SetBy = hold.SetBy,
                 SetByUtc = hold.SetByUtc,
                 Reason = hold.Reason

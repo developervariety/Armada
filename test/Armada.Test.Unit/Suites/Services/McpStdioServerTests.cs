@@ -213,6 +213,7 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             new UnavailableCallCase("armada_objective_scheduler_status", "{}", "Unavailable: objective scheduler"),
                             new UnavailableCallCase("armada_dispatch_hold", "{\"action\":\"status\"}", "Unavailable: dispatch hold"),
+                            new UnavailableCallCase("armada_vessel_hold", "{\"action\":\"status\"}", "Unavailable: vessel hold"),
                             new UnavailableCallCase("create_backlog_refinement_session", "{\"objectiveId\":\"obj_demo\",\"captainId\":\"cpt_demo\"}", "Unavailable: objective refinement"),
                             new UnavailableCallCase("create_backlog_planning_session", "{\"objectiveId\":\"obj_demo\",\"captainId\":\"cpt_demo\",\"vesselId\":\"vsl_demo\"}", "Unavailable: planning sessions"),
                             new UnavailableCallCase("armada_typed_decision_eval", "{}", "Unavailable: typed decision evaluation"),

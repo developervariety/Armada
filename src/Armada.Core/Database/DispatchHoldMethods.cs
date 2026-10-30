@@ -1,6 +1,7 @@
 namespace Armada.Core.Database
 {
     using System;
+    using System.Collections.Generic;
     using System.Data.Common;
     using System.Threading;
     using System.Threading.Tasks;
@@ -15,6 +16,7 @@ namespace Armada.Core.Database
     {
         private const string _Table = "dispatch_holds";
         private const string _RowId = "dispatch-hold";
+        private const string _VesselRowPrefix = "vessel:";
         private readonly Func<DbConnection> _ConnectionFactory;
         private readonly DatabaseTypeEnum _Provider;
 
@@ -28,9 +30,22 @@ namespace Armada.Core.Database
         }
 
         /// <inheritdoc />
-        public async Task SaveAsync(DispatchHoldSnapshot hold, CancellationToken token = default)
+        public Task SaveAsync(DispatchHoldSnapshot hold, CancellationToken token = default)
         {
             if (hold == null) throw new ArgumentNullException(nameof(hold));
+            return SaveRowAsync(_RowId, hold, token);
+        }
+
+        /// <inheritdoc />
+        public Task SaveVesselAsync(DispatchHoldSnapshot hold, CancellationToken token = default)
+        {
+            if (hold == null) throw new ArgumentNullException(nameof(hold));
+            if (String.IsNullOrWhiteSpace(hold.VesselId)) throw new ArgumentException("A vessel hold needs a vessel id.", nameof(hold));
+            return SaveRowAsync(_VesselRowPrefix + hold.VesselId, hold, token);
+        }
+
+        private async Task SaveRowAsync(string rowId, DispatchHoldSnapshot hold, CancellationToken token)
+        {
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
@@ -41,7 +56,8 @@ namespace Armada.Core.Database
                         using (DbCommand delete = connection.CreateCommand())
                         {
                             delete.Transaction = transaction;
-                            delete.CommandText = "DELETE FROM " + _Table + ";";
+                            delete.CommandText = "DELETE FROM " + _Table + " WHERE id = @id;";
+                            ProductionFactSql.Add(delete, "@id", rowId);
                             await delete.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         }
 
@@ -49,7 +65,7 @@ namespace Armada.Core.Database
                         {
                             insert.Transaction = transaction;
                             insert.CommandText = "INSERT INTO " + _Table + " (id, reason, set_by, set_utc) VALUES (@id, @reason, @set_by, @set_utc);";
-                            ProductionFactSql.Add(insert, "@id", _RowId);
+                            ProductionFactSql.Add(insert, "@id", rowId);
                             ProductionFactSql.Add(insert, "@reason", hold.Reason);
                             ProductionFactSql.Add(insert, "@set_by", hold.SetBy);
                             ProductionFactSql.AddUtc(insert, "@set_utc", hold.SetByUtc, _Provider);
@@ -63,7 +79,19 @@ namespace Armada.Core.Database
         }
 
         /// <inheritdoc />
-        public async Task ClearAsync(CancellationToken token = default)
+        public Task ClearAsync(CancellationToken token = default)
+        {
+            return ClearRowAsync(_RowId, token);
+        }
+
+        /// <inheritdoc />
+        public Task ClearVesselAsync(string vesselId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+            return ClearRowAsync(_VesselRowPrefix + vesselId, token);
+        }
+
+        private async Task ClearRowAsync(string rowId, CancellationToken token)
         {
             using (DbConnection connection = _ConnectionFactory())
             {
@@ -72,7 +100,8 @@ namespace Armada.Core.Database
                 {
                     using (DbCommand command = connection.CreateCommand())
                     {
-                        command.CommandText = "DELETE FROM " + _Table + ";";
+                        command.CommandText = "DELETE FROM " + _Table + " WHERE id = @id;";
+                        ProductionFactSql.Add(command, "@id", rowId);
                         await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
                 }
@@ -101,6 +130,38 @@ namespace Armada.Core.Database
                     }
                 }
             }
+        }
+
+        /// <inheritdoc />
+        public async Task<List<DispatchHoldSnapshot>> ReadVesselsAsync(CancellationToken token = default)
+        {
+            List<DispatchHoldSnapshot> holds = new List<DispatchHoldSnapshot>();
+            using (DbConnection connection = _ConnectionFactory())
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT id, reason, set_by, set_utc FROM " + _Table + " WHERE id LIKE @prefix;";
+                    ProductionFactSql.Add(command, "@prefix", _VesselRowPrefix + "%");
+                    using (DbDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false))
+                        {
+                            string id = Convert.ToString(reader["id"])!;
+                            if (!id.StartsWith(_VesselRowPrefix, StringComparison.Ordinal)) continue;
+                            holds.Add(new DispatchHoldSnapshot
+                            {
+                                VesselId = id.Substring(_VesselRowPrefix.Length),
+                                Reason = Convert.ToString(reader["reason"])!,
+                                SetBy = ProductionFactSql.ReadText(reader["set_by"]),
+                                SetByUtc = ProductionFactSql.ReadUtc(reader["set_utc"])
+                            });
+                        }
+                    }
+                }
+            }
+
+            return holds;
         }
     }
 }

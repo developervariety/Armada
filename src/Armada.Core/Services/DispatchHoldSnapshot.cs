@@ -21,5 +21,10 @@ namespace Armada.Core.Services
         /// When the hold was engaged, in UTC.
         /// </summary>
         public DateTime SetByUtc { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// The held vessel, or null for the fleet-wide hold.
+        /// </summary>
+        public string? VesselId { get; set; } = null;
     }
 }

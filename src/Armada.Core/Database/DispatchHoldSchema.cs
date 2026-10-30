@@ -1,7 +1,7 @@
 namespace Armada.Core.Database
 {
     /// <summary>
-    /// Schema of the dispatch hold table for each supported database. The table holds at most one row: the hold that is engaged.
+    /// Schema of the dispatch hold table for each supported database. The table holds the engaged fleet-wide hold, at most one row, and one row per held vessel.
     /// </summary>
     internal static class DispatchHoldSchema
     {

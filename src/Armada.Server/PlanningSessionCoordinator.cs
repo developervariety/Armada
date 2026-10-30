@@ -355,6 +355,7 @@ namespace Armada.Server
             _Admiral.DispatchHold?.ThrowIfActive();
 
             session = await RequireSessionAsync(session.Id, token).ConfigureAwait(false);
+            _Admiral.DispatchHold?.ThrowIfActive(session.VesselId);
             PlanningSessionMessage sourceMessage = await ResolveSourceMessageAsync(session, request.MessageId, token).ConfigureAwait(false);
 
             string title = !String.IsNullOrWhiteSpace(request.Title)

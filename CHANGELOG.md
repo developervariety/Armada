@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A vessel can be held without holding the fleet
+
+- `armada_vessel_hold` engages, clears and reports a hold on one vessel. Other vessels are unaffected.
+- A held vessel refuses manual and planning-session dispatch, objective scheduler admission (skip reason `vessel_hold`), autonomous rescue, and creating or approving a deployment, with the code `vessel_hold_active`. Rollback is not refused.
+- The hold is stored in the database, kept across a restart, and engaged and cleared independently of the fleet-wide dispatch hold.
+
 ### Job lists read only new or changed journal records
 
 - `GET /api/v1/jobs` and `POST /api/v1/jobs/enumerate` keep each readable job journal record with its file length and write time, and read a record again only when either changes. A deleted record leaves the list; an unreadable record is still read, counted in `UnreadableJournalRecords` and logged on every list.
