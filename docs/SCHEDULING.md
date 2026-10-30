@@ -300,7 +300,7 @@ section in the settings file (picked up by the settings-file watcher or by
 `POST /api/v1/settings/reload`) takes effect on the next sweep: `enabled`,
 `paused` with its `pausedBy`, `pausedUtc` and `pauseReason`, `intervalMinutes`,
 both concurrency ceilings and `fairShareWithinPriorityBands`. A later
-`armada_objective_scheduler_set` or stale-pause clear writes the live section
+`armada_objective_scheduler_set` writes the live section
 back, so it keeps the edited values and changes only the fields it sets. A pause
 set through the tool is written to the file, so a reload of that file and a
 restart both keep the pause and its attribution. Turning

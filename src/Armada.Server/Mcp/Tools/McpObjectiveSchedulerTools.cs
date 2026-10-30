@@ -349,10 +349,6 @@ namespace Armada.Server.Mcp.Tools
             public List<string>? BlockedByObjectiveIds { get; set; } = null;
         }
 
-        /// <summary>
-        /// Strongly-typed DTO for armada_objective_scheduler_clear_stale_pause arguments.
-        /// </summary>
-
         #endregion
     }
 }

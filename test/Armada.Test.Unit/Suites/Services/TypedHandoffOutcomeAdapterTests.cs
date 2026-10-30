@@ -153,7 +153,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(HandoffOutcomeAction.Halt, result.Action);
                 AssertEqual("handoff_blocked:blocked_owner_question", result.HaltReason);
-                AssertTrue(result.OwnerNote, "an owner-question halt posts an owner-addressed board note");
+                AssertTrue(result.OwnerNote, "an owner-question halt is marked as a blocked owner question");
                 AssertTrue(result.PreserveBranch, "a halt preserves the branch");
             }).ConfigureAwait(false);
 

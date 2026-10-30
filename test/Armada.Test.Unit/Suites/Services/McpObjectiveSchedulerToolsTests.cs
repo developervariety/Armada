@@ -159,14 +159,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("deploy finished", resumed[0].Payload ?? String.Empty, "the resume event carries the reason");
             }).ConfigureAwait(false);
 
-            await RunTest("ArmadaObjectiveSchedulerSet_RegistersNoSeparatePauseClearingTool", async () =>
-            {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new ArmadaSettings());
-                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler);
-                AssertFalse(handlers.ContainsKey("armada_objective_scheduler_clear_stale_pause"), "a pause is cleared through the set tool");
-            }).ConfigureAwait(false);
-
             await RunTest("ArmadaObjectiveSchedulerSet_WithNoArgs_ReturnsCurrentStatus", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

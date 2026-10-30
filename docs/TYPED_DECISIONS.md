@@ -471,8 +471,7 @@ No partial answers reach an adapter or a list tally. Noul confidence remains opt
 Rounded probabilities need not sum to exactly one. This check adds no provider call.
 
 Tool events name the calling tool in `tool_name` and retain the authenticated caller
-as `participant_key`, including calls
-without a mission. This field is attribution only. It does not grant access and does
+as `caller_identity`, including calls without a mission. This field is attribution only. It does not grant access and does
 not fill `CaptainId`; that field comes from the mission for tool calls. Custom tool
 calls use the same distinction, including their shadow and unavailable events.
 

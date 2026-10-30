@@ -42,7 +42,8 @@ namespace Armada.Core.Services
     /// The runner is off until the owner enables the <c>owner_digest</c> decision: while the decision is
     /// Off it is dormant and records nothing, so it is never forced on. It NEVER answers a question,
     /// dispatches, lands, or changes any objective, incident, or claim — its only effect is one
-    /// observability event per day. the runner records no ruling. It never throws into its caller.
+    /// observability event per day. Every proposed default is a suggestion the owner may accept;
+    /// the runner records no ruling. It never throws into its caller.
     /// </summary>
     public sealed class OwnerDigestRunner
     {

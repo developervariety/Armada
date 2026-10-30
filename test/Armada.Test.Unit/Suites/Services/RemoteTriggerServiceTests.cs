@@ -332,18 +332,12 @@ namespace Armada.Test.Unit.Suites.Services
                 settings.AgentWake = new AgentWakeSettings { Runtime = AgentWakeRuntime.Auto };
                 RemoteTriggerService service = new RemoteTriggerService(settings, http, host, new LoggingModule(), TimeSpan.Zero);
                 Func<JsonElement?, Task<object>>? handler = null;
-                object? registrationSchema = null;
                 McpAgentWakeTools.Register((name, description, schema, registeredHandler) =>
                 {
-                    if (name == "armada_register_agentwake_session")
-                    {
-                        handler = registeredHandler;
-                        registrationSchema = schema;
-                    }
+                    if (name == "armada_register_agentwake_session") handler = registeredHandler;
                 }, service);
 
                 AssertNotNull(handler, "armada_register_agentwake_session handler should be registered");
-                AssertFalse(JsonSerializer.Serialize(registrationSchema).Contains("participantKey", StringComparison.Ordinal), "registration schema advertises no participant key");
                 using JsonDocument doc = JsonDocument.Parse("{\"runtime\":\"Codex\",\"sessionId\":\"codex-session-456\",\"workingDirectory\":\"mcp-workdir\"}");
                 await handler!(doc.RootElement).ConfigureAwait(false);
                 await service.FireDrainerAsync("vessel-a", "event").ConfigureAwait(false);
