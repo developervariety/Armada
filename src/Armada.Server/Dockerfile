@@ -93,6 +93,12 @@ COPY battery/ battery/
 ARG GIT_SHA=""
 RUN dotnet publish src/Armada.Server -c Release -f net10.0 -o /app --no-restore -p:_GitSha="$GIT_SHA"
 
+# Publish copies the battery packs with the modes they have in the build context, so a
+# checkout made under a restrictive umask ships them unreadable to a non-root admiral.
+# The packs are public fixture data: make them world-readable, keep directories
+# traversable, and leave execute bits only where a file already had one.
+RUN if [ -d /app/battery ]; then chmod -R a+rX /app/battery; fi
+
 # --- Runtime stage ---
 # Captains run repository checks inside mission docks. Use the SDK image so
 # .NET vessel gates can honor repo global.json files instead of failing after

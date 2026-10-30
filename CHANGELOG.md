@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Battery packs readable in the image
+
+- The server image makes the packaged battery packs world-readable and their directories traversable, whatever modes the build checkout gave them, so a non-root admiral can read every pack manifest and fixture. File contents and existing execute bits are unchanged.
+
 ### Judge Check evidence names executed and adopted Checks
 
 - The Judge brief section is `## Check Evidence`. Its lead says `Executed` when the passing UnitTest Check ran its command, or `Adopted from DoD` with the definition-of-done gate's mission and commit when the Check took that gate's pass; an adopted Check states that it ran no command. Which tests the Judge runs, and every gate requirement, are unchanged.
