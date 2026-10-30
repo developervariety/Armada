@@ -13,10 +13,9 @@ namespace Armada.Core.Services
     using SyslogLogging;
 
     /// <summary>
-    /// The D11 <c>inbox_triage</c> decision adapter. It scores inbox items and coordination board
-    /// notes for how urgently a human is needed, and — only in Gate mode, only at or above the
-    /// decision threshold — annotates each with an <c>attention</c> label (and a board note with a
-    /// <c>note_kind</c>) and re-orders the response by attention.
+    /// The D11 <c>inbox_triage</c> decision adapter. It scores inbox items for how urgently a human
+    /// is needed, and — only in Gate mode, only at or above the decision threshold — annotates each
+    /// with an <c>attention</c> label and re-orders the response by attention.
     ///
     /// Triage is additive and non-destructive: NOTHING is hidden, dropped, dismissed, or merged. Off,
     /// an unavailable model, a Shadow-mode call, and a below-threshold answer all return the input in
@@ -34,9 +33,8 @@ namespace Armada.Core.Services
         public const string DecisionPoint = "inbox_triage";
 
         /// <summary>
-        /// Upper bound on items scored per inbox call and notes scored per coordination read. Inbox and
-        /// coordination read are interactive, so triage is bounded; the tail beyond the budget keeps its
-        /// deterministic position with no attention label.
+        /// Upper bound on items scored per inbox call. The inbox is interactive, so triage is bounded; the
+        /// tail beyond the budget keeps its deterministic position with no attention label.
         /// </summary>
         public const int MaxItemsPerCall = 40;
 
@@ -46,7 +44,6 @@ namespace Armada.Core.Services
 
         private const string _Header = "[InboxTriageAdapter] ";
         private const string _AttentionQuestionId = "needs_human_now";
-        private const string _NoteKindQuestionId = "note_kind";
 
         // The attention Score levels, most urgent last, matching the index order the model returns.
         private static readonly IReadOnlyList<string> _AttentionLevels = new List<string>
@@ -113,7 +110,7 @@ namespace Armada.Core.Services
             try
             {
                 outcomes = await ScoreAttentionAsync(scored.Select(BuildInboxState).ToList(), scored.Select(MissionIdOf).ToList(), scored.Select(SubjectOf).ToList(),
-                    scored.Select(item => (IEnumerable<string?>)(item.VesselIds ?? new List<string>())).ToList(), "severity_order", null, cfg, token).ConfigureAwait(false);
+                    scored.Select(item => (IEnumerable<string?>)(item.VesselIds ?? new List<string>())).ToList(), "severity_order", cfg, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -144,51 +141,6 @@ namespace Armada.Core.Services
                 .ToList();
         }
 
-        /// <summary>
-        /// Classify coordination board notes for attention and kind. In Gate mode at or above threshold
-        /// each note gets an attention label and a note kind, returned keyed by note id for the caller
-        /// to apply and sort by; the result is empty in every non-gate case (Off, Shadow, below
-        /// threshold, unavailable), so the caller keeps its deterministic order. Nothing is ever
-        /// removed. Never throws into the caller.
-        /// </summary>
-        /// <param name="notes">The board notes to classify. Null is treated as empty.</param>
-        /// <param name="token">Cancellation token, forwarded to the client so its timeout links to the caller.</param>
-        /// <returns>Per-note triage keyed by note id, or an empty list in every non-gate case; never null.</returns>
-        public async Task<IReadOnlyList<BoardNoteTriage>> TriageBoardNotesAsync(IReadOnlyList<BoardNoteTriageInput>? notes, CancellationToken token)
-        {
-            List<BoardNoteTriage> results = new List<BoardNoteTriage>();
-            if (notes == null || notes.Count == 0) return results;
-
-            ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
-            if (cfg.Mode == TypedDecisionModeEnum.Off) return results;
-
-            List<BoardNoteTriageInput> scored = notes.Where(note => note != null).Take(MaxItemsPerCall).ToList();
-
-            List<AttentionOutcome> outcomes;
-            try
-            {
-                outcomes = await ScoreAttentionAsync(scored.Select(BuildNoteState).ToList(), scored.Select(note => note.MissionId).ToList(),
-                    scored.Select(NoteSubjectOf).ToList(),
-                    scored.Select(note => (IEnumerable<string?>)(note.VesselIds ?? new List<string>())).ToList(), "unsorted", NoteKindQuestion(), cfg, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "board-note triage failed, deterministic order stands: " + ex.Message);
-                return new List<BoardNoteTriage>();
-            }
-
-            for (int index = 0; index < outcomes.Count; index++)
-            {
-                AttentionOutcome outcome = outcomes[index];
-                if (!outcome.Available) return new List<BoardNoteTriage>();
-
-                if (outcome.Applied && outcome.Attention != null)
-                    results.Add(new BoardNoteTriage { Id = scored[index].Id, Attention = outcome.Attention, NoteKind = outcome.NoteKind });
-            }
-
-            return results;
-        }
-
         #endregion
 
         #region Private-Methods
@@ -199,7 +151,6 @@ namespace Armada.Core.Services
             List<TypedDecisionSubject?> subjects,
             List<IEnumerable<string?>> vesselIds,
             string ruleVerdict,
-            TypedQuestion? extraQuestion,
             ResolvedTypedDecision cfg,
             CancellationToken token)
         {
@@ -209,7 +160,6 @@ namespace Armada.Core.Services
                     "A human needs to act on this item now. Place the urgency on the scale below.",
                     _AttentionLevels)
             };
-            if (extraQuestion != null) questions[_NoteKindQuestionId] = extraQuestion;
 
             // Items are independent, so they are scored together in as few requests as the limits allow;
             // each item still gets its own recorded event.
@@ -250,9 +200,8 @@ namespace Armada.Core.Services
                 }
 
                 string attention = InterpretAttention(result, out double confidence);
-                string? noteKind = extraQuestion == null ? null : InterpretNoteKind(result);
                 bool apply = cfg.Mode == TypedDecisionModeEnum.Gate && confidence >= cfg.GateThreshold;
-                string verdict = noteKind == null ? attention : attention + "/" + noteKind;
+                string verdict = attention;
 
                 if (apply)
                 {
@@ -266,7 +215,7 @@ namespace Armada.Core.Services
                         BuildContext(ruleVerdict, verdict, confidence, result, redacted, missionId, subject), outcome, token)).ConfigureAwait(false);
                 }
 
-                outcomes.Add(new AttentionOutcome { Available = true, Applied = apply, Attention = attention, NoteKind = noteKind });
+                outcomes.Add(new AttentionOutcome { Available = true, Applied = apply, Attention = attention });
             }
 
             return outcomes;
@@ -284,14 +233,6 @@ namespace Armada.Core.Services
             };
         }
 
-        // The mission an inbox item is about, when the item names one; a record link, never part of the state.
-        // A note about a mission records the mission; any other note records itself.
-        private static TypedDecisionSubject? NoteSubjectOf(BoardNoteTriageInput note)
-        {
-            if (!String.IsNullOrWhiteSpace(note.MissionId) || String.IsNullOrWhiteSpace(note.Id)) return null;
-            return new TypedDecisionSubject(TypedDecisionRecorder.SubjectTypeBoardNote, note.Id.Trim());
-        }
-
         // An item about a mission records the mission; an item about another record (an incident, an
         // objective, a check) records that record; an item about no record has no subject.
         private static TypedDecisionSubject? SubjectOf(InboxItem item)
@@ -305,30 +246,6 @@ namespace Armada.Core.Services
         {
             if (!String.Equals(item.EntityType, "mission", StringComparison.OrdinalIgnoreCase)) return null;
             return String.IsNullOrWhiteSpace(item.EntityId) ? null : item.EntityId;
-        }
-
-        private static object BuildNoteState(BoardNoteTriageInput note)
-        {
-            return new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["author_type"] = note.AuthorType,
-                ["content"] = note.Content
-            };
-        }
-
-        private static TypedQuestion NoteKindQuestion()
-        {
-            return new ChoiceQuestion(
-                "What kind of coordination note is this?",
-                new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["handoff"] = "work or an answer handed to another session to pick up",
-                    ["status"] = "a progress or outcome report, informational",
-                    ["question"] = "a question waiting on an answer",
-                    ["stop_sign"] = "an overlap or claim warning that another session should stop",
-                    ["hold_notice"] = "a dispatch-hold or pause notice",
-                    ["other"] = "none of the kinds fit"
-                });
         }
 
         private static string InterpretAttention(TypedDecisionResult result, out double confidence)
@@ -345,13 +262,6 @@ namespace Armada.Core.Services
             if (index < 0) index = 0;
             if (index >= _AttentionLevels.Count) index = _AttentionLevels.Count - 1;
             return _AttentionLevels[index];
-        }
-
-        private static string? InterpretNoteKind(TypedDecisionResult result)
-        {
-            IReadOnlyDictionary<string, TypedAnswer> answers = result.Answers ?? new Dictionary<string, TypedAnswer>();
-            if (!answers.TryGetValue(_NoteKindQuestionId, out TypedAnswer? answer) || answer == null) return null;
-            return String.IsNullOrWhiteSpace(answer.Choice) ? null : answer.Choice!.Trim();
         }
 
         private static int AttentionRank(string? attention)
@@ -399,7 +309,6 @@ namespace Armada.Core.Services
             public bool Available { get; init; }
             public bool Applied { get; init; }
             public string? Attention { get; init; }
-            public string? NoteKind { get; init; }
         }
 
         private sealed class InboxAttentionAssignment
@@ -409,44 +318,5 @@ namespace Armada.Core.Services
         }
 
         #endregion
-    }
-
-    /// <summary>
-    /// One coordination board note handed to the D11 triage adapter. It carries the fields the model
-    /// reads, plus the related mission id, which is recorded on the decision event and never sent; the
-    /// caller keeps the full note and applies the returned triage by id.
-    /// </summary>
-    public sealed class BoardNoteTriageInput
-    {
-        /// <summary>The note id, used to map the triage result back to the caller's note.</summary>
-        public required string Id { get; init; }
-
-        /// <summary>The note author kind (for example System or Operator).</summary>
-        public string? AuthorType { get; init; }
-
-        /// <summary>The note content.</summary>
-        public string? Content { get; init; }
-
-        /// <summary>The mission the note relates to, when any. A record link only; never part of the state.</summary>
-        public string? MissionId { get; init; }
-
-        /// <summary>The vessels the note relates to, when known, for the egress vessel rule; never part of the state.</summary>
-        public IReadOnlyList<string> VesselIds { get; init; } = new List<string>();
-    }
-
-    /// <summary>
-    /// The D11 triage of one board note: an attention label and a note kind, keyed by note id. Only
-    /// produced in Gate mode at or above threshold; the caller applies it to its own note view.
-    /// </summary>
-    public sealed class BoardNoteTriage
-    {
-        /// <summary>The note id this triage belongs to.</summary>
-        public required string Id { get; init; }
-
-        /// <summary>The attention label (see <see cref="InboxItem.Attention"/> values).</summary>
-        public string? Attention { get; init; }
-
-        /// <summary>The note kind: handoff, status, question, stop_sign, or hold_notice.</summary>
-        public string? NoteKind { get; init; }
     }
 }

@@ -166,15 +166,15 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// The board note that reports a hold restored at startup, naming the reason and who set it.
+        /// The message that reports a hold restored at startup, naming the reason and who set it.
         /// </summary>
         /// <param name="hold">The restored hold.</param>
-        /// <returns>The note text.</returns>
-        public static string RestoredNote(DispatchHoldSnapshot hold)
+        /// <returns>The message text.</returns>
+        public static string RestoredMessage(DispatchHoldSnapshot hold)
         {
             if (hold == null) throw new ArgumentNullException(nameof(hold));
             string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
-            return "[hold] Dispatch hold restored after an admiral restart. Set by " + holder + " at " +
+            return "Dispatch hold restored after an admiral restart. Set by " + holder + " at " +
                 hold.SetByUtc.ToString("u") + ": " + hold.Reason + " Dispatching stays paused until the hold is cleared.";
         }
 

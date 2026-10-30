@@ -49,7 +49,7 @@ namespace Armada.Core.Services
         /// <summary>The halt reason, of the form <c>handoff_blocked:&lt;outcome&gt;</c>, when the action is Halt.</summary>
         public string? HaltReason { get; }
 
-        /// <summary>Whether a halt should post an owner-addressed board note (only for <c>blocked_owner_question</c>).</summary>
+        /// <summary>Whether the halt is a blocked owner question (only for <c>blocked_owner_question</c>).</summary>
         public bool OwnerNote { get; }
 
         /// <summary>Whether a halt preserves the finished stage's branch (always true on Halt).</summary>
@@ -100,7 +100,7 @@ namespace Armada.Core.Services
 
         /// <summary>Build a halt verdict for a blocked or off-premise outcome.</summary>
         /// <param name="outcome">The blocking outcome choice.</param>
-        /// <param name="ownerNote">Whether to post an owner-addressed board note.</param>
+        /// <param name="ownerNote">Whether the halt is a blocked owner question.</param>
         /// <returns>A halt verdict that preserves the branch.</returns>
         public static HandoffOutcomeVerdict Halt(string outcome, bool ownerNote)
         {
@@ -223,8 +223,7 @@ namespace Armada.Core.Services
     /// <list type="bullet">
     /// <item>A <c>blocked_missing_context</c>, <c>blocked_owner_question</c>, or <c>off_premise</c>
     /// outcome at or above threshold HALTS the voyage before the next stage: the seam cancels the
-    /// pending missions, opens one incident carrying the question text, posts an owner-addressed board
-    /// note for a <c>blocked_owner_question</c>, and preserves the branch.</item>
+    /// pending missions, opens one incident carrying the question text, and preserves the branch.</item>
     /// <item>A <c>partial</c> outcome at or above threshold does NOT halt; the seam Mails the next
     /// stage the unmet acceptance criteria and the voyage continues. When the handoff-outcome hold is
     /// enabled and the partial confidence is at least <see cref="HandoffOutcomeHold.MinimumConfidence"/>,

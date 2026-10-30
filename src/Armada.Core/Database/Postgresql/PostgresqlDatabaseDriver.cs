@@ -126,16 +126,6 @@ namespace Armada.Core.Database.Postgresql
                 { "project_profiles.last_update_utc", StoredTimestampEnum.ServerRenderedText },
                 { "skills.created_utc", StoredTimestampEnum.ServerRenderedText },
                 { "skills.last_update_utc", StoredTimestampEnum.ServerRenderedText },
-                { "coordination_claims.created_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_claims.expires_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_claims.last_update_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_messages.created_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_messages.last_update_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_participants.created_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_participants.last_seen_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_participants.last_update_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_rooms.created_utc", StoredTimestampEnum.Iso8601Text },
-                { "coordination_rooms.last_update_utc", StoredTimestampEnum.Iso8601Text },
                 { "events.created_utc", StoredTimestampEnum.Iso8601Text },
                 { "landing_jobs.completed_utc", StoredTimestampEnum.Iso8601Text },
                 { "landing_jobs.created_utc", StoredTimestampEnum.Iso8601Text },
@@ -415,10 +405,6 @@ namespace Armada.Core.Database.Postgresql
             Voyages = new VoyageMethods(this, _Settings, _Logging);
             PlanningSessions = new PlanningSessionMethods(this, _Settings, _Logging);
             PlanningSessionMessages = new PlanningSessionMessageMethods(this, _Settings, _Logging);
-            CoordinationRooms = new CoordinationRoomMethods(_DataSource);
-            CoordinationMessages = new CoordinationMessageMethods(_DataSource);
-            CoordinationParticipants = new CoordinationParticipantMethods(_DataSource);
-            CoordinationClaims = new CoordinationClaimMethods(_DataSource);
             Objectives = new ObjectiveMethods(this, _Settings, _Logging);
             ObjectiveRefinementSessions = new ObjectiveRefinementSessionMethods(this, _Settings, _Logging);
             ObjectiveRefinementMessages = new ObjectiveRefinementMessageMethods(this, _Settings, _Logging);

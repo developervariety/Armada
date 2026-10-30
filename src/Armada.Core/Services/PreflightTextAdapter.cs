@@ -32,7 +32,7 @@ namespace Armada.Core.Services
     /// nothing and records one unavailable event; a below-threshold answer adds nothing and records one
     /// rule-kept event. In Gate mode a blocking question answered at or above the decision threshold becomes
     /// an Error issue <see cref="ModelFlagIssueCode"/> that the autonomous scheduler already skips on. A
-    /// Q4 or Q13 model flag never blocks dispatch or posts an owner-addressed board note. When no deterministic
+    /// Q4 or Q13 model flag never blocks dispatch. When no deterministic
     /// fact fails, a Q1 flag is not raised while the Q1 citation fact passes: the model answers with a number
     /// only and cannot name a disputed claim. A Q9 flag is a Warning while the
     /// brief states two different proof values for the corrected and the defective code

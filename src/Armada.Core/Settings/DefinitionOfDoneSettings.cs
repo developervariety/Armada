@@ -118,17 +118,6 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Minutes a wait may last before a board note names it: the memory reading, the slot holders, and
-        /// the waiting requests in order. Clamped to [0, 1440]; 0 posts no note. Defaults to 10. One note is
-        /// posted per wait.
-        /// </summary>
-        public int HostSlotWaitBoardNoteMinutes
-        {
-            get => _HostSlotWaitBoardNoteMinutes;
-            set => _HostSlotWaitBoardNoteMinutes = Math.Max(0, Math.Min(1440, value));
-        }
-
-        /// <summary>
         /// Maximum number of trailing output lines included in the failure reason. Clamped to
         /// [10, 500]. Defaults to 50.
         /// </summary>
@@ -266,7 +255,6 @@ namespace Armada.Core.Settings
             VesselSuiteSlots = source.VesselSuiteSlots;
             HostCommandMemoryFloorMb = source.HostCommandMemoryFloorMb;
             HostSlotWaitReportMinutes = source.HostSlotWaitReportMinutes;
-            HostSlotWaitBoardNoteMinutes = source.HostSlotWaitBoardNoteMinutes;
             OutputTailLines = source.OutputTailLines;
             DiagnosticLines = source.DiagnosticLines;
             VerifyDeclaredConsumers = source.VerifyDeclaredConsumers;
@@ -288,7 +276,6 @@ namespace Armada.Core.Settings
         private int _VesselSuiteSlots = HostWideCommandLock.MinimumSlots;
         private int _HostCommandMemoryFloorMb = HostWideCommandLock.DefaultMemoryFloorMb;
         private int _HostSlotWaitReportMinutes = 5;
-        private int _HostSlotWaitBoardNoteMinutes = 10;
         private int _OutputTailLines = 50;
         private int _DiagnosticLines = 20;
 

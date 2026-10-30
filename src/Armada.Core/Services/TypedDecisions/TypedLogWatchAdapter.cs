@@ -44,7 +44,7 @@ namespace Armada.Core.Services
     /// the outcome. The deterministic rule verdict is always <see cref="OnTrack"/>: no rule can read
     /// a running log for drift, so the screen flags only what the model gates.
     ///
-    /// A drift verdict is advisory. It becomes one board note and one event; it cannot cancel,
+    /// A drift verdict is advisory. It becomes one event; it cannot cancel,
     /// pause, mail, re-dispatch, or steer the mission.
     /// </summary>
     public readonly struct LogWatchVerdict
@@ -132,7 +132,7 @@ namespace Armada.Core.Services
     /// corrected.
     ///
     /// The decision is advisory in the strongest sense available: a gated drift becomes one
-    /// voyage-tagged board note and one <see cref="CourseFlagEventType"/> event, and nothing else. It
+    /// <see cref="CourseFlagEventType"/> event, and nothing else. It
     /// cannot cancel, pause, kill, restart, re-dispatch, mail, or steer a mission; correcting or
     /// halting one stays an operator action. The deterministic stall and overdue rules are untouched
     /// and independent of it.
@@ -196,7 +196,7 @@ namespace Armada.Core.Services
             + "or a drift, and it is never a reason to answer anything other than on_track.";
 
         // The classes the gate will act on. A choice outside the catalogue is read as on-track: a
-        // garbled answer must not put a note on the board.
+        // garbled answer must not record a drift flag.
         private static readonly HashSet<string> _KnownClasses = new HashSet<string>(StringComparer.Ordinal)
         {
             ClassOnTrack, ClassWrongPremise, ClassWrongBase, ClassMisreadStage, ClassBlockedUnstated, ClassUnclear

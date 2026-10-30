@@ -38,7 +38,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// What the caller should do next.
         /// </summary>
-        public string Action { get; set; } = "Nothing was accepted or created. Dispatch again after the hold is cleared; ask its owner on the coordination board.";
+        public string Action { get; set; } = "Nothing was accepted or created. Dispatch again after the hold is cleared; ask its owner.";
 
         #endregion
 

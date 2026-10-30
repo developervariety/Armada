@@ -4,7 +4,7 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// One thing a screening pass reported about one mission's log tail. A finding is advisory: it
-    /// reaches the operator as a board note and an event, and carries no authority over the mission.
+    /// reaches the operator as an event, and carries no authority over the mission.
     /// </summary>
     public class LogScreenFinding
     {
@@ -17,7 +17,7 @@ namespace Armada.Core.Services
         public string RuleClass { get; set; } = String.Empty;
 
         /// <summary>
-        /// Exactly one line of the tail that shows the finding. One line keeps the board note
+        /// Exactly one line of the tail that shows the finding. One line keeps the event
         /// readable and keeps the quoted material bounded; any embedded line break is removed.
         /// </summary>
         public string EvidenceLine

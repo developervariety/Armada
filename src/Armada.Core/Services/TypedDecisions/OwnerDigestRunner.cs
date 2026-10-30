@@ -4,7 +4,6 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Globalization;
-    using System.Text;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -18,7 +17,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// Collects owner-decision candidates and returns them ranked by cost of waiting. The runner reads
     /// whatever hits exist from its hit source (D5 Q13 owner rulings, D9 owner rulings, OwnerDecision
-    /// preparation claims still in NeedsRecheck, and board notes classified as questions); an absent or
+    /// preparation claims still in NeedsRecheck, and inbox items classified as questions); an absent or
     /// disabled upstream simply contributes no candidates.
     /// </summary>
     /// <param name="token">Cancellation token.</param>
@@ -28,7 +27,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// The outcome of one <see cref="OwnerDigestRunner.RunOnceAsync"/> pass, for logging and tests.
     /// </summary>
-    /// <param name="Posted">Whether a digest note was posted on this pass.</param>
+    /// <param name="Posted">Whether a digest event was recorded on this pass.</param>
     /// <param name="CandidateCount">The number of owner-decision candidates ranked into the digest.</param>
     /// <param name="Reason">A short reason the pass did or did not post.</param>
     public sealed record OwnerDigestRunResult(bool Posted, int CandidateCount, string Reason);
@@ -37,15 +36,13 @@ namespace Armada.Core.Services
     /// The D13 <c>owner_digest</c> scheduled runner. Shaped to be driven by the health loop on a daily
     /// cadence: each pass collects the owner-decision candidates its hit source found, ranks each one
     /// with the <see cref="TypedOwnerDigestAdapter"/> (deterministic cost of waiting, escalated only by
-    /// a gated model reading), and, at most ONCE PER UTC DAY, posts a single owner-addressed board note
-    /// listing the questions by cost with each proposed default, and emits a single
-    /// <c>owner_decisions.digest</c> event.
+    /// a gated model reading), and, at most ONCE PER UTC DAY, emits a single
+    /// <c>owner_decisions.digest</c> event carrying the ranking metadata.
     ///
     /// The runner is off until the owner enables the <c>owner_digest</c> decision: while the decision is
-    /// Off it is dormant and posts nothing, so it is never forced on. It NEVER answers a question,
-    /// dispatches, lands, or changes any objective, incident, or claim — its only effects are one board
-    /// note and one observability event per day. Every proposed default is a suggestion the owner may
-    /// accept; the runner records no ruling. It never throws into its caller.
+    /// Off it is dormant and records nothing, so it is never forced on. It NEVER answers a question,
+    /// dispatches, lands, or changes any objective, incident, or claim — its only effect is one
+    /// observability event per day. the runner records no ruling. It never throws into its caller.
     /// </summary>
     public sealed class OwnerDigestRunner
     {
@@ -58,7 +55,6 @@ namespace Armada.Core.Services
 
         private readonly TypedDecisionSettings _Settings;
         private readonly TypedOwnerDigestAdapter _Adapter;
-        private readonly IOwnerDecisionNotePoster _NotePoster;
         private readonly OwnerDigestHitSource _HitSource;
         private readonly DatabaseDriver _Database;
         private readonly Func<DateTime> _NowUtc;
@@ -76,7 +72,6 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="settings">Typed-decision settings; the <c>owner_digest</c> mode gates the runner.</param>
         /// <param name="adapter">The D13 adapter used to rank each candidate.</param>
-        /// <param name="notePoster">The owner-addressed board-note poster.</param>
         /// <param name="hitSource">The source of owner-decision candidates.</param>
         /// <param name="database">Database driver whose Events collection receives the digest event.</param>
         /// <param name="nowUtc">Clock returning the current UTC time; injected for the once-per-day guard and tests.</param>
@@ -84,7 +79,6 @@ namespace Armada.Core.Services
         public OwnerDigestRunner(
             TypedDecisionSettings settings,
             TypedOwnerDigestAdapter adapter,
-            IOwnerDecisionNotePoster notePoster,
             OwnerDigestHitSource hitSource,
             DatabaseDriver database,
             Func<DateTime> nowUtc,
@@ -92,7 +86,6 @@ namespace Armada.Core.Services
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
-            _NotePoster = notePoster ?? throw new ArgumentNullException(nameof(notePoster));
             _HitSource = hitSource ?? throw new ArgumentNullException(nameof(hitSource));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _NowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
@@ -105,8 +98,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Run one pass. Dormant when the decision is Off; otherwise, at most once per UTC day, collect
-        /// the owner-decision candidates, rank them, post one owner-addressed note, and emit one digest
-        /// event. A pass with no candidates posts nothing and does not consume the day. Never throws.
+        /// the owner-decision candidates, rank them, and emit one digest
+        /// event. A pass with no candidates records nothing and does not consume the day. Never throws.
         /// </summary>
         /// <param name="token">Cancellation token, forwarded to the adapter so its client links its timeout to it.</param>
         /// <returns>The outcome of the pass.</returns>
@@ -157,7 +150,7 @@ namespace Armada.Core.Services
                 });
 
                 // Reserve the day BEFORE the side effects so a concurrent or immediately following pass
-                // cannot post a second note for the same day even if a post is slow.
+                // cannot record a second digest for the same day even if a write is slow.
                 lock (_Lock)
                 {
                     if (_LastPostedDateUtc.HasValue && _LastPostedDateUtc.Value == today)
@@ -165,12 +158,9 @@ namespace Armada.Core.Services
                     _LastPostedDateUtc = today;
                 }
 
-                string note = BuildNote(ranked);
-                string? vesselId = ranked[0].Candidate.VesselId;
-                await _NotePoster.PostOwnerDecisionAsync(note, vesselId, token).ConfigureAwait(false);
                 await EmitDigestEventAsync(ranked, today, token).ConfigureAwait(false);
 
-                _Logging.Info(_Header + "posted owner digest: " + ranked.Count + " question"
+                _Logging.Info(_Header + "recorded owner digest: " + ranked.Count + " question"
                     + (ranked.Count == 1 ? "" : "s") + ", top cost=" + ranked[0].Entry.CostLevel);
                 return new OwnerDigestRunResult(true, ranked.Count, "posted");
             }
@@ -196,45 +186,12 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private static string BuildNote(IReadOnlyList<RankedCandidate> ranked)
-        {
-            StringBuilder sb = new StringBuilder();
-            sb.Append("Owner decisions pending (").Append(ranked.Count)
-                .Append("), ranked by cost of waiting. Each proposed default is a SUGGESTION only; ")
-                .Append("no question is answered here — record your ruling on the row.");
-
-            int index = 1;
-            foreach (RankedCandidate item in ranked)
-            {
-                sb.Append('\n').Append(index).Append(". [")
-                    .Append(TypedOwnerDigestAdapter.CostLabel(item.Entry.CostLevel)).Append("] ")
-                    .Append(item.Candidate.QuestionText.Trim());
-
-                if (!String.IsNullOrWhiteSpace(item.Candidate.BlockedRow))
-                {
-                    sb.Append(" — blocks ").Append(item.Candidate.BlockedRow.Trim());
-                    if (item.Candidate.ChainCount > 0)
-                        sb.Append(" (").Append(item.Candidate.ChainCount).Append(" chained)");
-                }
-
-                string proposed = String.IsNullOrWhiteSpace(item.Candidate.ProposedDefault)
-                    ? "no default proposed"
-                    : item.Candidate.ProposedDefault.Trim();
-                sb.Append(". Proposed default: ").Append(proposed);
-                if (item.Entry.DefaultSafe) sb.Append(" (could proceed without you)");
-                sb.Append('.');
-                index++;
-            }
-
-            return sb.ToString();
-        }
-
         private async Task EmitDigestEventAsync(IReadOnlyList<RankedCandidate> ranked, DateTime day, CancellationToken token)
         {
             try
             {
                 // The event carries only the ranking metadata — counts, cost levels, sources — never the
-                // question text or row titles, which reach the owner through the addressed note alone.
+                // question text or row titles.
                 List<object> entries = new List<object>(ranked.Count);
                 foreach (RankedCandidate item in ranked)
                 {

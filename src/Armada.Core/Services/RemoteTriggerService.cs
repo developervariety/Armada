@@ -263,7 +263,6 @@ namespace Armada.Core.Services
                 Command = NormalizeOptional(registration.Command),
                 WorkingDirectory = NormalizeOptional(registration.WorkingDirectory),
                 ClientName = NormalizeOptional(registration.ClientName),
-                ParticipantKey = NormalizeOptional(registration.ParticipantKey),
                 LastSeenUtc = DateTime.UtcNow,
             };
 
@@ -291,14 +290,11 @@ namespace Armada.Core.Services
             AgentWakeSessionRegistration? session = GetAgentWakeSession();
             AgentWakeDeliveryMode deliveryMode = settings.DeliveryMode;
             bool configured = _Settings.IsAgentWakeConfigured();
-            string? configuredParticipantKey = NormalizeOptional(settings.ParticipantKey);
             return new AgentWakeStatusSnapshot
             {
                 Configured = configured,
                 DeliveryMode = deliveryMode,
                 Runtime = settings.Runtime,
-                ConfiguredParticipantKey = configuredParticipantKey,
-                EffectiveParticipantKey = NormalizeOptional(session?.ParticipantKey) ?? configuredParticipantKey,
                 ProcessDeliveryEnabled = configured && (deliveryMode == AgentWakeDeliveryMode.SpawnProcess || deliveryMode == AgentWakeDeliveryMode.Both),
                 Session = session,
             };
@@ -314,8 +310,7 @@ namespace Armada.Core.Services
         /// <see cref="AgentWakeDeliveryMode.Both"/> is configured.
         /// <para>
         /// Writing the row does not deliver it, and nothing here pushes it anywhere. A live
-        /// session collects it when Armada appends it to that session's next MCP tool result,
-        /// or when the session reads the board. Operators can list rows with
+        /// session collects it by listing the rows. Operators can list rows with
         /// <c>armada_enumerate entityType=signals signalType=Wake unreadOnly=true</c> and
         /// acknowledge with <c>armada_mark_signal_read</c>.
         /// </para>
@@ -349,44 +344,6 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "WriteWakeSignalAsync failed: " + ex.Message);
-            }
-        }
-
-        /// <inheritdoc/>
-        public async Task FireBoardWakeAsync(string participantKey, string text, CancellationToken token = default)
-        {
-            if (string.IsNullOrEmpty(participantKey)) return;
-
-            try
-            {
-                if (_Database != null)
-                {
-                    Signal signal = new Signal(SignalTypeEnum.Wake, "[to=" + participantKey + "] " + text);
-                    signal.TenantId = Constants.DefaultTenantId;
-                    await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
-                }
-
-                if (!_Settings.IsAgentWakeConfigured()) return;
-                AgentWakeDeliveryMode deliveryMode = _Settings.AgentWake?.DeliveryMode ?? AgentWakeDeliveryMode.SpawnProcess;
-                if (deliveryMode != AgentWakeDeliveryMode.SpawnProcess && deliveryMode != AgentWakeDeliveryMode.Both) return;
-                if (_AgentWakeHost == null)
-                {
-                    _Logging.Warn(_Header + "board wake: SpawnProcess mode configured but no IAgentWakeProcessHost wired");
-                    return;
-                }
-
-                AgentWakeStatusSnapshot status = GetAgentWakeStatus();
-                if (!string.Equals(status.EffectiveParticipantKey, participantKey, StringComparison.Ordinal))
-                {
-                    _Logging.Info(_Header + "board wake: no effective process owner for participant " + participantKey + "; signal row only");
-                    return;
-                }
-
-                await FireAgentWakeDrainerAsync("board", text, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "FireBoardWakeAsync failed: " + ex.Message);
             }
         }
 
@@ -497,7 +454,7 @@ namespace Armada.Core.Services
             {
                 // OpenCode runs standalone (no session resume). The wake payload is
                 // the opening message; the session reconstructs state from memory
-                // and the coordination board.
+                // and the Armada record.
                 args.Add("run");
                 args.Add(payload);
                 return new AgentWakeProcessRequest
@@ -621,7 +578,6 @@ namespace Armada.Core.Services
                 Command = source.Command,
                 WorkingDirectory = source.WorkingDirectory,
                 ClientName = source.ClientName,
-                ParticipantKey = source.ParticipantKey,
                 LastSeenUtc = source.LastSeenUtc,
             };
         }

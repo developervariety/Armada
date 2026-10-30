@@ -17,7 +17,7 @@ namespace Armada.Core.Services
     /// anchor change has re-opened, so its text is the question and the objective is the row it blocks.
     ///
     /// The other named sources (a D5 Q13 <c>needs_owner_ruling</c> model flag, a D9 <c>owner_ruling</c>
-    /// hit, a board note D11 classified as a question) attach here as further readers when those signals
+    /// hit) attach here as further readers when those signals
     /// land with a retrievable question text; each reader is best-effort and a source that finds nothing
     /// simply contributes no candidate, which is why the runner is a no-op when there are no hits. The
     /// collector reads only; it changes no record and never throws.

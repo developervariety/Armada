@@ -101,10 +101,6 @@ namespace Armada.Core.Authorization
             // may read them, as with the armada_job_status tool.
             if (path == "/api/v1/jobs" || path.StartsWith("/api/v1/jobs/")) return PermissionLevel.AdminOnly;
 
-            // Coordination rooms are found by key alone, so every tenant shares every room and its
-            // messages, claims and participants. Only a global administrator may use the board.
-            if (path == "/api/v1/coordination" || path.StartsWith("/api/v1/coordination/")) return PermissionLevel.AdminOnly;
-
             // Confirming a stopped Harbor orphan releases its durable mission and dock fence, so only a global
             // administrator may assert this external process identity.
             const string harborConfirmPrefix = "/api/v1/harbor-runners/jobs/";

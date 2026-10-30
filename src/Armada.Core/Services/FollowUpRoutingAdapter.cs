@@ -19,10 +19,10 @@ namespace Armada.Core.Services
     /// mode at or above the decision threshold, performs the one additive action for that home through
     /// the injected <see cref="IFollowUpRouter"/>.
     ///
-    /// The model NEVER creates a voyage: a <c>blocking_followup_voyage</c> home is only flagged for the
-    /// operator, who decides. A <c>triaged_objective</c> home creates a Triaged objective with
+    /// The model NEVER creates a voyage: a <c>blocking_followup_voyage</c> home routes to no work; the
+    /// operator decides. A <c>triaged_objective</c> home creates a Triaged objective with
     /// auto-dispatch OFF; <c>duplicate_of_existing</c> links to an existing open objective instead of
-    /// creating one; <c>evidence_note</c> appends a note. The deterministic behaviour (no routing) is
+    /// creating one; <c>evidence_note</c> creates nothing. The deterministic behaviour (no routing) is
     /// the fallback in every non-gate case: Off, an unavailable model, a Shadow-mode call, and a
     /// below-threshold answer all route nothing. The adapter never throws into the caller. This
     /// decision ships in Gate.
@@ -235,7 +235,6 @@ namespace Armada.Core.Services
             // A blocking item is NEVER created as a voyage by the model; it is flagged for the operator.
             if (String.Equals(home, HomeBlocking, StringComparison.Ordinal))
             {
-                await _Router.FlagBlockingForOperatorAsync(request, token).ConfigureAwait(false);
                 return new FollowUpRoute { Item = item, Home = HomeBlocking };
             }
 
@@ -251,7 +250,6 @@ namespace Armada.Core.Services
                     return new FollowUpRoute { Item = item, Home = HomeDuplicate, TargetObjectiveId = best.ObjectiveId };
                 }
 
-                await _Router.AppendEvidenceNoteAsync(request, token).ConfigureAwait(false);
                 return new FollowUpRoute { Item = item, Home = HomeEvidence };
             }
 
@@ -263,7 +261,6 @@ namespace Armada.Core.Services
             }
 
             // Default and evidence_note: append an evidence line, no new work.
-            await _Router.AppendEvidenceNoteAsync(request, token).ConfigureAwait(false);
             return new FollowUpRoute { Item = item, Home = HomeEvidence };
         }
 

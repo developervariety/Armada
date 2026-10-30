@@ -5,8 +5,8 @@ namespace Armada.Core.Settings
 
     /// <summary>
     /// Settings for the read-only captain-log screen. The screen reads a bounded tail of each
-    /// in-progress mission's log on a cadence, runs the registered passes over it, and posts a
-    /// voyage-tagged board note plus one event when a pass reports a finding. It never cancels,
+    /// in-progress mission's log on a cadence, runs the registered passes over it, and records
+    /// one event when a pass reports a finding. It never cancels,
     /// pauses, mails, re-dispatches, or steers a mission.
     /// </summary>
     public class CaptainLogScreeningSettings

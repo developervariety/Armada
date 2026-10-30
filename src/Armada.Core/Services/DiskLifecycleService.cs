@@ -44,12 +44,6 @@ namespace Armada.Core.Services
             set => _ArchiveSinkFactory = value ?? throw new ArgumentNullException(nameof(value));
         }
 
-        /// <summary>
-        /// Posts a board note when a pass fails to archive history. Null posts nothing; the failure
-        /// event is recorded either way.
-        /// </summary>
-        public IBoardNotePoster? BoardNotes { get; set; } = null;
-
         #endregion
 
         #region Private-Members
@@ -1945,7 +1939,7 @@ namespace Armada.Core.Services
             return firstFailure + (failures > 1 ? " (and " + (failures - 1) + " more)" : "");
         }
 
-        // Uploads the pass manifest and reports failed uploads as an event and a board note, so a
+        // Uploads the pass manifest and reports failed uploads as events, so a
         // broken archive reads as a failure and never as an idle pass.
         private async Task FinishArchivePassAsync(DiskLifecycleReport report, CancellationToken token)
         {
@@ -1986,16 +1980,14 @@ namespace Armada.Core.Services
 
             if (pass.Failures.Count == 0 && manifestFailure == null && pass.FreeFailures.Count == 0 && !pass.CapReached) return;
 
-            List<string> notes = new List<string>();
             if (pass.CapReached)
             {
-                // One cap event and one board note for the whole run, not one per file: the condition is
+                // One cap event for the whole run, not one per file: the condition is
                 // the store's, and the files are all kept locally until the cap is raised.
                 string capSummary = "History archive: the object store download or transaction cap is exceeded in disk-lifecycle run " + pass.RunId
                     + "; the run stopped verifying after the first cap and kept " + pass.SkippedForCap + " history item" + (pass.SkippedForCap == 1 ? "" : "s")
                     + " locally. Raise the cap to resume archiving."
                     + (String.IsNullOrEmpty(pass.CapReason) ? "" : " " + pass.CapReason);
-                notes.Add(capSummary);
                 await RecordArchiveEventAsync("disk_lifecycle.archive_cap_reached", capSummary, JsonSerializer.Serialize(new
                 {
                     runId = pass.RunId,
@@ -2015,7 +2007,6 @@ namespace Armada.Core.Services
                 string summary = "History archive: " + pass.Failures.Count + " upload(s) failed verification in disk-lifecycle run " + pass.RunId
                     + "; each file is kept locally. " + String.Join("; ", lines)
                     + (pass.Failures.Count > _MaxReportedArchiveFailures ? "; and " + (pass.Failures.Count - _MaxReportedArchiveFailures) + " more" : "");
-                notes.Add(summary);
                 await RecordArchiveEventAsync("disk_lifecycle.archive_failed", summary, JsonSerializer.Serialize(new
                 {
                     runId = pass.RunId,
@@ -2035,24 +2026,12 @@ namespace Armada.Core.Services
                 string summary = "History archive: " + pass.FreeFailures.Count + " archived item(s) could not be freed locally in disk-lifecycle run " + pass.RunId
                     + "; every file is verified in the archive, and the next pass retries the removal without uploading again. " + String.Join("; ", lines)
                     + (pass.FreeFailures.Count > _MaxReportedArchiveFailures ? "; and " + (pass.FreeFailures.Count - _MaxReportedArchiveFailures) + " more" : "");
-                notes.Add(summary);
                 await RecordArchiveEventAsync("disk_lifecycle.archive_free_failed", summary, JsonSerializer.Serialize(new
                 {
                     runId = pass.RunId,
                     freeFailures = pass.FreeFailures.Count,
                     items = pass.FreeFailures.Take(_MaxReportedArchiveFailures).Select(f => new { path = f.Key, message = f.Value })
                 }), token).ConfigureAwait(false);
-            }
-
-            IBoardNotePoster? poster = BoardNotes;
-            if (poster == null) return;
-            try
-            {
-                await poster.PostBroadcastAsync(String.Join(" ", notes), null, null, token).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (!(ex is OperationCanceledException))
-            {
-                _Logging.Warn(_Header + "could not post archive-failure board note: " + ex.Message);
             }
         }
 

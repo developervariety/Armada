@@ -14,12 +14,6 @@ namespace Armada.Core.Models
         /// <summary>Configured runtime before an Auto registration is applied.</summary>
         public AgentWakeRuntime Runtime { get; set; }
 
-        /// <summary>Participant key stored in settings and retained across restarts.</summary>
-        public string? ConfiguredParticipantKey { get; set; }
-
-        /// <summary>Participant key currently accepted for addressed process wakes.</summary>
-        public string? EffectiveParticipantKey { get; set; }
-
         /// <summary>Whether the delivery mode can start a process.</summary>
         public bool ProcessDeliveryEnabled { get; set; }
 

@@ -12,7 +12,7 @@ namespace Armada.Core.Services.Interfaces
     /// into the adapter: a router failure leaves the follow-up unrouted, never breaks capture.
     ///
     /// The router NEVER creates a voyage, dispatches, lands, or approves anything: a blocking follow-up
-    /// is only flagged for the operator. A created objective is Triaged with auto-dispatch OFF.
+    /// is never routed to work. A created objective is Triaged with auto-dispatch OFF.
     /// </summary>
     public interface IFollowUpRouter
     {
@@ -36,14 +36,6 @@ namespace Armada.Core.Services.Interfaces
         Task<string?> CreateTriagedObjectiveAsync(FollowUpRouteRequest request, CancellationToken token);
 
         /// <summary>
-        /// Append an evidence line recording the follow-up as a note, without creating new work.
-        /// </summary>
-        /// <param name="request">The routing request describing the follow-up.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>A task that completes when the evidence line has been appended (best-effort).</returns>
-        Task AppendEvidenceNoteAsync(FollowUpRouteRequest request, CancellationToken token);
-
-        /// <summary>
         /// Link the follow-up to an existing open objective it duplicates, instead of creating new work.
         /// </summary>
         /// <param name="request">The routing request describing the follow-up.</param>
@@ -51,15 +43,6 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>A task that completes when the link has been recorded (best-effort).</returns>
         Task LinkDuplicateAsync(FollowUpRouteRequest request, string existingObjectiveId, CancellationToken token);
-
-        /// <summary>
-        /// Flag a blocking follow-up for the operator. The router NEVER creates a voyage for it; a
-        /// human decides. Typically an operator-addressed board note.
-        /// </summary>
-        /// <param name="request">The routing request describing the follow-up.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>A task that completes when the operator has been flagged (best-effort).</returns>
-        Task FlagBlockingForOperatorAsync(FollowUpRouteRequest request, CancellationToken token);
     }
 
     /// <summary>

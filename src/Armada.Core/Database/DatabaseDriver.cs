@@ -65,26 +65,6 @@ namespace Armada.Core.Database
         public IPlanningSessionMessageMethods PlanningSessionMessages { get; protected set; } = null!;
 
         /// <summary>
-        /// Coordination room operations.
-        /// </summary>
-        public ICoordinationRoomMethods CoordinationRooms { get; protected set; } = null!;
-
-        /// <summary>
-        /// Coordination message operations.
-        /// </summary>
-        public ICoordinationMessageMethods CoordinationMessages { get; protected set; } = null!;
-
-        /// <summary>
-        /// Coordination participant (presence) operations.
-        /// </summary>
-        public ICoordinationParticipantMethods CoordinationParticipants { get; protected set; } = null!;
-
-        /// <summary>
-        /// Coordination claim (reservation) operations.
-        /// </summary>
-        public ICoordinationClaimMethods CoordinationClaims { get; protected set; } = null!;
-
-        /// <summary>
         /// Objective/backlog operations.
         /// </summary>
         public IObjectiveMethods Objectives { get; protected set; } = null!;
@@ -342,22 +322,6 @@ namespace Armada.Core.Database
             }
 
             return missing;
-        }
-
-        /// <summary>
-        /// Observe every event this driver writes. Every event record, whichever service or route
-        /// produced it, is written through <see cref="Events"/>, so an observer added here sees each
-        /// one once, after it is stored. An observer that throws is reported through
-        /// <paramref name="onFailure"/> and never fails the event write.
-        /// </summary>
-        /// <param name="observer">Called with each stored event.</param>
-        /// <param name="onFailure">Called with the event and the exception when the observer throws.</param>
-        public void AddEventCreatedObserver(Func<Armada.Core.Models.ArmadaEvent, CancellationToken, Task> observer, Action<Armada.Core.Models.ArmadaEvent, Exception> onFailure)
-        {
-            if (observer == null) throw new ArgumentNullException(nameof(observer));
-            if (onFailure == null) throw new ArgumentNullException(nameof(onFailure));
-            if (Events == null) throw new InvalidOperationException("The driver has no event method set to observe.");
-            Events = new ObservedEventMethods(Events, observer, onFailure);
         }
 
         /// <summary>

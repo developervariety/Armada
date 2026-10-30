@@ -200,7 +200,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Observe an available model reading before the gate compares it to the threshold. A decision
-        /// overrides this to report a side signal (an event, a board note, a papercut) that is
+        /// overrides this to report a side signal (an event, a papercut) that is
         /// informative only. It runs for every available reading while the decision is not Off, so an
         /// override checks <paramref name="cfg"/> itself. It can never change the returned verdict, and
         /// an exception it throws is logged and ignored.

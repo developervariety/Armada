@@ -1249,7 +1249,8 @@ $convert$;"),
                     @"ALTER TABLE planning_sessions ADD COLUMN IF NOT EXISTS objective_id TEXT NULL;"),
                 new SchemaMigration(146, "Persist the dispatch hold and the mission a signal is addressed to", DispatchHoldSchema.PostgresqlStatements.Concat(SignalMissionSchema.PostgresqlStatements).ToArray()),
                 new SchemaMigration(147, "Persist the delivery proof of a failed merge entry", MergeDeliveryPersistence.PostgresqlStatements),
-                new SchemaMigration(148, "Persist the stage chain identity that scopes the parallel-stage barrier", MissionStageChainSchema.PostgresqlStatements)
+                new SchemaMigration(148, "Persist the stage chain identity that scopes the parallel-stage barrier", MissionStageChainSchema.PostgresqlStatements),
+                new SchemaMigration(149, "Drop the coordination board tables", CoordinationBoardDropSchema.PostgresqlStatements)
             };
         }
 

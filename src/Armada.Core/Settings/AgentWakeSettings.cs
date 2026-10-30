@@ -21,7 +21,7 @@ namespace Armada.Core.Settings
         /// Wake the OpenCode CLI.
         /// OpenCode runs standalone (no session resume), so each wake starts a fresh
         /// session seeded with the wake text; the wake prompt must direct the session
-        /// to reconstruct state from the coordination board and memory.
+        /// to reconstruct state from the Armada record and memory.
         /// </summary>
         [EnumMember(Value = "OpenCode")]
         OpenCode,
@@ -35,8 +35,7 @@ namespace Armada.Core.Settings
     /// <para>
     /// No mode is an MCP server push, and no mode can be. Armada's MCP transport
     /// is stateless, so there is no channel a notification could travel on; a
-    /// stored wake instead rides back on the next MCP tool result for a caller
-    /// that identifies itself with the participant header.
+    /// stored wake instead waits as a signal row until a session collects it.
     /// </para>
     /// </summary>
     [JsonConverter(typeof(AgentWakeDeliveryModeConverter))]
@@ -53,11 +52,7 @@ namespace Armada.Core.Settings
         /// <summary>
         /// Write a <see cref="Armada.Core.Enums.SignalTypeEnum.Wake"/> signal row
         /// instead of spawning a process. Nothing is pushed anywhere; the row
-        /// waits until the session next calls a tool. It reaches a live session
-        /// in two ways: appended to any MCP tool result when the caller sends the
-        /// participant header, and in the payload of
-        /// <c>armada_coordination_read</c> / <c>armada_coordination_heartbeat</c>.
-        /// Operators can also list rows with <c>armada_enumerate
+        /// waits until a session lists it with <c>armada_enumerate
         /// entityType=signals signalType=Wake unreadOnly=true</c>. Acknowledge
         /// with <c>armada_mark_signal_read</c>.
         /// </summary>
@@ -102,14 +97,6 @@ namespace Armada.Core.Settings
 
         /// <summary>Optional working directory for the spawned process. Null uses the process default.</summary>
         public string? WorkingDirectory { get; set; }
-
-        /// <summary>
-        /// Optional persistent coordination-board participant key. Addressed notes for this key
-        /// can start the configured process after an Admiral restart without requiring a new
-        /// in-memory session registration. A registration with its own participant key overrides
-        /// this value until the next restart.
-        /// </summary>
-        public string? ParticipantKey { get; set; }
 
         /// <summary>
         /// Delivery mode for AgentWake events. Defaults to

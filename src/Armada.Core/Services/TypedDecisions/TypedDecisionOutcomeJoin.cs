@@ -279,7 +279,7 @@ namespace Armada.Core.Services.TypedDecisions
                 };
             }
 
-            // Any other subject (a papercut group, a board note, a merge entry) is named for the record but has
+            // Any other subject (a papercut group, a merge entry) is named for the record but has
             // no landing outcome to join.
             return new SubjectOutcome();
         }

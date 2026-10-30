@@ -64,93 +64,11 @@ namespace Armada.Core.Services
 
         #region Public-Methods
 
-        private const int _StalePeerMinutes = 15;
-
         /// <summary>The known vessel ids among the supplied values, for an item's egress vessel rule.</summary>
         private static List<string> VesselsOf(params string?[] vesselIds)
         {
             return vesselIds.Where(id => !String.IsNullOrWhiteSpace(id)).Select(id => id!).ToList();
         }
-
-        /// <summary>
-        /// The vessels a claim concerns: the claimed vessel, or the vessels the claimed objective names. A lookup
-        /// that fails leaves the item without vessels, and the item still carries only claim metadata.
-        /// </summary>
-        private async Task<List<string>> ClaimVesselsAsync(CoordinationClaim claim, CancellationToken token)
-        {
-            if (claim.SubjectType == CoordinationClaimSubjectEnum.Vessel) return VesselsOf(claim.SubjectId);
-            try
-            {
-                Objective? objective = await _Database.Objectives.ReadAsync(claim.SubjectId, token).ConfigureAwait(false);
-                return VesselsOf((objective?.VesselIds ?? new List<string>()).ToArray());
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "objective lookup for claim " + claim.SubjectId + " failed: " + ex.Message);
-                return new List<string>();
-            }
-        }
-
-        private async Task ScanSilentClaimHoldersAsync(List<InboxItem> items, CancellationToken token)
-        {
-            List<CoordinationClaim> activeClaims;
-            try
-            {
-                activeClaims = await _Database.CoordinationClaims.EnumerateActiveAsync(null, null, token).ConfigureAwait(false);
-            }
-            catch (NotSupportedException)
-            {
-                // Claims are SQLite/PostgreSQL-only today; other backends have no scan.
-                return;
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "claim scan failed: " + ex.Message);
-                return;
-            }
-
-            DateTime silenceCutoff = DateTime.UtcNow.AddMinutes(-_StalePeerMinutes);
-            foreach (CoordinationClaim claim in activeClaims)
-            {
-                if (claim.ExpiresUtc <= DateTime.UtcNow) continue;
-
-                CoordinationParticipant? presence;
-                try
-                {
-                    presence = await _Database.CoordinationParticipants.ReadLatestByKeyAsync(claim.ParticipantKey, token).ConfigureAwait(false);
-                }
-                catch (NotSupportedException)
-                {
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "presence lookup failed for " + claim.ParticipantKey + ": " + ex.Message);
-                    continue;
-                }
-
-                bool silent = presence == null || presence.LastSeenUtc < silenceCutoff;
-                if (!silent) continue;
-
-                string lastSeen = presence == null ? "never" : presence.LastSeenUtc.ToString("u");
-                items.Add(new InboxItem
-                {
-                    Kind = "StalePeer",
-                    Severity = InboxSeverityEnum.Warning,
-                    Title = "Peer session silent while holding a claim",
-                    Detail = claim.DisplayName + " (" + claim.ParticipantKey + ") last seen " + lastSeen +
-                        " but still holds a claim on " + claim.SubjectType.ToString().ToLowerInvariant() + " " +
-                        claim.SubjectId + ", expiring " + claim.ExpiresUtc.ToString("u") +
-                        ". Adopt the work, ask on the coordination board, or wait for expiry" +
-                        (String.IsNullOrWhiteSpace(claim.Note) ? "." : ". Claim note: " + claim.Note),
-                    EntityType = claim.SubjectType.ToString().ToLowerInvariant(),
-                    EntityId = claim.SubjectId,
-                    Href = "/dashboard/chatroom",
-                    VesselIds = await ClaimVesselsAsync(claim, token).ConfigureAwait(false)
-                });
-            }
-        }
-
 
         /// <summary>
         /// Build the inbox: actionable items ordered most-urgent first.
@@ -164,8 +82,6 @@ namespace Armada.Core.Services
         public async Task<List<InboxItem>> GetInboxAsync(AuthContext? caller = null, CancellationToken token = default)
         {
             List<InboxItem> items = new List<InboxItem>();
-            await ScanSilentClaimHoldersAsync(items, token).ConfigureAwait(false);
-
             try
             {
                 List<Mission> reviews = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);

@@ -19,10 +19,10 @@ namespace Armada.Core.Services
     /// <summary>
     /// The cadence host of the read-only captain-log screen. Each sweep enumerates the in-progress
     /// missions, reads a bounded tail of each mission's live log, runs every registered pass over
-    /// that tail, and on a finding posts one voyage-tagged board note and emits one event.
+    /// that tail, and on a finding emits one event.
     ///
     /// The screen never cancels, pauses, mails, re-dispatches, kills, or steers a mission: its only
-    /// writes are the board note and the event. A mission whose screen fails is logged with the
+    /// write is the event. A mission whose screen fails is logged with the
     /// reason and the sweep continues, so one mission can never stop the others being screened.
     /// </summary>
     public class CaptainLogScreenService
@@ -50,7 +50,6 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private const string _Header = "[CaptainLogScreenService] ";
-        private const string _NoteHeading = "Captain log screen";
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -62,7 +61,6 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver _Database;
         private readonly CaptainLogScreeningSettings _Settings;
         private readonly ICaptainLogTailReader _TailReader;
-        private readonly IVoyageTaggedNotePoster? _NotePoster;
         private readonly List<ICaptainLogScreenPass> _Passes;
         private readonly Func<DateTime> _UtcNow;
 
@@ -88,7 +86,6 @@ namespace Armada.Core.Services
         /// <param name="settings">Screening settings, held by reference so a hot reload reaches the screen.</param>
         /// <param name="tailReader">Bounded log-tail reader.</param>
         /// <param name="passes">The screening passes to run over each tail. An empty set screens nothing.</param>
-        /// <param name="notePoster">Optional voyage-tagged note poster. Without one the screen still records its outcomes.</param>
         /// <param name="utcNow">Optional clock, for tests.</param>
         public CaptainLogScreenService(
             LoggingModule logging,
@@ -96,7 +93,6 @@ namespace Armada.Core.Services
             CaptainLogScreeningSettings settings,
             ICaptainLogTailReader tailReader,
             IEnumerable<ICaptainLogScreenPass> passes,
-            IVoyageTaggedNotePoster? notePoster = null,
             Func<DateTime>? utcNow = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -104,7 +100,6 @@ namespace Armada.Core.Services
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _TailReader = tailReader ?? throw new ArgumentNullException(nameof(tailReader));
             _Passes = (passes ?? throw new ArgumentNullException(nameof(passes))).Where(p => p != null).ToList();
-            _NotePoster = notePoster;
             _UtcNow = utcNow ?? (() => DateTime.UtcNow);
         }
 
@@ -260,30 +255,11 @@ namespace Armada.Core.Services
                     ? running + pair.Value
                     : pair.Value;
 
-            await PostNoteAsync(mission, findings, counts, token).ConfigureAwait(false);
             await EmitScreenEventAsync(mission, context, OutcomeFlagged, counts, token).ConfigureAwait(false);
 
             // Set the cooldown last, so a mission is put on cooldown only once its flag has been
             // written; the same unchanged tail then does not re-flag.
             _Cooldowns[mission.Id] = now;
-        }
-
-        private async Task PostNoteAsync(Mission mission, List<LogScreenFinding> findings, Dictionary<string, int> counts, CancellationToken token)
-        {
-            if (_NotePoster == null) return;
-
-            StringBuilder note = new StringBuilder();
-            note.Append(_NoteHeading).Append(": ").Append(String.Join(", ", counts.Keys)).AppendLine();
-            note.AppendLine("Advisory only. The screen reads the log and posts this note; it changes nothing on the mission.");
-            foreach (string ruleClass in counts.Keys)
-            {
-                LogScreenFinding first = findings.First(f => f.RuleClass == ruleClass);
-                note.Append("- ").Append(ruleClass).Append(" (x").Append(counts[ruleClass]).Append("): ")
-                    .Append(first.EvidenceLine).AppendLine();
-            }
-
-            await _NotePoster.PostVoyageNoteAsync(
-                note.ToString(), mission.VoyageId, mission.Id, mission.VesselId, token).ConfigureAwait(false);
         }
 
         private async Task EmitScreenEventAsync(Mission mission, LogScreenContext context, string outcome, Dictionary<string, int> counts, CancellationToken token)

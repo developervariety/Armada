@@ -29,7 +29,7 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
-        // The evidence line the board note carries: the last line of the tail that holds content, which
+        // The evidence line the event carries: the last line of the tail that holds content, which
         // is what the captain was doing when the reading was taken.
         private const int _MaxEvidenceLength = 240;
 
@@ -113,7 +113,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// The last line of the tail that holds content. It is what the captain was doing when the
-        /// reading was taken, which is the one line of evidence the board note carries.
+        /// reading was taken, which is the one line of evidence the event carries.
         /// </summary>
         private static string LastContentLine(string tail)
         {

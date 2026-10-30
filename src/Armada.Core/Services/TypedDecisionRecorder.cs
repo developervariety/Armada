@@ -65,9 +65,6 @@ namespace Armada.Core.Services
         /// <summary><c>subject_type</c> for a call that judged one merge entry with no mission.</summary>
         public const string SubjectTypeMergeEntry = "merge_entry";
 
-        /// <summary><c>subject_type</c> for a call that judged one coordination board note.</summary>
-        public const string SubjectTypeBoardNote = "board_note";
-
         /// <summary><c>subject_unavailable_reason</c> when the caller named no record the call judged.</summary>
         public const string SubjectUnavailableReason = "caller_named_no_subject";
 
@@ -197,7 +194,7 @@ namespace Armada.Core.Services
                 MissionId = context.MissionId,
                 ObjectiveId = context.ObjectiveId,
                 CaptainId = context.CaptainId,
-                ParticipantKey = context.ParticipantKey,
+                CallerIdentity = context.CallerIdentity,
                 ToolName = context.ToolName
             };
             string outcome = String.IsNullOrWhiteSpace(gateOutcome) ? "cache_hit" : gateOutcome;
@@ -739,7 +736,7 @@ namespace Armada.Core.Services
             payload["subject_id"] = subject.Id;
             if (subject.Type == null) payload["subject_unavailable_reason"] = SubjectUnavailableReason;
 
-            if (!String.IsNullOrWhiteSpace(context.ParticipantKey)) payload["participant_key"] = context.ParticipantKey;
+            if (!String.IsNullOrWhiteSpace(context.CallerIdentity)) payload["caller_identity"] = context.CallerIdentity;
             if (!String.IsNullOrWhiteSpace(context.ToolName)) payload["tool_name"] = context.ToolName;
             return JsonSerializer.Serialize(payload);
         }
@@ -815,17 +812,17 @@ namespace Armada.Core.Services
         public string? CaptainId { get; init; }
 
         /// <summary>
-        /// The calling session's participant key, when supplied. This is attribution only,
+        /// The authenticated caller's identity label, when supplied. This is attribution only,
         /// not a captain id or an authorization credential.
         /// </summary>
-        public string? ParticipantKey { get; init; }
+        public string? CallerIdentity { get; init; }
 
         /// <summary>The tool that requested this decision, when called through a tool.</summary>
         public string? ToolName { get; init; }
 
         /// <summary>
         /// The kind of record this call judged when it is not one mission or one objective, for example
-        /// <c>papercut_group</c> or <c>board_note</c>. Set together with <see cref="SubjectId"/>. A record link
+        /// <c>papercut_group</c> or <c>merge_entry</c>. Set together with <see cref="SubjectId"/>. A record link
         /// only: it is never part of the state.
         /// </summary>
         public string? SubjectType { get; init; }

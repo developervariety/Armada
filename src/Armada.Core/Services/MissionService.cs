@@ -214,24 +214,6 @@ namespace Armada.Core.Services
         /// </summary>
         public const string RevisionCommentOnlyRescueBlockMarker = "[typed_decision:revision_comment_only]";
 
-        /// <summary>
-        /// Owner-addressed board-note poster, used to reach the owner when a stage is blocked on an owner
-        /// question: a stage that ends with <c>[ARMADA:RESULT] BLOCKED</c>, and a D20 handoff-outcome halt.
-        /// Null skips the note (the incident still opens). Set by the server after construction so existing construction sites and tests are
-        /// unchanged.
-        /// </summary>
-        public IOwnerDecisionNotePoster? HandoffOwnerNotePoster { get; set; }
-
-        /// <summary>Posts a blocked-stage question to the dispatching operator, or to the board when unknown.</summary>
-        public Func<Mission, string, CancellationToken, Task>? BlockedQuestionNotePoster { get; set; }
-
-
-        /// <summary>
-        /// Broadcast board-note poster for a mission that moves to a different captain. Null skips the note. Set
-        /// by the server after construction so existing construction sites and tests are unchanged.
-        /// </summary>
-        public IBoardNotePoster? ReassignmentNotePoster { get; set; }
-
         /// The D17 <c>change_substance</c> typed-decision adapter, when wired. Null keeps the
         /// ineffective-rescue check on the deterministic, extension-based classifier alone. Set by the
         /// server after construction so existing construction sites and tests are unchanged. The
@@ -3248,7 +3230,7 @@ namespace Armada.Core.Services
             // no-op. The mission fails with the question in its FailureReason, so it never completes,
             // hands off, or lands, the voyage cannot complete as a success, and recovery holds the rescue
             // because a re-run without the answer asks the same question. The owner sees the question on
-            // an incident and an owner-addressed board note.
+            // an incident.
             bool failedForBlockedResult = false;
             if (!failedForScopeViolation && CaptainBlockedResult.TryRead(mission.AgentOutput, out string blockedQuestion))
             {
@@ -4533,7 +4515,6 @@ namespace Armada.Core.Services
             {
                 content += "\n";
                 content += ledger.Track("mission.papercuts", BuildPapercutsSection(PriorArtToolOffFor(_Settings.TypedDecisions, vessel)));
-                content += ledger.Track("mission.notes", BuildProgressNotesSection());
             }
 
             if (captain != null && captain.Runtime == AgentRuntimeEnum.Codex)
@@ -6042,28 +6023,6 @@ namespace Armada.Core.Services
                     ? "- `armada_check_prior_art` answers `unavailable` for this vessel. Skip it and search the checkout; that is not a papercut.\n"
                     : "- A typed-decision tool can answer `unavailable` for some content. Continue without it; that is not a papercut.\n") +
                 "- No credentials, tokens, or absolute host paths. Ten per mission at most.\n";
-        }
-
-        /// <summary>
-        /// Builds the progress-note directive. The output marker is the bounded, runtime-neutral
-        /// reporting path even when the captain also receives the local MCP connection, so the section
-        /// says that printing the line is the post and no board tool is needed.
-        /// </summary>
-        /// <returns>The progress-notes section.</returns>
-        internal static string BuildProgressNotesSection()
-        {
-            return
-                "## Board Notes\n" +
-                "\n" +
-                "Print a claim note before you start and an outcome note when you finish. Armada posts each " +
-                "line to the coordination board; no board tool is needed. One line each:\n" +
-                "\n" +
-                "`[ARMADA:NOTE] one-line note`\n" +
-                "\n" +
-                "- The claim note states the work you take; the outcome note states what changed or why work stopped.\n" +
-                "- Plain text, one line, at most 500 characters, no absolute host paths. Credentials are redacted.\n" +
-                "- At most twenty notes per mission. Operator sessions and the dashboard see them.\n" +
-                "- Notes are advisory records. They do not control a mission or message other captains.\n";
         }
 
         /// <summary>
@@ -7695,8 +7654,7 @@ namespace Armada.Core.Services
         /// Consult the D20 handoff-outcome decision for a finished stage and apply its verdict. A
         /// blocked or off-premise outcome halts the voyage: the pending dependents are cancelled with
         /// <c>handoff_blocked:&lt;outcome&gt;</c>, one incident is opened carrying the block and the
-        /// finished stage's output tail as the question text, an owner-addressed board note is posted
-        /// for a blocked owner question, and the finished stage's branch is left untouched (preserved).
+        /// finished stage's output tail as the question text, and the finished stage's branch is left untouched (preserved).
         /// A partial outcome does not halt: the unmet acceptance criteria are prepended to each
         /// dependent's brief as an orchestrator note, and the caller continues the normal handoff. When
         /// the handoff-outcome hold is enabled and the partial confidence is at least
@@ -7828,8 +7786,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// Halt a voyage whose finished stage the D20 decision found blocked or off premise: cancel the
         /// pending dependents (which cascade-cancels their own dependents), open one incident carrying
-        /// the block and the finished stage's output as the question text, and post an owner-addressed
-        /// board note for a blocked owner question. The finished stage's branch is left untouched, so the
+        /// the block and the finished stage's output as the question text. The finished stage's branch is left untouched, so the
         /// work is preserved for the operator. Never throws into the handoff.
         /// </summary>
         private async Task HaltVoyageForBlockedHandoffAsync(Mission completedMission, HandoffOutcomeVerdict verdict, CancellationToken token)
@@ -7854,15 +7811,6 @@ namespace Armada.Core.Services
 
                 await OpenHandoffBlockedIncidentAsync(completedMission, verdict, reason, token).ConfigureAwait(false);
 
-                if (verdict.OwnerNote && HandoffOwnerNotePoster != null)
-                {
-                    string content = "A stage on vessel work is blocked on an owner question and the voyage is held. "
-                        + "Finished stage persona: " + (completedMission.Persona ?? "Worker") + ". "
-                        + "The handoff-outcome decision reports the stage cannot proceed without an owner ruling; "
-                        + "read the incident, answer the question, then re-dispatch.";
-                    await HandoffOwnerNotePoster.PostOwnerDecisionAsync(content, completedMission.VesselId, token).ConfigureAwait(false);
-                }
-
                 await UpdateVoyageTerminalStatusAsync(completedMission.VoyageId, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "handoff halted voyage " + completedMission.VoyageId + " at " + reason
                     + "; pending stages cancelled, branch preserved, incident opened");
@@ -7874,16 +7822,14 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Put a blocked stage's question in front of its dispatching operator: one open incident for the mission
-        /// and a visible board note, addressed to that participant when known. Idempotent per mission: an
-        /// open blocked-question incident for the same mission is not duplicated. Never throws into completion.
+        /// Put a blocked stage's question in front of its dispatching operator: one open incident for the mission.
+        /// Idempotent per mission: an open blocked-question incident for the same mission is not duplicated. Never throws into completion.
         /// </summary>
         /// <param name="mission">The blocked mission, already failed with its captain_blocked reason.</param>
         /// <param name="question">The captain's question.</param>
         /// <param name="token">Cancellation token.</param>
         private async Task RaiseBlockedQuestionAsync(Mission mission, string question, CancellationToken token)
         {
-            const int maxNoteQuestionLength = 1500;
             string stage = mission.Persona ?? "Worker";
             try
             {
@@ -7921,22 +7867,6 @@ namespace Armada.Core.Services
                         DetectedUtc = DateTime.UtcNow
                     }, token).ConfigureAwait(false);
                 }
-
-                if (BlockedQuestionNotePoster != null)
-                {
-                    string noteQuestion = question.Length > maxNoteQuestionLength
-                        ? question.Substring(0, maxNoteQuestionLength) + "..."
-                        : question;
-                    string content = "A " + stage + " stage is blocked and needs operator triage (mission " + mission.Id
-                        + (String.IsNullOrEmpty(mission.VoyageId) ? String.Empty : ", voyage " + mission.VoyageId)
-                        + "). It was not completed, handed off, or retried. Answer it, then re-dispatch.\n"
-                        + CaptainBlockedResult.QuestionHeading + " " + noteQuestion;
-                    await BlockedQuestionNotePoster(mission, content, token).ConfigureAwait(false);
-                }
-                else
-                {
-                    _Logging.Info(_Header + "blocked question for mission " + mission.Id + " raised as an incident only: no blocked-question note poster is wired");
-                }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -7944,7 +7874,7 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "could not raise the blocked question for mission " + mission.Id + " to the board: " + ex.Message);
+                _Logging.Warn(_Header + "could not raise the blocked question for mission " + mission.Id + ": " + ex.Message);
             }
         }
 
@@ -9201,34 +9131,7 @@ namespace Armada.Core.Services
                 foreach (Signal s in applicableSignals) appliedSignalIds.Add(s.Id);
             }
 
-            // Voyage-tagged board notes are the one case where the coordination board reaches a
-            // captain brief: an operator note naming this voyage targets this work. General fleet
-            // chatter stays advisory and never injects.
-            if (!String.IsNullOrEmpty(nextMission.VoyageId))
-            {
-                try
-                {
-                    DateTime noteCutoff = completedMission.StartedUtc ?? completedMission.CreatedUtc;
-                    List<CoordinationMessage> voyageNotes = await _Database.CoordinationMessages
-                        .EnumerateByVoyageAsync(nextMission.VoyageId!, noteCutoff, 10, token).ConfigureAwait(false);
-                    voyageNotes.Reverse();
-                    string notesBlock = BuildVoyageBoardNotesBlock(voyageNotes);
-                    if (notesBlock.Length > 0)
-                    {
-                        handoffDescription = handoffDescription + "\n\n" + notesBlock;
-                    }
-                }
-                catch (NotSupportedException)
-                {
-                    // Board notes are SQLite/PostgreSQL-only today; other backends skip injection.
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "voyage board-note injection failed for mission " + nextMission.Id + ": " + ex.Message);
-                }
-            }
-
-            // Close every new block after all owned content, including board notes. Plain text
+            // Close every new block after all owned content. Plain text
             // appended later belongs to the operator, not to a replaceable generated section.
             handoffDescription += "\n" + BuildHandoffEndMarker(completedMission.Id);
 
@@ -11039,29 +10942,6 @@ namespace Armada.Core.Services
             }
         }
 
-        /// <summary>
-        /// Builds the voyage board-notes section appended at the tail of a handoff brief. Notes are
-        /// listed oldest first with author and time. Idempotent across repeated handoffs: any prior
-        /// board-notes section is stripped before the new one is written. Returns an empty string
-        /// when there is nothing to say.
-        /// </summary>
-        internal static string BuildVoyageBoardNotesBlock(List<CoordinationMessage>? notes)
-        {
-            const string headerMarker = "### Board notes on this voyage";
-            if (notes == null || notes.Count == 0) return String.Empty;
-
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append(headerMarker).Append("\n");
-            sb.Append("An operator or peer posted these on the coordination board while the previous stage ran. ")
-              .Append("Treat them as instructions for this stage when they direct the work; otherwise context.\n");
-            foreach (CoordinationMessage note in notes)
-            {
-                sb.Append("- [").Append(note.AuthorName).Append("] ").Append(note.Content.Replace("\r", " ")).Append('\n');
-            }
-
-            return sb.ToString().TrimEnd();
-        }
-
         private static string BuildMailboxNotesBlock(List<Signal> signals)
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
@@ -12808,8 +12688,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// After a mission launches on a captain: move the unread mail addressed to the mission to that captain,
-        /// and announce on the board when the mission moved away from a different captain. Neither step fails
-        /// the assignment.
+        /// and record a <c>mission.reassigned</c> event when the mission moved away from a different captain.
+        /// Neither step fails the assignment.
         /// </summary>
         private async Task FollowMissionToCaptainAsync(Mission mission, Captain captain, string? previousCaptainId, CancellationToken token)
         {
@@ -12820,15 +12700,24 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "moved " + moved + " unread mail signal(s) of mission " + mission.Id + " to captain " + captain.Id);
 
                 if (String.IsNullOrEmpty(previousCaptainId) || String.Equals(previousCaptainId, captain.Id, StringComparison.Ordinal)) return;
-                IBoardNotePoster? poster = ReassignmentNotePoster;
-                if (poster == null) return;
 
-                Captain? previous = await _Database.Captains.ReadAsync(previousCaptainId, token).ConfigureAwait(false);
-                string previousLabel = previous != null && !String.IsNullOrWhiteSpace(previous.Name) ? previous.Name + " (" + previousCaptainId + ")" : previousCaptainId;
-                await poster.PostBroadcastAsync(
-                    "[reassigned] Mission " + mission.Id + " (" + mission.Title + ") moved from captain " + previousLabel
-                    + " to captain " + captain.Name + " (" + captain.Id + "). Mail sent to the mission follows it; mail sent to the previous captain does not.",
-                    mission.VesselId, mission.Id, token).ConfigureAwait(false);
+                string message = "Mission " + mission.Id + " moved from captain " + previousCaptainId + " to captain " + captain.Id
+                    + ". Mail sent to the mission follows it; mail sent to the previous captain does not.";
+                ArmadaEvent evt = new ArmadaEvent("mission.reassigned", message);
+                evt.TenantId = mission.TenantId;
+                evt.UserId = mission.UserId;
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.CaptainId = captain.Id;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    FromCaptainId = previousCaptainId,
+                    ToCaptainId = captain.Id
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -12842,8 +12731,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Applies the uncommitted work a mission's previous checkout held to its new checkout, when a git service
-        /// that can apply it is configured. An applied or skipped restore is recorded as an event; a skip that
-        /// leaves saved work behind is also announced once on the board. Neither outcome fails the assignment.
+        /// that can apply it is configured. An applied or skipped restore is recorded as an event.
+        /// Neither outcome fails the assignment.
         /// </summary>
         private async Task ResumeSavedDockWorkAsync(Mission mission, Dock dock, Captain captain, CancellationToken token)
         {
@@ -12886,12 +12775,6 @@ namespace Armada.Core.Services
                     Reason = applied ? null : restore.Message
                 });
                 await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
-
-                if (!applied && ReassignmentNotePoster != null)
-                    await ReassignmentNotePoster.PostBroadcastAsync(
-                        "[work not restored] Mission " + mission.Id + " (" + mission.Title + ") continues without its previous uncommitted work. It stays saved in "
-                        + restore.RefName + ": " + restore.Message + ".",
-                        mission.VesselId, mission.Id, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {

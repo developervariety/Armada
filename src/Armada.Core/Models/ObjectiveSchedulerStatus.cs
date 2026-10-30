@@ -20,7 +20,7 @@ namespace Armada.Core.Models
         public bool Paused { get; set; } = false;
 
         /// <summary>
-        /// Participant key of the session that set the pause, or null when unattributed.
+        /// Identity of the authenticated caller that set the pause, or null when unattributed.
         /// </summary>
         public string? PausedBy { get; set; } = null;
 

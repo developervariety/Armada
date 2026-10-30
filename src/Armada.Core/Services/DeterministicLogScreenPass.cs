@@ -13,7 +13,7 @@ namespace Armada.Core.Services
     /// model is configured. Every class it reports is a shape a rule can settle by itself; a shape
     /// that needs judgement belongs in another pass.
     ///
-    /// The pass is conservative by construction. A finding costs an operator a glance at the board,
+    /// The pass is conservative by construction. A finding costs an operator a look at the event,
     /// so a rule that cannot separate the violation from the thing that merely looks like it reports
     /// nothing.
     /// </summary>

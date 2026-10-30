@@ -123,12 +123,6 @@ namespace Armada.Core.Services
         public const double FleetWideThreshold = 0.9;
 
         /// <summary>
-        /// Optional broadcast board-note poster for a suspected account fault. When null the event is
-        /// still recorded and no note is posted.
-        /// </summary>
-        public IBoardNotePoster? NotePoster { get; set; }
-
-        /// <summary>
         /// The provider key family of a captain: its runtime plus where its credential comes from
         /// (a model endpoint, a captain-specific key, or the runtime's own login). It identifies which
         /// captains share one account without ever carrying key material.
@@ -233,8 +227,8 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override async Task OnModelReadingAsync(RuntimeFailureDecisionInput input, RuntimeFailureReading model, ResolvedTypedDecision cfg, CancellationToken token)
         {
-            // A fleet-wide reading is reported, never acted on: it names the key family on an event and
-            // a broadcast board note so an operator checks the provider account. This path never benches,
+            // A fleet-wide reading is reported, never acted on: it names the key family on an event so
+            // an operator checks the provider account. This path never benches,
             // quarantines, or stops a captain, and it runs only when the decision is gated.
             if (cfg.Mode != TypedDecisionModeEnum.Gate) return;
             if (model.FleetWide < FleetWideThreshold) return;
@@ -253,20 +247,6 @@ namespace Armada.Core.Services
             });
 
             await Recorder.RecordDomainEventAsync(AccountFaultSuspectedEventType, message, payload, input.Mission, token).ConfigureAwait(false);
-
-            IBoardNotePoster? poster = NotePoster;
-            if (poster == null) return;
-            string note = "Provider account fault suspected for captain key family " + family
-                + ": the runtime_failure decision reads a '" + model.Kind + "' exit as affecting every captain on that key"
-                + " (fleet_wide " + fleetWide + "). No captain was benched. Check the provider account before dispatching more work on this key family.";
-            try
-            {
-                await poster.PostBroadcastAsync(note, input.Mission?.VesselId, input.Mission?.Id, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Logging.Warn(_Header + "account-fault board note failed: " + ex.Message);
-            }
         }
 
         /// <inheritdoc />

@@ -176,7 +176,7 @@ namespace Armada.Core.Services
         /// <param name="mission">The mission the call is about, for event attribution; may be null.</param>
         /// <param name="captainId">The captain that invoked it, for attribution; may be null.</param>
         /// <param name="token">Cancellation token, forwarded to the client.</param>
-        /// <param name="participantKey">The calling session identity for event attribution; may be null.</param>
+        /// <param name="callerIdentity">The authenticated caller identity for event attribution; may be null.</param>
         /// <param name="toolName">The tool that requested this decision, when any.</param>
         /// <returns>The outcome; never null.</returns>
         public async Task<CustomDecisionOutcome> RunAsync(
@@ -185,7 +185,7 @@ namespace Armada.Core.Services
             Mission? mission,
             string? captainId,
             CancellationToken token,
-            string? participantKey = null,
+            string? callerIdentity = null,
             string? toolName = null)
         {
             if (!_Settings.Custom.TryGetValue(name, out CustomTypedDecisionSettings? definition) || definition == null)
@@ -209,7 +209,7 @@ namespace Armada.Core.Services
                     RedactedState = String.Empty,
                     Mission = mission,
                     CaptainId = captainId,
-                    ParticipantKey = participantKey,
+                    CallerIdentity = callerIdentity,
                     ToolName = toolName
                 }, token).ConfigureAwait(false);
                 return CustomDecisionOutcome.Unavailable(name, refused);
@@ -244,7 +244,7 @@ namespace Armada.Core.Services
                 RedactedState = item.State.Text,
                 Mission = mission,
                 CaptainId = captainId,
-                ParticipantKey = participantKey,
+                CallerIdentity = callerIdentity,
                 ToolName = toolName
             };
 

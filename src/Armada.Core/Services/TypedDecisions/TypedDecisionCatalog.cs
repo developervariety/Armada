@@ -22,7 +22,7 @@ namespace Armada.Core.Services
             ["log_watch"] = "Whether a running captain's log shows trouble worth an operator's attention.",
             ["premise_check"] = "Whether a brief's stated premise still holds at the target commit.",
             ["criteria_lint"] = "Whether acceptance criteria are testable and unambiguous.",
-            ["inbox_triage"] = "The attention level of an inbox item or coordination note.",
+            ["inbox_triage"] = "The attention level of an inbox item.",
             ["followup_routing"] = "Where a reviewer follow-up belongs: a new row, a blocking voyage, or a note.",
             ["owner_digest"] = "A digest of owner decisions for later review.",
             ["corpus_prelabel"] = "A provisional label for a captured decision in the evaluation corpus.",
