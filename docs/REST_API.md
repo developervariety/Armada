@@ -4693,7 +4693,9 @@ accepted.
 
 List entries omit `Result`; read one job for it. `UnreadableJournalRecords`
 counts journal records the Admiral could not read. Each one is also written to
-the Admiral log as a warning, so a shorter list is never silent.
+the Admiral log as a warning, so a shorter list is never silent. A journal record
+is read again only when its file length or write time changes; an unreadable
+record is read, and counted, on every list.
 
 #### POST /api/v1/jobs/enumerate
 

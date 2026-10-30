@@ -325,6 +325,49 @@ namespace Armada.Test.Unit.Suites.Services
                 await WaitTerminalAsync(current, newest.JobId);
             });
 
+            await RunTest("ListJobs reads a journal record again only when its file is new or changed, and drops a deleted record", async () =>
+            {
+                string journal = NewJournalDirectory();
+                LongRunningJobService previous = new LongRunningJobService(journalDirectory: journal);
+                LongRunningJob finished = previous.Start("probe", _ => Task.FromResult<object?>(null));
+                await WaitTerminalAsync(previous, finished.JobId);
+                string path = Path.Combine(journal, finished.JobId + ".json");
+
+                LongRunningJobService current = new LongRunningJobService(journalDirectory: journal);
+                List<LongRunningJob> first = current.ListJobs(out int firstUnreadable);
+                AssertEqual(finished.JobId, first.Single().JobId);
+                AssertEqual(0, firstUnreadable);
+                first[0].Status = LongRunningJobStatusEnum.Lost;
+
+                // Same length and write time: the record is unchanged as far as the file system can tell, so it is not read again.
+                DateTime written = File.GetLastWriteTimeUtc(path);
+                File.WriteAllText(path, new string('x', (int)new FileInfo(path).Length));
+                File.SetLastWriteTimeUtc(path, written);
+                List<LongRunningJob> second = current.ListJobs(out int secondUnreadable);
+                AssertEqual(1, second.Count, "the unchanged record is still listed, so it was not read again");
+                AssertEqual(finished.JobId, second[0].JobId);
+                AssertEqual(LongRunningJobStatusEnum.Succeeded, second[0].Status, "from the record first read, not from a caller's change to a listed copy");
+                AssertEqual(0, secondUnreadable, "the unchanged record is not read again");
+                AssertEqual(0, current.JournalFailures);
+
+                File.WriteAllText(path, JsonSerializer.Serialize(new
+                {
+                    JobId = finished.JobId,
+                    Operation = "probe",
+                    Status = "Failed",
+                    FailureMessage = "rewritten",
+                    SubmittedAtUtc = finished.SubmittedAtUtc,
+                    CompletedAtUtc = DateTime.UtcNow
+                }));
+                File.SetLastWriteTimeUtc(path, written.AddSeconds(5));
+                List<LongRunningJob> third = current.ListJobs(out int _);
+                AssertEqual(LongRunningJobStatusEnum.Failed, third.Single().Status, "a rewritten record is read again");
+                AssertEqual("rewritten", third[0].FailureMessage);
+
+                File.Delete(path);
+                AssertEqual(0, current.ListJobs(out int _).Count, "a deleted record is no longer listed");
+            });
+
             await RunTest("ListJobs without a journal lists the jobs in memory", async () =>
             {
                 LongRunningJobService service = new LongRunningJobService();

@@ -90,6 +90,8 @@ namespace Armada.Server
         private readonly Func<LongRunningJob, Task>? _OnJobFailedAsync;
         private readonly Action<string>? _Warn;
         private readonly Func<LongRunningJob, CancellationToken, Task<bool>>? _ProgressProbeAsync;
+        private readonly Dictionary<string, JournalEntry> _JournalCache = new Dictionary<string, JournalEntry>(StringComparer.Ordinal);
+        private readonly object _JournalCacheLock = new object();
         private int _JournalFailures = 0;
         private DateTime _LastPruneUtc = DateTime.MinValue;
 
@@ -249,7 +251,8 @@ namespace Armada.Server
         /// finished journal record older than <see cref="JournalRetention"/> is left out, as pruning
         /// would remove it. A journal record that cannot be read is reported through the warning
         /// callback, counted in <see cref="JournalFailures"/>, and counted in
-        /// <paramref name="unreadableRecords"/>, so a shorter list is never silent.
+        /// <paramref name="unreadableRecords"/>, so a shorter list is never silent. A journal record
+        /// is read again only when its file length or write time changed since it was last read.
         /// </summary>
         /// <param name="unreadableRecords">Number of journal records, or journal listings, that could not be read.</param>
         /// <returns>Snapshots of every known job.</returns>
@@ -275,20 +278,29 @@ namespace Armada.Server
                     paths = new List<string>();
                 }
 
-                foreach (string path in paths)
+                // A record is read again only when its file length or write time changed, so a page request does not
+                // reread the whole journal. A record that cannot be read is never cached, so it is counted on every list.
+                lock (_JournalCacheLock)
                 {
-                    if (jobs.ContainsKey(Path.GetFileNameWithoutExtension(path))) continue;
+                    HashSet<string> present = new HashSet<string>(paths, StringComparer.Ordinal);
+                    foreach (string stale in _JournalCache.Keys.Where(key => !present.Contains(key)).ToList())
+                        _JournalCache.Remove(stale);
 
-                    LongRunningJob? journalled = ReadJournalFile(path);
-                    if (journalled == null)
+                    foreach (string path in paths)
                     {
-                        unreadableRecords++;
-                        continue;
+                        if (jobs.ContainsKey(Path.GetFileNameWithoutExtension(path))) continue;
+
+                        LongRunningJob? journalled = ReadCachedJournalFile(path);
+                        if (journalled == null)
+                        {
+                            unreadableRecords++;
+                            continue;
+                        }
+                        if (jobs.ContainsKey(journalled.JobId)) continue;
+                        if (LongRunningJob.IsTerminal(journalled.Status)
+                            && (journalled.CompletedAtUtc ?? journalled.SubmittedAtUtc) < cutoff) continue;
+                        jobs[journalled.JobId] = journalled.CreateSnapshot();
                     }
-                    if (jobs.ContainsKey(journalled.JobId)) continue;
-                    if (LongRunningJob.IsTerminal(journalled.Status)
-                        && (journalled.CompletedAtUtc ?? journalled.SubmittedAtUtc) < cutoff) continue;
-                    jobs[journalled.JobId] = journalled;
                 }
             }
 
@@ -659,6 +671,33 @@ namespace Armada.Server
             }
         }
 
+        private LongRunningJob? ReadCachedJournalFile(string path)
+        {
+            long length;
+            DateTime writtenUtc;
+            try
+            {
+                FileInfo info = new FileInfo(path);
+                length = info.Length;
+                writtenUtc = info.LastWriteTimeUtc;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                _JournalCache.Remove(path);
+                return ReadJournalFile(path);
+            }
+
+            if (_JournalCache.TryGetValue(path, out JournalEntry? cached)
+                && cached.Length == length
+                && cached.WrittenUtc == writtenUtc)
+                return cached.Job;
+
+            LongRunningJob? job = ReadJournalFile(path);
+            if (job == null) _JournalCache.Remove(path);
+            else _JournalCache[path] = new JournalEntry(length, writtenUtc, job);
+            return job;
+        }
+
         private void PruneJournal(bool force)
         {
             if (_JournalDirectory == null) return;
@@ -705,6 +744,26 @@ namespace Armada.Server
         {
             Interlocked.Increment(ref _JournalFailures);
             _Warn?.Invoke(message);
+        }
+
+        #endregion
+
+        #region Private-Classes
+
+        private sealed class JournalEntry
+        {
+            public JournalEntry(long length, DateTime writtenUtc, LongRunningJob job)
+            {
+                Length = length;
+                WrittenUtc = writtenUtc;
+                Job = job;
+            }
+
+            public long Length { get; }
+
+            public DateTime WrittenUtc { get; }
+
+            public LongRunningJob Job { get; }
         }
 
         #endregion
