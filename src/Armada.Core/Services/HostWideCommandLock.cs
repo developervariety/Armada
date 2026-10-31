@@ -426,9 +426,16 @@ namespace Armada.Core.Services
 
             lock (_Sync)
             {
-                request = new Request(ownerKey, ownerDescription, _Clock()) { Alone = alone };
+                request = new Request(ownerKey, ownerDescription, _Clock()) { Alone = alone, AheadAtRequest = _Waiters.Count };
                 node = _Waiters.AddLast(request);
                 GrantWaiting(granted);
+
+                // The holders when the request has to wait are the ones it waits behind; a request granted at once
+                // names none.
+                if (!granted.Contains(request))
+                {
+                    foreach (Request holder in _Holders) request.BlockedBy.Add(holder.Describe());
+                }
             }
 
             Complete(granted);
@@ -485,6 +492,29 @@ namespace Armada.Core.Services
                 Request request = held.Request;
                 if (_Holders.Count > 1 && _Holders.Contains(request)) return true;
                 return request.ShareEvents > mark;
+            }
+        }
+
+        /// <summary>
+        /// How long a granted lease waited for its slot, why, and which holders were ahead of it.
+        /// </summary>
+        /// <param name="lease">A lease this lock granted.</param>
+        /// <returns>The wait record, or null for a null lease or one this lock did not grant.</returns>
+        public static HostSlotWaitRecord? ReadWaitRecord(IDisposable? lease)
+        {
+            if (lease is not Lease held) return null;
+            lock (_Sync)
+            {
+                Request request = held.Request;
+                HostSlotWaitRecord record = new HostSlotWaitRecord();
+                record.VesselWaitMs = held.VesselWaitMs;
+                record.HostWaitMs = ElapsedMs(request.RequestedUtc, request.GrantedUtc);
+                record.MemoryHeldMs = request.MemoryHeldSinceUtc.HasValue ? ElapsedMs(request.MemoryHeldSinceUtc.Value, request.GrantedUtc) : 0;
+                record.AloneHeldMs = request.AloneHeldSinceUtc.HasValue ? ElapsedMs(request.AloneHeldSinceUtc.Value, request.GrantedUtc) : 0;
+                record.AheadAtRequest = request.AheadAtRequest;
+                record.BlockedBy.AddRange(held.VesselBlockedBy);
+                record.BlockedBy.AddRange(request.BlockedBy);
+                return record;
             }
         }
 
@@ -582,6 +612,10 @@ namespace Armada.Core.Services
                 request = new Request(ownerKey, ownerDescription, _Clock());
                 node = queue.Waiters.AddLast(request);
                 GrantVessel(queue, granted);
+                if (!granted.Contains(request))
+                {
+                    foreach (Request holder in queue.Holders) request.BlockedBy.Add(holder.Describe());
+                }
             }
 
             Complete(granted);
@@ -689,8 +723,12 @@ namespace Armada.Core.Services
             while (_Holders.Count < _SlotCount && _Waiters.First != null)
             {
                 Request next = _Waiters.First.Value;
-                if (_Holders.Exists(holder => holder.Alone)) break;
-                if (next.Alone && _Holders.Count > 0) break;
+                if (_Holders.Exists(holder => holder.Alone) || (next.Alone && _Holders.Count > 0))
+                {
+                    if (!next.AloneHeldSinceUtc.HasValue) next.AloneHeldSinceUtc = _Clock();
+                    break;
+                }
+
                 DateTime now = _Clock();
                 bool underFloor = false;
                 if (_MemoryFloorMb > 0)
@@ -808,6 +846,15 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Whole milliseconds from a start to an end, 0 when the end is unknown or earlier.
+        /// </summary>
+        private static long ElapsedMs(DateTime startUtc, DateTime? endUtc)
+        {
+            if (!endUtc.HasValue || endUtc.Value <= startUtc) return 0;
+            return Convert.ToInt64(Math.Round((endUtc.Value - startUtc).TotalMilliseconds));
+        }
+
         private static DateTime DefaultClock()
         {
             return DateTime.UtcNow;
@@ -852,6 +899,22 @@ namespace Armada.Core.Services
             /// <summary>How many times this request began or ended holding a slot together with another request.</summary>
             public long ShareEvents { get; set; }
 
+            /// <summary>Requests ahead of this one in its queue when it joined.</summary>
+            public int AheadAtRequest { get; init; }
+
+            /// <summary>When this request, first in line, was first held by a request that holds the host alone.</summary>
+            public DateTime? AloneHeldSinceUtc { get; set; }
+
+            /// <summary>The holders this request waited behind, as "key: description".</summary>
+            public List<string> BlockedBy { get; } = new List<string>();
+
+            /// <summary>The holder as one "key: description" entry, safe inside a semicolon-separated line.</summary>
+            public string Describe()
+            {
+                string text = (OwnerKey ?? "unnamed") + ": " + OwnerDescription;
+                return text.Replace(';', ',').Replace('\r', ' ').Replace('\n', ' ');
+            }
+
             public TaskCompletionSource<bool> Granted { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
@@ -865,7 +928,18 @@ namespace Armada.Core.Services
             {
                 _Request = request ?? throw new ArgumentNullException(nameof(request));
                 _VesselLease = vesselLease;
+                if (vesselLease is VesselLease vessel)
+                {
+                    VesselWaitMs = ElapsedMs(vessel.Request.RequestedUtc, vessel.Request.GrantedUtc);
+                    VesselBlockedBy = vessel.Request.BlockedBy;
+                }
             }
+
+            /// <summary>Milliseconds the request waited for its vessel's suite slot.</summary>
+            public long VesselWaitMs { get; }
+
+            /// <summary>The same-vessel holders the request waited behind.</summary>
+            public List<string> VesselBlockedBy { get; } = new List<string>();
 
             public Request Request
             {
@@ -902,6 +976,11 @@ namespace Armada.Core.Services
             {
                 _VesselKey = vesselKey;
                 _Request = request;
+            }
+
+            public Request Request
+            {
+                get => _Request;
             }
 
             public void Dispose()

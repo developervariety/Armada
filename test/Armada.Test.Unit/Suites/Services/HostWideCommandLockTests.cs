@@ -855,6 +855,142 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(CheckRunSlotWait.Describe(run, slot)!.MemoryWaitReason, "no memory reason while memory holds nothing");
                 return Task.CompletedTask;
             });
+
+            await RunTest("A lease records how long it waited for a host slot and which holder blocked it", async () =>
+            {
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                FakeHost host = new FakeHost();
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        HostWideCommandLock.SetClock(() => host.UtcNow);
+
+                        IDisposable holder = await HostWideCommandLock.AcquireAsync("wait_record_holder", "check Build on vsl_one", cancel.Token).ConfigureAwait(false);
+                        leases.Add(holder);
+                        HostSlotWaitRecord? immediate = HostWideCommandLock.ReadWaitRecord(holder);
+                        AssertNotNull(immediate, "a granted lease carries a wait record");
+                        AssertEqual(0L, immediate!.HostWaitMs, "an immediate grant waited no time");
+                        AssertEqual(0, immediate.BlockedBy.Count, "an immediate grant names no blocking holder");
+                        AssertContains("blocked_by=none", immediate.Describe());
+
+                        Task<IDisposable> waiter = HostWideCommandLock.AcquireAsync("wait_record_waiter", "check UnitTest on vsl_two", cancel.Token);
+                        requests.Add(waiter);
+                        host.UtcNow = host.UtcNow.AddSeconds(7);
+                        holder.Dispose();
+                        leases.Remove(holder);
+                        IDisposable waited = await waiter.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                        requests.Remove(waiter);
+                        leases.Add(waited);
+
+                        HostSlotWaitRecord? record = HostWideCommandLock.ReadWaitRecord(waited);
+                        AssertNotNull(record);
+                        AssertEqual(7000L, record!.HostWaitMs, "the host wait runs from request to grant");
+                        AssertEqual(0L, record.VesselWaitMs, "a request that names no vessel has no vessel wait");
+                        AssertEqual(0L, record.MemoryHeldMs);
+                        AssertEqual(1, record.BlockedBy.Count, "the holder at request time is named");
+                        AssertEqual("wait_record_holder: check Build on vsl_one", record.BlockedBy[0]);
+                        string line = record.Describe();
+                        AssertContains("host_wait_ms=7000", line);
+                        AssertContains("blocked_by=wait_record_holder: check Build on vsl_one", line);
+                        AssertNull(HostWideCommandLock.ReadWaitRecord(null), "a lease this lock did not grant has no record");
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
+            await RunTest("A lease records its vessel slot wait and the same-vessel holder that blocked it", async () =>
+            {
+                string vessel = "vsl_wait_record_" + Guid.NewGuid().ToString("N");
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                FakeHost host = new FakeHost();
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        HostWideCommandLock.SetSlotCount(2);
+                        HostWideCommandLock.SetClock(() => host.UtcNow);
+
+                        IDisposable holder = await HostWideCommandLock.AcquireAsync("vessel_record_holder", "captain suite lease", vessel, cancel.Token).ConfigureAwait(false);
+                        leases.Add(holder);
+                        Task<IDisposable> waiter = HostWideCommandLock.AcquireAsync("vessel_record_waiter", "check UnitTest", vessel, cancel.Token);
+                        requests.Add(waiter);
+                        host.UtcNow = host.UtcNow.AddSeconds(3);
+                        holder.Dispose();
+                        leases.Remove(holder);
+                        IDisposable waited = await waiter.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                        requests.Remove(waiter);
+                        leases.Add(waited);
+
+                        HostSlotWaitRecord? record = HostWideCommandLock.ReadWaitRecord(waited);
+                        AssertNotNull(record);
+                        AssertEqual(3000L, record!.VesselWaitMs, "the vessel wait runs from the vessel request to the vessel grant");
+                        AssertEqual(0L, record.HostWaitMs, "a free host slot is granted at once after the vessel slot");
+                        AssertEqual(1, record.BlockedBy.Count, "the same-vessel holder is named although a host slot was free");
+                        AssertEqual("vessel_record_holder: captain suite lease", record.BlockedBy[0]);
+                        AssertContains("vessel_wait_ms=3000", record.Describe());
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
+            await RunTest("A lease records the time it was held for the memory floor", async () =>
+            {
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                FakeHost host = new FakeHost { AvailableMb = 1000 };
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetClock(() => host.UtcNow);
+                        HostWideCommandLock.SetMemoryReader(() => host.AvailableMb);
+                        HostWideCommandLock.SetMemoryFloorMb(4096);
+
+                        Task<IDisposable> waiter = HostWideCommandLock.AcquireAsync("memory_record_waiter", "check Build", cancel.Token);
+                        requests.Add(waiter);
+                        AssertFalse(waiter.IsCompleted, "the request is held while memory is below the floor");
+                        host.UtcNow = host.UtcNow.AddSeconds(4);
+                        host.AvailableMb = 8192;
+                        HostWideCommandLock.RecheckMemory();
+                        IDisposable granted = await waiter.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                        requests.Remove(waiter);
+                        leases.Add(granted);
+
+                        HostSlotWaitRecord? record = HostWideCommandLock.ReadWaitRecord(granted);
+                        AssertNotNull(record);
+                        AssertEqual(4000L, record!.MemoryHeldMs, "the memory hold runs from the first hold to the grant");
+                        AssertEqual(4000L, record.HostWaitMs);
+                        AssertEqual(0, record.BlockedBy.Count, "no holder blocked a request held only for memory");
+                        AssertContains("memory_held_ms=4000", record.Describe());
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
         }
 
         /// <summary>

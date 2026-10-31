@@ -465,8 +465,9 @@ namespace Armada.Core.Services
 
                     // Share the host-wide slots with DoD gates and merge-queue test runs so no more full
                     // build+test suites run on one host at once than its slot count allows. See HostWideCommandLock.
-                    using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), run.VesselId, token).ConfigureAwait(false))
+                    using (IDisposable slot = await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), run.VesselId, token).ConfigureAwait(false))
                     {
+                        budget.SlotWait = HostWideCommandLock.ReadWaitRecord(slot);
                         if (isolatedCheckout != null)
                         {
                             string waitedPath = isolatedCheckout.Path;
@@ -1274,8 +1275,10 @@ namespace Armada.Core.Services
                     }
                 }
 
-                using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), run.VesselId, token).ConfigureAwait(false))
+                using (IDisposable slot = await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), run.VesselId, token).ConfigureAwait(false))
                 {
+                    budget.SlotWait = HostWideCommandLock.ReadWaitRecord(slot);
+
                     // A gate ahead of this check can publish its pass while the check waits. Read the
                     // evidence again before starting the command so that wait does not cause a duplicate run.
                     satisfied = await TryCompleteFromGatePassAsync(run, profile, token).ConfigureAwait(false);
@@ -1777,6 +1780,11 @@ namespace Armada.Core.Services
                 + "; retry_slot_wait_ms=" + budget.RetrySlotWaitMilliseconds
                 + "; " + (budget.Shared ? "shared_execution_budget_ms=" : "per_command_timeout_ms=")
                 + Convert.ToInt64(Math.Ceiling(budget.Limit.TotalMilliseconds));
+
+            // Who the run waited behind for its host slot. The slot snapshot shows this only while the run waits,
+            // so the finished record keeps it.
+            if (budget.SlotWait != null)
+                run.Output += Environment.NewLine + "Check slot wait: " + budget.SlotWait.Describe();
         }
 
         private sealed class CheckCommandBudget
@@ -1790,6 +1798,7 @@ namespace Armada.Core.Services
             public TimeSpan Limit { get; }
             public bool Shared { get; }
             public TimeSpan RetrySlotWait { get; set; }
+            public HostSlotWaitRecord? SlotWait { get; set; }
             public bool Exhausted => Shared && _Execution >= Limit;
             public string? FailureReason { get; private set; }
             public long ExecutionMilliseconds => Convert.ToInt64(Math.Ceiling(_Execution.TotalMilliseconds));

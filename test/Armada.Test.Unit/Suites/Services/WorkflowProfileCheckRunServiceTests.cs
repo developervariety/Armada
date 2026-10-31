@@ -579,6 +579,7 @@ namespace Armada.Test.Unit.Suites.Services
                     long expected = Convert.ToInt64(Math.Round((completed.CompletedUtc!.Value - completed.StartedUtc!.Value).TotalMilliseconds));
                     AssertEqual(expected, completed.DurationMs, "the run time is the time from start to completion");
                     AssertTrue((completed.DurationMs ?? 0) >= 900, "the command ran for its one-second timeout: " + completed.DurationMs);
+                    AssertContains("Check slot wait: vessel_wait_ms=", completed.Output ?? String.Empty, "a pending run records its slot wait");
 
                     CheckRun directTimeout = await checkRuns.RunAsync(auth, new CheckRunRequest
                     {
@@ -594,6 +595,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(!(directTimeout.Output ?? String.Empty).Contains("--- ISOLATED RE-RUN:", StringComparison.Ordinal),
                         "Partial failure names from an interrupted suite must not trigger an isolated pass.");
                     AssertContains("command_execution_ms=", directTimeout.Output ?? String.Empty);
+                    AssertContains("Check slot wait: vessel_wait_ms=", directTimeout.Output ?? String.Empty, "a direct run records its slot wait");
                     AssertTrue((directTimeout.DurationMs ?? 0) >= 900);
                     AssertTrue(directTimeout.SatisfiedBy == null, "A timeout is an executed failure, not reused proof.");
 

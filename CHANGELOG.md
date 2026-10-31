@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A finished Check names who it waited behind for its slot
+
+- A Check's output ends with a `Check slot wait` line: the vessel-slot and host-slot wait in milliseconds, the part of that wait held by the memory floor or by a request holding the host alone, the requests ahead of it, and the holders it waited behind (a definition-of-done gate, a merge-queue test, a captain suite lease or another Check). Slot admission, slot counts, the memory floor and timeouts do not change.
+
 ### MCP tool schemas use one JSON type per field
 
 - `armada_add_vessel`, `armada_update_vessel`, `create_persona` and `update_persona` no longer declare a union `type` array, and their `minimumTier` enum no longer lists `null`. A strict function-calling client such as Vertex AI rejects a schema that carries an any-of branch beside other fields, and refused the whole catalog with a 400 before any tool ran.

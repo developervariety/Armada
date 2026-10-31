@@ -577,7 +577,14 @@ slot wait and other work after the first command. The output's final
 `Check execution timing` line records active command milliseconds and retry-slot
 wait milliseconds separately. `QueueDurationMs` still describes creation to the
 first command start. These are different measures; do not read the wall duration
-as pure test time. Deployment deploy, verify, and rollback Checks stay under the
+as pure test time. A `Check slot wait` line follows it: the milliseconds the run
+waited for its vessel's suite slot (`vessel_wait_ms`) and for a host slot
+(`host_wait_ms`), how much of that wait memory below the floor
+(`memory_held_ms`) or a request holding the host alone (`alone_held_ms`) held it,
+how many requests were ahead of it (`ahead_at_request`), and the holders it waited
+behind as `key: description` (`blocked_by`, or `none`). A definition-of-done gate,
+a merge-queue test or a captain suite lease can hold a slot without a Check
+record, so this line is how a finished Check names them. Deployment deploy, verify, and rollback Checks stay under the
 deployment action so the deployment record remains authoritative.
 
 While the dispatch hold is engaged, the heartbeat runs eligible Checks for
