@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Unit shards are balanced by current suite times
+
+- `shard-weights.json` is regenerated from a current gate for all 457 registered suites. On the same measured times the balanced shards come out at about 87 s each instead of 45 to 120 s. Shard 1 is set by the serial suites (about 154 s instead of 179 s).
+
 ### A finished Check names who it waited behind for its slot
 
 - A Check's output ends with a `Check slot wait` line: the vessel-slot and host-slot wait in milliseconds, the part of that wait held by the memory floor or by a request holding the host alone, the requests ahead of it, and the holders it waited behind (a definition-of-done gate, a merge-queue test, a captain suite lease or another Check). Slot admission, slot counts, the memory floor and timeouts do not change.

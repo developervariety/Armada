@@ -148,6 +148,8 @@ Each shard prints `Shard i/N: k of m suites` and the normal summary.
   python3 scripts/common/generate-shard-weights.py unit-shard-*.log --suites suites.txt > test/Armada.Test.Unit/shard-weights.json
   ```
 
+  Regenerate it when the shards of one gate finish far apart. A stale table places suites by old times, and every suite added since it was generated weighs `DefaultSeconds`, so one shard collects the slow suites and sets the gate's wall clock. Check a regenerated table by applying the plan to the measured times: the balanced shards should come out nearly equal, and shard 1 can be no shorter than the serial suites' total.
+
 - **Serial suites.** `test/Armada.Test.Unit/serial-suites.json` names each suite that always runs on shard 1, with its reason: it touches machine-wide state (for example the shared temp directory), asserts a wall-clock bound, or changes process-global state (environment variables, `HOME`, `PATH`, `TZ`, static registries). Each shard is its own process, so process-global state cannot leak between shards; keeping these suites together keeps them out of the balanced split and in one place to review. Every run loads the list, and a name that is not a registered suite fails the run, so a rename cannot silently unpin a suite. A new suite of this kind is added to the list in the same change.
 
 ## Tests That Wait On Time
