@@ -233,6 +233,14 @@ namespace Armada.Core.Settings
         /// </summary>
         public List<string> ConsumerTestTriggerPaths { get; set; } = new List<string> { "src/" };
 
+        /// <summary>
+        /// Load-average limit for starting a consumer build. Before each declared consumer's build the gate waits until
+        /// the host's 1-minute and 5-minute load averages are both below this limit (three quiet readings in a row after
+        /// a busy one, at most <see cref="Armada.Core.Services.HostLoadMonitor.MaximumWait"/>). Null uses the core count
+        /// (<see cref="Armada.Core.Services.HostLoadMonitor.RecoveredFactor"/> times the logical cores). The wait never fails the gate.
+        /// </summary>
+        public double? ConsumerBuildLoadLimit { get; set; } = null;
+
         #endregion
 
         #region Public-Methods
@@ -264,6 +272,7 @@ namespace Armada.Core.Settings
             RerunFailingConsumerClassesOnce = source.RerunFailingConsumerClassesOnce;
             RerunFailingClassesOnce = source.RerunFailingClassesOnce;
             ConsumerTestTriggerPaths = new List<string>(source.ConsumerTestTriggerPaths ?? new List<string>());
+            ConsumerBuildLoadLimit = source.ConsumerBuildLoadLimit;
         }
 
         #endregion

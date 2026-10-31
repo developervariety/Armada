@@ -71,6 +71,9 @@ namespace Armada.Core.Services
         // worktrees can tell whose lock it is.
         private const string ConsumerVerifyLockReason = "armada consumer verification in progress";
 
+        // Quiet load readings in a row a consumer build needs after a busy reading (see HostLoadMonitor.WaitForQuietHostAsync).
+        private const int ConsumerBuildQuietReadings = 3;
+
         private static readonly Regex _SecretLikePattern = new Regex(
             @"(?:password|passwd|secret|token|key|credential|auth|api_key|apikey|access_key|private_key)\s*[=:]\s*\S+",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -1087,6 +1090,16 @@ namespace Armada.Core.Services
                 // provisioned inputs as the first build and test commands.
                 consumerProfile!.EnvironmentVariables = consumerEnvironment;
                 string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(consumerBuild!) : consumerBuild!;
+
+                // A consumer build is a whole-solution build. Starting it on a busy host adds to the spike that makes
+                // other commands time out, so it waits for a quiet host first. The wait is always named and never fails
+                // the gate; at the maximum the build runs anyway.
+                HostQuietWait quietWait = await _HostLoad.WaitForQuietHostAsync(
+                    _Settings.ConsumerBuildLoadLimit, ConsumerBuildQuietReadings, token).ConfigureAwait(false);
+                string loadLine = label + " " + quietWait.Describe();
+                if (quietWait.EndedAtMaximum) _Logging.Warn(_Header + loadLine);
+                else _Logging.Info(_Header + loadLine);
+
                 DefinitionOfDoneResult buildResult;
                 using (EnterCommandBudget(consumer.Id, "build", consumerProfile))
                     buildResult = await RunCommandAsync(label, effective, consumerWorktree, token,
@@ -1095,6 +1108,7 @@ namespace Armada.Core.Services
                 if (!buildResult.Passed)
                 {
                     _Logging.Warn(_Header + "consumer " + consumer.Name + " failed to build against this change");
+                    buildResult.OutputTail = loadLine + Environment.NewLine + buildResult.OutputTail;
                     return buildResult;
                 }
 

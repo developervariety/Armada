@@ -1702,6 +1702,44 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(monitor.RanOverloaded(new HostLoadReading { LoadAverage1Min = 3.0, LoadAverage15Min = 8.0, LogicalCores = 4 }), "neither average above twice the cores is a run at normal load");
             }).ConfigureAwait(false);
 
+            await RunTest("A quiet-host wait admits at once when the first reading is quiet and uses the core count without a limit", async () =>
+            {
+                FakeHostLoad quiet = new FakeHostLoad(4, 3.9) { MidReadings = new double?[] { 3.5 } };
+                HostQuietWait admitted = await quiet.Monitor.WaitForQuietHostAsync(null, 3).ConfigureAwait(false);
+                AssertEqual(0, quiet.Delays.Count, "a quiet first reading never waits");
+                AssertEqual(0L, admitted.WaitedMs);
+                AssertEqual(4.0, admitted.Limit, "no limit means the logical core count");
+                AssertFalse(admitted.EndedAtMaximum);
+
+                FakeHostLoad atCores = new FakeHostLoad(4, 4.0, 3.0);
+                await atCores.Monitor.WaitForQuietHostAsync(null, 1).ConfigureAwait(false);
+                AssertEqual(1, atCores.Delays.Count, "a load equal to the limit is busy, not quiet");
+            }).ConfigureAwait(false);
+
+            await RunTest("A quiet-host wait after a busy reading needs three quiet readings in a row on both the 1-minute and 5-minute averages", async () =>
+            {
+                // 1-minute: busy, quiet, busy (resets), then quiet three times. The 5-minute average stays busy one
+                // reading longer than the 1-minute, so it alone holds the build.
+                FakeHostLoad host = new FakeHostLoad(16, 20, 5, 20, 5, 5, 5, 5)
+                {
+                    MidReadings = new double?[] { 18, 9, 12, 12, 9, 9, 9 }
+                };
+                HostQuietWait wait = await host.Monitor.WaitForQuietHostAsync(10, 3).ConfigureAwait(false);
+                AssertEqual(6, host.Delays.Count, "the reset dip and the busy 5-minute reading each restart the count");
+                AssertEqual(180000L, wait.WaitedMs);
+                AssertFalse(wait.EndedAtMaximum);
+                AssertContains("load wait: 180000 ms, 1m/5m 5/9, limit 10", wait.Describe());
+            }).ConfigureAwait(false);
+
+            await RunTest("A quiet-host wait on a host that stays busy ends at the maximum and says so", async () =>
+            {
+                FakeHostLoad busy = new FakeHostLoad(16, 25.0);
+                HostQuietWait wait = await busy.Monitor.WaitForQuietHostAsync(10, 3).ConfigureAwait(false);
+                AssertTrue(wait.EndedAtMaximum, "the wait is bounded");
+                AssertEqual(HostLoadMonitor.MaximumWait, TimeSpan.FromTicks(busy.Delays.Sum(d => d.Ticks)), "it waits exactly the maximum");
+                AssertContains("load wait ended at maximum", wait.Describe());
+            }).ConfigureAwait(false);
+
             await RunTest("Gate redacts secret-like lines in the failing-command output tail", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2401,6 +2439,46 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A consumer build waits for a quiet host and its failure output names the wait", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_cq", "vsl_cq_producer",
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_cq", "vsl_cq_consumer",
+                        "ExampleConsumer", "vsl_cq_producer", FailCommand(), SuccessCommand(), null).ConfigureAwait(false);
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/Foo.cs" }
+                    };
+
+                    // The gate's own start admission reads a normal host; the consumer build then meets a busy host,
+                    // a dip, and three quiet readings.
+                    FakeHostLoad host = new FakeHostLoad(16, 5, 20, 5, 20, 5, 5, 5);
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerBuildLoadLimit = 10 },
+                        testDb.Driver, logging, null, git, null, host.Monitor);
+
+                    Mission mission = CreateWorkerMission("ten_cq", "vsl_cq_producer");
+                    mission.BranchName = "feat/cq";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "the consumer build still runs after the wait and its failure stands");
+                    AssertEqual(5, host.Delays.Count, "the consumer build waited for three quiet readings after the dip");
+                    AssertContains("consumer-build (ExampleConsumer) load wait: 150000 ms", result.OutputTail ?? String.Empty,
+                        "the failure output names the wait");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Consumer tests do NOT run when no producer change reaches a triggering path", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -3041,15 +3119,27 @@ namespace Armada.Test.Unit.Suites.Services
             /// <summary>15-minute readings served in order, the last repeated. Empty reads unknown.</summary>
             public double?[] LongReadings { get; set; } = new double?[0];
 
+            /// <summary>5-minute readings served in order, the last repeated. Empty reads unknown.</summary>
+            public double?[] MidReadings { get; set; } = new double?[0];
+
             private readonly double?[] _Readings;
             private int _Next = 0;
             private int _NextLong = 0;
+            private int _NextMid = 0;
             private DateTime _Now = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
             public FakeHostLoad(int logicalCores, params double?[] readings)
             {
                 _Readings = readings;
-                Monitor = new HostLoadMonitor(ReadLoad, () => logicalCores, () => _Now, Delay, ReadLongLoad);
+                Monitor = new HostLoadMonitor(ReadLoad, () => logicalCores, () => _Now, Delay, ReadLongLoad, ReadMidLoad);
+            }
+
+            private double? ReadMidLoad()
+            {
+                if (MidReadings.Length == 0) return null;
+                double? reading = MidReadings[Math.Min(_NextMid, MidReadings.Length - 1)];
+                _NextMid++;
+                return reading;
             }
 
             private double? ReadLongLoad()

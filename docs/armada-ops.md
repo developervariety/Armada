@@ -164,6 +164,17 @@ relative suffixes. The longest matching directory root wins. Relative paths,
 path lists and unrelated values retain their configured meaning. Build, test
 and retry commands use the same rebased environment.
 
+Each consumer build waits for a quiet host first: the 1-minute and 5-minute
+load averages must both be below `definitionOfDone.consumerBuildLoadLimit`
+(null uses the logical core count). A quiet first reading starts the build at
+once; after a busy reading the build needs three quiet readings in a row, 30
+seconds apart. The wait lasts at most 20 minutes, after which the build runs
+anyway. The gate keeps its host slot while it waits. Every wait is logged as
+`consumer-build (<name>) load wait: <ms> ms, 1m/5m <a>/<b>, limit <n>`, with
+`load wait ended at maximum` when the limit was not reached, and a failed
+consumer build carries the same line at the top of its output. The wait never
+fails the gate.
+
 ## Blocked gate recovery
 
 A recorded definition-of-done failure class of `Infra` or `Timeout` blocks

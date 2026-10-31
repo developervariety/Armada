@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A consumer build waits for a quiet host
+
+- Before each declared consumer's build, the definition-of-done gate waits until the 1-minute and 5-minute load averages are below `definitionOfDone.consumerBuildLoadLimit` (default: the logical core count): at once when the first reading is quiet, otherwise after three quiet readings in a row, at most 20 minutes. The wait is logged by name, a failed consumer build's output starts with it, and it never fails the gate.
+
 ### A model endpoint can read its API key from a server-only file
 
 - `modelEndpointCredentials` maps an endpoint ID to one `0400` file in an absolute directory. A mission or Ask runtime for that endpoint reads the key into memory only; the endpoint record, routes, tools and logs never carry it. A symbolic link, a wider mode, an empty or multi-line file, a path in place of a file name, or a stored key beside the file refuses the runtime with the endpoint and the reason named, never the content.

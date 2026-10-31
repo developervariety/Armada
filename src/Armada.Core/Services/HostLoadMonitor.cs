@@ -234,6 +234,44 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Wait until the host is quiet enough to start a build: the 1-minute and the 5-minute load averages are both
+        /// below the limit. A first reading that is already quiet admits at once, because the 5-minute average already
+        /// covers the recent past. After a busy reading the wait needs <paramref name="quietReadings"/> quiet readings
+        /// in a row, <see cref="RecheckInterval"/> apart, so a short dip inside a busy period does not admit. An
+        /// unknown average counts as quiet. The wait ends at <see cref="MaximumWait"/> even when the host stays busy.
+        /// </summary>
+        /// <param name="limit">Load-average limit, or null for <see cref="RecoveredFactor"/> times the core count.</param>
+        /// <param name="quietReadings">Quiet readings in a row needed after a busy reading; at least 1.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>How long the wait took, the limit, the last reading and whether it ended at the maximum.</returns>
+        public async Task<HostQuietWait> WaitForQuietHostAsync(double? limit, int quietReadings, CancellationToken token = default)
+        {
+            if (quietReadings < 1) quietReadings = 1;
+            HostLoadReading first = Read();
+            double effectiveLimit = limit ?? RecoveredThreshold(first.LogicalCores);
+            DateTime deadline = first.ReadUtc + MaximumWait;
+            HostLoadReading reading = first;
+            int quiet = IsQuiet(reading, effectiveLimit) ? quietReadings : 0;
+            while (quiet < quietReadings && reading.ReadUtc < deadline)
+            {
+                TimeSpan remaining = deadline - reading.ReadUtc;
+                await _Delay(remaining < RecheckInterval ? remaining : RecheckInterval, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                reading = Read();
+                quiet = IsQuiet(reading, effectiveLimit) ? quiet + 1 : 0;
+            }
+
+            long waited = Convert.ToInt64(Math.Max(0, (reading.ReadUtc - first.ReadUtc).TotalMilliseconds));
+            return new HostQuietWait
+            {
+                Limit = effectiveLimit,
+                WaitedMs = waited,
+                EndedAtMaximum = quiet < quietReadings,
+                Reading = reading
+            };
+        }
+
+        /// <summary>
         /// Whether a reading shows load has fallen: a load average at or below
         /// <see cref="RecoveredFactor"/> times the core count, or an unknown reading.
         /// </summary>
@@ -322,6 +360,12 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static bool IsQuiet(HostLoadReading reading, double limit)
+        {
+            return (!reading.LoadAverage1Min.HasValue || reading.LoadAverage1Min.Value < limit)
+                && (!reading.LoadAverage5Min.HasValue || reading.LoadAverage5Min.Value < limit);
+        }
 
         /// <summary>
         /// Read the 1-minute load average from <c>/proc/loadavg</c> on Linux. Returns null on any other
