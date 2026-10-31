@@ -549,7 +549,7 @@ namespace Armada.Core.Services
                 run.Artifacts = !harborSelected
                     ? CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts)
                     : harborArtifacts?.Artifacts ?? new List<CheckRunArtifact>();
-                ParseExecutionSummaries(run, artifactDirectory);
+                ParseExecutionSummaries(run, artifactDirectory, budget);
                 run.Summary = BuildSummary(run, profile);
                 if (!harborSelected)
                     await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, request.DiffBaseCommit, budget, token).ConfigureAwait(false);
@@ -1357,7 +1357,7 @@ namespace Armada.Core.Services
             run.Artifacts = !harborSelected
                 ? CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts)
                 : new List<CheckRunArtifact>();
-            ParseExecutionSummaries(run, artifactDirectory);
+            ParseExecutionSummaries(run, artifactDirectory, budget);
             run.Summary = BuildSummary(run, profile);
             if (!harborSelected)
                 await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, null, budget, token).ConfigureAwait(false);
@@ -1785,6 +1785,8 @@ namespace Armada.Core.Services
             // so the finished record keeps it.
             if (budget.SlotWait != null)
                 run.Output += Environment.NewLine + "Check slot wait: " + budget.SlotWait.Describe();
+            if (budget.TestTiming != null)
+                run.Output += Environment.NewLine + "Check test timing: " + budget.TestTiming;
         }
 
         private sealed class CheckCommandBudget
@@ -1799,6 +1801,7 @@ namespace Armada.Core.Services
             public bool Shared { get; }
             public TimeSpan RetrySlotWait { get; set; }
             public HostSlotWaitRecord? SlotWait { get; set; }
+            public string? TestTiming { get; set; }
             public bool Exhausted => Shared && _Execution >= Limit;
             public string? FailureReason { get; private set; }
             public long ExecutionMilliseconds => Convert.ToInt64(Math.Ceiling(_Execution.TotalMilliseconds));
@@ -1975,13 +1978,27 @@ namespace Armada.Core.Services
             return String.Empty;
         }
 
-        private static void ParseExecutionSummaries(CheckRun run, string artifactDirectory)
+        private static void ParseExecutionSummaries(CheckRun run, string artifactDirectory, CheckCommandBudget budget)
         {
             // A file left by an earlier command is visible as an artifact, but cannot certify this run.
             List<CheckRunArtifact> freshArtifacts = run.Artifacts.Where(artifact => run.StartedUtc.HasValue
                 && artifact.LastWriteUtc.HasValue && artifact.LastWriteUtc.Value >= run.StartedUtc.Value).ToList();
             run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, freshArtifacts);
             run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, freshArtifacts);
+
+            // Per-test timing is read before the isolated checkout is removed. It only describes the run; it never
+            // changes the command, its exit code or the run's status.
+            if (IsTestCheckType(run.Type))
+            {
+                try
+                {
+                    budget.TestTiming = CheckRunParsingService.DescribeTestTiming(artifactDirectory, freshArtifacts);
+                }
+                catch (Exception ex)
+                {
+                    budget.TestTiming = "unreadable (" + ex.GetType().Name + ")";
+                }
+            }
         }
 
         private static List<CheckRunArtifact> CollectArtifacts(string workingDirectory, List<string>? expectedArtifacts)

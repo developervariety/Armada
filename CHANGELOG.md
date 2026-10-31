@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A test Check keeps its per-test timing
+
+- A UnitTest or IntegrationTest Check's output ends with a `Check test timing` line read from the fresh TRX files its profile lists in `ExpectedArtifacts`: the test count, per-assembly totals and the ten slowest tests. A run without such a file says `none (no fresh TRX artifact)`, and a file that does not parse is named with its reason. The command, its exit code and the Check's status do not change.
+
 ### Unit shards are balanced by current suite times
 
 - `shard-weights.json` is regenerated from a current gate for all 457 registered suites. On the same measured times the balanced shards come out at about 87 s each instead of 45 to 120 s. Shard 1 is set by the serial suites (about 154 s instead of 179 s).

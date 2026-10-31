@@ -584,7 +584,15 @@ waited for its vessel's suite slot (`vessel_wait_ms`) and for a host slot
 how many requests were ahead of it (`ahead_at_request`), and the holders it waited
 behind as `key: description` (`blocked_by`, or `none`). A definition-of-done gate,
 a merge-queue test or a captain suite lease can hold a slot without a Check
-record, so this line is how a finished Check names them. Deployment deploy, verify, and rollback Checks stay under the
+record, so this line is how a finished Check names them. A UnitTest or IntegrationTest Check
+then adds a `Check test timing` line from the TRX files its profile lists in
+`ExpectedArtifacts` and the command wrote during this run: the test count, each
+assembly's summed test time slowest first, and the ten slowest tests. Without
+such a file the line reads `none (no fresh TRX artifact)`; a file that does not
+parse is named with its reason. The line only describes the run: the command,
+its exit code and the Check's status are never changed by it. A vessel turns it
+on by adding a TRX logger with a fixed file name to its `dotnet test` command
+and listing that file in `ExpectedArtifacts`. Deployment deploy, verify, and rollback Checks stay under the
 deployment action so the deployment record remains authoritative.
 
 While the dispatch hold is engaged, the heartbeat runs eligible Checks for

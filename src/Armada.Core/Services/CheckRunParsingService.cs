@@ -131,6 +131,85 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Describe per-test timing from the fresh TRX artifacts of a run: the test count, each assembly's summed
+        /// test time slowest first, and the ten slowest tests. The description never throws: without a TRX artifact
+        /// it says so, and a TRX artifact that cannot be read is named with its reason.
+        /// </summary>
+        /// <param name="workingDirectory">Directory the artifact paths are relative to.</param>
+        /// <param name="artifacts">The run's fresh artifacts.</param>
+        /// <returns>One line of text without a trailing newline.</returns>
+        public static string DescribeTestTiming(string? workingDirectory, IEnumerable<CheckRunArtifact>? artifacts)
+        {
+            const string none = "none (no fresh TRX artifact)";
+            if (String.IsNullOrWhiteSpace(workingDirectory) || artifacts == null) return none;
+
+            string root;
+            try
+            {
+                root = Path.GetFullPath(workingDirectory);
+            }
+            catch (Exception ex)
+            {
+                return "unreadable (working directory: " + OneLine(ex.Message) + ")";
+            }
+
+            Dictionary<string, long> assemblyMs = new Dictionary<string, long>(StringComparer.Ordinal);
+            List<KeyValuePair<string, long>> tests = new List<KeyValuePair<string, long>>();
+            bool found = false;
+            foreach (CheckRunArtifact artifact in artifacts)
+            {
+                if (String.IsNullOrWhiteSpace(artifact.Path)) continue;
+                if (!Path.GetExtension(artifact.Path).Equals(".trx", StringComparison.OrdinalIgnoreCase)) continue;
+                string? fullPath = PathContainment.TryResolve(root, artifact.Path);
+                if (fullPath == null || !File.Exists(fullPath)) continue;
+
+                try
+                {
+                    XDocument document = XDocument.Load(fullPath);
+                    Dictionary<string, string> storageById = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (XElement definition in document.Descendants().Where(node => node.Name.LocalName == "UnitTest"))
+                    {
+                        string? id = definition.Attribute("id")?.Value;
+                        string? storage = definition.Attribute("storage")?.Value;
+                        if (!String.IsNullOrEmpty(id) && !String.IsNullOrEmpty(storage)) storageById[id] = storage;
+                    }
+
+                    foreach (XElement result in document.Descendants().Where(node => node.Name.LocalName == "UnitTestResult"))
+                    {
+                        if (!TimeSpan.TryParse(result.Attribute("duration")?.Value, CultureInfo.InvariantCulture, out TimeSpan duration)) continue;
+                        long ms = Convert.ToInt64(Math.Round(duration.TotalMilliseconds));
+                        string name = result.Attribute("testName")?.Value ?? "unnamed";
+                        string? testId = result.Attribute("testId")?.Value;
+                        string assembly = testId != null && storageById.TryGetValue(testId, out string? storagePath)
+                            ? Path.GetFileName(storagePath.Replace('\\', '/'))
+                            : "unknown";
+                        assemblyMs[assembly] = assemblyMs.TryGetValue(assembly, out long sum) ? sum + ms : ms;
+                        tests.Add(new KeyValuePair<string, long>(name, ms));
+                    }
+
+                    found = true;
+                }
+                catch (Exception ex)
+                {
+                    return "unreadable (" + artifact.Path.Replace('\\', '/') + ": " + OneLine(ex.Message) + ")";
+                }
+            }
+
+            if (!found) return none;
+
+            string assemblies = String.Join(", ", assemblyMs
+                .OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => OneLine(pair.Key) + "=" + pair.Value.ToString(CultureInfo.InvariantCulture) + "ms"));
+            string slowest = String.Join(", ", tests
+                .OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal)
+                .Take(10)
+                .Select(pair => OneLine(pair.Key) + "=" + pair.Value.ToString(CultureInfo.InvariantCulture) + "ms"));
+            return "tests=" + tests.Count.ToString(CultureInfo.InvariantCulture)
+                + "; assemblies=" + (assemblies.Length == 0 ? "none" : assemblies)
+                + "; slowest=" + (slowest.Length == 0 ? "none" : slowest);
+        }
+
+        /// <summary>
         /// Parse a coverage summary from collected artifacts when possible.
         /// </summary>
         public static CheckRunCoverageSummary? ParseCoverageSummary(string? workingDirectory, IEnumerable<CheckRunArtifact>? artifacts)
@@ -815,6 +894,14 @@ namespace Armada.Core.Services
         private static int ParseInt(Match match, string groupName)
         {
             return Int32.Parse(match.Groups[groupName].Value, CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Text safe inside one semicolon-separated line: line breaks become spaces and semicolons become commas.
+        /// </summary>
+        private static string OneLine(string text)
+        {
+            return text.Replace('\r', ' ').Replace('\n', ' ').Replace(';', ',');
         }
 
         private static long? ParseDurationMilliseconds(string? value)

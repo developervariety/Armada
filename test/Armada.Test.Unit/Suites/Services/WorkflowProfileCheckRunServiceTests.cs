@@ -596,6 +596,8 @@ namespace Armada.Test.Unit.Suites.Services
                         "Partial failure names from an interrupted suite must not trigger an isolated pass.");
                     AssertContains("command_execution_ms=", directTimeout.Output ?? String.Empty);
                     AssertContains("Check slot wait: vessel_wait_ms=", directTimeout.Output ?? String.Empty, "a direct run records its slot wait");
+                    AssertContains("Check test timing: none (no fresh TRX artifact)", directTimeout.Output ?? String.Empty, "a test run without a TRX artifact says so");
+                    AssertFalse((completed.Output ?? String.Empty).Contains("Check test timing:", StringComparison.Ordinal), "a Build run carries no test timing line");
                     AssertTrue((directTimeout.DurationMs ?? 0) >= 900);
                     AssertTrue(directTimeout.SatisfiedBy == null, "A timeout is an executed failure, not reused proof.");
 

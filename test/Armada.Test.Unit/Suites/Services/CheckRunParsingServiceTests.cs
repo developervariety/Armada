@@ -330,6 +330,65 @@ namespace Armada.Test.Unit.Suites.Services
 
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            await RunTest("Test timing names per-assembly totals and the ten slowest tests from fresh TRX artifacts", () =>
+            {
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada_trx_timing_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                try
+                {
+                    System.Text.StringBuilder results = new System.Text.StringBuilder();
+                    System.Text.StringBuilder definitions = new System.Text.StringBuilder();
+                    for (int i = 1; i <= 12; i++)
+                    {
+                        string storage = i <= 3 ? "/build/Slow.Tests.dll" : "/build/Fast.Tests.dll";
+                        results.Append("<UnitTestResult testId=\"t" + i + "\" testName=\"Case" + i.ToString("00") + "\" duration=\"00:00:0" + (i <= 3 ? "4" : "0") + "." + i.ToString("00") + "00000\" outcome=\"Passed\" />");
+                        definitions.Append("<UnitTest id=\"t" + i + "\" storage=\"" + storage + "\" />");
+                    }
+
+                    File.WriteAllText(Path.Combine(workingDirectory, "unit.trx"),
+                        "<TestRun xmlns=\"http://microsoft.com/schemas/VisualStudio/TeamTest/2010\"><Results>" + results
+                        + "</Results><TestDefinitions>" + definitions + "</TestDefinitions>"
+                        + "<ResultSummary outcome=\"Completed\"><Counters total=\"12\" passed=\"12\" failed=\"0\" notExecuted=\"0\" /></ResultSummary></TestRun>");
+                    List<CheckRunArtifact> artifacts = new List<CheckRunArtifact> { new CheckRunArtifact { Path = "unit.trx", LastWriteUtc = DateTime.UtcNow } };
+
+                    string timing = CheckRunParsingService.DescribeTestTiming(workingDirectory, artifacts);
+                    AssertContains("tests=12", timing);
+                    AssertContains("assemblies=Slow.Tests.dll=12060ms, Fast.Tests.dll=720ms", timing, "assemblies are listed slowest first with their summed time");
+                    AssertContains("slowest=Case03=4030ms, Case02=4020ms, Case01=4010ms, Case12=120ms", timing, "the slowest tests come first");
+                    AssertFalse(timing.Contains("Case05=", StringComparison.Ordinal), "only the ten slowest tests are listed");
+                    AssertContains("Case06=60ms", timing, "the tenth slowest test is listed");
+                }
+                finally
+                {
+                    Directory.Delete(workingDirectory, recursive: true);
+                }
+
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Test timing names the missing or unreadable TRX artifact instead of failing", () =>
+            {
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada_trx_timing_missing_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                try
+                {
+                    AssertEqual("none (no fresh TRX artifact)", CheckRunParsingService.DescribeTestTiming(workingDirectory, new List<CheckRunArtifact>()));
+                    AssertEqual("none (no fresh TRX artifact)", CheckRunParsingService.DescribeTestTiming(null, null));
+
+                    File.WriteAllText(Path.Combine(workingDirectory, "broken.trx"), "<TestRun><Results><UnitTestResult");
+                    List<CheckRunArtifact> broken = new List<CheckRunArtifact> { new CheckRunArtifact { Path = "broken.trx", LastWriteUtc = DateTime.UtcNow } };
+                    string timing = CheckRunParsingService.DescribeTestTiming(workingDirectory, broken);
+                    AssertTrue(timing.StartsWith("unreadable (broken.trx: ", StringComparison.Ordinal), "a TRX that does not parse is named with its reason: " + timing);
+                    AssertFalse(timing.Contains('\n'), "the reason stays on one line");
+                }
+                finally
+                {
+                    Directory.Delete(workingDirectory, recursive: true);
+                }
+
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
         }
     }
 }
