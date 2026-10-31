@@ -413,6 +413,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new StorageInventoryTests());
             runner.AddSuite(new ArchiveTests());
             runner.AddSuite(new CheckRunParsingServiceTests());
+            runner.AddSuite(new ModelEndpointCredentialResolverTests());
             runner.AddSuite(new MergeRefCandidateTests());
             runner.AddSuite(new TestDataDirectoryIsolationTests());
             runner.AddSuite(new MergeFailureClassifierGitOutputTests());

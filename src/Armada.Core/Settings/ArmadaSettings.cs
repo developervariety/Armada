@@ -983,6 +983,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Server-only credential files for model endpoints, keyed by endpoint id. A mapped endpoint's API key is
+        /// read from its file each time a runtime is built, and is never stored on the endpoint record.
+        /// </summary>
+        public ModelEndpointCredentialSettings ModelEndpointCredentials
+        {
+            get => _ModelEndpointCredentials;
+            set => _ModelEndpointCredentials = value ?? new ModelEndpointCredentialSettings();
+        }
+
+        /// <summary>
         /// Architect captain decomposition settings.
         /// </summary>
         public ArchitectSettings Architect
@@ -1165,6 +1175,7 @@ namespace Armada.Core.Settings
         private List<AdditionalPersonaSettings> _AdditionalPersonas = new List<AdditionalPersonaSettings>();
         private List<AdditionalPipelineSettings> _AdditionalPipelines = new List<AdditionalPipelineSettings>();
         private ModelProvidersSettings _ModelProviders = new ModelProvidersSettings();
+        private ModelEndpointCredentialSettings _ModelEndpointCredentials = new ModelEndpointCredentialSettings();
         private string? _ClaudeCodeEntrypoint = null;
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
@@ -1484,6 +1495,7 @@ namespace Armada.Core.Settings
 
             _ModelTier ??= new ModelTierSettings();
             _ModelProviders ??= new ModelProvidersSettings();
+            _ModelEndpointCredentials ??= new ModelEndpointCredentialSettings();
         }
 
         private string ResolveEffectiveSqlitePath()

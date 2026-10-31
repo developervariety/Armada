@@ -3,6 +3,7 @@ namespace Armada.Runtimes
     using SyslogLogging;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Runtimes.Interfaces;
 
@@ -24,6 +25,12 @@ namespace Armada.Runtimes
         /// Null, or a source that returns null, leaves the variable unset.
         /// </summary>
         public Func<string?>? ClaudeCodeEntrypoint { get; set; }
+
+        /// <summary>
+        /// Reads a mapped endpoint's API key from its server-only credential file when an API-endpoint runtime is
+        /// built. Null builds every runtime from the endpoint as stored.
+        /// </summary>
+        public ModelEndpointCredentialResolver? EndpointCredentials { get; set; }
 
         #endregion
 
@@ -148,10 +155,12 @@ namespace Armada.Runtimes
         /// </summary>
         /// <param name="endpoint">Enabled inference endpoint authorized for the captain tenant.</param>
         /// <returns>API-endpoint runtime instance.</returns>
+        /// <exception cref="ModelEndpointCredentialException">The endpoint is mapped to a credential file that cannot be used.</exception>
         public virtual IAgentRuntime Create(ModelEndpoint endpoint)
         {
             if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
-            return new ApiAgentRuntime(endpoint, _Logging);
+            ModelEndpoint resolved = EndpointCredentials != null ? EndpointCredentials.Resolve(endpoint) : endpoint;
+            return new ApiAgentRuntime(resolved, _Logging);
         }
 
         /// <summary>

@@ -482,6 +482,8 @@ using WatsonWebserver.Core.Routing;
                 _RuntimeFactory.AdmiralSecretNames = () => CaptainEnvironmentScrub.ConfiguredNames(_Settings);
             if (_RuntimeFactory.ClaudeCodeEntrypoint == null)
                 _RuntimeFactory.ClaudeCodeEntrypoint = () => _Settings.ClaudeCodeEntrypoint;
+            if (_RuntimeFactory.EndpointCredentials == null)
+                _RuntimeFactory.EndpointCredentials = new ModelEndpointCredentialResolver(_Settings.ModelEndpointCredentials);
             _Workspace = new WorkspaceService();
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);

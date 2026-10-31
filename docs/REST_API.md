@@ -5834,6 +5834,10 @@ An inference endpoint stores `launchOptions`. Omitted on create or update, the s
 
 A mission launch and an Ask turn on that endpoint apply the options. Read-only tools offer only built-in read-only tools: no shell, no file mutation, and no MCP tool. A tool the model names anyway is refused and is not executed. Create and update reject an invalid value with HTTP 400. A list past 256 names uses the [collection-limit](REQUEST_LIMITS.md) body. Any other invalid option uses `data.code` `InvalidEndpointOptions` and `data.field`.
 
+### Model endpoint credential files
+
+An endpoint can read its API key from a server-only file instead of a stored key. `modelEndpointCredentials` in settings.json holds `directory` (an absolute path) and `files`, a map from endpoint ID to one file name in that directory. The file must be a regular file, not a symbolic link, mode `0400`, at most 8192 bytes, one line, and in a directory that is not a symbolic link. The key is read each time a mission or Ask runtime is built for the endpoint. It is held only in memory for that runtime, and is never stored on the endpoint, returned by a route or tool, or written to a log. An endpoint that has a stored key and a mapped file, or whose file fails a check, builds no runtime; the error names the endpoint and the failed check, never the file content. The validate route and health checks use the stored key only. File credentials are available on Unix hosts only.
+
 ### Request size limits
 
 A request that asks for more items than its field allows is HTTP 400. The body `data` carries `code` `CollectionLimitExceeded`, `field`, `limit` and `actual`. The numbers and the fields they cover are in [Request limits](REQUEST_LIMITS.md). A successful response keeps its present shape.

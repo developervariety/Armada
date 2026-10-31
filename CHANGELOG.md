@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A model endpoint can read its API key from a server-only file
+
+- `modelEndpointCredentials` maps an endpoint ID to one `0400` file in an absolute directory. A mission or Ask runtime for that endpoint reads the key into memory only; the endpoint record, routes, tools and logs never carry it. A symbolic link, a wider mode, an empty or multi-line file, a path in place of a file name, or a stored key beside the file refuses the runtime with the endpoint and the reason named, never the content.
+
 ### A test Check keeps its per-test timing
 
 - A UnitTest or IntegrationTest Check's output ends with a `Check test timing` line read from the fresh TRX files its profile lists in `ExpectedArtifacts`: the test count, per-assembly totals and the ten slowest tests. A run without such a file says `none (no fresh TRX artifact)`, and a file that does not parse is named with its reason. The command, its exit code and the Check's status do not change.

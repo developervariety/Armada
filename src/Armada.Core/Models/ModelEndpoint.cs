@@ -339,5 +339,22 @@ namespace Armada.Core.Models
         }
 
         #endregion
+
+        #region Internal-Methods
+
+        /// <summary>
+        /// An in-memory copy that carries the given API key. The copy is for building one client; it is never
+        /// stored, so a key read from a credential file never reaches the endpoint record.
+        /// </summary>
+        /// <param name="apiKey">The API key to carry.</param>
+        /// <returns>A shallow copy with the key set.</returns>
+        internal ModelEndpoint CopyWithApiKey(string apiKey)
+        {
+            ModelEndpoint copy = (ModelEndpoint)MemberwiseClone();
+            copy.ApiKey = apiKey;
+            return copy;
+        }
+
+        #endregion
     }
 }
