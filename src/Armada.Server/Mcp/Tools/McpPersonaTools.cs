@@ -45,7 +45,7 @@ namespace Armada.Server.Mcp.Tools
                         name = new { type = "string", description = "Persona name (e.g. 'Worker', 'Architect', 'Judge'). A name already used in the caller's tenant is refused with code conflict." },
                         description = new { type = "string", description = "Human-readable description of what this persona does" },
                         promptTemplateName = new { type = "string", description = "Prompt template name for this persona (references PromptTemplate.Name)" },
-                        minimumTier = new { type = new[] { "string", "null" }, @enum = new[] { "Economy", "Standard", "Premium", null }, description = "Minimum capability tier; omit or pass null for no floor." },
+                        minimumTier = new { type = "string", @enum = new[] { "Economy", "Standard", "Premium" }, description = "Minimum capability tier; omit or pass null for no floor." },
                         defaultCaptainId = new { type = "string", description = "Captain id missions of this persona prefer. Omit or pass null or empty for none. Refused with default_captain_not_found for an id outside the caller's tenant and default_captain_persona_locked for a captain whose AllowedPersonas excludes the persona; a refused create writes nothing." },
                         defaultPlaybooks = DefaultPlaybooksSchema(),
                         active = new { type = "boolean", description = "Whether the persona is active (default true)" },
@@ -92,7 +92,7 @@ namespace Armada.Server.Mcp.Tools
                         name = new { type = "string", description = "Persona name (used to look up the persona)" },
                         description = new { type = "string", description = "New description. An empty string clears it.", emptyStringClears = true },
                         promptTemplateName = new { type = "string", description = "New prompt template name" },
-                        minimumTier = new { type = new[] { "string", "null" }, @enum = new[] { "Economy", "Standard", "Premium", null }, description = "Minimum capability tier. Pass null to clear it; omit to leave it unchanged." },
+                        minimumTier = new { type = "string", @enum = new[] { "Economy", "Standard", "Premium" }, description = "Minimum capability tier. Pass null to clear it; omit to leave it unchanged." },
                         defaultCaptainId = new { type = "string", description = "Captain id missions of this persona prefer. Null or empty clears it; omit to leave it unchanged. Refused with default_captain_not_found for an id outside the persona's tenant and default_captain_persona_locked for a captain whose AllowedPersonas excludes the persona.", emptyStringClears = true },
                         defaultPlaybooks = DefaultPlaybooksSchema(),
                         active = new { type = "boolean", description = "Whether the persona is active" }

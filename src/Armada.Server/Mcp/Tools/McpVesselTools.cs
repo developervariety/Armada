@@ -731,7 +731,7 @@ namespace Armada.Server.Mcp.Tools
 
         private static object GeneratedArtifactsSchema() => new
         {
-            type = new[] { "object", "null" },
+            type = "object",
             description = "Optional operator-declared landing regeneration. Exact relative generated paths only; authored files are never resolved. Omit to keep the current policy on update; null clears it.",
             properties = new
             {

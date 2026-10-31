@@ -171,6 +171,8 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             AssertEqual(JsonSerializer.Serialize(orderedHttp[index].InputSchema), JsonSerializer.Serialize(orderedStdio[index].InputSchema), "input schema for " + orderedHttp[index].Name);
                         }
+                        foreach (CatalogTool tool in orderedStdio)
+                            AssertStrictClientSchema(tool.Name, tool.InputSchema);
                     }
                     finally
                     {
@@ -632,6 +634,51 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }
             throw new InvalidDataException("HTTP MCP response had no JSON-RPC envelope.");
+        }
+
+        // A strict function-calling client accepts one type name per schema node
+        // and rejects an any-of branch that carries sibling keywords. Keep the
+        // emitted catalog inside that subset: such a client turns a type array
+        // into anyOf, and then rejects the sibling fields beside it.
+        private void AssertStrictClientSchema(string toolName, JsonElement schema)
+        {
+            if (schema.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement entry in schema.EnumerateArray())
+                    AssertStrictClientSchema(toolName, entry);
+                return;
+            }
+            if (schema.ValueKind != JsonValueKind.Object) return;
+
+            int branches = 0;
+            foreach (string branch in new[] { "anyOf", "oneOf", "allOf" })
+                if (schema.TryGetProperty(branch, out JsonElement branchValue) && branchValue.ValueKind == JsonValueKind.Array) branches++;
+            if (branches > 0)
+            {
+                AssertEqual(1, branches, toolName + " schema must use only one of anyOf, oneOf or allOf");
+                AssertEqual(1, schema.EnumerateObject().Count(), toolName + " schema branch must be the only field");
+            }
+
+            foreach (JsonProperty property in schema.EnumerateObject())
+            {
+                if (String.Equals(property.Name, "type", StringComparison.Ordinal)
+                    && property.Value.ValueKind == JsonValueKind.Array
+                    && property.Value.EnumerateArray().All(entry => entry.ValueKind == JsonValueKind.String))
+                {
+                    // A single type may also be a property named "type"; an array of
+                    // strings is the schema keyword that a strict client turns into anyOf.
+                    AssertTrue(false, toolName + " schema type must be one string, not " + property.Value.GetRawText());
+                }
+                else if (String.Equals(property.Name, "enum", StringComparison.Ordinal)
+                    && property.Value.ValueKind == JsonValueKind.Array
+                    && property.Value.EnumerateArray().All(entry => entry.ValueKind != JsonValueKind.Object && entry.ValueKind != JsonValueKind.Array))
+                {
+                    foreach (JsonElement entry in property.Value.EnumerateArray())
+                        AssertTrue(entry.ValueKind != JsonValueKind.Null, toolName + " schema enum must not contain null");
+                }
+
+                AssertStrictClientSchema(toolName, property.Value);
+            }
         }
 
         private static JsonSerializerOptions CatalogJsonOptions()

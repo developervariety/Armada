@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### MCP tool schemas use one JSON type per field
+
+- `armada_add_vessel`, `armada_update_vessel`, `create_persona` and `update_persona` no longer declare a union `type` array, and their `minimumTier` enum no longer lists `null`. A strict function-calling client such as Vertex AI rejects a schema that carries an any-of branch beside other fields, and refused the whole catalog with a 400 before any tool ran.
+- The stdio catalog test fails when any registered tool schema declares a type array, an any-of branch with sibling fields, or a null enum entry.
+
 ### A vessel can be held without holding the fleet
 
 - `armada_vessel_hold` engages, clears and reports a hold on one vessel. Other vessels are unaffected.
