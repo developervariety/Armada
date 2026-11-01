@@ -241,6 +241,38 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // The handoff loads the next stage before the handoff decision runs, and a decision can take minutes.
+            // An operator edit saved during that call must reach the rebuilt brief; the whole-row write of the
+            // handoff must not put the description it loaded earlier back.
+            await RunTest("A description edit saved while the handoff decision runs reaches the next stage's brief", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const string correction = "OPERATOR-CORRECTION: review against the staged fixture, not the live database.";
+                    string? judgeId = null;
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(_ =>
+                    {
+                        if (judgeId != null)
+                        {
+                            Mission stored = testDb.Driver.Missions.ReadAsync(judgeId).GetAwaiter().GetResult()!;
+                            stored.Description = stored.Description + "\n\n" + correction;
+                            testDb.Driver.Missions.UpdateAsync(stored).GetAwaiter().GetResult();
+                        }
+                        return new TypedDecisionResult { Available = false, UnavailableReason = "timeout" };
+                    });
+                    HoldScenario scenario = await CreateScenarioAsync(testDb.Driver, false, PartialResult(0.95), client: client).ConfigureAwait(false);
+                    judgeId = scenario.Judge.Id;
+
+                    await scenario.Missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+
+                    Mission judge = await ReadAsync(testDb.Driver, scenario.Judge.Id).ConfigureAwait(false);
+                    AssertTrue(client.Calls > 0, "Precondition: the handoff decision ran");
+                    AssertEqual(_WorkerBranch, judge.BranchName, "Precondition: the handoff ran");
+                    AssertContains(correction, judge.Description ?? String.Empty, "the edit saved during the decision is kept in the brief");
+                    AssertContains(_JudgeBrief, judge.Description ?? String.Empty, "the original brief is kept");
+                }
+            });
+
             await RunTest("A confident partial whose only unmet criterion is pipeline-level hands off with no hold and no Mail", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
