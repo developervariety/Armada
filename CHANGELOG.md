@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### An over-budget handoff bounds the newest diff before it cuts the brief
+
+- A handoff description over its budget bounds the newest stage's diff first, so the brief and operator text outside the generated blocks stay whole. The bounded diff section names the size of the whole diff, the dock file that holds it and the branch. When the text outside the diff leaves too little room, the general cut applies and its marker names the complete text.
+
 ### A description edit saved while a handoff runs is kept
 
 - The stage handoff rebuilds the next stage's description from the stored row, not from the copy it loaded before the handoff decisions ran, so an operator edit saved in between is kept. A dependent that is no longer Pending is not handed off. PERSONAS.md describes how the rebuild treats text inside generated blocks and an over-budget description.

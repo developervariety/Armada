@@ -9166,10 +9166,13 @@ namespace Armada.Core.Services
 
             // Include the diff snapshot if available, scoped so a large generated-output diff (e.g. a
             // regenerated data-file snapshot) cannot overflow the reviewing model's context.
+            // The diff goes in through a slot, so an over-budget description can bound this diff before
+            // the budget cut reaches the text outside the generated blocks.
+            string fullDiffSection = String.Empty;
             if (!String.IsNullOrEmpty(completedMission.DiffSnapshot))
             {
-                handoffContext += "\n### Diff from prior stage\n```diff\n" +
-                    BuildReviewDiff(completedMission.DiffSnapshot!, _MaxReviewDiffChars) + "\n```\n";
+                fullDiffSection = BuildDiffSection(BuildReviewDiff(completedMission.DiffSnapshot!, _MaxReviewDiffChars), null);
+                handoffContext += _HandoffDiffSlot;
             }
             else
             {
@@ -9223,7 +9226,24 @@ namespace Armada.Core.Services
             handoffDescription += "\n" + BuildHandoffEndMarker(completedMission.Id);
 
             int descriptionBudget = nextMission.IsReadOnlyMode ? _MaxReportOnlyDescriptionChars : _MaxMissionDescriptionChars;
-            if (handoffDescription.Length > descriptionBudget)
+            string fullHandoffDescription = handoffDescription.Replace(_HandoffDiffSlot, fullDiffSection, StringComparison.Ordinal);
+            string? boundedDiffDescription = fullHandoffDescription.Length > descriptionBudget && fullDiffSection.Length > 0
+                ? BoundNewestDiff(handoffDescription, completedMission.DiffSnapshot!, descriptionBudget, completedMission.BranchName)
+                : null;
+            handoffDescription = fullHandoffDescription;
+            if (boundedDiffDescription != null)
+            {
+                // Shrinking the newest diff keeps the brief and any operator text whole. The complete text,
+                // with the whole diff, is kept for the dock, and the bounded block names that file.
+                _Logging.Info(_Header + "pipeline handoff: mission " + nextMission.Id + " description of " +
+                    handoffDescription.Length + " chars exceeds the " + descriptionBudget +
+                    " char budget; bounding the newest diff and keeping the full text for the dock");
+                bool keptFull = await StoreFullHandoffAsync(nextMission.Id, handoffDescription, token).ConfigureAwait(false);
+                handoffDescription = keptFull
+                    ? boundedDiffDescription
+                    : boundedDiffDescription.Replace(HandoffFullTextFirstFile, "the branch only (the full text could not be kept)", StringComparison.Ordinal);
+            }
+            else if (handoffDescription.Length > descriptionBudget)
             {
                 _Logging.Warn(_Header + "pipeline handoff: mission " + nextMission.Id + " description of " +
                     handoffDescription.Length + " chars exceeds the " + descriptionBudget +
@@ -9972,6 +9992,47 @@ namespace Armada.Core.Services
         {
             while (index < lines.Length && !String.IsNullOrWhiteSpace(lines[index]) && !lines[index].StartsWith("#", StringComparison.Ordinal)) index++;
             return index;
+        }
+
+        /// <summary>
+        /// Slot the handoff writes where the prior stage's diff goes, so the diff can be bounded after the rest of
+        /// the description is known.
+        /// </summary>
+        private const string _HandoffDiffSlot = "\u0001armada-handoff-diff-slot\u0001";
+
+        /// <summary>The smallest bounded diff worth carrying inline; below it the general budget cut applies.</summary>
+        private const int _MinBoundedHandoffDiffChars = 2000;
+
+        /// <summary>The first words of the line a bounded handoff diff carries.</summary>
+        internal const string BoundedHandoffDiffPhrase = "Diff bounded to fit the brief:";
+
+        private static string BuildDiffSection(string diff, string? boundedNote)
+        {
+            return "\n### Diff from prior stage\n" + (boundedNote != null ? boundedNote + "\n" : String.Empty) + "```diff\n" + diff + "\n```\n";
+        }
+
+        /// <summary>
+        /// Bound the newest handoff diff so the description fits its budget with every other part whole. Returns
+        /// null when the parts outside the diff leave less than the smallest useful diff; the caller then applies
+        /// the general budget cut, which names the dock file that holds the complete text.
+        /// </summary>
+        /// <param name="slotted">The composed description, holding the diff slot.</param>
+        /// <param name="diff">The prior stage's complete diff.</param>
+        /// <param name="budget">Description budget in characters.</param>
+        /// <param name="branchName">Branch holding the full change, or null.</param>
+        /// <returns>The description with a bounded diff and a line naming the full text, or null.</returns>
+        internal static string? BoundNewestDiff(string slotted, string diff, int budget, string? branchName)
+        {
+            int slot = slotted.IndexOf(_HandoffDiffSlot, StringComparison.Ordinal);
+            if (slot < 0) return null;
+            string note = "*" + BoundedHandoffDiffPhrase + " this shows part of a " + diff.Length + "-character diff; the complete diff is in `"
+                + HandoffFullTextFirstFile + "` and the numbered files after it, and on branch " + (branchName ?? "unknown") + ".*";
+            int fixedChars = slotted.Length - _HandoffDiffSlot.Length + BuildDiffSection(String.Empty, note).Length;
+            int room = budget - fixedChars;
+            if (room < _MinBoundedHandoffDiffChars) return null;
+            string bounded = BuildReviewDiff(diff, room);
+            if (bounded.Length > room) bounded = bounded.Substring(0, room);
+            return slotted.Replace(_HandoffDiffSlot, BuildDiffSection(bounded, note), StringComparison.Ordinal);
         }
 
         /// <summary>

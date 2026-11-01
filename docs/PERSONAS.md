@@ -536,10 +536,25 @@ A dependent that is no longer Pending is not handed off.
   that block, and a handoff from a later stage reduces it to a reference line.
   Put operator text outside the generated blocks.
 - A description over its budget (20000 characters, 80000 for a report-only
-  stage) keeps its first third and its end, and the middle is elided. Operator
-  text appended to the brief sits in that middle once a newer block follows
-  it, so it can be cut from the inline description. The complete text is
-  staged in the next stage's dock, and the cut marker names the file.
+  stage) first bounds the newest stage's diff, so operator text appended to
+  the brief stays inline. The next section gives the bound and the fallback
+  cut. The complete text is always staged in the next stage's dock.
+
+### How an over-budget handoff fits its description budget
+
+A handoff description that is over its budget (20000 characters, 80000 for a
+report-only stage) first bounds the newest stage's diff. The brief, any
+operator text outside the generated blocks, and the rest of the new block stay
+whole. The bounded diff section starts with a line that begins `Diff bounded
+to fit the brief:` and gives the size of the whole diff, the dock file that
+holds it (`_briefing/handoff-full/01-handoff.md` and the numbered files after
+it) and the branch. The complete text, with the whole diff, is staged in the
+next stage's dock.
+
+When the parts outside the diff leave less than 2000 characters for it, the
+general cut applies instead: the description keeps its first third and its
+end, the middle is elided, and the cut marker names the same dock file, which
+holds the complete text.
 
 ## Operator API
 
