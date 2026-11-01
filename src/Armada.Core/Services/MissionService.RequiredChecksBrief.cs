@@ -62,9 +62,11 @@ namespace Armada.Core.Services
         {
             // Fail closed for common inline credential forms before introducing a new model-visible surface.
             // A short flag followed by ':Name=' is an MSBuild property (-p:Name=value), not a credential flag;
-            // a property whose name carries a credential word is still withheld.
+            // a property whose name carries a credential word is still withheld. "pwd" matches inside a longer
+            // flag or environment name (--adminpwd, DB_PWD); a password-file flag names a file, not a value; and
+            // "pass" counts in a property name only as a whole word end, so BypassCache or PassThrough is shown.
             if (Regex.IsMatch(command,
-                @"authorization|password|passwd|\bpwd\b|secret|token|api[_-]?key|credential|bearer|private[_-]?key|access[_-]?key|\blogin\b|(?:^|\s)(?:-[uHbUpEeK](?!:[^=\s]+=)|--(?:user|header|cookie|proxy-user))|(?:^|\s)[-/]p(?:roperty)?:[^=\s]*(?:pwd|pass)[^=\s]*=|://[^/\s]*@",
+                @"authorization|passw(?:or)?d(?![-_]?file\b)|pwd|secret|token|api[_-]?key|credential|bearer|private[_-]?key|access[_-]?key|\blogin\b|(?:^|\s)(?:-[uHbUpEeK](?!:[^=\s]+=)|--(?:user|header|cookie|proxy-user))|(?:^|\s)[-/]p(?:roperty)?:[^=\s]*(?:pwd|passphrase|pass(?![a-z]))[^=\s]*=|://[^/\s]*@",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
                 return "[WITHHELD: credential-bearing native command; do not execute]";
             string result = command;

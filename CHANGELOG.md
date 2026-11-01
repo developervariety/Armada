@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A credential word inside a flag or environment name withholds a native command
+
+- A native command whose flag or environment name carries "pwd" inside a longer name (`--adminpwd=...`, `DB_PWD=...`) is withheld from the captain brief. A `--password-file` flag is shown, and a property name that only contains "pass" (`-p:BypassCache=true`) is shown.
+
 ### A native command's MSBuild property option is not read as a credential
 
 - The captain-brief reference to native validation commands shows an MSBuild property option (`-p:Name=value`, `-property:`, `/p:`) as written instead of withholding the whole command as credential-bearing. A property whose name carries a credential word (password, token, secret, API key, pwd or pass) still withholds the command, as do the other inline credential forms.

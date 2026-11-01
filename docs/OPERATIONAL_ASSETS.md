@@ -154,7 +154,10 @@ withheld. Credential-shaped commands are withheld rather than made executable;
 truncated or redacted commands must not be copied into a shell. An MSBuild
 property option such as `-p:UseSharedCompilation=false` is shown as written; a
 property whose name carries a credential word, such as `-p:Password=...` or
-`-p:DbPwd=...`, withholds the command. This reference
+`-p:DbPwd=...`, withholds the command. "pwd" also counts inside a longer flag or
+environment name (`--adminpwd=...`, `DB_PWD=...`). A `--password-file` flag
+names a file and is shown, and a property name that only contains "pass", such
+as `-p:BypassCache=true`, is shown. This reference
 does not add stage duties or change which native Checks are armed. A manual run
 with missing profile inputs must name the missing inputs and resulting skips;
 it is not full-profile Check proof. Native Checks apply the complete profile
