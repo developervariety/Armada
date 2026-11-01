@@ -495,8 +495,9 @@ namespace Armada.Test.Unit.Suites.Services
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     const string contract = "Read contract: call 1 reads a 10-line head; later calls page by at most 120 lines.";
-                    // The contract sits deep in a long brief, past the head the budget cut keeps.
-                    string brief = "OBJECTIVE-HEAD " + new string('h', 9000) + "\n" + contract + "\n" + new string('t', 3000) + " OBJECTIVE-TAIL";
+                    // The contract sits deep in a brief that is over the budget by itself, past the head the budget
+                    // cut keeps, so the handoff takes the general cut rather than bounding the newest diff.
+                    string brief = "OBJECTIVE-HEAD " + new string('h', 17000) + "\n" + contract + "\n" + new string('t', 3000) + " OBJECTIVE-TAIL";
 
                     Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/read-contract").ConfigureAwait(false);
                     System.Text.StringBuilder diff = new System.Text.StringBuilder();
