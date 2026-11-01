@@ -327,6 +327,12 @@ campaign quality and handle work outside the scheduler.
 and host-wide full-suite slots the gate and armed checks use before a captain
 full-suite run, then release them. See [MCP API](MCP_API.md).
 
+A Build or UnitTest `run_check` runs in an isolated checkout of one ref:
+`commitHash` when given, otherwise `branchName`, otherwise the vessel's default
+branch. A `commitHash` or `branchName` that does not resolve fails the check
+before its command runs; a branch fails with `check_branch_unresolved`, naming
+the branch and the vessel. The check never runs on another ref in its place.
+
 `run_check`, `retry_check_run`, `get_check_run`, and `resolve_check` (with its
 `armada_resolve_check` alias) return a BOUNDED view of a check run, not the
 complete command log. A build or test log is routinely one to several

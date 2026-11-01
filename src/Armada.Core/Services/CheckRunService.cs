@@ -447,7 +447,8 @@ namespace Armada.Core.Services
                         string? repoSource = ResolveRepoSource(vessel);
                         if (repoSource != null)
                         {
-                            isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, siblingPins, token).ConfigureAwait(false);
+                            CheckoutRefusal refusal = new CheckoutRefusal();
+                            isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, siblingPins, token, refusal).ConfigureAwait(false);
                             if (isolatedCheckout != null)
                             {
                                 executionDirectory = isolatedCheckout.Path;
@@ -457,7 +458,7 @@ namespace Armada.Core.Services
                             {
                                 return await CompleteExistingRunAsFailureAsync(
                                     run,
-                                    DescribeFailedCheckout(siblingPins),
+                                    DescribeUnresolvedBranch(refusal, vessel) ?? DescribeFailedCheckout(siblingPins),
                                     token).ConfigureAwait(false);
                             }
                         }
@@ -471,9 +472,10 @@ namespace Armada.Core.Services
                         if (isolatedCheckout != null)
                         {
                             string waitedPath = isolatedCheckout.Path;
-                            isolatedCheckout = await RecreateRemovedCheckoutAsync(vessel, run, isolatedCheckout, token).ConfigureAwait(false);
+                            CheckoutRefusal recreateRefusal = new CheckoutRefusal();
+                            isolatedCheckout = await RecreateRemovedCheckoutAsync(vessel, run, isolatedCheckout, token, recreateRefusal).ConfigureAwait(false);
                             if (isolatedCheckout == null)
-                                return await CompleteExistingRunAsFailureAsync(run, DescribeRemovedCheckout(waitedPath), token).ConfigureAwait(false);
+                                return await CompleteExistingRunAsFailureAsync(run, DescribeUnresolvedBranch(recreateRefusal, vessel) ?? DescribeRemovedCheckout(waitedPath), token).ConfigureAwait(false);
                             executionDirectory = isolatedCheckout.Path;
                         }
 
@@ -1259,7 +1261,8 @@ namespace Armada.Core.Services
                     string? repoSource = ResolveRepoSource(vessel);
                     if (repoSource != null)
                     {
-                        isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, siblingPins, token).ConfigureAwait(false);
+                        CheckoutRefusal refusal = new CheckoutRefusal();
+                        isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, siblingPins, token, refusal).ConfigureAwait(false);
                         if (isolatedCheckout != null)
                         {
                             executionDirectory = isolatedCheckout.Path;
@@ -1269,7 +1272,7 @@ namespace Armada.Core.Services
                         {
                             return await CompleteExistingRunAsFailureAsync(
                                 run,
-                                DescribeFailedCheckout(siblingPins),
+                                DescribeUnresolvedBranch(refusal, vessel) ?? DescribeFailedCheckout(siblingPins),
                                 token).ConfigureAwait(false);
                         }
                     }
@@ -1291,9 +1294,10 @@ namespace Armada.Core.Services
                     if (isolatedCheckout != null)
                     {
                         string waitedPath = isolatedCheckout.Path;
-                        isolatedCheckout = await RecreateRemovedCheckoutAsync(vessel, run, isolatedCheckout, token).ConfigureAwait(false);
+                        CheckoutRefusal recreateRefusal = new CheckoutRefusal();
+                        isolatedCheckout = await RecreateRemovedCheckoutAsync(vessel, run, isolatedCheckout, token, recreateRefusal).ConfigureAwait(false);
                         if (isolatedCheckout == null)
-                            return await CompleteExistingRunAsFailureAsync(run, DescribeRemovedCheckout(waitedPath), token).ConfigureAwait(false);
+                            return await CompleteExistingRunAsFailureAsync(run, DescribeUnresolvedBranch(recreateRefusal, vessel) ?? DescribeRemovedCheckout(waitedPath), token).ConfigureAwait(false);
                         executionDirectory = isolatedCheckout.Path;
                     }
 
@@ -2461,10 +2465,11 @@ namespace Armada.Core.Services
             string? branchName,
             string defaultBranch,
             IReadOnlyList<ProvisionedSiblingPin> siblingPins,
-            CancellationToken token)
+            CancellationToken token,
+            CheckoutRefusal? refusal = null)
         {
             if (siblingPins.Count > 0)
-                return await TryCreatePinnedCheckoutAsync(vessel, checkRunId, commitHash, branchName, defaultBranch, siblingPins, token).ConfigureAwait(false);
+                return await TryCreatePinnedCheckoutAsync(vessel, checkRunId, commitHash, branchName, defaultBranch, siblingPins, token, refusal).ConfigureAwait(false);
 
             string? localPath = (!String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath))
                 ? vessel.LocalPath
@@ -2472,11 +2477,12 @@ namespace Armada.Core.Services
 
             if (localPath != null)
             {
-                IsolatedCheckout? worktree = await TryCreateDetachedWorktreeAsync(localPath, checkRunId, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+                IsolatedCheckout? worktree = await TryCreateDetachedWorktreeAsync(localPath, checkRunId, commitHash, branchName, defaultBranch, token, null, refusal).ConfigureAwait(false);
                 if (worktree != null)
                 {
                     return worktree;
                 }
+                if (!String.IsNullOrEmpty(refusal?.UnresolvedBranch)) return null;
                 _Logging.Warn(_Header + "isolated checkout: detached worktree creation failed for " + localPath + ", falling back to clone");
             }
 
@@ -2486,7 +2492,7 @@ namespace Armada.Core.Services
                 return null;
             }
 
-            string? clonePath = await TryCloneToTempAsync(repoSource, checkRunId, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+            string? clonePath = await TryCloneToTempAsync(repoSource, checkRunId, commitHash, branchName, defaultBranch, token, refusal).ConfigureAwait(false);
             if (clonePath == null)
             {
                 return null;
@@ -2506,7 +2512,8 @@ namespace Armada.Core.Services
             string? branchName,
             string defaultBranch,
             IReadOnlyList<ProvisionedSiblingPin> siblingPins,
-            CancellationToken token)
+            CancellationToken token,
+            CheckoutRefusal? refusal = null)
         {
             if (String.IsNullOrWhiteSpace(vessel.LocalPath) || !Directory.Exists(vessel.LocalPath) || String.IsNullOrWhiteSpace(vessel.Name))
             {
@@ -2517,7 +2524,7 @@ namespace Armada.Core.Services
             string root = BuildCheckoutPath(checkRunId);
             string rootPrefix = root + Path.DirectorySeparatorChar;
             string checkoutPath = Path.Combine(root, vessel.Name);
-            IsolatedCheckout? main = await TryCreateDetachedWorktreeAsync(vessel.LocalPath!, checkRunId, commitHash, branchName, defaultBranch, token, checkoutPath).ConfigureAwait(false);
+            IsolatedCheckout? main = await TryCreateDetachedWorktreeAsync(vessel.LocalPath!, checkRunId, commitHash, branchName, defaultBranch, token, checkoutPath, refusal).ConfigureAwait(false);
             if (main == null)
             {
                 SafeDeleteDirectory(root);
@@ -2559,7 +2566,8 @@ namespace Armada.Core.Services
             string? branchName,
             string defaultBranch,
             CancellationToken token,
-            string? checkoutPath = null)
+            string? checkoutPath = null,
+            CheckoutRefusal? refusal = null)
         {
             string tempPath = checkoutPath ?? BuildCheckoutPath(checkRunId);
             SemaphoreSlim repoLock = _CheckoutRepoLocks.GetOrAdd(repoPath, _ => new SemaphoreSlim(1, 1));
@@ -2570,7 +2578,7 @@ namespace Armada.Core.Services
                 // DockService does before creating a mission worktree. A missing remote is not fatal.
                 await RunGitAsync(repoPath, TimeSpan.FromMinutes(5), token, "fetch", "--prune", "origin").ConfigureAwait(false);
 
-                string? sha = await ResolveCheckoutShaAsync(repoPath, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+                string? sha = await ResolveCheckoutShaAsync(repoPath, commitHash, branchName, defaultBranch, token, refusal).ConfigureAwait(false);
                 if (String.IsNullOrEmpty(sha))
                 {
                     _Logging.Warn(_Header + "isolated checkout: no resolvable ref in " + repoPath);
@@ -2624,16 +2632,19 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Resolve the requested checkout ref to a commit in the repository. An explicit commit hash
-        /// is authoritative; branch and default refs are considered only when no hash was supplied.
-        /// Branch names resolve through local, origin remote, and bare-name spellings so the checkout
-        /// works for both bare and normal repos.
+        /// is authoritative; a named branch is next, and the default branch is used only when neither
+        /// was supplied. A named branch that does not resolve returns null and is recorded on
+        /// <paramref name="refusal"/>; it never falls back to the default branch, because that would run
+        /// the check against a tree the caller did not ask for. Branch names resolve through local,
+        /// origin remote, and bare-name spellings so the checkout works for both bare and normal repos.
         /// </summary>
         private async Task<string?> ResolveCheckoutShaAsync(
             string repoPath,
             string? commitHash,
             string? branchName,
             string defaultBranch,
-            CancellationToken token)
+            CancellationToken token,
+            CheckoutRefusal? refusal = null)
         {
             if (!String.IsNullOrWhiteSpace(commitHash))
             {
@@ -2643,13 +2654,28 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(branchName))
             {
                 string? sha = await ResolveBranchCandidateAsync(repoPath, branchName!, token).ConfigureAwait(false);
-                if (!String.IsNullOrEmpty(sha))
-                {
-                    return sha;
-                }
+                if (String.IsNullOrEmpty(sha) && refusal != null) refusal.UnresolvedBranch = branchName;
+                return sha;
             }
 
             return await ResolveBranchCandidateAsync(repoPath, defaultBranch, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Carries the reason an isolated checkout was refused back to the check that asked for it.
+        /// </summary>
+        private sealed class CheckoutRefusal
+        {
+            /// <summary>The requested branch that did not resolve, or null.</summary>
+            public string? UnresolvedBranch { get; set; }
+        }
+
+        private static string? DescribeUnresolvedBranch(CheckoutRefusal refusal, Vessel vessel)
+        {
+            if (String.IsNullOrEmpty(refusal.UnresolvedBranch)) return null;
+            return "check_branch_unresolved: branch '" + refusal.UnresolvedBranch + "' does not resolve in vessel '"
+                + vessel.Name + "' (" + vessel.Id + "). The check did not run, and it does not run on the default branch '"
+                + vessel.DefaultBranch + "' instead.";
         }
 
         private async Task<string?> ResolveBranchCandidateAsync(string repoPath, string branchName, CancellationToken token)
@@ -2696,14 +2722,14 @@ namespace Armada.Core.Services
         /// checked again here: a checkout that is gone is made once more at the same source.
         /// </summary>
         /// <returns>The checkout to run in, or null when it was gone and could not be made again.</returns>
-        private async Task<IsolatedCheckout?> RecreateRemovedCheckoutAsync(Vessel vessel, CheckRun run, IsolatedCheckout checkout, CancellationToken token)
+        private async Task<IsolatedCheckout?> RecreateRemovedCheckoutAsync(Vessel vessel, CheckRun run, IsolatedCheckout checkout, CancellationToken token, CheckoutRefusal? refusal = null)
         {
             if (Directory.Exists(checkout.Path) && checkout.Siblings.TrueForAll(sibling => Directory.Exists(sibling.Path))) return checkout;
 
             _Logging.Warn(_Header + "isolated checkout " + checkout.Path + " for check " + run.Id
                 + " was removed while the check waited for the host command slot; creating it again");
             await CleanupIsolatedCheckoutAsync(checkout, CancellationToken.None).ConfigureAwait(false);
-            return await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, checkout.Pins, token).ConfigureAwait(false);
+            return await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, checkout.Pins, token, refusal).ConfigureAwait(false);
         }
 
         private static string DescribeRemovedCheckout(string path)
@@ -2762,7 +2788,8 @@ namespace Armada.Core.Services
             string? commitHash,
             string? branchName,
             string defaultBranch,
-            CancellationToken token)
+            CancellationToken token,
+            CheckoutRefusal? refusal = null)
         {
             string tempPath = BuildCheckoutPath(checkRunId);
             try
@@ -2780,7 +2807,7 @@ namespace Armada.Core.Services
                     return null;
                 }
 
-                string? targetSha = await ResolveCheckoutShaAsync(tempPath, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+                string? targetSha = await ResolveCheckoutShaAsync(tempPath, commitHash, branchName, defaultBranch, token, refusal).ConfigureAwait(false);
                 if (String.IsNullOrWhiteSpace(targetSha))
                 {
                     _Logging.Warn(_Header + "isolated checkout: no resolvable ref in cloned repo " + repoSource);
@@ -2788,43 +2815,13 @@ namespace Armada.Core.Services
                     return null;
                 }
 
-                int checkoutExit;
-                if (!String.IsNullOrWhiteSpace(commitHash))
-                {
-                    checkoutExit = await RunGitAsync(
-                        tempPath,
-                        TimeSpan.FromMinutes(2),
-                        token,
-                        "checkout", "--detach", targetSha).ConfigureAwait(false);
-                }
-                else
-                {
-                    string checkoutRef = !String.IsNullOrWhiteSpace(branchName) ? branchName! : defaultBranch;
-                    checkoutExit = await RunGitAsync(
-                        tempPath,
-                        TimeSpan.FromMinutes(2),
-                        token,
-                        "checkout", checkoutRef, "--").ConfigureAwait(false);
-
-                    if (checkoutExit != 0
-                        && !String.IsNullOrWhiteSpace(branchName)
-                        && !String.Equals(branchName, defaultBranch, StringComparison.Ordinal))
-                    {
-                        targetSha = await ResolveBranchCandidateAsync(tempPath, defaultBranch, token).ConfigureAwait(false);
-                        if (String.IsNullOrWhiteSpace(targetSha))
-                        {
-                            _Logging.Warn(_Header + "isolated checkout: default branch did not resolve in clone " + repoSource);
-                            SafeDeleteDirectory(tempPath);
-                            return null;
-                        }
-
-                        checkoutExit = await RunGitAsync(
-                            tempPath,
-                            TimeSpan.FromMinutes(2),
-                            token,
-                            "checkout", defaultBranch, "--").ConfigureAwait(false);
-                    }
-                }
+                // Check out the resolved commit, detached, for every request: a commit hash, a named branch,
+                // or the default branch. A failed checkout fails the check; it never switches to another ref.
+                int checkoutExit = await RunGitAsync(
+                    tempPath,
+                    TimeSpan.FromMinutes(2),
+                    token,
+                    "checkout", "--detach", targetSha).ConfigureAwait(false);
 
                 if (checkoutExit != 0)
                 {

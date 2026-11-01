@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A check on a branch that does not resolve fails by name
+
+- A Build or UnitTest check whose `branchName` does not resolve fails before its command runs with `check_branch_unresolved`, naming the branch and the vessel. It does not run on the default branch in its place, on the worktree path or the clone path. A check with no branch runs on the default branch, and a check with a valid branch runs at that branch's tip.
+
 ### A credential word inside a flag or environment name withholds a native command
 
 - A native command whose flag or environment name carries "pwd" inside a longer name (`--adminpwd=...`, `DB_PWD=...`) is withheld from the captain brief. A `--password-file` flag is shown, and a property name that only contains "pass" (`-p:BypassCache=true`) is shown.
