@@ -656,6 +656,73 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // A named branch that does not resolve fails the check by name, on the worktree path and the
+            // clone path alike. Running the command on the default branch instead would report a result for
+            // a tree nobody asked to check.
+            await RunTest("Build check naming a branch that does not resolve fails by name and never runs on the default branch", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_nobranch", "usr_iso_nobranch").ConfigureAwait(false);
+
+                SourceRepoWithRef source = await CreateSourceRepoWithFeatureRefAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-nobranch-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                const string missingBranch = "no-such-branch";
+                const string commandMarker = "UNRESOLVED_BRANCH_CHECK_COMMAND_RAN";
+
+                try
+                {
+                    foreach (bool viaClone in new[] { false, true })
+                    {
+                        Vessel vessel = CreateVessel("ten_iso_nobranch", "usr_iso_nobranch", workingDirectory);
+                        vessel.Name = viaClone ? "Unresolved Branch Clone Vessel" : "Unresolved Branch Worktree Vessel";
+                        vessel.LocalPath = viaClone ? String.Empty : source.RepoPath;
+                        if (viaClone) vessel.RepoUrl = source.RepoPath;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            TenantId = "ten_iso_nobranch",
+                            UserId = "usr_iso_nobranch",
+                            Name = "Unresolved Branch Build Workflow " + (viaClone ? "clone" : "worktree"),
+                            Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = vessel.Id,
+                            BuildCommand = PrintMarkerAndFileCommand(commandMarker, source.MarkerFileName)
+                        }).ConfigureAwait(false);
+
+                        AuthContext auth = AuthContext.Authenticated("ten_iso_nobranch", "usr_iso_nobranch", false, false, "UnitTest");
+                        CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Label = "Build",
+                            BranchName = missingBranch
+                        }).ConfigureAwait(false);
+
+                        string path = viaClone ? "clone" : "worktree";
+                        string output = run.Output ?? String.Empty;
+                        AssertFalse(output.Contains(commandMarker, StringComparison.Ordinal),
+                            path + ": the command must not run on the default branch; output: " + output);
+                        AssertEqual(CheckRunStatusEnum.Failed, run.Status, path + " status");
+                        AssertEqual(-1, run.ExitCode ?? 0, path + " exit code");
+                        AssertContains("check_branch_unresolved", output, path + " names the refusal");
+                        AssertContains("'" + missingBranch + "'", output, path + " names the branch");
+                        AssertContains(vessel.Name, output, path + " names the vessel");
+                        AssertContains(vessel.Id, output, path + " names the vessel id");
+                    }
+                }
+                finally
+                {
+                    SafeDeleteDirectory(workingDirectory);
+                    SafeDeleteDirectory(source.RepoPath);
+                }
+            }).ConfigureAwait(false);
+
             // Same regression via CommitHash, which takes precedence over BranchName and exercises the
             // detached-HEAD checkout path. The commit is reachable only from the feature branch.
             await RunTest("Build check targeting a non-default CommitHash runs against that commit's content", async () =>
