@@ -529,6 +529,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Operator text appended to a pending stage's brief well before its handoff must survive the budget
+            // cut that the handoff's newer block forces. Each case logs where the text lands.
+            await RunTest("TryAssign_OperatorTextAppendedLongBeforeTheHandoff_SurvivesTheBudgetCut", async () =>
+            {
+                List<string> lost = new List<string>();
+                foreach (int briefChars in new[] { 4000, 12000 })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        MissionService missions = CreateMissionService(testDb.Driver, settings);
+                        Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                        const string note = "OPERATOR-APPENDED-NOTE: use the staged fixture, not the live database.";
+                        string brief = "BRIEF-HEAD " + new string('b', briefChars) + " BRIEF-END";
+
+                        Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/appended-note").ConfigureAwait(false);
+                        System.Text.StringBuilder diff = new System.Text.StringBuilder();
+                        for (int file = 0; file < 40; file++)
+                        {
+                            diff.Append("diff --git a/src/F" + file + ".cs b/src/F" + file + ".cs\n@@ -1 +1,12 @@\n");
+                            for (int line = 0; line < 12; line++) diff.Append("+DIFF-LINE-" + file + "-" + line + " keeps the reviewed change readable\n");
+                        }
+                        worker.DiffSnapshot = diff.ToString();
+                        worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                        Mission testEngineer = await CreateDependentAsync(testDb.Driver, vessel, "TestEngineer", worker.Id, brief).ConfigureAwait(false);
+
+                        // The operator appends the note to the stored brief long before the handoff runs.
+                        Mission appended = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                        appended.Description = appended.Description + "\n\n" + note;
+                        await testDb.Driver.Missions.UpdateAsync(appended).ConfigureAwait(false);
+
+                        await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                        string description = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+                        string fullPath = MissionService.FullHandoffStorePath(settings.LogDirectory, testEngineer.Id);
+                        bool cut = description.Contains("mission brief truncated to fit the budget", StringComparison.Ordinal);
+                        bool inline = description.Contains(note, StringComparison.Ordinal);
+                        bool inFull = File.Exists(fullPath) && File.ReadAllText(fullPath).Contains(note, StringComparison.Ordinal);
+                        Console.WriteLine("  [appended-note] brief=" + briefChars + " descriptionChars=" + description.Length + " cut=" + cut
+                            + " noteInline=" + inline + " noteInFullHandoffFile=" + inFull
+                            + " noteIndex=" + description.IndexOf(note, StringComparison.Ordinal));
+                        if (!inline) lost.Add("brief=" + briefChars + " (in full-handoff file: " + inFull + ")");
+                    }
+                }
+                AssertTrue(lost.Count == 0, "operator text appended before the handoff stays in the inline brief; lost for: " + String.Join(", ", lost));
+            });
+
             await RunTest("TryAssign_TestEngineerReport_HandoffCarriesTheAddedTestsList", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
