@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A native command's MSBuild property option is not read as a credential
+
+- The captain-brief reference to native validation commands shows an MSBuild property option (`-p:Name=value`, `-property:`, `/p:`) as written instead of withholding the whole command as credential-bearing. A property whose name carries a credential word (password, token, secret, API key, pwd or pass) still withholds the command, as do the other inline credential forms.
+
 ### The launch prompt orders a paged instruction read and carries a mission read contract
 
 - The launch prompt orders the instruction file read as the first 20 lines, then bounded pages to its end, in wording that names no tool; a runtime that has already loaded its root file is told so and ordered no read. The overflow note for a cut launch prompt also points to a paged read.

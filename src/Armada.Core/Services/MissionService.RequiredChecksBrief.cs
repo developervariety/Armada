@@ -61,8 +61,10 @@ namespace Armada.Core.Services
         private static string RedactProfileCommand(string command, Dictionary<string, string>? environment)
         {
             // Fail closed for common inline credential forms before introducing a new model-visible surface.
+            // A short flag followed by ':Name=' is an MSBuild property (-p:Name=value), not a credential flag;
+            // a property whose name carries a credential word is still withheld.
             if (Regex.IsMatch(command,
-                @"authorization|password|passwd|\bpwd\b|secret|token|api[_-]?key|credential|bearer|private[_-]?key|access[_-]?key|\blogin\b|(?:^|\s)(?:-[uHbUpEeK]|--(?:user|header|cookie|proxy-user))|://[^/\s]*@",
+                @"authorization|password|passwd|\bpwd\b|secret|token|api[_-]?key|credential|bearer|private[_-]?key|access[_-]?key|\blogin\b|(?:^|\s)(?:-[uHbUpEeK](?!:[^=\s]+=)|--(?:user|header|cookie|proxy-user))|(?:^|\s)[-/]p(?:roperty)?:[^=\s]*(?:pwd|pass)[^=\s]*=|://[^/\s]*@",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
                 return "[WITHHELD: credential-bearing native command; do not execute]";
             string result = command;

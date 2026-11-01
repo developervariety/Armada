@@ -151,7 +151,10 @@ it as a general operator checklist.
 Generated captain briefs include a bounded native-check reference: configured
 validation commands and environment names, with profile environment values
 withheld. Credential-shaped commands are withheld rather than made executable;
-truncated or redacted commands must not be copied into a shell. This reference
+truncated or redacted commands must not be copied into a shell. An MSBuild
+property option such as `-p:UseSharedCompilation=false` is shown as written; a
+property whose name carries a credential word, such as `-p:Password=...` or
+`-p:DbPwd=...`, withholds the command. This reference
 does not add stage duties or change which native Checks are armed. A manual run
 with missing profile inputs must name the missing inputs and resulting skips;
 it is not full-profile Check proof. Native Checks apply the complete profile
