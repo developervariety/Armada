@@ -99,9 +99,23 @@ namespace Armada.Core.Services
         /// </summary>
         public static string AppendToMissionDescription(string? existing, Objective objective, int maxChars = DefaultMaxChars)
         {
+            return AppendToMissionDescription(existing, objective, null, maxChars);
+        }
+
+        /// <summary>
+        /// Append the authoritative brief, including any verified preparation anchor moves, after
+        /// operator-specific instructions. A retry is idempotent only when the complete rendered brief
+        /// is already present.
+        /// </summary>
+        public static string AppendToMissionDescription(
+            string? existing,
+            Objective objective,
+            IReadOnlyList<ObjectivePreparationAnchorMove>? anchorMoves,
+            int maxChars = DefaultMaxChars)
+        {
             if (objective == null) throw new ArgumentNullException(nameof(objective));
             string current = existing?.TrimEnd() ?? String.Empty;
-            string brief = Render(objective, maxChars);
+            string brief = Render(objective, anchorMoves, maxChars);
             if (JudgeAcceptanceWalk.HasCompleteObjectiveBrief(current, brief)) return current;
             current = EscapeOperatorHandoffMarkers(current);
             return String.IsNullOrWhiteSpace(current) ? brief : current + Environment.NewLine + Environment.NewLine + brief;

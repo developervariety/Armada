@@ -1565,11 +1565,14 @@ namespace Armada.Server
                 }
             }
 
+            string? effectiveStartFromRef = PreparationAnchorChangeReader.ResolveEffectiveStartFromRef(
+                objective.StartFromRef,
+                admittedPreview?.PreparationAnchorMoves);
             string missionDescription = ObjectiveBriefRenderer.Render(objective, admittedPreview?.PreparationAnchorMoves);
             MissionDescription md = new MissionDescription(objective.Title, missionDescription)
             {
                 CodeContextMode = _Settings.CodeIndex.Enabled ? "auto" : "off",
-                StartFromRef = objective.StartFromRef,
+                StartFromRef = effectiveStartFromRef,
                 Mode = DeriveMissionMode(objective.Kind)
             };
 

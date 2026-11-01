@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Start-ref and anchor updates preserve unaffected preparation claims and propagate landed commits across blocked objectives
+
+- Updating `startFromRef` on the same vessel or changing `preparation.source` or `preparation.target` to another full 40-character commit on the same vessel compares the changed paths between the old and new commits and marks only claims whose cited paths changed as `NeedsRecheck`; when `preparation` is omitted on a `startFromRef` update, a matching `preparation.target` commit advances with it.
+- When `preparation.target` moves cleanly on its branch (`PreparationAnchorMoves` carries a `target` move) and the objective's `StartFromRef` is empty or matches the recorded target commit, preview, scheduler dispatch and operator dispatch start the mission from the moved target commit while keeping any explicit recovery branch `StartFromRef` unchanged.
+- When an objective transitions to `Completed` with a verified landed commit on its target vessel, open objectives that list it in `BlockedByObjectiveIds` advance matching `preparation.source`, non-provisioned `requiredSiblingInputs.pinnedCommit`, and same-vessel `preparation.target` and commit-pinned `StartFromRef` references to that landed commit before the completion notification runs.
+
 ### A consumer build waits for a quiet host
 
 - Before each declared consumer's build, the definition-of-done gate waits until the 1-minute and 5-minute load averages are below `definitionOfDone.consumerBuildLoadLimit` (default: the logical core count): at once when the first reading is quiet, otherwise after three quiet readings in a row, at most 20 minutes. The wait is logged by name, a failed consumer build's output starts with it, and it never fails the gate.

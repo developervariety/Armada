@@ -656,7 +656,24 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(unrelated.IsReady, "The objective stays ready: " + String.Join("; ", unrelated.Issues
                         .Where(issue => issue.Severity == ReadinessSeverityEnum.Error).Select(issue => issue.Code)));
                     AssertContains("commit `" + fixture.BulkCommit + "`", unrelated.RenderedBrief, "The dispatch brief names the current tip.");
+                    AssertEqual(fixture.BulkCommit,
+                        PreparationAnchorChangeReader.ResolveEffectiveStartFromRef(null, unrelated.PreparationAnchorMoves),
+                        "A null objective StartFromRef resolves to the moved target tip when the target branch moves cleanly.");
+                    AssertEqual(fixture.BulkCommit,
+                        PreparationAnchorChangeReader.ResolveEffectiveStartFromRef(fixture.StageCommit, unrelated.PreparationAnchorMoves),
+                        "A StartFromRef pinned to the recorded target commit advances to the moved target tip.");
+                    AssertEqual("recover/accepted-work",
+                        PreparationAnchorChangeReader.ResolveEffectiveStartFromRef("recover/accepted-work", unrelated.PreparationAnchorMoves),
+                        "An explicit recovery branch StartFromRef is preserved unchanged.");
 
+                    objective.StartFromRef = fixture.StageCommit;
+                    ObjectiveDispatchPreview movedWithRecordedStart = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(fixture.BulkCommit, movedWithRecordedStart.StartFromRef,
+                        "Preview advances StartFromRef when it matched the recorded target commit of a clean branch move.");
+                    AssertEqual(fixture.BulkCommit, movedWithRecordedStart.ResolvedStartCommit,
+                        "Preview resolves the advanced StartFromRef to the moved target commit.");
+
+                    objective.StartFromRef = null;
                     objective.Preparation.Target.ResolvedCommit = fixture.BaseCommit;
                     ObjectiveDispatchPreview related = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     ObjectiveDispatchPreviewIssue? changed = related.Issues.FirstOrDefault(issue => issue.Code == "preparation_target_revision_changed");

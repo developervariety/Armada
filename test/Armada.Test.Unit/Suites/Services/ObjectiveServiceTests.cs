@@ -1913,6 +1913,130 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                     AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(renamedRepin, "opc_renamed").State,
                         "a claim citing a path the move renamed away needs a recheck");
+
+                    // Advancing StartFromRef on the same vessel (without resending Preparation) path-diffs the move and advances Target.
+                    Objective startRefPinned = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Start-ref advance preserves unaffected claims",
+                        VesselIds = new List<string> { vessel.Id },
+                        StartFromRef = fixture.StageCommit,
+                        Preparation = new ObjectivePreparation
+                        {
+                            Target = new ObjectivePreparationAnchor
+                            {
+                                VesselId = vessel.Id,
+                                Ref = fixture.StageCommit,
+                                ResolvedCommit = fixture.StageCommit
+                            },
+                            Claims = new List<ObjectivePreparationClaim>
+                            {
+                                PathClaim("opc_start_unchanged", "The handler in new/name.txt is reused as is.", "new/name.txt:1"),
+                                PathClaim("opc_start_changed", "The bulk loader reads " + bulkFile + ".", bulkFile + ":1")
+                            }
+                        }
+                    }).ConfigureAwait(false);
+
+                    Objective startRefAdvanced = await objectives.UpdateAsync(auth, startRefPinned.Id, new ObjectiveUpsertRequest
+                    {
+                        StartFromRef = fixture.BulkCommit
+                    }).ConfigureAwait(false);
+                    AssertEqual(fixture.BulkCommit, startRefAdvanced.StartFromRef);
+                    AssertEqual(fixture.BulkCommit, startRefAdvanced.Preparation.Target?.Ref);
+                    AssertEqual(fixture.BulkCommit, startRefAdvanced.Preparation.Target?.ResolvedCommit);
+                    AssertEqual(ObjectivePreparationClaimStateEnum.Verified, FindClaim(startRefAdvanced, "opc_start_unchanged").State,
+                        "advancing StartFromRef on the same vessel keeps claims whose cited paths did not change");
+                    AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(startRefAdvanced, "opc_start_changed").State,
+                        "advancing StartFromRef invalidates claims whose cited paths changed");
+
+                    // Completing a blocker objective propagates its landed commit to open dependent objectives across BlockedByObjectiveIds.
+                    Voyage producerVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Producer voyage")
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Status = VoyageStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission producerMission = await testDb.Driver.Missions.CreateAsync(new Mission("Producer mission")
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        VoyageId = producerVoyage.Id,
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.Complete,
+                        CommitHash = fixture.BulkCommit,
+                        CompletedUtc = DateTime.UtcNow
+                    }).ConfigureAwait(false);
+                    Objective producerObjective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Producer slice",
+                        Status = ObjectiveStatusEnum.InProgress,
+                        VesselIds = new List<string> { vessel.Id },
+                        VoyageIds = new List<string> { producerVoyage.Id },
+                        MissionIds = new List<string> { producerMission.Id }
+                    }).ConfigureAwait(false);
+                    Objective downstreamObjective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Downstream consumer slice",
+                        Status = ObjectiveStatusEnum.Planned,
+                        VesselIds = new List<string> { vessel.Id },
+                        StartFromRef = fixture.StageCommit,
+                        BlockedByObjectiveIds = new List<string> { producerObjective.Id },
+                        Preparation = new ObjectivePreparation
+                        {
+                            Source = new ObjectivePreparationAnchor
+                            {
+                                VesselId = vessel.Id,
+                                Ref = fixture.StageCommit,
+                                ResolvedCommit = fixture.StageCommit
+                            },
+                            Target = new ObjectivePreparationAnchor
+                            {
+                                VesselId = vessel.Id,
+                                Ref = "main",
+                                ResolvedCommit = fixture.StageCommit
+                            },
+                            RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
+                            {
+                                new ObjectivePreparationSiblingInput
+                                {
+                                    VesselRef = vessel.Name,
+                                    RelativePath = "../RepinSibling",
+                                    PinnedCommit = fixture.StageCommit,
+                                    ProvisionPinnedCommit = false
+                                },
+                                new ObjectivePreparationSiblingInput
+                                {
+                                    VesselRef = vessel.Id,
+                                    RelativePath = "../ExplicitPinnedSibling",
+                                    PinnedCommit = fixture.BaseCommit,
+                                    ProvisionPinnedCommit = true
+                                }
+                            },
+                            Claims = new List<ObjectivePreparationClaim>
+                            {
+                                PathClaim("opc_dep_unchanged", "The handler in new/name.txt is reused as is.", "new/name.txt:1"),
+                                PathClaim("opc_dep_changed", "The bulk loader reads " + bulkFile + ".", bulkFile + ":1")
+                            }
+                        }
+                    }).ConfigureAwait(false);
+
+                    await objectives.UpdateAsync(auth, producerObjective.Id, new ObjectiveUpsertRequest
+                    {
+                        Status = ObjectiveStatusEnum.Completed
+                    }).ConfigureAwait(false);
+
+                    Objective? refreshedDownstream = await objectives.ReadAsync(auth, downstreamObjective.Id).ConfigureAwait(false);
+                    refreshedDownstream = NotNull(refreshedDownstream);
+                    AssertEqual(fixture.BulkCommit, refreshedDownstream.StartFromRef, "same-vessel StartFromRef advances to the blocker's landed commit");
+                    AssertEqual(fixture.BulkCommit, refreshedDownstream.Preparation.Source?.ResolvedCommit, "dependent Source anchor advances to the landed commit");
+                    AssertEqual(fixture.BulkCommit, refreshedDownstream.Preparation.Target?.ResolvedCommit, "same-vessel Target anchor advances to the landed commit");
+                    AssertEqual(fixture.BulkCommit, refreshedDownstream.Preparation.RequiredSiblingInputs[0].PinnedCommit,
+                        "non-provisioned sibling pin advances to the landed commit");
+                    AssertEqual(fixture.BaseCommit, refreshedDownstream.Preparation.RequiredSiblingInputs[1].PinnedCommit,
+                        "explicit ProvisionPinnedCommit=true sibling pin is never overwritten");
+                    AssertEqual(ObjectivePreparationClaimStateEnum.Verified, FindClaim(refreshedDownstream, "opc_dep_unchanged").State,
+                        "propagated blocker commit preserves unaffected claims");
+                    AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(refreshedDownstream, "opc_dep_changed").State,
+                        "propagated blocker commit invalidates claims whose cited paths changed");
                 }
             }).ConfigureAwait(false);
 

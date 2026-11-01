@@ -1888,13 +1888,20 @@ Send every nested value that must remain: `requiredForDispatch`,
 `source`, `target`, `claims`, `preflight`, `stageSkip`, and `gateInputSources`. Omitted preparation
 members reset to their model defaults or `null`. The MCP input schema exposes
 each member, including all preflight-answer and stored stage-skip fields.
-A replacement that moves the `source` or `target` anchor to another commit of
-the same vessel and ref marks a dependent claim `NeedsRecheck` only when the
-files changed between the two commits include a path the claim cites in its
-text or evidence; other claims keep their state. A claim that cites no path, an
-unreadable or oversized change, and a `startFromRef` or `vesselIds` change mark
-every dependent claim `NeedsRecheck`. The invalidation reason names the changed
-cited paths.
+A replacement that moves the `source` or `target` anchor to another full commit of
+the same vessel, or an update that advances `startFromRef` to another resolvable
+commit on the same target vessel, marks a dependent claim `NeedsRecheck` only when
+the files changed between the two commits include a path the claim cites in its
+text or evidence; other claims keep their state, and when `preparation` is omitted
+on a `startFromRef` advance, a matching `preparation.target` commit advances with it.
+A claim that cites no path, an unreadable or oversized change, an unresolvable
+`startFromRef`, or a `vesselIds` change marks every dependent claim `NeedsRecheck`.
+The invalidation reason names the changed cited paths. When an objective transitions
+to `Completed` with a verified landed commit on its target vessel, open objectives
+that list it in `blockedByObjectiveIds` advance matching `preparation.source`,
+non-provisioned `requiredSiblingInputs.pinnedCommit`, and same-vessel
+`preparation.target` and commit-pinned `startFromRef` references to that landed
+commit through the same path-based claim check.
 Each `requiredSiblingInputs` entry may set `pinnedCommit` and
 `provisionPinnedCommit`. `provisionPinnedCommit: true` requires `pinnedCommit`
 and makes every dock of the dispatch check out that commit in its own sibling

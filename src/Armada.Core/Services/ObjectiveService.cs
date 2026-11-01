@@ -880,17 +880,27 @@ namespace Armada.Core.Services
                 ObjectivePreparation preparation = objective.Preparation!;
                 bool sourceChanged = !AnchorsEqual(priorSourceAnchor, preparation.Source);
                 bool targetAnchorChanged = !AnchorsEqual(priorTargetAnchor, preparation.Target);
-                bool dispatchTargetChanged = (request.StartFromRef != null && !String.Equals(priorStartFromRef, objective.StartFromRef, StringComparison.Ordinal))
-                    || (request.VesselIds != null
-                        && !priorVesselIds.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(objective.VesselIds));
+                bool startRefChanged = request.StartFromRef != null
+                    && !String.Equals(priorStartFromRef, objective.StartFromRef, StringComparison.Ordinal);
+                bool vesselChanged = request.VesselIds != null
+                    && !priorVesselIds.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(objective.VesselIds);
+                bool dispatchTargetChanged = startRefChanged || vesselChanged;
                 bool targetChanged = targetAnchorChanged || dispatchTargetChanged;
-                // A changed start ref or vessel is a different dispatch target, not a branch move, so only a
-                // pure anchor commit move is compared path by path.
                 IReadOnlyList<string>? sourceMovedPaths = sourceChanged
                     ? await ReadAnchorMovePathsAsync(auth, priorSourceAnchor, preparation.Source, token).ConfigureAwait(false)
                     : null;
-                IReadOnlyList<string>? targetMovedPaths = targetAnchorChanged && !dispatchTargetChanged
-                    ? await ReadAnchorMovePathsAsync(auth, priorTargetAnchor, preparation.Target, token).ConfigureAwait(false)
+                IReadOnlyList<string>? targetMovedPaths = targetChanged && !vesselChanged
+                    ? await ReadTargetMovePathsAsync(
+                        auth,
+                        objective,
+                        priorTargetAnchor,
+                        preparation.Target,
+                        priorStartFromRef,
+                        objective.StartFromRef,
+                        targetAnchorChanged,
+                        startRefChanged,
+                        request.Preparation != null,
+                        token).ConfigureAwait(false)
                     : null;
                 InvalidatePreparationClaims(
                     preparation,
@@ -927,6 +937,10 @@ namespace Armada.Core.Services
             finally
             {
                 if (dependencyLockTaken) _DependencyWriteLock.Release();
+            }
+            if (priorStatus != ObjectiveStatusEnum.Completed && objective.Status == ObjectiveStatusEnum.Completed)
+            {
+                await PropagateCompletedObjectiveCommitAsync(auth, objective, token).ConfigureAwait(false);
             }
             OnObjectiveChanged?.Invoke(objective);
             return objective;
@@ -2851,9 +2865,9 @@ namespace Armada.Core.Services
                 && String.Equals(left.ResolvedCommit, right.ResolvedCommit, StringComparison.OrdinalIgnoreCase);
         }
 
-        // Paths a branch move changed, when the anchor kept its vessel and ref and only its recorded commit
-        // moved, and the whole change was read. Null means the move cannot be compared path by path, and every
-        // dependent claim is invalidated as before.
+        // Paths a commit move changed on the same vessel when both revisions are full 40-character commits and
+        // the whole change was read. Null means the move cannot be compared path by path, and every dependent
+        // claim is invalidated as before.
         private async Task<IReadOnlyList<string>?> ReadAnchorMovePathsAsync(
             AuthContext auth,
             ObjectivePreparationAnchor? prior,
@@ -2864,7 +2878,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(prior.VesselId)
                 || !String.Equals(prior.VesselId, current.VesselId, StringComparison.OrdinalIgnoreCase)
                 || String.IsNullOrWhiteSpace(prior.Ref)
-                || !String.Equals(prior.Ref, current.Ref, StringComparison.Ordinal))
+                || String.IsNullOrWhiteSpace(current.Ref))
                 return null;
             if (!PreparationAnchorChangeReader.IsFullCommit(prior.ResolvedCommit)
                 || !PreparationAnchorChangeReader.IsFullCommit(current.ResolvedCommit))
@@ -2872,15 +2886,7 @@ namespace Armada.Core.Services
 
             try
             {
-                Vessel? vessel = auth.IsAdmin
-                    ? await _Database.Vessels.ReadAsync(prior.VesselId, token).ConfigureAwait(false)
-                    : String.IsNullOrWhiteSpace(auth.TenantId)
-                        ? null
-                        : auth.IsTenantAdmin
-                            ? await _Database.Vessels.ReadAsync(auth.TenantId!, prior.VesselId, token).ConfigureAwait(false)
-                            : String.IsNullOrWhiteSpace(auth.UserId)
-                                ? null
-                                : await _Database.Vessels.ReadAsync(auth.TenantId!, auth.UserId!, prior.VesselId, token).ConfigureAwait(false);
+                Vessel? vessel = await ReadAnchorVesselAsync(auth, prior.VesselId, token).ConfigureAwait(false);
                 if (vessel == null) return null;
                 return await AnchorChanges.ReadChangedPathsAsync(vessel, prior.ResolvedCommit, current.ResolvedCommit, token).ConfigureAwait(false);
             }
@@ -2889,6 +2895,324 @@ namespace Armada.Core.Services
                 _Logging?.Warn(_Header + "preparation anchor move could not be compared, so every dependent claim needs a recheck: " + ex.Message);
                 return null;
             }
+        }
+
+        private async Task<IReadOnlyList<string>?> ReadTargetMovePathsAsync(
+            AuthContext auth,
+            Objective objective,
+            ObjectivePreparationAnchor? priorTargetAnchor,
+            ObjectivePreparationAnchor? currentTargetAnchor,
+            string? priorStartFromRef,
+            string? currentStartFromRef,
+            bool targetAnchorChanged,
+            bool startRefChanged,
+            bool preparationSupplied,
+            CancellationToken token)
+        {
+            if (AnchorChanges == null) return null;
+            if (!startRefChanged)
+                return await ReadAnchorMovePathsAsync(auth, priorTargetAnchor, currentTargetAnchor, token).ConfigureAwait(false);
+
+            try
+            {
+                string? vesselId = objective.VesselIds.Count == 1
+                    ? objective.VesselIds[0]
+                    : (currentTargetAnchor?.VesselId ?? priorTargetAnchor?.VesselId);
+                Vessel? vessel = await ReadAnchorVesselAsync(auth, vesselId, token).ConfigureAwait(false);
+                if (vessel == null) return null;
+
+                string? fromCommit = null;
+                if (!String.IsNullOrWhiteSpace(priorStartFromRef))
+                {
+                    fromCommit = await AnchorChanges.ResolveCommitAsync(vessel, priorStartFromRef, token).ConfigureAwait(false)
+                        ?? (PreparationAnchorChangeReader.IsFullCommit(priorStartFromRef) ? priorStartFromRef!.Trim() : null);
+                }
+                else if (priorTargetAnchor != null
+                    && VesselMatches(priorTargetAnchor.VesselId, vessel)
+                    && PreparationAnchorChangeReader.IsFullCommit(priorTargetAnchor.ResolvedCommit))
+                {
+                    fromCommit = priorTargetAnchor.ResolvedCommit!.Trim();
+                }
+
+                string? toCommit = null;
+                if (!String.IsNullOrWhiteSpace(currentStartFromRef))
+                {
+                    toCommit = await AnchorChanges.ResolveCommitAsync(vessel, currentStartFromRef, token).ConfigureAwait(false);
+                }
+                else if (currentTargetAnchor != null
+                    && VesselMatches(currentTargetAnchor.VesselId, vessel)
+                    && PreparationAnchorChangeReader.IsFullCommit(currentTargetAnchor.ResolvedCommit))
+                {
+                    toCommit = currentTargetAnchor.ResolvedCommit!.Trim();
+                }
+
+                if (!PreparationAnchorChangeReader.IsFullCommit(fromCommit)
+                    || !PreparationAnchorChangeReader.IsFullCommit(toCommit))
+                    return null;
+
+                IReadOnlyList<string>? startMovedPaths = await AnchorChanges
+                    .ReadChangedPathsAsync(vessel, fromCommit, toCommit, token)
+                    .ConfigureAwait(false);
+                if (startMovedPaths == null) return null;
+
+                if (!preparationSupplied
+                    && currentTargetAnchor != null
+                    && VesselMatches(currentTargetAnchor.VesselId, vessel)
+                    && String.Equals(currentTargetAnchor.ResolvedCommit, fromCommit, StringComparison.OrdinalIgnoreCase)
+                    && !String.IsNullOrWhiteSpace(currentStartFromRef))
+                {
+                    if (String.Equals(currentTargetAnchor.Ref, fromCommit, StringComparison.OrdinalIgnoreCase))
+                        currentTargetAnchor.Ref = currentStartFromRef!.Trim();
+                    currentTargetAnchor.ResolvedCommit = toCommit;
+                }
+
+                if (!targetAnchorChanged)
+                    return startMovedPaths;
+
+                IReadOnlyList<string>? anchorMovedPaths = await ReadAnchorMovePathsAsync(
+                    auth, priorTargetAnchor, currentTargetAnchor, token).ConfigureAwait(false);
+                if (anchorMovedPaths == null) return null;
+
+                return startMovedPaths
+                    .Concat(anchorMovedPaths)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _Logging?.Warn(_Header + "target start-ref move could not be compared, so every dependent claim needs a recheck: " + ex.Message);
+                return null;
+            }
+        }
+
+        private async Task<Vessel?> ReadAnchorVesselAsync(
+            AuthContext auth,
+            string? vesselRef,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(vesselRef)) return null;
+            string trimmed = vesselRef!.Trim();
+            Vessel? byId = auth.IsAdmin
+                ? await _Database.Vessels.ReadAsync(trimmed, token).ConfigureAwait(false)
+                : String.IsNullOrWhiteSpace(auth.TenantId)
+                    ? null
+                    : auth.IsTenantAdmin
+                        ? await _Database.Vessels.ReadAsync(auth.TenantId!, trimmed, token).ConfigureAwait(false)
+                        : String.IsNullOrWhiteSpace(auth.UserId)
+                            ? null
+                            : await _Database.Vessels.ReadAsync(auth.TenantId!, auth.UserId!, trimmed, token).ConfigureAwait(false);
+            if (byId != null) return byId;
+
+            Vessel? byName = await _Database.Vessels.ReadByNameAsync(trimmed, token).ConfigureAwait(false);
+            if (byName != null && (auth.IsAdmin || Armada.Core.Authorization.OwnershipPolicy.SameTenant(byName.TenantId, auth.TenantId)))
+                return byName;
+            return null;
+        }
+
+        private static bool VesselMatches(string? vesselRef, Vessel vessel)
+        {
+            if (String.IsNullOrWhiteSpace(vesselRef) || vessel == null) return false;
+            string trimmed = vesselRef!.Trim();
+            return String.Equals(trimmed, vessel.Id, StringComparison.OrdinalIgnoreCase)
+                || (!String.IsNullOrWhiteSpace(vessel.Name)
+                    && String.Equals(trimmed, vessel.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private async Task PropagateCompletedObjectiveCommitAsync(
+            AuthContext auth,
+            Objective completed,
+            CancellationToken token)
+        {
+            if (completed == null || completed.VesselIds.Count != 1) return;
+
+            try
+            {
+                Vessel? producerVessel = await ReadAnchorVesselAsync(auth, completed.VesselIds[0], token).ConfigureAwait(false);
+                if (producerVessel == null) return;
+
+                string? landedCommit = await ResolveCompletedObjectiveCommitAsync(auth, completed, producerVessel, token).ConfigureAwait(false);
+                if (!PreparationAnchorChangeReader.IsFullCommit(landedCommit)) return;
+
+                List<Objective> allObjectives = await ReadAllObjectivesAsync(auth, token).ConfigureAwait(false);
+                foreach (Objective dependent in allObjectives)
+                {
+                    if (dependent == null || String.Equals(dependent.Id, completed.Id, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (dependent.Status == ObjectiveStatusEnum.Completed || dependent.Status == ObjectiveStatusEnum.Cancelled)
+                        continue;
+                    if (dependent.BlockedByObjectiveIds == null
+                        || !dependent.BlockedByObjectiveIds.Contains(completed.Id, StringComparer.OrdinalIgnoreCase))
+                        continue;
+
+                    try
+                    {
+                        ObjectivePreparation nextPrep = JsonSerializer.Deserialize<ObjectivePreparation>(
+                            JsonSerializer.Serialize(dependent.Preparation ?? new ObjectivePreparation(), _JsonOptions),
+                            _JsonOptions) ?? new ObjectivePreparation();
+                        string? nextStartFromRef = dependent.StartFromRef;
+                        bool changed = false;
+
+                        if (nextPrep.Source != null
+                            && VesselMatches(nextPrep.Source.VesselId, producerVessel)
+                            && PreparationAnchorChangeReader.IsFullCommit(nextPrep.Source.ResolvedCommit)
+                            && !String.Equals(nextPrep.Source.ResolvedCommit, landedCommit, StringComparison.OrdinalIgnoreCase)
+                            && await IsAncestorOrUncheckedAsync(producerVessel, nextPrep.Source.ResolvedCommit, landedCommit!, token).ConfigureAwait(false))
+                        {
+                            string oldSourceCommit = nextPrep.Source.ResolvedCommit!;
+                            if (PreparationAnchorChangeReader.IsFullCommit(nextPrep.Source.Ref)
+                                && String.Equals(nextPrep.Source.Ref, oldSourceCommit, StringComparison.OrdinalIgnoreCase))
+                            {
+                                nextPrep.Source.Ref = landedCommit;
+                            }
+                            nextPrep.Source.ResolvedCommit = landedCommit;
+                            changed = true;
+                        }
+
+                        foreach (ObjectivePreparationSiblingInput sibling in nextPrep.RequiredSiblingInputs ?? new List<ObjectivePreparationSiblingInput>())
+                        {
+                            if (sibling == null || sibling.ProvisionPinnedCommit || !VesselMatches(sibling.VesselRef, producerVessel))
+                                continue;
+                            if (!PreparationAnchorChangeReader.IsFullCommit(sibling.PinnedCommit)
+                                || String.Equals(sibling.PinnedCommit, landedCommit, StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            if (!await IsAncestorOrUncheckedAsync(producerVessel, sibling.PinnedCommit, landedCommit!, token).ConfigureAwait(false))
+                                continue;
+
+                            sibling.PinnedCommit = landedCommit;
+                            changed = true;
+                        }
+
+                        if (dependent.VesselIds.Count == 1 && VesselMatches(dependent.VesselIds[0], producerVessel))
+                        {
+                            if (nextPrep.Target != null
+                                && VesselMatches(nextPrep.Target.VesselId, producerVessel)
+                                && PreparationAnchorChangeReader.IsFullCommit(nextPrep.Target.ResolvedCommit)
+                                && !String.Equals(nextPrep.Target.ResolvedCommit, landedCommit, StringComparison.OrdinalIgnoreCase)
+                                && await IsAncestorOrUncheckedAsync(producerVessel, nextPrep.Target.ResolvedCommit, landedCommit!, token).ConfigureAwait(false))
+                            {
+                                string oldTargetCommit = nextPrep.Target.ResolvedCommit!;
+                                if (PreparationAnchorChangeReader.IsFullCommit(nextPrep.Target.Ref)
+                                    && String.Equals(nextPrep.Target.Ref, oldTargetCommit, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    nextPrep.Target.Ref = landedCommit;
+                                }
+                                nextPrep.Target.ResolvedCommit = landedCommit;
+                                changed = true;
+                            }
+
+                            if (PreparationAnchorChangeReader.IsFullCommit(nextStartFromRef)
+                                && !String.Equals(nextStartFromRef, landedCommit, StringComparison.OrdinalIgnoreCase)
+                                && await IsAncestorOrUncheckedAsync(producerVessel, nextStartFromRef, landedCommit!, token).ConfigureAwait(false))
+                            {
+                                nextStartFromRef = landedCommit;
+                                changed = true;
+                            }
+                        }
+
+                        if (!changed) continue;
+
+                        ObjectiveUpsertRequest update = new ObjectiveUpsertRequest
+                        {
+                            Preparation = nextPrep
+                        };
+                        if (!String.Equals(nextStartFromRef, dependent.StartFromRef, StringComparison.Ordinal))
+                            update.StartFromRef = nextStartFromRef;
+
+                        await UpdateAsync(auth, dependent.Id, update, token).ConfigureAwait(false);
+                    }
+                    catch (Exception depEx) when (depEx is not OperationCanceledException)
+                    {
+                        _Logging?.Warn(_Header + "failed to propagate completed commit from objective " + completed.Id
+                            + " to dependent objective " + dependent.Id + ": " + depEx.Message);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _Logging?.Warn(_Header + "failed to evaluate completed objective commit propagation for " + completed.Id + ": " + ex.Message);
+            }
+        }
+
+        private async Task<string?> ResolveCompletedObjectiveCommitAsync(
+            AuthContext auth,
+            Objective completed,
+            Vessel producerVessel,
+            CancellationToken token)
+        {
+            List<Mission> missions = new List<Mission>();
+            foreach (string voyageId in completed.VoyageIds ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(voyageId)) continue;
+                List<Mission> voyageMissions = await ReadAccessibleMissionsForVoyageAsync(auth, voyageId, token).ConfigureAwait(false);
+                missions.AddRange(voyageMissions);
+            }
+            foreach (string missionId in completed.MissionIds ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(missionId)) continue;
+                if (missions.Any(item => String.Equals(item.Id, missionId, StringComparison.OrdinalIgnoreCase))) continue;
+                Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+                if (mission != null) missions.Add(mission);
+            }
+
+            string? missionCommit = missions
+                .Where(item => item != null
+                    && item.Status == MissionStatusEnum.Complete
+                    && (String.IsNullOrWhiteSpace(item.VesselId) || VesselMatches(item.VesselId, producerVessel))
+                    && PreparationAnchorChangeReader.IsFullCommit(item.CommitHash))
+                .OrderByDescending(item => item.CompletedUtc ?? item.LastUpdateUtc)
+                .Select(item => item.CommitHash!.Trim())
+                .FirstOrDefault();
+
+            string? evidenceCommit = null;
+            foreach (string link in completed.EvidenceLinks ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(link)) continue;
+                System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(link, @"\b[0-9a-fA-F]{40}\b");
+                if (match.Success)
+                {
+                    evidenceCommit = match.Value;
+                    break;
+                }
+            }
+
+            if (AnchorChanges != null)
+            {
+                string defaultBranch = !String.IsNullOrWhiteSpace(producerVessel.DefaultBranch) ? producerVessel.DefaultBranch : "main";
+                string? branchTip = await AnchorChanges.ResolveCommitAsync(producerVessel, "refs/heads/" + defaultBranch, token).ConfigureAwait(false)
+                    ?? await AnchorChanges.ResolveCommitAsync(producerVessel, defaultBranch, token).ConfigureAwait(false)
+                    ?? await AnchorChanges.ResolveCommitAsync(producerVessel, "HEAD", token).ConfigureAwait(false);
+                if (PreparationAnchorChangeReader.IsFullCommit(branchTip))
+                {
+                    if (missionCommit != null)
+                    {
+                        bool? isAncestor = await AnchorChanges.IsAncestorAsync(producerVessel, missionCommit, branchTip, token).ConfigureAwait(false);
+                        return isAncestor == false ? null : branchTip;
+                    }
+                    if (evidenceCommit != null)
+                    {
+                        bool? isAncestor = await AnchorChanges.IsAncestorAsync(producerVessel, evidenceCommit, branchTip, token).ConfigureAwait(false);
+                        if (isAncestor == true) return branchTip;
+                    }
+                    if (((completed.VoyageIds?.Count ?? 0) > 0 || (completed.MissionIds?.Count ?? 0) > 0)
+                        && completed.Kind != ObjectiveKindEnum.Research)
+                    {
+                        return branchTip;
+                    }
+                }
+            }
+
+            return missionCommit ?? evidenceCommit;
+        }
+
+        private async Task<bool> IsAncestorOrUncheckedAsync(
+            Vessel vessel,
+            string? ancestorCommit,
+            string descendantCommit,
+            CancellationToken token)
+        {
+            if (AnchorChanges == null) return true;
+            bool? isAncestor = await AnchorChanges.IsAncestorAsync(vessel, ancestorCommit, descendantCommit, token).ConfigureAwait(false);
+            return isAncestor != false;
         }
 
         // A claim that depends on a changed anchor needs a recheck, unless the change is a branch move whose

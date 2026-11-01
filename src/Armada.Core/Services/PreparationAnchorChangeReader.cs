@@ -84,11 +84,85 @@ namespace Armada.Core.Services
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (!IsFullCommit(fromCommit) || !IsFullCommit(toCommit)) return null;
+            if (String.Equals(fromCommit!.Trim(), toCommit!.Trim(), StringComparison.OrdinalIgnoreCase))
+                return Array.Empty<string>();
 
             ChangedPathStatusRead read = await _Git.ReadChangedPathStatusesBetweenCommitsAsync(
                 RepositoryPath(vessel, _Settings), fromCommit!.Trim(), toCommit!.Trim(), MaxChangedPaths, ReadTimeout, OutputLimitBytes, token).ConfigureAwait(false);
             if (!read.Available || !read.Complete) return null;
             return ChangedPaths(read);
+        }
+
+        /// <summary>
+        /// Resolve a revision (branch, tag, or commit) to its full 40-character commit SHA in the vessel repository,
+        /// or null when the revision cannot be resolved.
+        /// </summary>
+        /// <param name="vessel">Vessel whose repository holds the revision.</param>
+        /// <param name="revision">Revision to resolve.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The resolved 40-character commit SHA, or null.</returns>
+        public async Task<string?> ResolveCommitAsync(Vessel vessel, string? revision, CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (String.IsNullOrWhiteSpace(revision)) return null;
+
+            string? sha = await _Git.GetRevisionCommitShaAsync(RepositoryPath(vessel, _Settings), revision!.Trim(), token).ConfigureAwait(false);
+            return IsFullCommit(sha) ? sha!.Trim() : null;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="ancestorCommit"/> is an ancestor of <paramref name="descendantCommit"/> in the
+        /// vessel repository, or null when ancestry cannot be determined.
+        /// </summary>
+        /// <param name="vessel">Vessel whose repository holds both commits.</param>
+        /// <param name="ancestorCommit">Candidate ancestor commit.</param>
+        /// <param name="descendantCommit">Candidate descendant commit.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when ancestor, false when not, null when unavailable.</returns>
+        public async Task<bool?> IsAncestorAsync(Vessel vessel, string? ancestorCommit, string? descendantCommit, CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (!IsFullCommit(ancestorCommit) || !IsFullCommit(descendantCommit)) return null;
+
+            return await _Git.TryIsAncestorAsync(
+                RepositoryPath(vessel, _Settings),
+                ancestorCommit!.Trim(),
+                descendantCommit!.Trim(),
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Return the effective start ref for an objective dispatch when a prepared target branch moved cleanly
+        /// without touching any path the objective depends on. An explicit start ref that differs from the prepared
+        /// target anchor (such as a <c>recover/</c> branch) is preserved unchanged.
+        /// </summary>
+        /// <param name="objectiveStartFromRef">Stored objective start ref, if any.</param>
+        /// <param name="anchorMoves">Verified preparation anchor moves for the dispatch.</param>
+        /// <returns>The effective start ref to use for dispatch.</returns>
+        public static string? ResolveEffectiveStartFromRef(
+            string? objectiveStartFromRef,
+            IReadOnlyList<ObjectivePreparationAnchorMove>? anchorMoves)
+        {
+            ObjectivePreparationAnchorMove? targetMove = anchorMoves?
+                .FirstOrDefault(move => move != null
+                    && String.Equals(move.Anchor, "target", StringComparison.Ordinal)
+                    && !String.IsNullOrWhiteSpace(move.CurrentCommit));
+            if (targetMove == null) return objectiveStartFromRef;
+
+            string currentCommit = targetMove.CurrentCommit.Trim();
+            if (String.IsNullOrWhiteSpace(objectiveStartFromRef))
+                return currentCommit;
+
+            string trimmedStart = objectiveStartFromRef!.Trim();
+            if ((!String.IsNullOrWhiteSpace(targetMove.RecordedCommit)
+                    && String.Equals(trimmedStart, targetMove.RecordedCommit.Trim(), StringComparison.OrdinalIgnoreCase))
+                || (!String.IsNullOrWhiteSpace(targetMove.Ref)
+                    && String.Equals(trimmedStart, targetMove.Ref.Trim(), StringComparison.Ordinal)))
+            {
+                return currentCommit;
+            }
+
+            return objectiveStartFromRef;
         }
 
         /// <summary>

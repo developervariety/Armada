@@ -240,6 +240,7 @@ namespace Armada.Core.Services
 
             await EvaluateRepositoryContextAsync(vessel, result, token).ConfigureAwait(false);
             await EvaluateStartRefAsync(vessel, result, token).ConfigureAwait(false);
+            await EvaluatePreparationAnchorsAsync(auth, objective, result, token).ConfigureAwait(false);
             await EvaluatePreflightFactsAsync(auth, objective, vessel, result, token).ConfigureAwait(false);
             List<string> effectiveMissionModes = await EvaluateMissionDescriptionsAsync(
                 vessel, objective, missionDescriptions, result, token).ConfigureAwait(false);
@@ -248,7 +249,6 @@ namespace Armada.Core.Services
             ObjectiveDispatchPreviewIssue? repeatStop = await ObjectiveReviewRepeatGuard.EvaluateAsync(
                 _Database, objective, reviewSource, token).ConfigureAwait(false);
             if (repeatStop != null) result.Issues.Add(repeatStop);
-            await EvaluatePreparationAnchorsAsync(auth, objective, result, token).ConfigureAwait(false);
             await EvaluateSiblingProvisioningAsync(auth, objective, vessel, result, token).ConfigureAwait(false);
             result.Issues.AddRange(ObjectiveExecutionRequirementsValidator.Evaluate(
                 objective.Preparation?.ExecutionRequirements,
@@ -1305,7 +1305,9 @@ namespace Armada.Core.Services
                     : objectiveMode ?? MissionModeEnum.Implementation.ToString();
                 modes.Add(effectiveMode);
 
-                string? startRef = NormalizeEmpty(mission.StartFromRef) ?? NormalizeEmpty(objective.StartFromRef);
+                string? startRef = NormalizeEmpty(mission.StartFromRef)
+                    ?? NormalizeEmpty(result.StartFromRef)
+                    ?? NormalizeEmpty(objective.StartFromRef);
                 if (!String.IsNullOrWhiteSpace(mission.DependsOnMissionId)
                     || !String.IsNullOrWhiteSpace(mission.DependsOnMissionAlias))
                     startRef = null;
@@ -1344,7 +1346,22 @@ namespace Armada.Core.Services
             await EvaluateAnchorAsync(auth, objective, preparation.Source, "source", result, token).ConfigureAwait(false);
             await EvaluateAnchorAsync(auth, objective, preparation.Target, "target", result, token).ConfigureAwait(false);
             if (result.PreparationAnchorMoves.Count > 0)
+            {
+                if (!String.IsNullOrWhiteSpace(result.StartFromRef))
+                {
+                    string? effectiveStart = PreparationAnchorChangeReader.ResolveEffectiveStartFromRef(
+                        result.StartFromRef,
+                        result.PreparationAnchorMoves);
+                    if (!String.Equals(effectiveStart, result.StartFromRef, StringComparison.Ordinal))
+                    {
+                        result.StartFromRef = effectiveStart;
+                        result.ResolvedStartCommit = effectiveStart;
+                        result.Issues.RemoveAll(issue => issue != null
+                            && String.Equals(issue.Code, "start_from_ref_missing", StringComparison.Ordinal));
+                    }
+                }
                 result.RenderedBrief = ObjectiveBriefRenderer.Render(objective, result.PreparationAnchorMoves);
+            }
 
             if (preparation.Target != null
                 && !String.IsNullOrWhiteSpace(preparation.Target.VesselId)

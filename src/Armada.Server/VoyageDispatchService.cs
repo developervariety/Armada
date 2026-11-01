@@ -400,7 +400,8 @@ namespace Armada.Server
             Objective? dispatchObjective = await ApplyObjectiveDefaultsAsync(
                 objectiveId,
                 request.ObjectiveAuthContext,
-                missions).ConfigureAwait(false);
+                missions,
+                request.PreparationAnchorMoves).ConfigureAwait(false);
             // Keep the authorizer even when an operator supplies additional voyage context.
             // Put its marker first so a caller-provided marker cannot select another objective.
             if (dispatchObjective != null
@@ -1002,7 +1003,11 @@ namespace Armada.Server
         /// <param name="objectiveId">The linked objective id, or null when the dispatch is unlinked.</param>
         /// <param name="authContext">Auth context for reading the objective, or null for the default tenant admin.</param>
         /// <param name="missions">Mission descriptions to mutate in place before dispatch.</param>
-        private async Task<Objective?> ApplyObjectiveDefaultsAsync(string? objectiveId, AuthContext? authContext, List<MissionDescription>? missions)
+        private async Task<Objective?> ApplyObjectiveDefaultsAsync(
+            string? objectiveId,
+            AuthContext? authContext,
+            List<MissionDescription>? missions,
+            IReadOnlyList<ObjectivePreparationAnchorMove>? anchorMoves = null)
         {
             if (String.IsNullOrEmpty(objectiveId) || _ObjectiveService == null || missions == null || missions.Count == 0)
                 return null;
@@ -1011,14 +1016,20 @@ namespace Armada.Server
             Objective? objective = await _ObjectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);
             if (objective == null) return null;
 
+            string? effectiveStartFromRef = PreparationAnchorChangeReader.ResolveEffectiveStartFromRef(
+                objective.StartFromRef,
+                anchorMoves);
             string? derivedMode = MissionModes.FromObjectiveKind(objective.Kind);
             foreach (MissionDescription mission in missions)
             {
                 if (mission == null) continue;
-                mission.Description = ObjectiveBriefRenderer.AppendToMissionDescription(mission.Description, objective);
+                mission.Description = ObjectiveBriefRenderer.AppendToMissionDescription(
+                    mission.Description,
+                    objective,
+                    anchorMoves);
                 if (String.IsNullOrWhiteSpace(mission.StartFromRef)
-                    && !String.IsNullOrWhiteSpace(objective.StartFromRef))
-                    mission.StartFromRef = objective.StartFromRef;
+                    && !String.IsNullOrWhiteSpace(effectiveStartFromRef))
+                    mission.StartFromRef = effectiveStartFromRef;
                 if (!String.IsNullOrEmpty(derivedMode) && String.IsNullOrWhiteSpace(mission.Mode))
                 {
                     mission.Mode = derivedMode;

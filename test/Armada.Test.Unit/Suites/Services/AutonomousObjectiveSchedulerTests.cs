@@ -1978,6 +1978,60 @@ namespace Armada.Test.Unit.Suites.Services
                     "Structured sibling preparation must reach the autonomous mission.");
             }).ConfigureAwait(false);
 
+            await RunTest("A scheduler dispatch advances a recorded target StartFromRef when the prepared target branch moved cleanly", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                const string recordedCommit = "1111111111111111111111111111111111111111";
+                const string movedCommit = "2222222222222222222222222222222222222222";
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("moved-target-scheduler-vessel", "https://github.com/test/moved-target.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Dispatch after unrelated branch move",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    StartFromRef = recordedCommit,
+                    Preparation = AdmittedPreparation()
+                }).ConfigureAwait(false);
+
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                {
+                    Result = new ObjectiveDispatchPreview
+                    {
+                        ObjectiveId = candidate.Id,
+                        VesselId = vessel.Id,
+                        IsReady = true,
+                        StartFromRef = movedCommit,
+                        ResolvedStartCommit = movedCommit,
+                        PreparationAnchorMoves = new List<ObjectivePreparationAnchorMove>
+                        {
+                            new ObjectivePreparationAnchorMove
+                            {
+                                Anchor = "target",
+                                Ref = "main",
+                                RecordedCommit = recordedCommit,
+                                CurrentCommit = movedCommit,
+                                ChangedFileCount = 3
+                            }
+                        }
+                    }
+                };
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver, admiral, EnabledSchedulerSettings(), objectiveDispatchPreview: preview);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "The objective dispatches after a clean branch move.");
+                AssertEqual(movedCommit, admiral.LastMissionDescriptions![0].StartFromRef,
+                    "The mission starts from the moved target tip rather than the stale recorded commit.");
+            }).ConfigureAwait(false);
+
             await RunTest("A scheduler dispatch stages the mission's own context pack at its start ref", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
