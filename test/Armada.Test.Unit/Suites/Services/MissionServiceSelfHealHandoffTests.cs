@@ -451,9 +451,9 @@ namespace Armada.Test.Unit.Suites.Services
                     string description = readBack.Description ?? String.Empty;
 
                     AssertTrue(worker.DiffSnapshot.Length > 20000, "Precondition: the diff alone is past the description budget");
-                    AssertFalse(description.Contains("+DIFF-LINE-20-6 ", StringComparison.Ordinal), "Precondition: the record holds the cut copy");
+                    AssertFalse(description.Contains(worker.DiffSnapshot.TrimEnd('\n'), StringComparison.Ordinal), "Precondition: the record holds a bounded copy, not the whole diff");
                     AssertTrue(description.Length <= 20000 + 2000, "The record copy stays at the description budget");
-                    AssertContains("full text: `" + MissionService.HandoffFullTextFirstFile + "`", description, "The cut marker names the dock file of the complete text");
+                    AssertContains("`" + MissionService.HandoffFullTextFirstFile + "`", description, "The record names the dock file of the complete text");
 
                     string kept = await File.ReadAllTextAsync(MissionService.FullHandoffStorePath(settings.LogDirectory, judge.Id)).ConfigureAwait(false);
                     AssertContains("BASE-BRIEF-SENTINEL review the change.", kept, "The complete text holds the base brief");
@@ -478,7 +478,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string brief = await File.ReadAllTextAsync(Path.Combine(dock, "CLAUDE.md")).ConfigureAwait(false);
                         AssertContains("`" + MissionService.HandoffFullTextFirstFile + "`", brief, "The brief names the staged complete text");
-                        AssertFalse(brief.Contains("+DIFF-LINE-20-6 ", StringComparison.Ordinal), "The brief keeps its cut, so its size is unchanged");
+                        AssertFalse(brief.Contains(worker.DiffSnapshot.TrimEnd('\n'), StringComparison.Ordinal), "The brief keeps its bounded copy, so its size is unchanged");
                     }
                     finally
                     {
@@ -573,6 +573,70 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
                 AssertTrue(lost.Count == 0, "operator text appended before the handoff stays in the inline brief; lost for: " + String.Join(", ", lost));
+            });
+
+            // A handoff diff bounded to fit the brief says so in the block, with the total size and the file that
+            // holds the whole diff, so no reader takes the bounded copy for the complete change.
+            await RunTest("TryAssign_BoundedHandoffDiff_CarriesALineNamingTheBoundAndTheCompleteDiff", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/bounded-diff").ConfigureAwait(false);
+                    System.Text.StringBuilder diff = new System.Text.StringBuilder();
+                    for (int file = 0; file < 40; file++)
+                    {
+                        diff.Append("diff --git a/src/F" + file + ".cs b/src/F" + file + ".cs\n@@ -1 +1,12 @@\n");
+                        for (int line = 0; line < 12; line++) diff.Append("+DIFF-LINE-" + file + "-" + line + " keeps the reviewed change readable\n");
+                    }
+                    worker.DiffSnapshot = diff.ToString();
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    Mission judge = await CreateDependentAsync(testDb.Driver, vessel, "Judge", worker.Id, "Review the change.").ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(judge, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+
+                    int boundAt = description.IndexOf("Diff bounded to fit the brief:", StringComparison.Ordinal);
+                    AssertTrue(boundAt >= 0, "the bounded block names its bound");
+                    string boundLine = description.Substring(boundAt, description.IndexOf('\n', boundAt) - boundAt);
+                    AssertContains(worker.DiffSnapshot.Length + "-character diff", boundLine, "the line gives the size of the whole diff");
+                    AssertContains("`" + MissionService.HandoffFullTextFirstFile + "`", boundLine, "the line names the file that holds the whole diff");
+                    AssertContains("armada/bounded-diff", boundLine, "the line names the branch");
+                    AssertTrue(boundAt > description.IndexOf("### Diff from prior stage", StringComparison.Ordinal), "the line sits in the diff section");
+                    AssertFalse(description.Contains("mission brief truncated to fit the budget", StringComparison.Ordinal), "bounding the diff made the general cut unnecessary");
+                    AssertTrue(description.Length <= 20000, "the description fits its budget");
+                    string kept = await File.ReadAllTextAsync(MissionService.FullHandoffStorePath(settings.LogDirectory, judge.Id)).ConfigureAwait(false);
+                    AssertContains(worker.DiffSnapshot.TrimEnd('\n'), kept, "the complete text holds the whole diff");
+                }
+            });
+
+            // When the text outside the generated blocks is over the budget by itself, no diff bound can make it fit.
+            // The general cut applies, its marker names the complete text, and that text holds the operator note.
+            await RunTest("TryAssign_TextOutsideTheBlocksAloneOverBudget_IsCutByNameAndKeptInTheCompleteText", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    const string note = "OPERATOR-APPENDED-NOTE: use the staged fixture, not the live database.";
+                    Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/oversized-brief").ConfigureAwait(false);
+                    worker.DiffSnapshot = "diff --git a/src/A.cs b/src/A.cs\n@@ -1 +1 @@\n+changed\n";
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    string brief = "BRIEF-HEAD " + new string('b', 12000) + "\n\n" + note + "\n\n" + new string('c', 12000) + " BRIEF-END";
+                    Mission judge = await CreateDependentAsync(testDb.Driver, vessel, "Judge", worker.Id, brief).ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(judge, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+
+                    AssertContains("mission brief truncated to fit the budget", description, "the cut is named in the record");
+                    AssertContains("full text: `" + MissionService.HandoffFullTextFirstFile + "`", description, "the cut marker names the complete text");
+                    AssertFalse(description.Contains("Diff bounded to fit the brief:", StringComparison.Ordinal), "no diff bound is claimed when bounding cannot fit the brief");
+                    string kept = await File.ReadAllTextAsync(MissionService.FullHandoffStorePath(settings.LogDirectory, judge.Id)).ConfigureAwait(false);
+                    AssertContains(note, kept, "the complete text keeps the operator note the cut removed");
+                }
             });
 
             await RunTest("TryAssign_TestEngineerReport_HandoffCarriesTheAddedTestsList", async () =>
