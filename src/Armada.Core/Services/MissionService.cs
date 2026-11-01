@@ -9220,8 +9220,10 @@ namespace Armada.Core.Services
                 // and staged into the dock, and the marker names the dock file, so the next stage can always
                 // read what the cut removed.
                 bool kept = await StoreFullHandoffAsync(nextMission.Id, handoffDescription, token).ConfigureAwait(false);
-                handoffDescription = TruncateMissionDescription(
-                    handoffDescription, descriptionBudget, completedMission.BranchName, kept ? HandoffFullTextFirstFile : null);
+                List<string> readContract = MissionPromptBuilder.ExtractReadContractLines(handoffDescription);
+                handoffDescription = KeepReadContractLines(
+                    TruncateMissionDescription(handoffDescription, descriptionBudget, completedMission.BranchName, kept ? HandoffFullTextFirstFile : null),
+                    readContract);
             }
             else
             {
@@ -9970,6 +9972,23 @@ namespace Armada.Core.Services
         /// <param name="branchName">Branch holding the full change, or null.</param>
         /// <param name="fullTextPath">Dock file holding the complete text before the cut, or null when none is staged.</param>
         /// <returns>The bounded description.</returns>
+        /// <summary>
+        /// Put back at the top of a cut description every read-contract line the cut removed. Each stage's
+        /// launch prompt lifts these lines from its own description, so a cut that dropped one would let a
+        /// later stage read its instruction file in a form the mission forbids.
+        /// </summary>
+        /// <param name="truncated">Description after the budget cut.</param>
+        /// <param name="readContract">Read-contract lines of the description before the cut.</param>
+        /// <returns>The cut description, with any removed read-contract line restored at the top.</returns>
+        internal static string KeepReadContractLines(string truncated, List<string> readContract)
+        {
+            if (readContract.Count == 0) return truncated;
+            HashSet<string> present = new HashSet<string>(MissionPromptBuilder.ExtractReadContractLines(truncated), StringComparer.Ordinal);
+            List<string> missing = readContract.Where(line => !present.Contains(line)).ToList();
+            if (missing.Count == 0) return truncated;
+            return String.Join("\n", missing) + "\n\n" + truncated;
+        }
+
         internal static string TruncateMissionDescription(string description, int maxChars, string? branchName = null, string? fullTextPath = null)
         {
             if (String.IsNullOrEmpty(description) || description.Length <= maxChars) return description;

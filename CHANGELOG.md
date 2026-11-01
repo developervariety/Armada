@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### The launch prompt orders a paged instruction read and carries a mission read contract
+
+- The launch prompt orders the instruction file read as the first 20 lines, then bounded pages to its end, in wording that names no tool; a runtime that has already loaded its root file is told so and ordered no read. The overflow note for a cut launch prompt also points to a paged read.
+- Description lines that start with `Read contract:` (outside fenced code, not quoted or indented) are carried verbatim, in order, ahead of the read directive, and replace the default first page. A line over 400 characters or past the eighth is refused by name (`read_contract_line_too_long`, `read_contract_too_many_lines`) and the default paged read stays. A handoff that cuts a stage brief restores any `Read contract:` line the cut removed, so every stage carries the same contract.
+
 ### An autonomous rescue of evaluation work stays evaluation work
 
 - A rescue of an evaluation mission or voyage marks its rescue voyage and every rescue stage `IsEvaluation`, and its rescue voyage keeps the rescued voyage's captain assignments, so a busy or ineligible pinned captain makes the rescue wait instead of taking a substitute. A production rescue carries no captain assignments, as before.

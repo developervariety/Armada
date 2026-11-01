@@ -2704,6 +2704,140 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("LaunchPrompt Orders A Paged Read Of The Instruction File, Never A Whole-File First Read", async () =>
+            {
+                // A large instruction file read whole on the first call overflows the runtime's tool
+                // output, and a read rule written inside the file is only seen after that read. The
+                // launch prompt therefore orders a bounded first page and a paged read to the end.
+                Mission mission = new Mission("vsl_test");
+                mission.Mode = MissionModeEnum.Research;
+                mission.Title = "Paged read";
+                mission.Persona = "Worker";
+                Vessel vessel = new Vessel { Id = "vsl_test", Name = "test", DefaultBranch = "main" };
+                Captain captain = new Captain { Name = "captain-1", Runtime = AgentRuntimeEnum.ClaudeCode };
+                string worktree = Path.Combine(Path.GetTempPath(), "armada-launch-wt-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path.Combine(worktree, ".armada", "instructions"));
+                await File.WriteAllTextAsync(Path.Combine(worktree, MissionPromptBuilder.GetGeneratedInstructionsRelativePath(captain.Runtime.ToString())), "# mission instructions\n");
+                try
+                {
+                    Dock dock = new Dock("vsl_test");
+                    dock.WorktreePath = worktree;
+                    dock.BranchName = "armada/branch";
+                    string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(mission, vessel, captain, dock, null).ConfigureAwait(false);
+                    AssertFalse(prompt.Contains("Read the file immediately and follow it exactly", StringComparison.Ordinal),
+                        "the launch prompt must not order an unbounded whole-file read");
+                    AssertContains("the first 20 lines", prompt, "the first read of the instruction file is a bounded first page");
+                    AssertContains("bounded pages", prompt, "the rest of the file is read in bounded pages to its end");
+                }
+                finally
+                {
+                    try { Directory.Delete(worktree, true); } catch { }
+                }
+            });
+
+            await RunTest("LaunchPrompt Carries The Mission Read Contract Ahead Of The First Read", async () =>
+            {
+                // A mission whose description sets its own first-read form must have that form in the
+                // launch prompt, before the captain makes any read; inside the file it arrives too late.
+                Mission mission = new Mission("vsl_test");
+                mission.Mode = MissionModeEnum.Research;
+                mission.Title = "Bounded contract";
+                mission.Persona = "Worker";
+                mission.Description = "Scope text.\nRead contract: call 1 reads the instruction file at offset 1, limit 20; later calls page by at most 120 lines.\nMore scope.";
+                Vessel vessel = new Vessel { Id = "vsl_test", Name = "test", DefaultBranch = "main" };
+                Captain captain = new Captain { Name = "captain-1", Runtime = AgentRuntimeEnum.ClaudeCode };
+                string worktree = Path.Combine(Path.GetTempPath(), "armada-launch-wt-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path.Combine(worktree, ".armada", "instructions"));
+                await File.WriteAllTextAsync(Path.Combine(worktree, MissionPromptBuilder.GetGeneratedInstructionsRelativePath(captain.Runtime.ToString())), "# mission instructions\n");
+                try
+                {
+                    Dock dock = new Dock("vsl_test");
+                    dock.WorktreePath = worktree;
+                    dock.BranchName = "armada/branch";
+                    string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(mission, vessel, captain, dock, null).ConfigureAwait(false);
+                    string contract = "call 1 reads the instruction file at offset 1, limit 20; later calls page by at most 120 lines.";
+                    int contractAt = prompt.IndexOf(contract, StringComparison.Ordinal);
+                    int directiveAt = prompt.IndexOf("Read `", StringComparison.Ordinal);
+                    AssertTrue(contractAt >= 0, "the mission's read contract is carried verbatim into the launch prompt");
+                    AssertTrue(directiveAt < 0 || contractAt < directiveAt, "the read contract comes before the read directive");
+                    AssertFalse(prompt.Contains("the first 20 lines", StringComparison.Ordinal),
+                        "a mission read contract replaces the default first page instead of competing with it");
+                }
+                finally
+                {
+                    try { Directory.Delete(worktree, true); } catch { }
+                }
+            });
+
+            await RunTest("LaunchPrompt Paged Read Wording Is Runtime-Neutral For Every Runtime", async () =>
+            {
+                // Codex reads files through its shell, others through a file tool; the wording names no tool.
+                AgentRuntimeEnum[] runtimes = { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.OpenCode };
+                foreach (AgentRuntimeEnum runtime in runtimes)
+                {
+                    string prompt = await BuildLaunchPromptWithFilesAsync(runtime, null, generated: true, root: false).ConfigureAwait(false);
+                    AssertContains("the first 20 lines", prompt, runtime + ": a generated instruction file is read from a bounded first page");
+                    AssertContains("bounded pages to its end", prompt, runtime + ": the rest is read in bounded pages");
+                    foreach (string toolWord in new[] { "tool", "offset", "limit", "cat ", "sed ", "head " })
+                        AssertFalse(prompt.Contains(toolWord, StringComparison.OrdinalIgnoreCase), runtime + ": the read wording names no tool (" + toolWord.Trim() + ")");
+                }
+
+                // A runtime that loads its own root file is told the file is loaded; no read is ordered.
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.OpenCode })
+                {
+                    string loaded = await BuildLaunchPromptWithFilesAsync(runtime, null, generated: false, root: true).ConfigureAwait(false);
+                    AssertContains("already loaded by your runtime", loaded, runtime + ": an auto-loaded root file is stated as loaded");
+                    AssertFalse(loaded.Contains("the first 20 lines", StringComparison.Ordinal), runtime + ": no read is ordered for an auto-loaded file");
+                    AssertContains("Follow it exactly.", loaded, runtime + ": the captain still follows the loaded file");
+                }
+
+                // Codex and Cursor do not load their root file, so they are ordered to read it, paged.
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.Codex, AgentRuntimeEnum.Cursor })
+                {
+                    string rootRead = await BuildLaunchPromptWithFilesAsync(runtime, null, generated: false, root: true).ConfigureAwait(false);
+                    AssertContains("in the working directory immediately", rootRead, runtime + ": a root file the runtime does not load is ordered read");
+                    AssertContains("the first 20 lines", rootRead, runtime + ": that read starts from a bounded first page");
+                }
+            });
+
+            await RunTest("LaunchPrompt Read Contract Lines Are Lifted In Order, Outside Code And Quotes, Trimmed", async () =>
+            {
+                string none = await BuildLaunchPromptWithFilesAsync(AgentRuntimeEnum.Codex, "Plain scope with no contract.", generated: true, root: false).ConfigureAwait(false);
+                AssertFalse(none.Contains("Mission read contract", StringComparison.Ordinal), "no contract line: no contract section");
+                AssertContains("the first 20 lines", none, "no contract line: the default paged read applies");
+
+                string several = await BuildLaunchPromptWithFilesAsync(AgentRuntimeEnum.Codex,
+                    "Intro.\nRead contract: FIRST rule.   \nMiddle.\nRead contract: SECOND rule.\n```\nRead contract: FENCED example.\n```\n> Read contract: QUOTED example.\n    Read contract: INDENTED example.\nRead contract: FIRST rule.",
+                    generated: true, root: false).ConfigureAwait(false);
+                int first = several.IndexOf("Read contract: FIRST rule.", StringComparison.Ordinal);
+                int second = several.IndexOf("Read contract: SECOND rule.", StringComparison.Ordinal);
+                AssertTrue(first >= 0 && second > first, "several lines are lifted in their original order");
+                AssertFalse(several.Contains("FIRST rule.   ", StringComparison.Ordinal), "trailing spaces are removed from a lifted line");
+                AssertEqual(first, several.LastIndexOf("Read contract: FIRST rule.", StringComparison.Ordinal), "a repeated line is lifted once");
+                AssertFalse(several.Contains("FENCED example", StringComparison.Ordinal), "a line inside a fenced code block is not lifted");
+                AssertFalse(several.Contains("QUOTED example", StringComparison.Ordinal), "a quoted line is not lifted");
+                AssertFalse(several.Contains("INDENTED example", StringComparison.Ordinal), "an indented line is not lifted");
+                AssertFalse(several.Contains("the first 20 lines", StringComparison.Ordinal), "a carried contract replaces the default first page");
+                AssertTrue(second < several.IndexOf("Read `", StringComparison.Ordinal), "the contract sits ahead of the read directive");
+            });
+
+            await RunTest("LaunchPrompt Refuses An Over-Long Read Contract Line By Name And Keeps The Default Paged Read", async () =>
+            {
+                string huge = "Read contract: " + new string('x', MissionPromptBuilder.MaxReadContractLineChars);
+                string prompt = await BuildLaunchPromptWithFilesAsync(AgentRuntimeEnum.ClaudeCode, "Read contract: short rule.\n" + huge, generated: true, root: false).ConfigureAwait(false);
+                AssertContains("[read_contract_line_too_long: a " + huge.Length + "-character read-contract line exceeds the limit of " + MissionPromptBuilder.MaxReadContractLineChars, prompt,
+                    "an over-long line is refused by name with its length and the limit");
+                AssertFalse(prompt.Contains(new string('x', 200), StringComparison.Ordinal), "the over-long line is not carried, in whole or cut");
+                AssertContains("Read contract: short rule.", prompt, "a line within the limit is still carried");
+                AssertContains("the first 20 lines", prompt, "a partly refused contract keeps the default paged read");
+
+                System.Text.StringBuilder many = new System.Text.StringBuilder();
+                for (int i = 1; i <= MissionPromptBuilder.MaxReadContractLines + 2; i++) many.Append("Read contract: rule " + i + ".\n");
+                string crowded = await BuildLaunchPromptWithFilesAsync(AgentRuntimeEnum.ClaudeCode, many.ToString(), generated: true, root: false).ConfigureAwait(false);
+                AssertContains("[read_contract_too_many_lines: 2 further read-contract line(s)", crowded, "lines past the count limit are refused by name");
+                AssertFalse(crowded.Contains("rule " + (MissionPromptBuilder.MaxReadContractLines + 1) + ".", StringComparison.Ordinal), "a line past the count limit is not carried");
+            });
+
             await RunTest("SanitizeLaunchText Maps Typographic Characters To Ascii", () =>
             {
                 string input = "Probe \u2014 title\uFEFF with \u2018quotes\u2019 and \u201Cdouble\u201D \u2026 \u00A0\u2022";
@@ -4123,6 +4257,33 @@ namespace Armada.Test.Unit.Suites.Services
         {
             /// <summary>Bytes per tracked brief module.</summary>
             public Dictionary<string, int> Modules { get; set; } = new Dictionary<string, int>();
+        }
+        private static async Task<string> BuildLaunchPromptWithFilesAsync(AgentRuntimeEnum runtime, string? description, bool generated, bool root)
+        {
+            Mission mission = new Mission("vsl_test");
+            mission.Mode = MissionModeEnum.Research;
+            mission.Title = "Read form";
+            mission.Persona = "Worker";
+            mission.Description = description;
+            Vessel vessel = new Vessel { Id = "vsl_test", Name = "test", DefaultBranch = "main" };
+            Captain captain = new Captain { Name = "captain-1", Runtime = runtime };
+            string worktree = Path.Combine(Path.GetTempPath(), "armada-launch-wt-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(worktree, ".armada", "instructions"));
+            try
+            {
+                if (generated)
+                    await File.WriteAllTextAsync(Path.Combine(worktree, MissionPromptBuilder.GetGeneratedInstructionsRelativePath(runtime.ToString())), "# mission instructions\n").ConfigureAwait(false);
+                if (root)
+                    await File.WriteAllTextAsync(Path.Combine(worktree, MissionPromptBuilder.GetInstructionsFileName(runtime.ToString())), "# mission instructions\n").ConfigureAwait(false);
+                Dock dock = new Dock("vsl_test");
+                dock.WorktreePath = worktree;
+                dock.BranchName = "armada/branch";
+                return await MissionPromptBuilder.BuildLaunchPromptAsync(mission, vessel, captain, dock, null).ConfigureAwait(false);
+            }
+            finally
+            {
+                try { Directory.Delete(worktree, true); } catch { }
+            }
         }
     }
 }

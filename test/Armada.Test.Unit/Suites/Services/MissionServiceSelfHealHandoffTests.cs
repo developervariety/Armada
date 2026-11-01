@@ -487,6 +487,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_ReadContractLine_ReachesEveryStageLaunchPrompt_EvenPastTheBudgetCut", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    const string contract = "Read contract: call 1 reads a 10-line head; later calls page by at most 120 lines.";
+                    // The contract sits deep in a long brief, past the head the budget cut keeps.
+                    string brief = "OBJECTIVE-HEAD " + new string('h', 9000) + "\n" + contract + "\n" + new string('t', 3000) + " OBJECTIVE-TAIL";
+
+                    Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/read-contract").ConfigureAwait(false);
+                    System.Text.StringBuilder diff = new System.Text.StringBuilder();
+                    for (int file = 0; file < 40; file++)
+                    {
+                        diff.Append("diff --git a/src/F" + file + ".cs b/src/F" + file + ".cs\n@@ -1 +1,12 @@\n");
+                        for (int line = 0; line < 12; line++) diff.Append("+DIFF-LINE-" + file + "-" + line + " keeps the reviewed change readable\n");
+                    }
+                    worker.DiffSnapshot = diff.ToString();
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    Mission testEngineer = await CreateDependentAsync(testDb.Driver, vessel, "TestEngineer", worker.Id, brief).ConfigureAwait(false);
+                    Mission judge = await CreateDependentAsync(testDb.Driver, vessel, "Judge", testEngineer.Id, brief).ConfigureAwait(false);
+
+                    // First hop: the Worker's large diff forces the budget cut on the TestEngineer brief.
+                    await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                    Mission teBack = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    AssertContains("mission brief truncated to fit the budget", teBack.Description ?? "", "Precondition: the first hop cut the brief");
+                    AssertContains(contract, await LaunchPromptForAsync(teBack, vessel).ConfigureAwait(false), "the read contract reaches the second stage's launch prompt after the cut");
+
+                    // Second hop: the TestEngineer's own output and diff are handed to the Judge.
+                    teBack.Status = MissionStatusEnum.WorkProduced;
+                    teBack.AgentOutput = "TestEngineer added tests.";
+                    teBack.DiffSnapshot = diff.ToString();
+                    teBack = await testDb.Driver.Missions.UpdateAsync(teBack).ConfigureAwait(false);
+                    await missions.TryAssignAsync(judge, vessel).ConfigureAwait(false);
+                    Mission judgeBack = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    string judgePrompt = await LaunchPromptForAsync(judgeBack, vessel).ConfigureAwait(false);
+                    AssertContains(contract, judgePrompt, "the read contract reaches the third stage's launch prompt");
+                    AssertFalse(judgePrompt.Contains("the first 20 lines", StringComparison.Ordinal), "the carried contract replaces the default first page at every stage");
+                }
+            });
+
             await RunTest("TryAssign_TestEngineerReport_HandoffCarriesTheAddedTestsList", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1826,6 +1868,22 @@ namespace Armada.Test.Unit.Suites.Services
             mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
             mission.Mode = architect.Mode;
             return await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+        private static async Task<string> LaunchPromptForAsync(Mission mission, Vessel vessel)
+        {
+            Captain captain = new Captain("launch-captain") { Runtime = AgentRuntimeEnum.ClaudeCode };
+            string worktree = Path.Combine(Path.GetTempPath(), "armada_launch_contract_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(worktree, ".armada", "instructions"));
+            try
+            {
+                await File.WriteAllTextAsync(Path.Combine(worktree, MissionPromptBuilder.GetGeneratedInstructionsRelativePath(captain.Runtime.ToString())), "# mission instructions\n").ConfigureAwait(false);
+                Dock dock = new Dock(vessel.Id) { WorktreePath = worktree, BranchName = mission.BranchName };
+                return await MissionPromptBuilder.BuildLaunchPromptAsync(mission, vessel, captain, dock, null).ConfigureAwait(false);
+            }
+            finally
+            {
+                try { Directory.Delete(worktree, true); } catch { }
+            }
         }
     }
 }

@@ -252,6 +252,31 @@ mission's persona template is followed by a `## Required Output Contract`
 block. The captain's own instructions carry no contract, and the launch prompt
 names the role and points at the contract without restating it.
 
+### How the launch prompt orders the instruction-file read
+
+The launch prompt orders a paged read of the instruction file: the first 20
+lines first, then the rest in bounded pages to its end. The wording names no
+tool, so it reads the same for a runtime that reads files through a file tool
+and one that reads through its shell. When the runtime has already loaded its
+root instruction file, the launch prompt states that and orders no read.
+
+A mission sets its own read form with lines in its description that start with
+`Read contract:` at the start of the line, for example:
+
+```text
+Read contract: call 1 reads a 10-line head; later calls page by at most 120 lines.
+```
+
+Each such line outside a fenced code block, and not quoted or indented, is
+carried verbatim into the launch prompt, in its original order, ahead of the
+read directive, and the default 20-line first page is then left out. A line
+longer than 400 characters, or any line past the eighth, is not carried: the
+launch prompt names it as `read_contract_line_too_long` or
+`read_contract_too_many_lines` and keeps the default paged read. A pipeline
+handoff that cuts a stage brief to its budget puts back at the top every
+`Read contract:` line the cut removed, so each stage's launch prompt carries
+the same contract.
+
 ### Lean and Compact prompt variants
 
 A project profile's persona override carries a `promptVariant`: `Current` (the default), `Lean` or `Compact`.

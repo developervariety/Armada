@@ -286,12 +286,24 @@ namespace Armada.Core.Services
                 generatedInstructionsPath,
                 captain.Runtime.ToString());
 
+            // A read rule written inside the instruction file is seen only after the first read, so a
+            // mission's own read contract goes in the launch prompt, ahead of the read directive.
+            List<string> readContract = ExtractReadContractLines(mission.Description);
+            string? readContractSection = BuildReadContractSection(readContract, out bool readContractApplies);
+            if (readContractSection != null) sections.Add(readContractSection);
+
+            string? readPhrase = InstructionReadIsOrdered(dock.WorktreePath, instructionsFileName, generatedInstructionsPath, captain.Runtime.ToString())
+                ? (readContractApplies ? "Read it in the form the read contract above sets" : DefaultPagedReadPhrase)
+                : null;
+
             if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
                 sections.Add(
                     instructionDirective + " " +
                     "It contains the objective, repository context, and mission-format requirements. " +
-                    "Do not ask for more input. Read the file immediately and respond only with real [ARMADA:MISSION] blocks derived from that file.");
+                    "Do not ask for more input. " +
+                    (readPhrase != null ? readPhrase + ", and respond" : "Respond") +
+                    " only with real [ARMADA:MISSION] blocks derived from that file.");
             }
             else
             {
@@ -305,16 +317,111 @@ namespace Armada.Core.Services
 
                 sections.Add(
                     instructionDirective + " " +
-                    "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. Read the file immediately and follow it exactly. After reading it, perform the mission now; do not stop after acknowledging or summarizing the instructions. " + completionClause);
+                    "It contains the full mission objective, repository context, style guide, model context, and execution rules. Do not ask for more input. " +
+                    (readPhrase != null ? readPhrase + ", and follow it exactly." : "Follow it exactly.") +
+                    " After reading it, perform the mission now; do not stop after acknowledging or summarizing the instructions. " + completionClause);
             }
 
             string prompt = SanitizeLaunchText(String.Join(" ", sections.Select(s => s.Replace("\r", " ").Replace("\n", " ").Trim())).Trim());
             if (prompt.Length <= MaxLaunchPromptChars)
                 return Task.FromResult(prompt);
 
-            string overflowMessage = "\n\n" + instructionDirective + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
+            string overflowMessage = "\n\n" + instructionDirective + " contains the remaining context. If this launch prompt was truncated, keep working from that file, read in bounded pages to its end.";
             int allowed = Math.Max(256, MaxLaunchPromptChars - overflowMessage.Length);
             return Task.FromResult(SanitizeLaunchText(prompt.Substring(0, allowed).TrimEnd() + overflowMessage));
+        }
+
+        /// <summary>
+        /// Line prefix that marks a mission's own read contract in its description. A line that starts
+        /// with it at column zero, outside a fenced code block, is lifted verbatim into the launch prompt.
+        /// </summary>
+        public const string ReadContractPrefix = "Read contract:";
+
+        /// <summary>Longest read-contract line the launch prompt carries; a longer line is refused by name.</summary>
+        public const int MaxReadContractLineChars = 400;
+
+        /// <summary>Most read-contract lines the launch prompt carries; further lines are refused by name.</summary>
+        public const int MaxReadContractLines = 8;
+
+        private const string DefaultPagedReadPhrase = "Read the first 20 lines first, then the rest in bounded pages to its end";
+
+        /// <summary>
+        /// Return the mission's read-contract lines in order: every line of the description that starts
+        /// with <see cref="ReadContractPrefix"/> at column zero, outside a fenced code block, with trailing
+        /// whitespace removed and a repeated line kept once. A quoted or indented line is an example, not a contract, and is not returned.
+        /// </summary>
+        /// <param name="description">Mission description.</param>
+        /// <returns>The read-contract lines; empty when there are none.</returns>
+        public static List<string> ExtractReadContractLines(string? description)
+        {
+            List<string> lines = new List<string>();
+            if (String.IsNullOrEmpty(description)) return lines;
+
+            bool inFence = false;
+            foreach (string raw in description.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+            {
+                string start = raw.TrimStart();
+                if (start.StartsWith("```", StringComparison.Ordinal) || start.StartsWith("~~~", StringComparison.Ordinal))
+                {
+                    inFence = !inFence;
+                    continue;
+                }
+                if (inFence || !raw.StartsWith(ReadContractPrefix, StringComparison.Ordinal)) continue;
+                string line = raw.TrimEnd();
+                if (!lines.Contains(line, StringComparer.Ordinal)) lines.Add(line);
+            }
+            return lines;
+        }
+
+        /// <summary>
+        /// Render the launch-prompt section that carries the read contract. A line over
+        /// <see cref="MaxReadContractLineChars"/> or past <see cref="MaxReadContractLines"/> is replaced by
+        /// a named refusal, never cut. The contract applies, and so replaces the default paged first read,
+        /// only when every line was carried.
+        /// </summary>
+        private static string? BuildReadContractSection(List<string> lines, out bool applies)
+        {
+            applies = false;
+            if (lines.Count == 0) return null;
+
+            List<string> parts = new List<string>();
+            bool refused = false;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (i >= MaxReadContractLines)
+                {
+                    parts.Add("[read_contract_too_many_lines: " + (lines.Count - MaxReadContractLines) +
+                        " further read-contract line(s) past the limit of " + MaxReadContractLines + " are not carried here]");
+                    refused = true;
+                    break;
+                }
+                if (lines[i].Length > MaxReadContractLineChars)
+                {
+                    parts.Add("[read_contract_line_too_long: a " + lines[i].Length + "-character read-contract line exceeds the limit of " +
+                        MaxReadContractLineChars + " and is not carried here]");
+                    refused = true;
+                    continue;
+                }
+                parts.Add(lines[i]);
+            }
+
+            applies = !refused;
+            string heading = applies
+                ? "Mission read contract (from the mission description; it sets how you read the instruction file):"
+                : "Mission read contract (from the mission description; part of it could not be carried, so the default paged read below applies and the full contract lines are in the instruction file):";
+            return heading + " " + String.Join(" ", parts);
+        }
+
+        /// <summary>
+        /// True when the launch prompt orders the captain to read the instruction file; false when the
+        /// runtime has already loaded it or the file is missing.
+        /// </summary>
+        private static bool InstructionReadIsOrdered(string? worktreePath, string instructionsFileName, string generatedInstructionsPath, string? runtimeName)
+        {
+            if (String.IsNullOrWhiteSpace(worktreePath)) return true;
+            if (File.Exists(Path.Combine(worktreePath, generatedInstructionsPath))) return true;
+            if (File.Exists(Path.Combine(worktreePath, instructionsFileName))) return !RuntimeAutoLoadsInstructionsFile(runtimeName);
+            return false;
         }
 
         private static string BuildInstructionDirective(
