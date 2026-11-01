@@ -1915,6 +1915,12 @@ namespace Armada.Test.Unit.Suites.Services
                         "a claim citing a path the move renamed away needs a recheck");
 
                     // Advancing StartFromRef on the same vessel (without resending Preparation) path-diffs the move and advances Target.
+                    // These claims depend on the target only: the objective has no source anchor, so a source dependency
+                    // would leave them unresolved from the start.
+                    ObjectivePreparationClaim startUnchanged = PathClaim("opc_start_unchanged", "The handler in new/name.txt is reused as is.", "new/name.txt:1");
+                    startUnchanged.DependsOn = ObjectivePreparationDependencyEnum.Target;
+                    ObjectivePreparationClaim startChanged = PathClaim("opc_start_changed", "The bulk loader reads " + bulkFile + ".", bulkFile + ":1");
+                    startChanged.DependsOn = ObjectivePreparationDependencyEnum.Target;
                     Objective startRefPinned = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
                     {
                         Title = "Start-ref advance preserves unaffected claims",
@@ -1928,13 +1934,10 @@ namespace Armada.Test.Unit.Suites.Services
                                 Ref = fixture.StageCommit,
                                 ResolvedCommit = fixture.StageCommit
                             },
-                            Claims = new List<ObjectivePreparationClaim>
-                            {
-                                PathClaim("opc_start_unchanged", "The handler in new/name.txt is reused as is.", "new/name.txt:1"),
-                                PathClaim("opc_start_changed", "The bulk loader reads " + bulkFile + ".", bulkFile + ":1")
-                            }
+                            Claims = new List<ObjectivePreparationClaim> { startUnchanged, startChanged }
                         }
                     }).ConfigureAwait(false);
+                    AssertEqual(ObjectivePreparationClaimStateEnum.Verified, FindClaim(startRefPinned, "opc_start_unchanged").State, "the start-ref claims start verified");
 
                     Objective startRefAdvanced = await objectives.UpdateAsync(auth, startRefPinned.Id, new ObjectiveUpsertRequest
                     {
