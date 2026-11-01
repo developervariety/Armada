@@ -1137,6 +1137,87 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A native Build command keeps an ordinary MSBuild property option and still withholds credential-shaped options", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService service = CreateMissionService(CreateLogging(), testDb.Driver, settings, new StubGitService());
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_profile_option_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+                    try
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Profile option", "https://example.invalid/repo")).ConfigureAwait(false);
+                        WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "Native options", Scope = WorkflowProfileScopeEnum.Vessel, VesselId = vessel.Id,
+                            BuildCommand = "dotnet build app.sln"
+                        }).ConfigureAwait(false);
+                        Mission mission = new Mission("Validate current source") { Persona = "TestEngineer", VesselId = vessel.Id };
+                        // Each row writes its brief into a new directory, so no row can read an earlier row's file.
+                        async Task<string> BriefForAsync(string command)
+                        {
+                            profile.BuildCommand = command;
+                            await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                            string rowDir = Path.Combine(tempDir, Guid.NewGuid().ToString("N"));
+                            Directory.CreateDirectory(rowDir);
+                            await service.GenerateClaudeMdAsync(rowDir, mission, vessel).ConfigureAwait(false);
+                            return await File.ReadAllTextAsync(Path.Combine(rowDir, "CLAUDE.md")).ConfigureAwait(false);
+                        }
+
+                        string[] withheld =
+                        {
+                            "mysql -prow-sentinel-1 app",
+                            "mysql -p row-sentinel-2 app",
+                            "curl -u user:row-sentinel-3 https://example.invalid",
+                            "curl -H \"Authorization: row-sentinel-4\" https://example.invalid",
+                            "git clone https://user:row-sentinel-5@example.invalid/repo",
+                            "tool --password=row-sentinel-6",
+                            "dotnet build app.sln -p:Password=row-sentinel-7",
+                            "dotnet build app.sln -p:ApiToken=row-sentinel-8",
+                            "dotnet build app.sln -p:Secret=row-sentinel-9",
+                            "dotnet build app.sln -p:ApiKey=row-sentinel-10",
+                            "dotnet build app.sln -p:DbPwd=row-sentinel-11",
+                            "dotnet build app.sln -p:DbPass=row-sentinel-12",
+                            "msbuild app.sln /p:AdminPwd=row-sentinel-13",
+                            "dotnet build app.sln -property:ServicePassphrase=row-sentinel-14",
+                            "mysql -p:row-sentinel-15 app",
+                            "dotnet build app.sln -p:MY_API_TOKEN=row-sentinel-16",
+                            "dotnet build app.sln -p:dbPassWord=row-sentinel-17"
+                        };
+                        List<string> wrong = new List<string>();
+                        foreach (string command in withheld)
+                        {
+                            string brief = await BriefForAsync(command).ConfigureAwait(false);
+                            bool isWithheld = brief.Contains("[WITHHELD: credential-bearing native command", StringComparison.Ordinal)
+                                && !brief.Contains("row-sentinel-", StringComparison.Ordinal);
+                            Console.WriteLine("  [redact-row] expect=withheld got=" + (isWithheld ? "withheld" : "shown") + " " + command);
+                            if (!isWithheld) wrong.Add("should be withheld: " + command);
+                        }
+
+                        string[] kept =
+                        {
+                            "dotnet build app.sln -p:UseSharedCompilation=false",
+                            "dotnet build app.sln -c Release -nodeReuse:false",
+                            "env MSBUILDDISABLENODEREUSE=1 DOTNET_CLI_USE_MSBUILD_SERVER=0 UseSharedCompilation=false dotnet build src/App/App.csproj -c Release --disable-build-servers -nodeReuse:false -p:UseSharedCompilation=false"
+                        };
+                        foreach (string command in kept)
+                        {
+                            string brief = await BriefForAsync(command).ConfigureAwait(false);
+                            bool isShown = brief.Contains(command, StringComparison.Ordinal)
+                                && !brief.Contains("[WITHHELD: credential-bearing native command", StringComparison.Ordinal);
+                            Console.WriteLine("  [redact-row] expect=shown got=" + (isShown ? "shown" : "withheld") + " " + command);
+                            if (!isShown) wrong.Add("should be shown: " + command);
+                        }
+                        AssertTrue(wrong.Count == 0, "every row is classified as expected; wrong rows: " + string.Join(" | ", wrong));
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A TestEngineer brief names native profile commands and inputs without exposing environment values", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
