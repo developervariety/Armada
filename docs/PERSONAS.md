@@ -524,6 +524,23 @@ it only for mission-scoped tools and evidence. The operator owns fleet
 control, dispatch, deployment, restore, purge, and server actions unless the
 mission explicitly assigns such an action.
 
+### How a stage handoff rewrites the next stage's description
+
+When a stage hands off, the next stage's description is rebuilt from the
+stored row at that moment: the brief, any operator text, and one generated
+block per earlier stage. A description edit saved before the rebuild is kept.
+A dependent that is no longer Pending is not handed off.
+
+- Text inside a generated block, between its handoff marker and its end
+  marker, belongs to the handoff. A later handoff from the same stage replaces
+  that block, and a handoff from a later stage reduces it to a reference line.
+  Put operator text outside the generated blocks.
+- A description over its budget (20000 characters, 80000 for a report-only
+  stage) keeps its first third and its end, and the middle is elided. Operator
+  text appended to the brief sits in that middle once a newer block follows
+  it, so it can be cut from the inline description. The complete text is
+  staged in the next stage's dock, and the cut marker names the file.
+
 ## Operator API
 
 Use these MCP tools:

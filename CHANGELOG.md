@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A description edit saved while a handoff runs is kept
+
+- The stage handoff rebuilds the next stage's description from the stored row, not from the copy it loaded before the handoff decisions ran, so an operator edit saved in between is kept. A dependent that is no longer Pending is not handed off. PERSONAS.md describes how the rebuild treats text inside generated blocks and an over-budget description.
+
 ### A check on a branch that does not resolve fails by name
 
 - A Build or UnitTest check whose `branchName` does not resolve fails before its command runs with `check_branch_unresolved`, naming the branch and the vessel. It does not run on the default branch in its place, on the worktree path or the clone path. A check with no branch runs on the default branch, and a check with a valid branch runs at that branch's tip.

@@ -9109,6 +9109,19 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // The caller loaded the dependent before the handoff decisions ran, and they can take minutes.
+            // The write below replaces the whole row, so rebuild from the stored description: an edit saved
+            // since that load is kept, not overwritten. A dependent that left Pending is not handed off.
+            Mission? storedNext = await _Database.Missions.ReadAsync(nextMission.Id, token).ConfigureAwait(false);
+            if (storedNext == null || storedNext.Status != MissionStatusEnum.Pending)
+            {
+                _Logging.Warn(_Header + "pipeline handoff: mission " + nextMission.Id + " is "
+                    + (storedNext == null ? "gone" : storedNext.Status.ToString()) + ", not Pending; the handoff from "
+                    + completedMission.Id + " is not applied");
+                return;
+            }
+            nextMission.Description = storedNext.Description;
+
             // Build persona-specific preamble for the next stage
             int earlierWorkers = nextMission.IsReadOnlyMode ? CountEarlierWorkerStages(completedMission, nextMission, voyageMissions) : 0;
             string personaPreamble = BuildPersonaPreamble(nextMission.Persona, nextMission.Mode, earlierWorkers);
