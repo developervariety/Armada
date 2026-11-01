@@ -1218,6 +1218,78 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A credential word inside a longer flag or environment name ("adminpwd", "DB_PWD") still withholds the
+            // command. A flag that names a credential file and ordinary words that only contain "pass" do not.
+            await RunTest("A native command with a credential word inside a flag or environment name is withheld, and a credential-file flag is shown", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService service = CreateMissionService(CreateLogging(), testDb.Driver, settings, new StubGitService());
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_profile_credword_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+                    try
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Profile credential word", "https://example.invalid/repo")).ConfigureAwait(false);
+                        WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "Native words", Scope = WorkflowProfileScopeEnum.Vessel, VesselId = vessel.Id,
+                            BuildCommand = "dotnet build app.sln"
+                        }).ConfigureAwait(false);
+                        Mission mission = new Mission("Validate current source") { Persona = "TestEngineer", VesselId = vessel.Id };
+                        // Each row writes its brief into a new directory, so no row can read an earlier row's file.
+                        async Task<string> BriefForAsync(string command)
+                        {
+                            profile.BuildCommand = command;
+                            await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                            string rowDir = Path.Combine(tempDir, Guid.NewGuid().ToString("N"));
+                            Directory.CreateDirectory(rowDir);
+                            await service.GenerateClaudeMdAsync(rowDir, mission, vessel).ConfigureAwait(false);
+                            return await File.ReadAllTextAsync(Path.Combine(rowDir, "CLAUDE.md")).ConfigureAwait(false);
+                        }
+
+                        string[] withheld =
+                        {
+                            "tool --adminpwd=row-sentinel-21",
+                            "ADMINPWD=row-sentinel-22 tool",
+                            "tool --db-pwd=row-sentinel-23",
+                            "DB_PWD=row-sentinel-24 tool run",
+                            "tool --password-file=row-sentinel-25 --password=row-sentinel-26"
+                        };
+                        string[] shown =
+                        {
+                            "tool --password-file /run/app/credfile",
+                            "dotnet build app.sln -c Release -nodeReuse:false",
+                            "dotnet build app.sln -p:BypassCache=true",
+                            "dotnet build app.sln -p:PassThroughArgs=true",
+                            "tool --bypass-cache --passthrough"
+                        };
+                        List<string> wrong = new List<string>();
+                        foreach (string command in withheld)
+                        {
+                            string brief = await BriefForAsync(command).ConfigureAwait(false);
+                            bool isWithheld = brief.Contains("[WITHHELD: credential-bearing native command", StringComparison.Ordinal)
+                                && !brief.Contains("row-sentinel-", StringComparison.Ordinal);
+                            Console.WriteLine("  [redact-row] expect=withheld got=" + (isWithheld ? "withheld" : "shown") + " " + command);
+                            if (!isWithheld) wrong.Add("should be withheld: " + command);
+                        }
+                        foreach (string command in shown)
+                        {
+                            string brief = await BriefForAsync(command).ConfigureAwait(false);
+                            bool isShown = brief.Contains(command, StringComparison.Ordinal)
+                                && !brief.Contains("[WITHHELD: credential-bearing native command", StringComparison.Ordinal);
+                            Console.WriteLine("  [redact-row] expect=shown got=" + (isShown ? "shown" : "withheld") + " " + command);
+                            if (!isShown) wrong.Add("should be shown: " + command);
+                        }
+                        AssertTrue(wrong.Count == 0, "every row is classified as expected; wrong rows: " + string.Join(" | ", wrong));
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A TestEngineer brief names native profile commands and inputs without exposing environment values", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
