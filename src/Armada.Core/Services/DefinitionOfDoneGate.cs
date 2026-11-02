@@ -215,6 +215,7 @@ namespace Armada.Core.Services
                     if (!run.CancelledByMission && !result.Passed && result.TimedOut && DeclaredExecutionBudgetFailed)
                     {
                         // Keep the actual host context without replenishing an exhausted budget.
+                        result.ExecutionBudgetSpent = true;
                         HostLoadReading atLimit = _HostLoad.Read();
                         result.HostLoadTimeout |= result.FailureClass == DefinitionOfDoneFailureClassEnum.Timeout
                             && (_HostLoad.RanOverloaded(atLimit) || result.TimedOutOnSharedHost || result.TimedOutWhileProgressing);

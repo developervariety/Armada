@@ -1523,8 +1523,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(2, CountCommandRuns(worktreePath), "the gate re-runs a command still writing output once, never twice");
                     AssertTrue(result.TimedOutWhileProgressing, "the re-run's time limit also caught the command writing output");
                     AssertTrue(result.HostLoadTimeout, "the second time limit reads as host load, so recovery may rescue it once");
-                    AssertContains(DefinitionOfDoneFailureClassifier.HostLoadTimeoutMarker, MissionService.BuildDodFailureReason(result).Split('\n')[0],
-                        "the recorded reason's first line names the host-load time limit");
+                    AssertEqual("DoD gate failed: classification=Timeout; " + result.CommandLabel + " command exited " + result.ExitCode
+                        + " (host_load_timeout: on the gate's re-run the command was still writing output, or shared or overloaded the host, at its time limit)",
+                        MissionService.BuildDodFailureReason(result).Split('\n')[0],
+                        "the recorded reason's first line names the host-load time limit and the re-run that ran, unchanged");
 
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(DefinitionOfDoneLoadRerunRecord.EventType).ConfigureAwait(false);
                     AssertEqual(1, events.Count, "one re-run event is recorded");

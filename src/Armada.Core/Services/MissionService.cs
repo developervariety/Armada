@@ -15289,11 +15289,13 @@ namespace Armada.Core.Services
             string timedOut = result.TimedOut && failureClass != DefinitionOfDoneFailureClassEnum.Timeout
                 ? " and also hit its time limit, so some tests did not finish"
                 : String.Empty;
-            // A time limit that still read as host load on the gate's re-run says so on the first line, where recovery
-            // reads it.
+            // A time limit that reads as host load says so on the first line, where recovery reads it. The reason names a
+            // gate re-run only when one ran; a spent declared budget ends the gate without one.
             string hostLoad = result.HostLoadTimeout && failureClass == DefinitionOfDoneFailureClassEnum.Timeout
                 ? " (" + DefinitionOfDoneFailureClassifier.HostLoadTimeoutMarker
-                    + ": on the gate's re-run the command was still writing output, or shared or overloaded the host, at its time limit)"
+                    + (result.ExecutionBudgetSpent
+                        ? ": the command was still writing output, or shared or overloaded the host, at its time limit; the declared execution budget was spent, so the gate did not re-run)"
+                        : ": on the gate's re-run the command was still writing output, or shared or overloaded the host, at its time limit)")
                 : String.Empty;
             return "DoD gate failed: classification=" + failureClass + "; " + label +
                 " command exited " + result.ExitCode + timedOut + hostLoad + tail;

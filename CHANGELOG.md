@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A host-load time limit names a gate re-run only when one ran
+
+- When a declared execution budget is spent, the `host_load_timeout` failure reason says the budget was spent and the gate did not re-run, instead of describing a re-run. The marker stays on the first line, and a re-run's reason is unchanged.
+
 ### An over-budget handoff bounds the newest diff before it cuts the brief
 
 - A handoff description over its budget bounds the newest stage's diff first, so the brief and operator text outside the generated blocks stay whole. The bounded diff section names the size of the whole diff, the dock file that holds it and the branch. When the text outside the diff leaves too little room, the general cut applies and its marker names the complete text.
