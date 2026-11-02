@@ -1322,6 +1322,13 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(bounded.Passed, "Host-load recovery cannot reset an explicit profile's exhausted execution budget.");
                         AssertTrue(bounded.HostLoadTimeout, "The exhausted budget retains measured host-load context without starting a fresh attempt.");
                         AssertEqual(1, CountCommandRuns(boundedPath), "The exhausted command must not start again after load falls.");
+                        string boundedReason = MissionService.BuildDodFailureReason(bounded).Split('\n')[0];
+                        AssertContains(DefinitionOfDoneFailureClassifier.HostLoadTimeoutMarker, boundedReason,
+                            "The exhausted budget still names the host-load time limit where recovery reads it.");
+                        AssertFalse(boundedReason.Contains("on the gate's re-run", StringComparison.Ordinal),
+                            "A reason never claims a gate re-run that did not run; reason: " + boundedReason);
+                        AssertContains("the declared execution budget was spent, so the gate did not re-run", boundedReason,
+                            "The reason says why no re-run ran.");
                         AssertTrue(File.Exists(Path.Combine(boundedPath, "hang.marker")), "The original command actually started before its timeout.");
                     }
                 }
