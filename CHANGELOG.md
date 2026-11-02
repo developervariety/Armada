@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A dispatch result reports the voyage's evaluation flag
+
+- The `armada_dispatch` result, its background job result, and the REST and WebSocket voyage dispatch responses carry the stored voyage's `IsEvaluation`, so an evaluation dispatch reads `true` there as it does on the voyage and its missions.
+
 ### A definition-of-done result names the commit it measured
 
 - A `Passed` or `Failed` definition-of-done evaluation record carries `MeasuredCommitHash` only when the worktree was clean at a readable HEAD. A run over uncommitted tracked changes sets `UncommittedTrackedChanges`, leaves `MeasuredCommitHash` null, and titles its event `(uncommitted tracked changes; not bound to commit <short>)`. The gate decision and command-pass reuse are unchanged.

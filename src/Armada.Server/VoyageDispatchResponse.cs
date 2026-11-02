@@ -29,6 +29,7 @@ namespace Armada.Server
             SourcePlanningSessionId = voyage.SourcePlanningSessionId;
             SourcePlanningMessageId = voyage.SourcePlanningMessageId;
             CaptainOverridesJson = voyage.CaptainOverridesJson;
+            IsEvaluation = voyage.IsEvaluation;
             SelectedPlaybooks = voyage.SelectedPlaybooks;
             MissionStartRefs = missions.Select(mission => new DispatchedMissionStartRef
             {
