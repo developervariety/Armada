@@ -6014,6 +6014,8 @@ namespace Armada.Core.Services
                 "- Reading six files you already know the paths of is one step, not six.\n" +
                 "- Several greps over different files are one step.\n" +
                 "- A command whose input is the previous command's output must wait. Nothing else must.\n" +
+                "- Keep each batch small enough that you can read every result in full; split a batch whose " +
+                "combined output could be cut off by the reader's page or line limit.\n" +
                 "\n" +
                 "This reduces the number of round trips the mission needs. It does not change what you " +
                 "read or how carefully you work.\n";

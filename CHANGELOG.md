@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### The tool batching directive bounds a batch by what can be read whole
+
+- The `mission.tool_batching` module in every captain brief tells the captain to keep each batch small enough to read every result in full, and to split a batch whose combined output could be cut off by the reader's page or line limit. The module grows from 513 to 673 bytes.
+
 ### A host-load time limit names a gate re-run only when one ran
 
 - When a declared execution budget is spent, the `host_load_timeout` failure reason says the budget was spent and the gate did not re-run, instead of describing a re-run. The marker stays on the first line, and a re-run's reason is unchanged.
