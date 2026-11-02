@@ -526,6 +526,56 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("An evaluation dispatch result reports the persisted evaluation flag; a production dispatch result reports false", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("evaluation-flag-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CodeIndex.Enabled = false;
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        null,
+                        new RecordingCodeIndexService(),
+                        null,
+                        settings);
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+
+                    foreach (bool isEvaluation in new[] { false, true })
+                    {
+                        string label = isEvaluation ? "evaluation" : "production";
+                        SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                        {
+                            Title = label + " dispatch",
+                            VesselId = vessel.Id,
+                            IsEvaluation = isEvaluation,
+                            Missions = new List<MissionDescription>
+                            {
+                                new MissionDescription(label + " mission", "carries the voyage evaluation flag")
+                            }
+                        };
+
+                        VoyageDispatchResult result = await service.DispatchAsync(request)
+                            .WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+
+                        AssertEqual(201, result.StatusCode, label + " dispatch succeeds");
+                        Voyage? stored = await testDb.Driver.Voyages.ReadAsync(result.Voyage!.Id).ConfigureAwait(false);
+                        AssertEqual(isEvaluation, stored!.IsEvaluation, label + " voyage is stored with its flag");
+                        List<Mission> missions = await testDb.Driver.Missions.EnumerateByVoyageAsync(stored.Id).ConfigureAwait(false);
+                        AssertTrue(missions.Count > 0 && missions.TrueForAll(m => m.IsEvaluation == isEvaluation),
+                            label + " missions inherit the stored voyage flag");
+                        AssertEqual(isEvaluation, result.Voyage!.IsEvaluation, label + " dispatch result reports the stored voyage flag");
+                    }
+                }
+            });
+
             await RunTest("RestMapping_WithPerMissionFields_DispatchesCreatedMissionsWithFields", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
