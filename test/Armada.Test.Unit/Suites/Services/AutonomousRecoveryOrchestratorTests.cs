@@ -19,6 +19,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
     using StubGitService = global::Test.Shared.Infrastructure.StubGitService;
+    using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
 
     /// <summary>
     /// Unit coverage for Armada-native autonomous recovery records and dispatch policy.
@@ -2312,6 +2313,131 @@ namespace Armada.Test.Unit.Suites.Services
                     !String.Equals(item, stale.AcceptanceCriteria[0], StringComparison.Ordinal)),
                     "The stale frame is not promoted into the current rescue contract.");
             }).ConfigureAwait(false);
+
+            await RunTest("An evaluation rescue keeps the evaluation flag and captain assignments on its voyage and every stage; a production rescue keeps neither", async () =>
+            {
+                foreach (bool isEvaluation in new[] { false, true })
+                {
+                    string label = isEvaluation ? "evaluation" : "production";
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    const string tenantId = "ten_rescue_evaluation";
+                    const string userId = "usr_rescue_evaluation";
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("Evaluation rescue pipeline")
+                    {
+                        TenantId = tenantId,
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Worker"),
+                            new PipelineStage(2, "TestEngineer"),
+                            new PipelineStage(3, "Judge")
+                        }
+                    }).ConfigureAwait(false);
+                    await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+                    Captain pinnedWorker = await testDb.Driver.Captains.CreateAsync(new Captain("pinned-worker-" + Guid.NewGuid().ToString("N"))
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Model = "gpt-5.6-luna",
+                        Tier = CaptainTierEnum.Premium,
+                        State = CaptainStateEnum.Working,
+                        AllowedPersonas = System.Text.Json.JsonSerializer.Serialize(new[] { "Worker" })
+                    }).ConfigureAwait(false);
+                    string overrides = MissionService.SerializeCaptainOverrides(new List<CaptainAssignmentOverride>
+                    {
+                        new CaptainAssignmentOverride("Worker", pinnedWorker.Id, null),
+                        new CaptainAssignmentOverride("Judge", "pinned-judge", null)
+                    })!;
+                    Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent voyage", "")
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Status = VoyageStatusEnum.Failed,
+                        IsEvaluation = isEvaluation,
+                        CaptainOverridesJson = overrides
+                    }).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Title = "Rescue scope",
+                        Status = ObjectiveStatusEnum.InProgress,
+                        VoyageIds = new List<string> { parentVoyage.Id },
+                        SuggestedPipelineId = pipeline.Id,
+                        AcceptanceCriteria = new List<string> { "The rescue keeps the voyage classification." }
+                    }).ConfigureAwait(false);
+
+                    Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                    failed.Persona = "Judge";
+                    failed.VoyageId = parentVoyage.Id;
+                    failed.IsEvaluation = isEvaluation;
+                    failed = await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                        testDb.Driver,
+                        admiral,
+                        new IncidentService(testDb.Driver),
+                        new RunbookService(testDb.Driver, new LoggingModule()));
+                    await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                    AssertEqual(1, admiral.DispatchedMissions.Count, label + " rescue Worker is dispatched once");
+                    Mission worker = admiral.DispatchedMissions[0];
+                    Voyage rescueVoyage = (await testDb.Driver.Voyages.ReadAsync(worker.VoyageId!).ConfigureAwait(false))!;
+                    List<Mission> stages = await testDb.Driver.Missions.EnumerateByVoyageAsync(rescueVoyage.Id).ConfigureAwait(false);
+                    AssertEqual(3, stages.Count, label + " rescue persists its Worker, TestEngineer and Judge stages");
+                    if (!isEvaluation)
+                    {
+                        AssertFalse(rescueVoyage.IsEvaluation, "a production rescue voyage is not evaluation work");
+                        AssertNull(rescueVoyage.CaptainOverridesJson, "a production rescue voyage carries no captain assignments");
+                        AssertTrue(stages.TrueForAll(stage => !stage.IsEvaluation && stage.RequestedCaptainId == null),
+                            "no production rescue stage is evaluation work or names a requested captain");
+                        continue;
+                    }
+
+                    AssertTrue(rescueVoyage.IsEvaluation, "an evaluation rescue voyage is evaluation work");
+                    AssertEqual(overrides, rescueVoyage.CaptainOverridesJson, "an evaluation rescue voyage keeps the captain assignments of the voyage it rescues");
+                    AssertTrue(stages.TrueForAll(stage => stage.IsEvaluation), "every evaluation rescue stage is evaluation work");
+
+                    // The pinned Worker is busy and an eligible Worker is idle: the rescue waits for its pin, by name.
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_rescue_eval_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_rescue_eval_repos_" + Guid.NewGuid().ToString("N"));
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    StubGitService git = new StubGitService();
+                    DockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    CaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains,
+                        resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    Mission storedWorker = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                    AssertFalse(await missions.TryAssignAsync(storedWorker, vessel).ConfigureAwait(false),
+                        "the evaluation rescue Worker waits for its busy pinned captain");
+                    Mission waiting = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                    AssertNull(waiting.CaptainId, "no substitute captain takes the evaluation rescue");
+                    AssertEqual(MissionStatusEnum.Pending, waiting.Status, "the evaluation rescue stays pending");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(worker.Id, 100).ConfigureAwait(false);
+                    ArmadaEvent requested = events.Single(evt => evt.EventType == RequestedCaptainAssignmentRule.EventType);
+                    AssertContains(pinnedWorker.Id, requested.Message, "the wait names the pinned captain");
+                    AssertContains("evaluation", requested.Message, "the wait says why no substitute is used");
+                    ArmadaEvent captainWait = events.Single(evt => evt.EventType == MissionService.CaptainWaitEventType);
+                    AssertContains("evaluation waits for its requested captain " + pinnedWorker.Id, captainWait.Message,
+                        "the captain-wait reason names the evaluation pin instead of reading as an idle-captain hold");
+
+                    // A failed evaluation mission whose voyage is gone still yields an evaluation rescue, with no assignments.
+                    Mission orphan = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                    orphan.Persona = "Judge";
+                    orphan.IsEvaluation = true;
+                    orphan.VoyageId = "absent-source-voyage";
+                    orphan = await testDb.Driver.Missions.UpdateAsync(orphan).ConfigureAwait(false);
+                    await orchestrator.HandleMissionOutcomeAsync(orphan, false).ConfigureAwait(false);
+                    Mission orphanRescue = admiral.DispatchedMissions.Single(item => item.ParentMissionId == orphan.Id);
+                    Voyage orphanVoyage = (await testDb.Driver.Voyages.ReadAsync(orphanRescue.VoyageId!).ConfigureAwait(false))!;
+                    AssertTrue(orphanVoyage.IsEvaluation && orphanVoyage.CaptainOverridesJson == null,
+                        "a rescue of an evaluation mission without its voyage is evaluation work with no captain assignments");
+                }
+            });
 
             await RunTest("Every chained rescue stage and voyage retain the current child objective contract", async () =>
             {
