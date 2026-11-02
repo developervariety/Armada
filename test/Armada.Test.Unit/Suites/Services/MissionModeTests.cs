@@ -205,6 +205,13 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("Tool Batching", auditBrief, "an audit brief must carry the batching directive");
                         AssertContains("Tool Batching", implBrief, "an implementation brief must carry the batching directive");
                         AssertContains("one step, not six", auditBrief, "the batching directive must give a concrete example");
+
+                        // A batch whose combined output is cut off by the reader's limit loses results
+                        // silently, so the directive bounds a batch by what can be read whole.
+                        const string batchBound = "Keep each batch small enough that you can read every result in full; " +
+                            "split a batch whose combined output could be cut off by the reader's page or line limit.";
+                        AssertContains(batchBound, auditBrief, "an audit brief must bound a batch by what can be read in full");
+                        AssertContains(batchBound, implBrief, "an implementation brief must bound a batch by what can be read in full");
                     }
                     finally
                     {
