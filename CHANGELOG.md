@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### An autonomous rescue of evaluation work stays evaluation work
+
+- A rescue of an evaluation mission or voyage marks its rescue voyage and every rescue stage `IsEvaluation`, and its rescue voyage keeps the rescued voyage's captain assignments, so a busy or ineligible pinned captain makes the rescue wait instead of taking a substitute. A production rescue carries no captain assignments, as before.
+- The `mission.waiting_for_captain` reason for evaluation work with a requested captain ends with `this evaluation waits for its requested captain <id>`, so the wait does not read as an idle-captain hold. Every other wait reason is unchanged.
+
 ### A dispatch result reports the voyage's evaluation flag
 
 - The `armada_dispatch` result, its background job result, and the REST and WebSocket voyage dispatch responses carry the stored voyage's `IsEvaluation`, so an evaluation dispatch reads `true` there as it does on the voyage and its missions.

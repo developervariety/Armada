@@ -14111,6 +14111,9 @@ namespace Armada.Core.Services
             int held = idle.Count - exclusions.Count;
             if (held > 0) idleParts.Add(held + " admitted but held by quarantine, reservation, retry exclusion or Smart Routing");
             text += "; idle captains: " + (idleParts.Count == 0 ? "none" : String.Join(", ", idleParts));
+            // An evaluation never takes a substitute for its requested captain, so name that as the cause.
+            if (mission.IsEvaluation && !String.IsNullOrWhiteSpace(mission.RequestedCaptainId))
+                text += "; this evaluation waits for its requested captain " + mission.RequestedCaptainId!.Trim();
             return text;
         }
 

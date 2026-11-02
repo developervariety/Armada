@@ -2222,6 +2222,12 @@ namespace Armada.Server
                 ? recoveryPipeline?.Stages.OrderBy(stage => stage.Order).ThenBy(stage => stage.Id, StringComparer.Ordinal).FirstOrDefault()
                 : ResolveRescueAnchorStage(recoveryPipeline, failedMission, rescuePersona);
             if (chainReReview && recoveryWorkerStage != null) rescuePersona = recoveryWorkerStage.PersonaName;
+            // A rescue of evaluation work is evaluation work, and it keeps the captain assignments of the voyage
+            // it rescues so a controlled comparison stays on its pinned captains. A production rescue carries none.
+            Voyage? sourceVoyage = String.IsNullOrWhiteSpace(failedMission.VoyageId)
+                ? null
+                : await _Database.Voyages.ReadAsync(failedMission.VoyageId!, token).ConfigureAwait(false);
+            bool evaluation = failedMission.IsEvaluation || sourceVoyage?.IsEvaluation == true;
             Mission rescue = new Mission
             {
                 TenantId = failedMission.TenantId,
@@ -2252,7 +2258,8 @@ namespace Armada.Server
                 // fails again is picked up by the sweep with RecoveryAttempts already at the
                 // attempt count, so Classify blocks further rescues once the budget is spent and
                 // the bounded revise->retest->rejudge loop terminates instead of recursing.
-                RecoveryAttempts = attemptNumber
+                RecoveryAttempts = attemptNumber,
+                IsEvaluation = evaluation
             };
 
             // A rescue that commits must be re-verified before it lands rather than landing with no
@@ -2283,6 +2290,7 @@ namespace Armada.Server
                 rescuePlaybooks,
                 owningObjective,
                 stagePlan,
+                evaluation ? sourceVoyage?.CaptainOverridesJson : null,
                 token).ConfigureAwait(false);
         }
 
@@ -2684,6 +2692,7 @@ namespace Armada.Server
             List<SelectedPlaybook> rescuePlaybooks,
             Objective? owningObjective,
             RescueStagePlan stagePlan,
+            string? captainOverridesJson,
             CancellationToken token)
         {
             // The rescue voyage is written before the admiral admits the Worker, so the holds are
@@ -2709,7 +2718,9 @@ namespace Armada.Server
             {
                 TenantId = failedMission.TenantId,
                 UserId = failedMission.UserId,
-                Status = VoyageStatusEnum.InProgress
+                Status = VoyageStatusEnum.InProgress,
+                IsEvaluation = workerRescue.IsEvaluation,
+                CaptainOverridesJson = captainOverridesJson
             }, token).ConfigureAwait(false);
 
             workerRescue.VoyageId = rescueVoyage.Id;
@@ -2760,6 +2771,7 @@ namespace Armada.Server
                         // Every stage of a rescue reads the same pack as its Worker, as every stage of a
                         // dispatched pipeline does.
                         chainedDraft.PrestagedFiles = CloneContextPackFiles(workerRescue.PrestagedFiles);
+                        chainedDraft.IsEvaluation = workerRescue.IsEvaluation;
                         Mission chainedStage = await _Database.Missions.CreateAsync(chainedDraft, token).ConfigureAwait(false);
                         await PersistRescuePlaybookSnapshotsAsync(chainedStage, token).ConfigureAwait(false);
                         lastMissionInGroup = chainedStage.Id;

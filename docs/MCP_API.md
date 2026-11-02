@@ -1727,7 +1727,9 @@ and the mission keeps the default routing. Any other value returns
 (default false). When it is true, the mission, or the voyage and every mission
 created for it, is evaluation work and stays out of the production summary. A
 mission created for an evaluation voyage inherits that voyage's flag. WebSocket
-`create_voyage` accepts the same field.
+`create_voyage` accepts the same field. An autonomous rescue of evaluation work
+is evaluation work and keeps its voyage's captain assignments; a pinned captain
+that is busy or ineligible makes the rescue wait, and the wait names it.
 
 `armada_probe_captain_model` takes `captainId` and sends one tiny prompt through
 the captain's existing model validation. It creates no mission. The result is

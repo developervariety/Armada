@@ -2411,6 +2411,9 @@ namespace Armada.Test.Unit.Suites.Services
                     CaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
                     MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains,
                         resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, "rescue-evaluation.git");
+                    vessel.WorkingDirectory = null;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     Mission storedWorker = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
                     AssertFalse(await missions.TryAssignAsync(storedWorker, vessel).ConfigureAwait(false),
                         "the evaluation rescue Worker waits for its busy pinned captain");
@@ -2418,24 +2421,38 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(waiting.CaptainId, "no substitute captain takes the evaluation rescue");
                     AssertEqual(MissionStatusEnum.Pending, waiting.Status, "the evaluation rescue stays pending");
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(worker.Id, 100).ConfigureAwait(false);
-                    ArmadaEvent requested = events.Single(evt => evt.EventType == RequestedCaptainAssignmentRule.EventType);
+                    string seen = String.Join(" | ", events.Select(evt => evt.EventType + ": " + evt.Message));
+                    List<ArmadaEvent> requestedEvents = events.Where(evt => evt.EventType == RequestedCaptainAssignmentRule.EventType).ToList();
+                    AssertEqual(1, requestedEvents.Count, "the wait records one requested-captain event; events: " + seen);
+                    ArmadaEvent requested = requestedEvents[0];
                     AssertContains(pinnedWorker.Id, requested.Message, "the wait names the pinned captain");
                     AssertContains("evaluation", requested.Message, "the wait says why no substitute is used");
-                    ArmadaEvent captainWait = events.Single(evt => evt.EventType == MissionService.CaptainWaitEventType);
+                    List<ArmadaEvent> captainWaits = events.Where(evt => evt.EventType == MissionService.CaptainWaitEventType).ToList();
+                    AssertEqual(1, captainWaits.Count, "the wait records one captain-wait event; events: " + seen);
+                    ArmadaEvent captainWait = captainWaits[0];
                     AssertContains("evaluation waits for its requested captain " + pinnedWorker.Id, captainWait.Message,
                         "the captain-wait reason names the evaluation pin instead of reading as an idle-captain hold");
+                    List<Captain> roster = await testDb.Driver.Captains.EnumerateAsync().ConfigureAwait(false);
+                    DateTime describedAt = DateTime.UtcNow;
+                    string evaluationWait = MissionService.DescribeCaptainWait(settings.ModelTier, waiting, roster, describedAt);
+                    waiting.IsEvaluation = false;
+                    string productionWait = MissionService.DescribeCaptainWait(settings.ModelTier, waiting, roster, describedAt);
+                    AssertEqual(productionWait + "; this evaluation waits for its requested captain " + pinnedWorker.Id, evaluationWait,
+                        "the same wait for production work keeps its text unchanged; only evaluation work names the pin");
 
-                    // A failed evaluation mission whose voyage is gone still yields an evaluation rescue, with no assignments.
+                    // A failed evaluation mission with no voyage still yields an evaluation rescue, with no assignments.
                     Mission orphan = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
                     orphan.Persona = "Judge";
                     orphan.IsEvaluation = true;
-                    orphan.VoyageId = "absent-source-voyage";
+                    orphan.VoyageId = null;
                     orphan = await testDb.Driver.Missions.UpdateAsync(orphan).ConfigureAwait(false);
                     await orchestrator.HandleMissionOutcomeAsync(orphan, false).ConfigureAwait(false);
-                    Mission orphanRescue = admiral.DispatchedMissions.Single(item => item.ParentMissionId == orphan.Id);
+                    List<Mission> orphanRescues = admiral.DispatchedMissions.Where(item => item.ParentMissionId == orphan.Id).ToList();
+                    AssertEqual(1, orphanRescues.Count, "the evaluation mission with no voyage is rescued once");
+                    Mission orphanRescue = orphanRescues[0];
                     Voyage orphanVoyage = (await testDb.Driver.Voyages.ReadAsync(orphanRescue.VoyageId!).ConfigureAwait(false))!;
                     AssertTrue(orphanVoyage.IsEvaluation && orphanVoyage.CaptainOverridesJson == null,
-                        "a rescue of an evaluation mission without its voyage is evaluation work with no captain assignments");
+                        "a rescue of an evaluation mission with no voyage is evaluation work with no captain assignments");
                 }
             });
 
