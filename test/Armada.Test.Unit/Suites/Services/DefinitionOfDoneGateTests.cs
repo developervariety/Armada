@@ -635,6 +635,69 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // The evaluation record names the commit the gate's commands measured only when the worktree held no
+            // uncommitted tracked change. A pass on edited tracked files is labelled as not bound to the commit, and a
+            // worktree whose state cannot be read is never labelled clean.
+            await RunTest("A gate that passes on uncommitted tracked changes labels its evaluation as not bound to the commit; a clean pass names the commit it measured", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string root = CreateTempDir();
+                string unreadableWorktree = CreateTempDir();
+                try
+                {
+                    string repo = Path.Combine(root, "repo");
+                    GitServiceTests.SeedTemplateRepository(repo);
+                    string smoke = Path.Combine(repo, "smoke.txt");
+                    File.WriteAllText(smoke, "PASS 2 smoke contracts\n");
+                    await GitServiceTests.RunGitAsync(repo, "add", "smoke.txt").ConfigureAwait(false);
+                    await GitServiceTests.RunGitAsync(repo, "-c", "user.name=Gate Test", "-c", "user.email=gate-test@example.invalid", "commit", "-q", "-m", "seed smoke contracts").ConfigureAwait(false);
+                    GitService git = new GitService(logging);
+                    string head = (await git.GetRevisionCommitShaAsync(repo, "HEAD").ConfigureAwait(false))!;
+
+                    string test = OperatingSystem.IsWindows() ? "type smoke.txt" : "cat smoke.txt";
+                    await EnsureVesselWithProfileAsync(testDb, "ten_dirty_bind", "vsl_dirty_bind", repo, "echo BUILD", test, null, "Dirty Bind Vessel").ConfigureAwait(false);
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false }, testDb.Driver, logging, null, git);
+
+                    static JsonElement RecordJson(DefinitionOfDoneResult result) =>
+                        JsonDocument.Parse(JsonSerializer.Serialize(DefinitionOfDoneEvaluationRecord.FromResult(result, DateTime.UtcNow))).RootElement;
+                    static string? MeasuredCommit(JsonElement json) =>
+                        json.TryGetProperty("MeasuredCommitHash", out JsonElement value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+                    static bool? Uncommitted(JsonElement json) =>
+                        json.TryGetProperty("UncommittedTrackedChanges", out JsonElement value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False) ? value.GetBoolean() : null;
+
+                    // The committed smoke file reports two contracts; the uncommitted edit reports eight.
+                    File.WriteAllText(smoke, "PASS 8 smoke contracts\n");
+                    DefinitionOfDoneResult dirty = await gate.EvaluateAsync(CreateWorkerMission("ten_dirty_bind", "vsl_dirty_bind"), new Dock { WorktreePath = repo }).ConfigureAwait(false);
+                    AssertTrue(dirty.Passed, "the gate passes on the edited tree: " + dirty.OutputTail);
+                    JsonElement dirtyJson = RecordJson(dirty);
+                    AssertTrue(Uncommitted(dirtyJson) == true && MeasuredCommit(dirtyJson) == null,
+                        "a dirty pass is labelled as not bound to its commit; record JSON: " + dirtyJson.GetRawText());
+                    AssertNull(DefinitionOfDoneCommandPasses.Find("vsl_dirty_bind", head, test, null), "a dirty pass is not reusable by a Check at the commit");
+
+                    File.WriteAllText(smoke, "PASS 2 smoke contracts\n");
+                    DefinitionOfDoneResult clean = await gate.EvaluateAsync(CreateWorkerMission("ten_dirty_bind", "vsl_dirty_bind"), new Dock { WorktreePath = repo }).ConfigureAwait(false);
+                    AssertTrue(clean.Passed, "the gate passes on the committed tree: " + clean.OutputTail);
+                    JsonElement cleanJson = RecordJson(clean);
+                    AssertTrue(Uncommitted(cleanJson) == false && String.Equals(MeasuredCommit(cleanJson), head, StringComparison.OrdinalIgnoreCase),
+                        "a clean pass names the commit it measured (" + head + "); record JSON: " + cleanJson.GetRawText());
+                    AssertNotNull(DefinitionOfDoneCommandPasses.Find("vsl_dirty_bind", head, test, null), "a clean exact-commit pass stays reusable");
+
+                    // A folder that is not a repository cannot prove a clean tree, so it names no measured commit.
+                    File.WriteAllText(Path.Combine(unreadableWorktree, "smoke.txt"), "PASS 2 smoke contracts\n");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_unread_bind", "vsl_unread_bind", unreadableWorktree, "echo BUILD", test, null, "Unreadable Bind Vessel").ConfigureAwait(false);
+                    DefinitionOfDoneResult unreadable = await gate.EvaluateAsync(CreateWorkerMission("ten_unread_bind", "vsl_unread_bind"), new Dock { WorktreePath = unreadableWorktree }).ConfigureAwait(false);
+                    AssertTrue(unreadable.Passed, "the gate passes in a folder it cannot read as a repository: " + unreadable.OutputTail);
+                    AssertNull(MeasuredCommit(RecordJson(unreadable)), "an unreadable worktree is never labelled as a clean measured commit");
+                }
+                finally
+                {
+                    TryDeleteDirectory(root);
+                    TryDeleteDirectory(unreadableWorktree);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate commands receive the objective's provisioned sibling pin, and a pin that does not resolve stops the gate", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
