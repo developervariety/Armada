@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A definition-of-done result names the commit it measured
+
+- A `Passed` or `Failed` definition-of-done evaluation record carries `MeasuredCommitHash` only when the worktree was clean at a readable HEAD. A run over uncommitted tracked changes sets `UncommittedTrackedChanges`, leaves `MeasuredCommitHash` null, and titles its event `(uncommitted tracked changes; not bound to commit <short>)`. The gate decision and command-pass reuse are unchanged.
+
 ### Start-ref and anchor updates preserve unaffected preparation claims and propagate landed commits across blocked objectives
 
 - Updating `startFromRef` on the same vessel or changing `preparation.source` or `preparation.target` to another full 40-character commit on the same vessel compares the changed paths between the old and new commits and marks only claims whose cited paths changed as `NeedsRecheck`; when `preparation` is omitted on a `startFromRef` update, a matching `preparation.target` commit advances with it.

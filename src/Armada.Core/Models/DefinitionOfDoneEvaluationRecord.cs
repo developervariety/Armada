@@ -97,6 +97,12 @@ namespace Armada.Core.Models
         /// <summary>True when a timeout or runner limit may have omitted process output.</summary>
         public bool RunnerOutputIncomplete { get; set; } = false;
 
+        /// <summary>The HEAD the gate's commands measured on a clean worktree; null when the result is not bound to a commit.</summary>
+        public string? MeasuredCommitHash { get; set; } = null;
+
+        /// <summary>True when the gate's commands ran over uncommitted tracked changes.</summary>
+        public bool UncommittedTrackedChanges { get; set; } = false;
+
         /// <summary>
         /// Ordered, de-duplicated identifiers of the tests the runner reported as failed, or null
         /// when the failure was not a test failure. Stored as a first-class field so a later
@@ -208,6 +214,8 @@ namespace Armada.Core.Models
                 record.RunnerOutputTruncated = result.RunnerOutputTruncated;
                 record.RunnerOutputOmittedBytes = Math.Max(0, result.RunnerOutputOmittedBytes);
                 record.RunnerOutputIncomplete = result.RunnerOutputIncomplete;
+                record.MeasuredCommitHash = result.MeasuredCommitHash;
+                record.UncommittedTrackedChanges = result.UncommittedTrackedChanges;
             }
             return record;
         }

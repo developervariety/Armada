@@ -13614,6 +13614,19 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Title suffix for an evaluation whose commands ran over uncommitted tracked changes, so a reader of the
+        /// title alone does not take the result as proof for the mission commit.
+        /// </summary>
+        private static string UnboundEvaluationSuffix(DefinitionOfDoneEvaluationRecord record)
+        {
+            if (!record.UncommittedTrackedChanges) return "";
+            string commit = String.IsNullOrWhiteSpace(record.CommitHash)
+                ? "the mission commit"
+                : "commit " + (record.CommitHash!.Length > 12 ? record.CommitHash.Substring(0, 12) : record.CommitHash);
+            return " (uncommitted tracked changes; not bound to " + commit + ")";
+        }
+
+        /// <summary>
         /// Record one definition-of-done evaluation as a scoped event. A failed write is logged and counted as
         /// a recording failure only; it never changes the gate outcome or the mission decision.
         /// </summary>
@@ -13634,7 +13647,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evaluationEvent = new ArmadaEvent(
                     DefinitionOfDoneEvaluationRecord.EventType,
-                    "Definition-of-done evaluation: " + record.Outcome);
+                    "Definition-of-done evaluation: " + record.Outcome + UnboundEvaluationSuffix(record));
                 EventOwnerScope.ApplyFromMission(evaluationEvent, mission);
                 evaluationEvent.EntityType = "mission";
                 evaluationEvent.EntityId = mission.Id;

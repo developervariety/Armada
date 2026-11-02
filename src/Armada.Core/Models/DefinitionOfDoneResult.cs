@@ -117,6 +117,18 @@ namespace Armada.Core.Models
         /// </summary>
         public string? SkippedReason { get; set; }
 
+        /// <summary>
+        /// The HEAD the gate's commands measured, set only when the worktree had no uncommitted tracked
+        /// change and its HEAD could be read. Null means the result is not bound to a commit.
+        /// </summary>
+        public string? MeasuredCommitHash { get; set; }
+
+        /// <summary>
+        /// True when the gate's commands ran over uncommitted tracked changes, so their result describes
+        /// the working tree and not any commit. False when the tree was clean or could not be read.
+        /// </summary>
+        public bool UncommittedTrackedChanges { get; set; }
+
         #endregion
 
         #region Constructors-and-Factories

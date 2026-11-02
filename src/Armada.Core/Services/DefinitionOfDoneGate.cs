@@ -734,7 +734,13 @@ namespace Armada.Core.Services
                 && await HasDeclaredConsumersAsync(mission, token).ConfigureAwait(false))
                 return DefinitionOfDoneResult.Fail("consumer-verification", -1,
                     BuildDiagnosticText("harbor_owned_consumer_verification_unsupported"), DefinitionOfDoneFailureClassEnum.Infra);
-            string? cleanHead = await ReadCleanHeadAsync(worktreePath, token).ConfigureAwait(false);
+            (string? cleanHead, bool uncommitted) = await ReadHeadStateAsync(worktreePath, token).ConfigureAwait(false);
+            DefinitionOfDoneResult Bind(DefinitionOfDoneResult result)
+            {
+                result.MeasuredCommitHash = cleanHead;
+                result.UncommittedTrackedChanges = uncommitted;
+                return result;
+            }
             DefinitionOfDoneResult? vesselPass = null;
 
             if (!String.IsNullOrWhiteSpace(buildCommand))
@@ -743,7 +749,7 @@ namespace Armada.Core.Services
                 string effectiveBuild = _Settings.RunRestoreBeforeBuild ? EnsureRestore(buildCommand) : buildCommand;
                 DefinitionOfDoneResult buildResult = await RunCommandAsync("build", effectiveBuild, worktreePath, token, limitProfile: profile).ConfigureAwait(false);
                 if (!buildResult.Passed)
-                    return buildResult;
+                    return Bind(buildResult);
                 await CollectFullPassAsync(mission, "build", buildCommand!, worktreePath, cleanHead, profile, token).ConfigureAwait(false);
                 vesselPass = buildResult;
             }
@@ -793,7 +799,7 @@ namespace Armada.Core.Services
                     // race only the full suite shows is not hidden. Bounded to a few failing classes.
                     if (!afterFlake.Passed && ReferenceEquals(afterFlake, testResult) && _Settings.RerunFailingClassesOnce)
                         afterFlake = await RerunFailingClassesOnceAsync(mission, "vessel", profile, effectiveTest, worktreePath, testResult, testLabel, token).ConfigureAwait(false);
-                    if (!afterFlake.Passed) return afterFlake;
+                    if (!afterFlake.Passed) return Bind(afterFlake);
 
                     // The isolated re-run passed: the failure was a flake. Fall through to the consumer
                     // verification the gate would have run had the suite passed the first time.
@@ -803,9 +809,9 @@ namespace Armada.Core.Services
             // Keep the last full vessel command's proof only after every required consumer passes.
             // A consumer failure carries its own output; an isolated test retry supplies no full-suite proof.
             DefinitionOfDoneResult consumers = await VerifyDeclaredConsumersAsync(mission, worktreePath, token).ConfigureAwait(false);
-            return consumers.Passed && String.IsNullOrEmpty(consumers.SkippedReason) && vesselPass != null
+            return Bind(consumers.Passed && String.IsNullOrEmpty(consumers.SkippedReason) && vesselPass != null
                 ? vesselPass
-                : consumers;
+                : consumers);
         }
 
         /// <summary>
@@ -813,12 +819,21 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<string?> ReadCleanHeadAsync(string worktreePath, CancellationToken token)
         {
-            if (_Git == null) return null;
+            return (await ReadHeadStateAsync(worktreePath, token).ConfigureAwait(false)).CleanHead;
+        }
+
+        /// <summary>
+        /// Read the clean worktree HEAD and whether the tree has uncommitted tracked changes. A tree that cannot
+        /// be read reports neither a clean HEAD nor uncommitted changes.
+        /// </summary>
+        private async Task<(string? CleanHead, bool Uncommitted)> ReadHeadStateAsync(string worktreePath, CancellationToken token)
+        {
+            if (_Git == null) return (null, false);
             try
             {
-                if (await _Git.HasUncommittedTrackedChangesAsync(worktreePath, token).ConfigureAwait(false)) return null;
+                if (await _Git.HasUncommittedTrackedChangesAsync(worktreePath, token).ConfigureAwait(false)) return (null, true);
                 string? head = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);
-                return String.IsNullOrWhiteSpace(head) ? null : head.Trim();
+                return (String.IsNullOrWhiteSpace(head) ? null : head.Trim(), false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -827,7 +842,7 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Debug(_Header + "could not read a clean HEAD in " + worktreePath + ", so no command pass is recorded: " + ex.Message);
-                return null;
+                return (null, false);
             }
         }
 

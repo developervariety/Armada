@@ -21,7 +21,14 @@ payload is a `DefinitionOfDoneEvaluationRecord`, schema version 1:
 | `Cancelled` | The mission was cancelled while the gate ran or waited for the host-wide command slot. The gate's command process was stopped and the slot released. No build or test result exists. |
 
 The record also holds the captain, dock, branch, the mission commit hash when
-known, the recovery attempt count, and start and end times. The failure output
+known, the recovery attempt count, and start and end times. A `Passed` or
+`Failed` record names the commit its commands measured in `MeasuredCommitHash`
+only when the worktree had no uncommitted tracked change and its HEAD could be
+read. When the commands ran over uncommitted tracked changes,
+`UncommittedTrackedChanges` is true, `MeasuredCommitHash` is null, and the event
+title ends with `(uncommitted tracked changes; not bound to commit <short>)`, so
+the result is not proof for the mission commit. An unreadable worktree leaves
+both fields unset. The labels do not change the gate decision. The failure output
 passes through the shared secret redactor and keeps only its last characters,
 4,000 at most including a truncation marker. A failed command also writes its
 complete output retained by the bounded process runner to a mission-owned
