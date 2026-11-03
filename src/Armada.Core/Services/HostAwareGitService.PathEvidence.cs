@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Harbor;
@@ -38,6 +39,36 @@ namespace Armada.Core.Services
         {
             if (!IsRemote(repoPath)) return _Local.FindCommitsByTrailerAsync(repoPath, revision, trailerKey, trailerValue, sinceUtc, maxCount, token);
             return Task.FromResult<IReadOnlyList<string>>(new List<string>());
+        }
+
+        /// <inheritdoc />
+        /// <remarks>A Harbor address is read through the Harbor's ref-tip listing; a failed read is unknown, never absent.</remarks>
+        public async Task<bool?> TryBranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            if (!IsRemote(repoPath)) return await _Local.TryBranchExistsAsync(repoPath, branchName, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(branchName)) return null;
+            string refName = "refs/heads/" + branchName.Trim();
+            try
+            {
+                IReadOnlyList<GitRefTip> tips = await EnumerateRefTipsAsync(repoPath, refName, token).ConfigureAwait(false);
+                return tips.Any(tip => String.Equals(tip.RefName, refName, StringComparison.Ordinal));
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
+        /// <remarks>A Harbor checkout has no patch-id operation, so a Harbor address has no patch-id.</remarks>
+        public Task<string?> GetPatchIdAsync(string repoPath, string commit, CancellationToken token = default)
+        {
+            if (!IsRemote(repoPath)) return _Local.GetPatchIdAsync(repoPath, commit, token);
+            return Task.FromResult<string?>(null);
         }
 
         /// <inheritdoc />

@@ -343,7 +343,7 @@ These are observed behaviors that the entry status alone does not make obvious.
 | `armada_process_merge_entry` | Process a single entry by ID. |
 | `armada_get_merge_entry` | Get a single entry by ID. |
 | `armada_cancel_merge` | Cancel an active entry; a finished entry keeps its outcome and is refused. |
-| `armada_record_merge_delivery` | Record operator delivery proof on a `Failed` entry that has no mission. |
+| `armada_record_merge_delivery` | Record operator delivery proof on a `Failed` entry the sweep cannot prove. |
 | `armada_delete_merge` | Delete a terminal entry and clean up its branches. |
 | `armada_purge_merge_queue` | Bulk delete all terminal entries, with optional vessel/status filters. |
 
@@ -503,17 +503,30 @@ inbox lists such an entry as an `Info` item of kind `merge_failed_delivered` tha
 carries the evidence. An entry with no proof, or whose ancestry cannot be read, stays
 a `Critical` `merge_failed` item.
 
-The sweep reads proof only for an entry that belongs to a mission. For a `Failed`
-entry with no mission, a global administrator names the commit that carries its work
-with MCP `armada_record_merge_delivery` or REST
+The sweep reads proof only for an entry whose mission it can still land. Two kinds of
+`Failed` entry are left to an operator: an entry with no mission, and an entry whose
+mission is `Cancelled` and whose branch no longer resolves in the vessel repository.
+For either, a global administrator names the commit on the target branch with MCP
+`armada_record_merge_delivery` or REST
 `POST /api/v1/merge-queue/{id}/delivery-evidence`. The record reads the proof before
-it stores anything: after a fetch, the commit must be on `origin/<target branch>`,
-and when the entry's branch still resolves in the vessel repository, its tip must be
-that commit. The stored `DeliveryEvidence` names the recorder, taken from the
-authenticated caller (principal name, else credential, else user) and never from the
-request, plus an optional incident. A caller that signs in with the server API key
-records the label `API Key`, so every API-key operator records the same name. The entry keeps its `Failed` outcome, the record
-writes `merge.delivery_recorded` once, and the inbox lists the entry as
+it stores anything. After a fetch, the commit must be on `origin/<target branch>`, and
+it is compared with the entry's work, which always comes from the record and never
+from the request: the mission's recorded commit, or for an entry with no mission the
+tip of its branch when the branch still resolves. The proof kind is one of:
+
+- `CommitAncestry` (the default): the commit is that work. An entry with no mission
+  whose branch is gone has no work to compare, so the commit alone is recorded.
+- `PatchId`: the commit carries the same `git patch-id --stable` as the work, read
+  against each commit's first parent. This proves a cherry-pick or a rebase of the
+  same change. The work must exist.
+
+The stored `DeliveryEvidence` names the proof kind, the commit, the work it was
+compared with (`SourceCommit`), the mission when there is one, and the recorder,
+taken from the authenticated caller (principal name, else credential, else user)
+and never from the request, plus an optional incident. A caller that signs in with
+the server API key records the label `API Key`, so every API-key operator records
+the same name. The entry keeps its `Failed` outcome, the mission is not changed, the
+record writes `merge.delivery_recorded` once, and the inbox lists the entry as
 `merge_failed_delivered` with "Recorded by" and the recorder's name. A refusal names
 its reason and leaves the entry unchanged:
 
@@ -522,8 +535,11 @@ its reason and leaves the entry unchanged:
 | `merge_entry_not_found` | No such entry in the caller's scope. |
 | `merge_entry_not_failed` | The entry is not `Failed`. |
 | `merge_delivery_already_recorded` | The entry already carries delivery proof. |
-| `merge_entry_mission_bound` | The entry belongs to a mission; the sweep reads its proof. |
-| `merge_repository_unavailable` | No vessel, no vessel repository, or the fetch failed. |
+| `merge_entry_mission_bound` | The entry's mission is not found or not `Cancelled`, or its branch still resolves; the sweep reads its proof. |
+| `merge_repository_unavailable` | No vessel, no vessel repository, the fetch failed, or the entry's branch or its tip cannot be read. A failed read never counts as a branch that is gone. |
 | `merge_delivery_no_caller_identity` | The caller carries no principal, credential or user name. |
 | `merge_commit_not_on_target` | No commit was given, or it is not proven on `origin/<target branch>`. |
-| `merge_branch_tip_differs` | The entry's branch resolves to a different commit. |
+| `merge_proof_kind_unsupported` | The proof kind is neither `CommitAncestry` nor `PatchId`. |
+| `merge_branch_tip_differs` | For `CommitAncestry`: the entry's work (its branch tip or its mission's commit) is a different commit. |
+| `merge_source_commit_unavailable` | The mission recorded no commit, the branch of an entry with no mission does not resolve for `PatchId`, or the work's patch cannot be read. |
+| `merge_patch_id_mismatch` | For `PatchId`: the commit's patch-id differs from the work's, or cannot be read. |

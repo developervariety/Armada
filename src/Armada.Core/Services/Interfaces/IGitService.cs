@@ -505,6 +505,40 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// The stable patch-id of a commit's change against its first parent, as <c>git patch-id --stable</c> computes
+        /// it. Two commits with the same change, such as a commit and its cherry-pick onto another parent, share it.
+        /// </summary>
+        /// <remarks>
+        /// The default is null - UNKNOWN - for an implementation that cannot read a repository, such as a Harbor-routed
+        /// one. A caller treats null as "not proven", never as a match.
+        /// </remarks>
+        /// <param name="repoPath">Repository path (working tree or bare repository).</param>
+        /// <param name="commit">Commit to read.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The patch-id, or null when the commit cannot be read, has no change, or git fails.</returns>
+        Task<string?> GetPatchIdAsync(string repoPath, string commit, CancellationToken token = default)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        /// <summary>
+        /// Whether a local branch exists, read so that "absent" is a real answer: true or false only when git answered,
+        /// null when the repository could not be read.
+        /// </summary>
+        /// <remarks>
+        /// The default is null - UNKNOWN - for an implementation that does not read a repository. A caller that acts on
+        /// a branch being gone must refuse on null, never treat it as absent.
+        /// </remarks>
+        /// <param name="repoPath">Repository path (working tree or bare repository).</param>
+        /// <param name="branchName">Branch name without <c>refs/heads/</c>.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when <c>refs/heads/&lt;branchName&gt;</c> exists, false when git reports it absent, null when unknown.</returns>
+        Task<bool?> TryBranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            return Task.FromResult<bool?>(null);
+        }
+
+        /// <summary>
         /// Find commits reachable from a revision whose message carries a trailer with exactly the given key and
         /// value (for example <c>Armada-Mission-Id: msn_...</c>), newest first. The search is a bounded
         /// <c>git log &lt;revision&gt; --fixed-strings --grep</c> narrowed by <c>--since</c>, and each candidate's parsed

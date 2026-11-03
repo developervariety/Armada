@@ -134,7 +134,7 @@ namespace Armada.Server.Mcp.Tools
                 MergeDeliveryRecorder recorder = new MergeDeliveryRecorder(database, git);
                 register(
                     "armada_record_merge_delivery",
-                    "Record that a Failed merge entry with no mission is already delivered. The commit must be on origin/<target branch> after a fetch, and the entry's branch, when it still resolves, must point at it. The entry keeps its Failed outcome; the recorder is the authenticated caller. Each refusal names its reason and leaves the entry unchanged.",
+                    "Record that a Failed merge entry is already delivered: an entry with no mission, or one whose mission is Cancelled and whose branch is gone. The commit must be on origin/<target branch> after a fetch. proofKind CommitAncestry (default) needs the commit to be the entry's work (its mission's commit, or its branch tip when the branch resolves); PatchId needs the commit to carry the same git patch-id as that work. The work comes from the record, never the request. The entry keeps its Failed outcome and the mission is not changed; the recorder is the authenticated caller. Each refusal names its reason and leaves the entry unchanged.",
                     new
                     {
                         type = "object",
@@ -142,7 +142,8 @@ namespace Armada.Server.Mcp.Tools
                         {
                             entryId = new { type = "string", description = "Merge entry ID (mrg_ prefix)" },
                             commit = new { type = "string", description = "Commit that carries the entry's work on its target branch" },
-                            incidentId = new { type = "string", description = "Optional incident the record answers" }
+                            incidentId = new { type = "string", description = "Optional incident the record answers" },
+                            proofKind = new { type = "string", @enum = new[] { "CommitAncestry", "PatchId" }, description = "Proof to read; CommitAncestry by default" }
                         },
                         required = new[] { "entryId", "commit" }
                     },
@@ -150,7 +151,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         MergeDeliveryRecordArgs request = JsonSerializer.Deserialize<MergeDeliveryRecordArgs>(args!.Value, _JsonOptions)!;
                         MergeDeliveryRecordResult result = await recorder
-                            .RecordAsync(request.EntryId, request.Commit, McpCallerContext.Current, request.IncidentId).ConfigureAwait(false);
+                            .RecordAsync(request.EntryId, request.Commit, McpCallerContext.Current, request.IncidentId,
+                                request.ProofKind ?? LandingEvidenceKindEnum.CommitAncestry).ConfigureAwait(false);
                         if (!result.Recorded)
                             return (object)new { Error = result.Message, Code = result.Code };
                         return (object)result.Entry!;

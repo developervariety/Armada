@@ -6881,7 +6881,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"Commit\": \"0123456789abcdef0123456789abcdef01234567\",\n  \"IncidentId\": \"inc_abc123\"\n}"
+							"raw": "{\n  \"Commit\": \"0123456789abcdef0123456789abcdef01234567\",\n  \"IncidentId\": \"inc_abc123\",\n  \"ProofKind\": \"CommitAncestry\"\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/merge-queue/{{mergeEntryId}}/delivery-evidence",
@@ -6896,7 +6896,7 @@
 								"delivery-evidence"
 							]
 						},
-						"description": "Records that a Failed merge entry with no mission is already delivered. The commit must be on origin/<target branch> after a fetch, and the entry's branch, when it still resolves, must point at it. The entry keeps its Failed outcome and the recorder is the authenticated caller. Global administrator only."
+						"description": "Records that a Failed merge entry is already delivered: an entry with no mission, or one whose mission is Cancelled and whose branch is gone. The commit must be on origin/<target branch> after a fetch and match the entry's work from the record: ProofKind CommitAncestry (default) needs the same commit, PatchId the same git patch-id. The entry keeps its Failed outcome, the mission is not changed, and the recorder is the authenticated caller. Global administrator only."
 					}
 				},
 				{

@@ -20,6 +20,9 @@ namespace Armada.Core.Models
         /// <summary>Commit on the default branch that proves the landing: the mission's own commit, or the trailer commit.</summary>
         public string EvidenceCommit { get; set; } = String.Empty;
 
+        /// <summary>The work the proof compares with, for a patch-id proof: the mission's commit or the branch tip.</summary>
+        public string? SourceCommit { get; set; } = null;
+
         /// <summary>Which kind of proof was found.</summary>
         public LandingEvidenceKindEnum EvidenceKind { get; set; } = LandingEvidenceKindEnum.CommitAncestry;
 
@@ -49,9 +52,13 @@ namespace Armada.Core.Models
         public string Describe()
         {
             string commit = EvidenceCommit.Length > 12 ? EvidenceCommit.Substring(0, 12) : EvidenceCommit;
-            string proof = EvidenceKind == LandingEvidenceKindEnum.CommitAncestry
-                ? "Its commit " + commit + " is already on " + TargetRef + "."
-                : "Commit " + commit + " on " + TargetRef + " carries its Armada-Mission-Id trailer.";
+            string source = SourceCommit == null ? String.Empty : SourceCommit.Length > 12 ? SourceCommit.Substring(0, 12) : SourceCommit;
+            string proof = EvidenceKind switch
+            {
+                LandingEvidenceKindEnum.CommitAncestry => "Its commit " + commit + " is already on " + TargetRef + ".",
+                LandingEvidenceKindEnum.PatchId => "Commit " + commit + " on " + TargetRef + " carries the same patch as its commit " + source + ".",
+                _ => "Commit " + commit + " on " + TargetRef + " carries its Armada-Mission-Id trailer."
+            };
             return String.IsNullOrWhiteSpace(RecordedBy) ? proof : proof + " Recorded by " + RecordedBy.Trim() + ".";
         }
 

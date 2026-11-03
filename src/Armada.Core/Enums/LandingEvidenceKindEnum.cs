@@ -12,6 +12,9 @@ namespace Armada.Core.Enums
         CommitAncestry = 0,
 
         /// <summary>A commit on the default branch carries the mission's exact Armada-Mission-Id trailer.</summary>
-        MissionTrailer = 1
+        MissionTrailer = 1,
+
+        /// <summary>A commit on the default branch carries the same patch as the work, read with <c>git patch-id --stable</c>.</summary>
+        PatchId = 2
     }
 }

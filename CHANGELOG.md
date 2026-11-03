@@ -7,9 +7,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
-### An operator can record delivery proof on a failed merge entry with no mission
+### An operator can record delivery proof on a failed merge entry
 
-- MCP `armada_record_merge_delivery` and REST `POST /api/v1/merge-queue/{id}/delivery-evidence` (global administrator only) store delivery proof on a `Failed` merge entry with no mission once the named commit is proven on `origin/<target branch>` after a fetch and the entry's branch, when it still resolves, points at it. The entry keeps its `Failed` outcome, the proof names the recorder from the authenticated caller and an optional incident, `merge.delivery_recorded` is written, and the inbox shows the entry as delivered context with "Recorded by". Each refusal names its reason and leaves the entry unchanged. MCP caller identity and the new record share one rule: principal name, else credential, else user. See docs/MERGING.md.
+- MCP `armada_record_merge_delivery` and REST `POST /api/v1/merge-queue/{id}/delivery-evidence` (global administrator only) store delivery proof on a `Failed` merge entry the landing sweep cannot prove: an entry with no mission, or an entry whose mission is `Cancelled` and whose branch no longer resolves. After a fetch the named commit must be on `origin/<target branch>` and match the entry's work, which comes from the record (the mission's commit, or the branch tip of an entry with no mission): `CommitAncestry` (default) needs the same commit, `PatchId` needs the same `git patch-id --stable`, so a cherry-pick or rebase of the work counts. The entry keeps its `Failed` outcome and the mission is not changed; the proof names its kind, the work compared, the recorder from the authenticated caller and an optional incident; `merge.delivery_recorded` is written, and the inbox shows the entry as delivered context with "Recorded by". Each refusal names its reason and leaves the entry unchanged. `IGitService.GetPatchIdAsync` reads a commit's patch-id; a Harbor checkout has none, so a patch-id proof there is refused. MCP caller identity and the new record share one rule: principal name, else credential, else user. See docs/MERGING.md.
 
 ### The gate and the test runner take a build node cap
 

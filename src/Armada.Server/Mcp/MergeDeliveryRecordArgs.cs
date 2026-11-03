@@ -19,5 +19,10 @@ namespace Armada.Server.Mcp
         /// Optional incident the record answers.
         /// </summary>
         public string? IncidentId { get; set; } = null;
+
+        /// <summary>
+        /// Proof to read: CommitAncestry (the default) or PatchId.
+        /// </summary>
+        public Armada.Core.Enums.LandingEvidenceKindEnum? ProofKind { get; set; } = null;
     }
 }

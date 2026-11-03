@@ -1617,6 +1617,82 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<string?> GetPatchIdAsync(string repoPath, string commit, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(repoPath) || String.IsNullOrWhiteSpace(commit)) return null;
+            string wanted = commit.Trim();
+
+            try
+            {
+                // diff-tree is plumbing, so user diff settings do not change the patch text. A root commit has no first
+                // parent and so no patch-id; that reads as "not proven", never as a match.
+                BoundedProcessResult diff = await RunBoundedGitAsync(repoPath, null, token,
+                    "diff-tree", "-r", "-p", "--no-color", "--no-ext-diff", "--no-textconv", "--end-of-options", wanted + "^1", wanted).ConfigureAwait(false);
+                if (diff.ExitCode != 0 || diff.StandardOutputTruncated)
+                {
+                    _Logging.Warn(_Header + "patch of " + wanted + " is unavailable in " + repoPath + ": git diff-tree exited " + (diff.ExitCode ?? -1)
+                        + (diff.StandardOutputTruncated ? " with its output over the limit" : String.Empty)
+                        + (diff.StandardError.Trim().Length == 0 ? String.Empty : ": " + diff.StandardError.Trim()));
+                    return null;
+                }
+                if (String.IsNullOrWhiteSpace(diff.StandardOutput)) return null;
+
+                BoundedProcessResult id = await RunBoundedGitAsync(repoPath, diff.StandardOutput, token, "patch-id", "--stable").ConfigureAwait(false);
+                if (id.ExitCode != 0 || id.StandardInputError != null)
+                {
+                    _Logging.Warn(_Header + "patch-id of " + wanted + " is unavailable in " + repoPath + ": git patch-id exited " + (id.ExitCode ?? -1)
+                        + (id.StandardInputError == null ? String.Empty : ": " + id.StandardInputError));
+                    return null;
+                }
+                string[] fields = id.StandardOutput.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                return fields.Length == 0 ? null : fields[0];
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "patch-id of " + wanted + " is unavailable in " + repoPath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool?> TryBranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(repoPath) || String.IsNullOrWhiteSpace(branchName)) return null;
+            string refName = "refs/heads/" + branchName.Trim();
+
+            try
+            {
+                // for-each-ref exits 0 with no output for a ref that does not exist, and non-zero when the repository
+                // cannot be read, so only a clean exit is an answer.
+                BoundedProcessResult result = await RunBoundedGitAsync(repoPath, null, token, "for-each-ref", "--format=%(refname)", refName).ConfigureAwait(false);
+                if (result.ExitCode != 0 || result.StandardOutputTruncated)
+                {
+                    _Logging.Warn(_Header + "presence of " + refName + " is unavailable in " + repoPath + ": git for-each-ref exited " + (result.ExitCode ?? -1)
+                        + (result.StandardError.Trim().Length == 0 ? String.Empty : ": " + result.StandardError.Trim()));
+                    return null;
+                }
+                foreach (string line in result.StandardOutput.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (String.Equals(line.Trim(), refName, StringComparison.Ordinal)) return true;
+                }
+                return false;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "presence of " + refName + " is unavailable in " + repoPath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<string>> FindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
@@ -1941,6 +2017,31 @@ namespace Armada.Core.Services
             _Logging.Warn(_Header + "ancestry of " + ancestorRef + " in " + descendantRef + " is unavailable in " + repoPath
                 + ": git merge-base --is-ancestor exited " + exitCode + (stderr.Length == 0 ? String.Empty : ": " + stderr));
             return null;
+        }
+
+        // Runs one bounded git process whose exit code the caller reads. Cancellation and a timeout throw, so a caller
+        // never reads a killed process as an answer.
+        private async Task<BoundedProcessResult> RunBoundedGitAsync(string repoPath, string? standardInput, CancellationToken token, params string[] args)
+        {
+            token.ThrowIfCancellationRequested();
+            TimeSpan processTimeout = GitProcessTimeouts.Resolve();
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(repoPath, args), processTimeout)
+            {
+                OutputLimitBytes = _GitOutputLimitBytes,
+                StandardInput = standardInput
+            };
+
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill a timed-out or cancelled git " + args[0] + "; it may still be running: " + result.KillError);
+            if (result.Cancelled)
+            {
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            }
+            if (result.TimedOut)
+                throw new TimeoutException("git " + args[0] + " timed out after " + processTimeout.TotalSeconds.ToString("F0") + " seconds");
+            return result;
         }
 
         private async Task EnsureTrackedFilesCleanAsync(string worktreePath, CancellationToken token)

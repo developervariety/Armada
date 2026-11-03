@@ -255,7 +255,8 @@ namespace Armada.Server.Routes
                     ?? new MergeDeliveryRecordRequest();
 
                 // The recorder is the authenticated caller, never a name in the body.
-                MergeDeliveryRecordResult result = await _deliveryRecorder.RecordAsync(id, body.Commit ?? String.Empty, ctx, body.IncidentId).ConfigureAwait(false);
+                MergeDeliveryRecordResult result = await _deliveryRecorder.RecordAsync(id, body.Commit ?? String.Empty, ctx, body.IncidentId,
+                    body.ProofKind ?? Armada.Core.Enums.LandingEvidenceKindEnum.CommitAncestry).ConfigureAwait(false);
                 if (!result.Recorded)
                 {
                     req.Http.Response.StatusCode = result.NotFound ? 404 : 409;
@@ -270,9 +271,9 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("MergeQueue")
                 .WithSummary("Record delivery proof on a failed merge entry")
-                .WithDescription("Records that a Failed merge entry with no mission is already delivered. The commit must be on origin/<target branch> after a fetch, and the entry's branch, when it still resolves, must point at it. The entry keeps its Failed outcome, the recorder is the authenticated caller, and a merge.delivery_recorded event is written. Each refusal names its reason, leaves the entry unchanged, and returns 404 for an unknown entry or 409 otherwise. Global administrator only; MCP armada_record_merge_delivery runs the same record.")
+                .WithDescription("Records that a Failed merge entry is already delivered: an entry with no mission, or one whose mission is Cancelled and whose branch is gone. The commit must be on origin/<target branch> after a fetch. proofKind CommitAncestry (default) needs the commit to be the entry's work (its mission's commit, or its branch tip when the branch resolves); PatchId needs the commit to carry the same git patch-id as that work. The work comes from the record, never the request. The entry keeps its Failed outcome, the mission is not changed, the recorder is the authenticated caller, and a merge.delivery_recorded event is written. Each refusal names its reason, leaves the entry unchanged, and returns 404 for an unknown entry or 409 otherwise. Global administrator only; MCP armada_record_merge_delivery runs the same record.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Merge entry ID (mrg_ prefix)"))
-                .WithRequestBody(OpenApiJson.BodyFor<MergeDeliveryRecordRequest>("Commit and optional incident", true))
+                .WithRequestBody(OpenApiJson.BodyFor<MergeDeliveryRecordRequest>("Commit, optional incident and optional proof kind", true))
                 .WithResponse(200, OpenApiJson.For<MergeEntry>("Merge entry with its delivery proof"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The record was refused; the message starts with the reason code"))

@@ -3524,12 +3524,15 @@ cancelled by operator, and a `merge.cancelled` event is written.
 
 #### POST /api/v1/merge-queue/{id}/delivery-evidence
 
-Record that a `Failed` merge entry with no mission is already delivered. Global administrator only; MCP
-`armada_record_merge_delivery` runs the same record. After a fetch, the commit must be on `origin/<target branch>`, and
-when the entry's branch still resolves in the vessel repository, its tip must be that commit. The entry keeps its
-`Failed` outcome. Its `DeliveryEvidence` names the recorder, taken from the authenticated caller and never from the
-body, and a `merge.delivery_recorded` event is written. The refusal reasons are listed in
-[MERGING.md](MERGING.md); a refusal leaves the entry unchanged and its message starts with the reason.
+Record that a `Failed` merge entry is already delivered: an entry with no mission, or an entry whose mission is
+`Cancelled` and whose branch no longer resolves. Global administrator only; MCP `armada_record_merge_delivery` runs the
+same record. After a fetch, the commit must be on `origin/<target branch>`. It is compared with the entry's work, taken
+from the record and never from the body: the mission's commit, or the branch tip of an entry with no mission when the
+branch resolves. `ProofKind` `CommitAncestry` (the default) needs the commit to be that work; `PatchId` needs the commit
+to carry the same `git patch-id --stable` as the work. The entry keeps its `Failed` outcome and the mission is not
+changed. Its `DeliveryEvidence` names the proof kind, the work compared (`SourceCommit`) and the recorder, taken from
+the authenticated caller and never from the body, and a `merge.delivery_recorded` event is written. The refusal reasons
+are listed in [MERGING.md](MERGING.md); a refusal leaves the entry unchanged and its message starts with the reason.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -3540,9 +3543,12 @@ body, and a `merge.delivery_recorded` event is written. The refusal reasons are 
 ```json
 {
   "Commit": "0123456789abcdef0123456789abcdef01234567",
-  "IncidentId": "inc_abc123"
+  "IncidentId": "inc_abc123",
+  "ProofKind": "PatchId"
 }
 ```
+
+`IncidentId` and `ProofKind` are optional.
 
 **Response:** `200 OK` - the merge entry with its delivery proof
 
