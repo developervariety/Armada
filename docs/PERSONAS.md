@@ -743,6 +743,14 @@ reports reach the later review stages, which judge them. A timeout while reading
 The report-only brief tells captains to write a deferred criterion alone on its
 own line.
 
+A sentence that names another review role as the source of its not-met claim
+("the linter's line", "the Judge says", "the TestEngineer marked", and similar)
+does not block when the next sentence of the same paragraph rejects that claim
+(rejects, disagrees, overrules, does not accept) and makes no not-met claim of
+its own: the report quotes a finding in order to answer it. The report's own
+not-met statement, a quoted claim the report accepts or leaves standing, and a
+rejection in a later paragraph still block.
+
 Only the final outcome `[ARMADA:RESULT] COMPLETE` counts, and the sentence must
 say the acceptance criteria themselves are not met; a finding that some code
 does not meet a limit is not matched. An Implementation Worker that ends

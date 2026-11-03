@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A report that quotes another role's not-met line in order to reject it reaches its reviewers
+
+- A report-only stage that restates a reviewer's not-met line ("The linter's line treats criterion 3 as unmet") and rejects it in the next sentence is no longer failed as `report_incomplete`. The report's own not-met statement, a quoted line it accepts or leaves standing, and a rejection in a later paragraph still fail the stage.
+
 ### Every build or test command runs with .NET CLI telemetry off
 
 - Check runs, the definition-of-done gate, merge queue tests and workspace commands all set `DOTNET_CLI_TELEMETRY_OPTOUT=1` with the other build server variables, so no command waits on a telemetry upload. A profile value still wins.

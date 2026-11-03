@@ -127,6 +127,33 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
+            await RunTest("A COMPLETE report that restates another role's not-met line only to reject it is not unfinished; its own or an accepted not-met line still is", async () =>
+            {
+                string[] rejected = new string[]
+                {
+                    "Criterion 1: Worker part delivered; criterion 1 carried by the later roles\n\nThe linter's blocking line treats criterion 3 as unmet because the Judge has not run. This revision rejects that line.\n[ARMADA:RESULT] COMPLETE",
+                    "The Judge says criterion 2 is not met. This revision disagrees; the export is present.\n[ARMADA:RESULT] COMPLETE"
+                };
+                foreach (string output in rejected)
+                {
+                    AssertFalse(ReportIncompleteResult.TryRead(output, out string statement), "A rejected restatement is not unfinished: " + output + " (read: " + statement + ")");
+                }
+
+                string[] unfinished = new string[]
+                {
+                    "Criterion 3 is not met because the export is missing. This revision rejects the earlier plan to defer it.\n[ARMADA:RESULT] COMPLETE",
+                    "The linter marks criterion 3 as unmet because the export is missing. This revision confirms it.\n[ARMADA:RESULT] COMPLETE",
+                    "The linter marks criterion 3 as unmet because the export is missing.\n\nThis revision rejects the lint style note.\n[ARMADA:RESULT] COMPLETE"
+                };
+                foreach (string output in unfinished)
+                {
+                    AssertTrue(ReportIncompleteResult.TryRead(output, out string statement), "Still unfinished: " + output);
+                    AssertContains("criterion 3", statement.ToLowerInvariant(), "The statement is the not-met sentence");
+                }
+
+                await Task.CompletedTask;
+            });
+
             await RunTest("TryParse Null ReturnsNull", () =>
             {
                 ProgressParser.ProgressSignal? result = ProgressParser.TryParse(null!);

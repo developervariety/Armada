@@ -163,6 +163,17 @@ namespace Armada.Core.Services
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
+        // A review role named as the source of the claim: "The linter's line", "The Judge says".
+        private static readonly Regex _RoleAttribution = new Regex(
+            @"\b(?:linter|judge|test\s*engineer|reviewer|architect)(?:['\u2019]s\b|\s+(?:says|said|states|stated|marks|marked|treats|treated|reports|reported|flags|flagged|finds|found|claims|claimed|rates|rated|calls|called|lists|listed)\b)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _RejectionWord = new Regex(
+            @"\b(?:rejects?|rejected|disagrees?|disagreed|overrules?|overruled|(?:does|did)\s+not\s+accept)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
         #endregion
 
         internal sealed class PendingReviewObligations
@@ -295,6 +306,15 @@ namespace Armada.Core.Services
                 int start = SentenceStart(text, match.ReferenceIndex);
                 int nextCriterion = matchIndex + 1 < candidates.Count ? candidates[matchIndex + 1].ReferenceIndex : text.Length;
                 int end = SentenceEnd(text, match.PhraseEnd, nextCriterion, resultIndex);
+                try
+                {
+                    if (IsRejectedRestatement(text, match, start, end)) continue;
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    statement = "Criterion detection timed out.";
+                    return true;
+                }
                 ObligationKindEnum kind = ObligationKindEnum.Blocking;
                 if (hasPendingDownstreamJudge)
                 {
@@ -774,6 +794,28 @@ namespace Armada.Core.Services
                 "six" => 6, "seven" => 7, "eight" => 8, "nine" => 9, "ten" => 10,
                 _ => 0
             };
+        }
+
+        // A sentence that names another review role as the source of its not-met claim, answered by the next sentence
+        // of the same paragraph rejecting it without a not-met claim of its own, quotes a finding; it is not the report's
+        // own statement. An own claim, an accepted claim, or a rejection in a later paragraph still counts.
+        private static bool IsRejectedRestatement(string text, CriterionCandidate match, int start, int end)
+        {
+            if (!_RoleAttribution.IsMatch(text.Substring(start, match.ReferenceIndex - start))) return false;
+            int next = end;
+            int newlines = 0;
+            while (next < text.Length && Char.IsWhiteSpace(text[next]))
+            {
+                if (text[next] == '\n') newlines++;
+                next++;
+            }
+            if (newlines > 1 || next >= text.Length) return false;
+            int stop = next;
+            while (stop < text.Length && text[stop] != '\n'
+                && !((text[stop] == '.' || text[stop] == '!' || text[stop] == '?') && (stop + 1 == text.Length || Char.IsWhiteSpace(text[stop + 1]))))
+                stop++;
+            string reply = text.Substring(next, stop - next);
+            return _RejectionWord.IsMatch(reply) && !_NotMetPhrase.IsMatch(reply);
         }
 
         private static int SentenceStart(string text, int index)
