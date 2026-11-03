@@ -317,6 +317,157 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("An operator records delivery on a failed entry with no mission and the entry keeps its failure", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    StubGitService git = new StubGitService();
+                    string commit = new String('a', 40);
+                    MergeEntry entry = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, commit, true).ConfigureAwait(false);
+
+                    MergeDeliveryRecordResult result = await new MergeDeliveryRecorder(testDb.Driver, git)
+                        .RecordAsync(entry.Id, commit, OperatorCaller(" Example operator ", "crd_example", "usr_example"), "inc_example").ConfigureAwait(false);
+
+                    AssertTrue(result.Recorded, "the proven delivery is recorded: " + result.Message);
+                    AssertEqual(1, git.FetchCalls.Count(path => path == vessel.LocalPath), "the vessel is fetched before the proof is read");
+                    MergeEntry after = (await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
+                    AssertEqual(MergeStatusEnum.Failed, after.Status, "the failed outcome is kept");
+                    AssertNotNull(after.DeliveryEvidence, "the proof is stored on the entry");
+                    LandingReconcileEvidence evidence = after.DeliveryEvidence!;
+                    AssertEqual(commit, evidence.EvidenceCommit, "the proof names the recorded commit");
+                    AssertEqual(LandingEvidenceKindEnum.CommitAncestry, evidence.EvidenceKind, "ancestry is the proof");
+                    AssertEqual("origin/main", evidence.TargetRef, "the proof names the target it read");
+                    AssertEqual(vessel.Id, evidence.VesselId, "the proof names the vessel");
+                    AssertEqual(String.Empty, evidence.MissionId, "an entry with no mission records no mission");
+                    AssertEqual("Example operator", evidence.RecordedBy, "the recorder is the authenticated caller");
+                    AssertEqual("inc_example", evidence.IncidentId, "the incident the operator named is kept");
+
+                    List<ArmadaEvent> recorded = (await testDb.Driver.Events.EnumerateByEntityAsync("merge_entry", entry.Id, 50).ConfigureAwait(false))
+                        .Where(item => item.EventType == MergeDeliveryRecorder.RecordedEventType).ToList();
+                    AssertEqual(1, recorded.Count, "one event records the delivery");
+
+                    List<InboxItem> items = await new InboxService(testDb.Driver, CreateLogging()).GetInboxAsync().ConfigureAwait(false);
+                    InboxItem item = items.Single(candidate => candidate.EntityId == entry.Id);
+                    AssertEqual(InboxService.MergeFailedDeliveredKind, item.Kind, "the recorded failure is context");
+                    AssertEqual(InboxSeverityEnum.Info, item.Severity, "the recorded failure is not critical");
+                    AssertContains("Recorded by Example operator", item.Detail, "the item names the operator who recorded the proof");
+                }
+            });
+
+            await RunTest("Recording delivery refuses each ineligible or unproven entry by name and leaves it unchanged", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    StubGitService git = new StubGitService();
+                    string commit = new String('a', 40);
+                    AuthContext caller = OperatorCaller("Example operator", null, "usr_example");
+                    AuthContext nameless = OperatorCaller(null, null, String.Empty);
+
+                    MergeEntry queued = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, commit, true).ConfigureAwait(false);
+                    queued.Status = MergeStatusEnum.Queued;
+                    await testDb.Driver.MergeEntries.UpdateAsync(queued).ConfigureAwait(false);
+
+                    MergeEntry alreadyRecorded = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, commit, true).ConfigureAwait(false);
+                    alreadyRecorded.DeliveryEvidence = new LandingReconcileEvidence
+                    {
+                        VesselId = vessel.Id,
+                        EvidenceCommit = new String('e', 40),
+                        TargetRef = "origin/main",
+                        RecordedBy = "Earlier operator"
+                    };
+                    await testDb.Driver.MergeEntries.UpdateAsync(alreadyRecorded).ConfigureAwait(false);
+
+                    MergeEntry missionBound = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, commit, true).ConfigureAwait(false);
+                    missionBound.MissionId = "msn_example";
+                    await testDb.Driver.MergeEntries.UpdateAsync(missionBound).ConfigureAwait(false);
+
+                    MergeEntry noVessel = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, commit, true).ConfigureAwait(false);
+                    noVessel.VesselId = null;
+                    await testDb.Driver.MergeEntries.UpdateAsync(noVessel).ConfigureAwait(false);
+
+                    MergeEntry noIdentity = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, commit, true).ConfigureAwait(false);
+                    string offTargetCommit = new String('b', 40);
+                    MergeEntry offTarget = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, offTargetCommit, false).ConfigureAwait(false);
+                    MergeEntry movedBranch = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, commit, true).ConfigureAwait(false);
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + movedBranch.BranchName] = new String('d', 40);
+
+                    (string Label, string EntryId, string Commit, AuthContext Caller, string Code)[] cases = new[]
+                    {
+                        ("unknown entry", "mrg_missing_example", commit, caller, MergeDeliveryRecorder.NotFoundCode),
+                        ("entry that is not Failed", queued.Id, commit, caller, MergeDeliveryRecorder.NotFailedCode),
+                        ("entry that already carries proof", alreadyRecorded.Id, commit, caller, MergeDeliveryRecorder.AlreadyRecordedCode),
+                        ("entry bound to a mission", missionBound.Id, commit, caller, MergeDeliveryRecorder.MissionBoundCode),
+                        ("entry with no vessel", noVessel.Id, commit, caller, MergeDeliveryRecorder.RepositoryUnavailableCode),
+                        ("caller with no identity", noIdentity.Id, commit, nameless, MergeDeliveryRecorder.NoCallerIdentityCode),
+                        ("commit not on the target branch", offTarget.Id, offTargetCommit, caller, MergeDeliveryRecorder.NotOnTargetCode),
+                        ("branch tip that is not the commit", movedBranch.Id, commit, caller, MergeDeliveryRecorder.BranchTipDiffersCode)
+                    };
+
+                    MergeDeliveryRecorder recorder = new MergeDeliveryRecorder(testDb.Driver, git);
+                    HashSet<string> codes = new HashSet<string>(StringComparer.Ordinal);
+                    foreach ((string label, string entryId, string caseCommit, AuthContext caseCaller, string code) in cases)
+                    {
+                        MergeEntry? before = await testDb.Driver.MergeEntries.ReadAsync(entryId).ConfigureAwait(false);
+                        MergeDeliveryRecordResult result = await recorder.RecordAsync(entryId, caseCommit, caseCaller, null).ConfigureAwait(false);
+
+                        AssertFalse(result.Recorded, label + ": refused");
+                        AssertEqual(code, result.Code, label + ": the refusal names its reason: " + result.Message);
+                        codes.Add(result.Code!);
+                        MergeEntry? after = await testDb.Driver.MergeEntries.ReadAsync(entryId).ConfigureAwait(false);
+                        AssertEqual(before == null, after == null, label + ": the entry is neither created nor deleted");
+                        if (before != null)
+                        {
+                            AssertEqual(before.Status, after!.Status, label + ": the status is unchanged");
+                            AssertEqual(JsonSerializer.Serialize(before.DeliveryEvidence), JsonSerializer.Serialize(after.DeliveryEvidence), label + ": the proof is unchanged");
+                            int recordedEvents = (await testDb.Driver.Events.EnumerateByEntityAsync("merge_entry", entryId, 50).ConfigureAwait(false))
+                                .Count(item => item.EventType == MergeDeliveryRecorder.RecordedEventType);
+                            AssertEqual(0, recordedEvents, label + ": a refusal writes no event");
+                        }
+                    }
+
+                    AssertEqual(cases.Length, codes.Count, "every refusal has its own reason");
+                }
+            });
+
+            await RunTest("REST and MCP record delivery under the caller's own identity and ignore a recorder in the request", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(harness.Database).ConfigureAwait(false);
+                    foreach ((string surface, string expected) in new[] { ("REST", "API Key"), ("MCP", "Test operator") })
+                    {
+                        string commit = Guid.NewGuid().ToString("N") + "00000000";
+                        MergeEntry entry = await CreateMissionlessFailedMergeAsync(harness.Database, vessel, harness.Git, commit, true).ConfigureAwait(false);
+                        SurfaceReply reply = surface == "REST"
+                            ? await harness.RestAsync(System.Net.Http.HttpMethod.Post, "/api/v1/merge-queue/" + entry.Id + "/delivery-evidence",
+                                new { commit = commit, incidentId = "inc_example", recordedBy = "Someone else" }).ConfigureAwait(false)
+                            : await harness.McpAsync("armada_record_merge_delivery",
+                                new { entryId = entry.Id, commit = commit, incidentId = "inc_example", recordedBy = "Someone else" }).ConfigureAwait(false);
+
+                        AssertFalse(reply.Refused, surface + ": the proven delivery is recorded: " + reply);
+                        MergeEntry after = (await harness.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
+                        AssertEqual(expected, after.DeliveryEvidence?.RecordedBy, surface + ": the recorder comes from the credential, never the request");
+                        AssertEqual("inc_example", after.DeliveryEvidence?.IncidentId, surface + ": the incident is kept");
+                    }
+
+                    SurfaceReply restRefusal = await harness.RestAsync(System.Net.Http.HttpMethod.Post, "/api/v1/merge-queue/mrg_missing_example/delivery-evidence",
+                        new { commit = new String('a', 40) }).ConfigureAwait(false);
+                    AssertEqual(404, restRefusal.Status, "REST: an unknown entry is not found: " + restRefusal);
+                    AssertContains(MergeDeliveryRecorder.NotFoundCode, restRefusal.Body, "REST: the refusal names its reason");
+                    SurfaceReply mcpRefusal = await harness.McpAsync("armada_record_merge_delivery",
+                        new { entryId = "mrg_missing_example", commit = new String('a', 40) }).ConfigureAwait(false);
+                    AssertTrue(mcpRefusal.Refused, "MCP: an unknown entry is refused: " + mcpRefusal);
+                    AssertContains(MergeDeliveryRecorder.NotFoundCode, mcpRefusal.Body, "MCP: the refusal names its reason");
+
+                    AuthContext missionCaller = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "Bearer");
+                    missionCaller.MissionId = "msn_example";
+                    AssertFalse(Armada.Server.Mcp.McpToolAccessPolicy.IsAllowed(missionCaller, "armada_record_merge_delivery"),
+                        "a mission caller cannot record delivery, even when its owner is an administrator");
+                }
+            });
         }
 
         private static LoggingModule CreateLogging()
@@ -389,6 +540,23 @@ namespace Armada.Test.Unit.Suites.Services
                 VesselId = vessel.Id,
                 Status = MergeStatusEnum.Failed
             };
+            return await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+        }
+
+        private static AuthContext OperatorCaller(string? principalDisplay, string? credentialId, string userId)
+        {
+            return AuthContext.Authenticated(Constants.DefaultTenantId, userId, true, true, "Test", credentialId, principalDisplay);
+        }
+
+        private static async Task<MergeEntry> CreateMissionlessFailedMergeAsync(TestDatabase testDb, Vessel vessel, StubGitService git, string commit, bool? onTarget)
+        {
+            MergeEntry entry = new MergeEntry("feature/example-" + Guid.NewGuid().ToString("N").Substring(0, 6), "main")
+            {
+                VesselId = vessel.Id,
+                Status = MergeStatusEnum.Failed
+            };
+            git.AncestorResults[commit + "|" + TargetRef] = onTarget;
+            git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + entry.BranchName] = commit;
             return await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
         }
 

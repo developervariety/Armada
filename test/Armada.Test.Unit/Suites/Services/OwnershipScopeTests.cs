@@ -63,6 +63,21 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Caller identity names the principal, else the credential, else the user", () =>
+            {
+                AuthContext full = AuthContext.Authenticated("ten_a", " usr_a1 ", true, true, "Test", " crd_a1 ", " Example operator ");
+                AssertEqual("Example operator", CallerIdentity.Of(full), "the principal display comes first");
+                AuthContext credentialOnly = AuthContext.Authenticated("ten_a", " usr_a1 ", true, true, "Test", " crd_a1 ", " ");
+                AssertEqual("crd_a1", CallerIdentity.Of(credentialOnly), "the credential follows the principal display");
+                AuthContext userOnly = AuthContext.Authenticated("ten_a", " usr_a1 ", true, true, "Test", null, null);
+                AssertEqual("usr_a1", CallerIdentity.Of(userOnly), "the user is the last name");
+                AssertNull(CallerIdentity.Of(AuthContext.Authenticated("ten_a", " ", true, true, "Test", "", "")), "a caller with no name has no identity");
+                AuthContext unauthenticated = new AuthContext { PrincipalDisplay = "Example operator" };
+                AssertNull(CallerIdentity.Of(unauthenticated), "an unauthenticated caller has no identity");
+                AssertNull(CallerIdentity.Of(null), "no caller has no identity");
+                return Task.CompletedTask;
+            });
+
             await RunTest("A private record is never usable for another owner's work, even when an administrator starts it", () =>
             {
                 AssertTrue(OwnershipPolicy.CanUseFor("ten_a", "usr_a1", "ten_a", "usr_a1", OwnershipScopeEnum.UserSpecific, false), "owner's own work");
