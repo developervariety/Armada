@@ -699,13 +699,17 @@ including the bare forms `Criterion 2: not met` and `Criterion 2 - not met` and
 a Markdown table row that holds both. The phrase can follow the reference after
 up to 120 characters on the same line, across a parenthetical or a file name.
 
-The only shape that hands off is a prose line that defers the criterion to a
-later review stage: `Criterion N is not met because the <roles> reviews have not
-run.` Its scope is its own line, after the list bullet, number, checkbox, quote
-and emphasis markers, plus the lines indented deeper than it (sub-bullets
-included). The first following line that is not indented deeper, a blank line,
-a rule, a table row, or the next criterion ends the item. Line endings are
-normalized first. The line passes only when:
+The report-only brief tells a captain to hand a criterion to a later review
+stage as one line of the skeleton shape
+`Criterion N: <Role> part delivered; criterion N carried by the later roles`,
+and not to write "not met" for a role that has not run. That line holds no NOT MET phrase, so the detector does not
+read it. A not-met line hands off in one shape only, a prose line that defers
+the criterion to a later review stage: `Criterion N is not met because the
+<roles> reviews have not run.` Its scope is its own line, after the list bullet,
+number, checkbox, quote and emphasis markers, plus the lines indented deeper
+than it (sub-bullets included). The first following line that is not indented
+deeper, a blank line, a rule, a table row, or the next criterion ends the item.
+Line endings are normalized first. The line passes only when:
 
 - the text before the subject, within its own sentence, is a label (Note,
   Result, Status, Summary, Acceptance criteria, Criteria, Current stage, At this

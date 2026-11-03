@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### The report-only brief names the skeleton handoff shape
+
+- A report-only launch prompt tells the captain to hand a criterion to later review stages as `Criterion N: <Role> part delivered; criterion N carried by the later roles`, the shape objective skeletons use, and not to write "not met" for a role that has not run. The detector still accepts the `Criterion N is not met because the <roles> reviews have not run.` form.
+
 ### A report that quotes another role's not-met line in order to reject it reaches its reviewers
 
 - A report-only stage that restates a reviewer's not-met line ("The linter's line treats criterion 3 as unmet") and rejects it in the next sentence is no longer failed as `report_incomplete`. The report's own not-met statement, a quoted line it accepts or leaves standing, and a rejection in a later paragraph still fail the stage.
