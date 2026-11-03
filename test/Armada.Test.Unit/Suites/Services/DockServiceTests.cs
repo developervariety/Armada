@@ -1749,6 +1749,95 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProvisionAsync of a relaunched stage retires its older active dock on the same path, so the next stage on that branch provisions", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+
+                    GitService git = new GitService(logging);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-dock-relaunch-" + Guid.NewGuid().ToString("N"));
+                    string sourceDir = Path.Combine(rootDir, "source");
+                    try
+                    {
+                        GitServiceTests.SeedTemplateRepository(sourceDir);
+
+                        Vessel vessel = new Vessel("relaunch-vessel", sourceDir);
+                        vessel.DefaultBranch = "main";
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-relaunch")).ConfigureAwait(false);
+                        const string sharedBranch = "armada/captain-relaunch/msn_worker";
+
+                        // A restart stops the stage and keeps its dock row active, and the stage's mission keeps
+                        // pointing at that dock. The relaunch provisions the same mission on the same path; its
+                        // run then finishes and its dock is reclaimed.
+                        Mission stage = await testDb.Driver.Missions.CreateAsync(new Mission("relaunched stage")
+                        {
+                            VesselId = vessel.Id,
+                            CaptainId = captain.Id,
+                            Status = MissionStatusEnum.InProgress,
+                            AssignmentState = MissionAssignmentStateEnum.Assigned
+                        }).ConfigureAwait(false);
+                        Dock? stopped = await service.ProvisionAsync(vessel, captain, sharedBranch, stage.Id).ConfigureAwait(false);
+                        AssertNotNull(stopped, "the stopped stage's dock should be provisioned");
+                        captain.State = CaptainStateEnum.Idle;
+                        captain.CurrentDockId = null;
+                        captain.CurrentMissionId = null;
+                        await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                        stage.DockId = stopped!.Id;
+                        stage.Status = MissionStatusEnum.Assigned;
+                        stage.AssignmentState = MissionAssignmentStateEnum.Provisioning;
+                        stage = await testDb.Driver.Missions.UpdateAsync(stage).ConfigureAwait(false);
+
+                        Dock? relaunched = await service.ProvisionAsync(vessel, captain, sharedBranch, stage.Id).ConfigureAwait(false);
+                        AssertNotNull(relaunched, "the relaunched stage's dock should be provisioned");
+                        AssertEqual(stopped.WorktreePath, relaunched!.WorktreePath, "the relaunch reuses the stage's path");
+                        stage.DockId = relaunched.Id;
+                        stage.Status = MissionStatusEnum.WorkProduced;
+                        stage.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                        stage = await testDb.Driver.Missions.UpdateAsync(stage).ConfigureAwait(false);
+                        await service.ReclaimAsync(relaunched.Id).ConfigureAwait(false);
+
+                        // The next stage is routed to the same captain and is provisioning.
+                        Mission next = new Mission("next stage")
+                        {
+                            VesselId = vessel.Id,
+                            CaptainId = captain.Id,
+                            Status = MissionStatusEnum.Assigned,
+                            AssignmentState = MissionAssignmentStateEnum.Provisioning
+                        };
+                        await testDb.Driver.Missions.CreateAsync(next).ConfigureAwait(false);
+
+                        string failure = String.Empty;
+                        Dock? nextDock = null;
+                        try
+                        {
+                            nextDock = await service.ProvisionAsync(vessel, captain, sharedBranch, "msn_next").ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex) { failure = ex.Message; }
+                        AssertEqual(String.Empty, failure, "the next stage on the branch must not be held by the stopped stage's dock");
+                        AssertNotNull(nextDock, "the next stage must provision on the same branch");
+
+                        Dock? reloadedStopped = await testDb.Driver.Docks.ReadAsync(stopped.Id).ConfigureAwait(false);
+                        AssertFalse(reloadedStopped!.Active, "the stopped stage's older dock row is retired");
+                    }
+                    finally
+                    {
+                        try { if (Directory.Exists(rootDir)) Directory.Delete(rootDir, true); } catch { }
+                        try { if (Directory.Exists(settings.DocksDirectory)) Directory.Delete(settings.DocksDirectory, true); } catch { }
+                        try { if (Directory.Exists(settings.ReposDirectory)) Directory.Delete(settings.ReposDirectory, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("PurgeAsync does not delete a worktree path owned by another active dock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

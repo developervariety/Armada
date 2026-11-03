@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A stage relaunched after a restart no longer holds its branch from the next stage
+
+- A mission stopped by an admiral restart kept its dock active, and its relaunch wrote a second active dock on the same path. When the relaunched stage finished, the older dock kept the worktree, so the next stage on that branch failed `dock_worktree_held` until the orphan-dock sweep ran. The relaunch now retires the older dock once its own dock exists.
+
 ### A named review list with a serial comma reaches its review chain
 
 - A report-only stage that writes "Criterion N is not met because the TestEngineer, Linter, revising Worker, and Judge reviews have not run" is read as a deferral when each named role is a verified pending stage of its chain. The comma before the final "and" no longer leaves "and Judge" as an unknown role.

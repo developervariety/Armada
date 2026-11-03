@@ -411,6 +411,7 @@ namespace Armada.Core.Services
                     };
                 }
                 dock = await _Database.Docks.CreateAsync(dock, token).ConfigureAwait(false);
+                await RetireSupersededDocksAsync(vessel, dock, missionId, token).ConfigureAwait(false);
 
                 // The repository lock guards this vessel's bare repository and its own worktree, which
                 // now exist. Sibling provisioning takes each sibling repository's lock, so holding this
@@ -2952,12 +2953,41 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Retire each older active dock on the new dock's own path: the same mission provisioned again, for example
+        /// after a restart stopped its run. The mission may still point at the older dock, so it does not make that dock
+        /// live. A retired row keeps no hold on the path, so the new dock's release frees the branch for the next stage.
+        /// The worktree and the siblings stay with the new dock. This runs after the new row exists, so an active dock
+        /// authorizes the branch throughout.
+        /// </summary>
+        private async Task RetireSupersededDocksAsync(Vessel vessel, Dock dock, string? missionId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(missionId) || String.IsNullOrEmpty(dock.WorktreePath)) return;
+            string ownPath = Path.GetFullPath(dock.WorktreePath);
+            List<Dock> vesselDocks = await _Database.Docks.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            foreach (Dock older in vesselDocks)
+            {
+                if (!older.Active || older.Id == dock.Id || String.IsNullOrEmpty(older.WorktreePath)) continue;
+                if (!String.Equals(Path.GetFullPath(older.WorktreePath), ownPath, StringComparison.OrdinalIgnoreCase)) continue;
+                if (await IsDockInLiveUseAsync(older, token, missionId).ConfigureAwait(false)) continue;
+
+                _Logging.Warn(_Header + "retiring dock " + older.Id + " at " + older.WorktreePath +
+                    " because mission " + missionId + " is provisioned again on its path as dock " + dock.Id);
+                await ReleaseSiblingLeasesForDockAsync(older, token).ConfigureAwait(false);
+                TryDeleteDockStartCommitFile(older.Id);
+                older.Active = false;
+                older.CaptainId = null;
+                older.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Docks.UpdateAsync(older, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
         /// True when this dock still belongs to a live assignment. Captain Idle is not enough
         /// to reclaim: provision runs before the captain is claimed, so a concurrent assignment
         /// would otherwise delete an in-flight worktree. An Idle captain plus no live mission
         /// is the leftover that an orphaned child turns into a live-lock.
         /// </summary>
-        private async Task<bool> IsDockInLiveUseAsync(Dock dock, CancellationToken token)
+        private async Task<bool> IsDockInLiveUseAsync(Dock dock, CancellationToken token, string? ignoredMissionId = null)
         {
             if (DockLeaseRegistry.IsHeld(dock.Id)) return true;
             if (!String.IsNullOrEmpty(dock.CaptainId))
@@ -2974,6 +3004,7 @@ namespace Armada.Core.Services
                 foreach (Mission mission in missions)
                 {
                     if (!IsLiveAssignment(mission)) continue;
+                    if (ignoredMissionId != null && String.Equals(mission.Id, ignoredMissionId, StringComparison.Ordinal)) continue;
                     if (String.Equals(mission.DockId, dock.Id, StringComparison.Ordinal)) return true;
                     // Provision writes the dock row before the mission.DockId; protect that window.
                     if (String.IsNullOrEmpty(mission.DockId)

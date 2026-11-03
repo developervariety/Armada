@@ -367,24 +367,27 @@ bound. That dock is released when the earlier stage's completion handling
 hands off, so the stage is assigned on a later pass.
 
 A restart resets an in-flight mission to Pending and keeps its branch and its
-active dock. A root (stage-1) mission reassigned this way continues on its own
-persisted branch at the committed head; the replacement captain attaches to that
-branch rather than cutting a fresh one from the default branch, so committed work
-is never orphaned. Continuation is authorized by an active dock on the same
-vessel, tenant and branch, resolved from the live dock records and not from the
+active dock. When that mission is provisioned again on its own path, the new
+dock retires the older one once the new dock record exists, so only one active
+dock holds the path and its release frees the branch for the next stage. A root
+(stage-1) mission reassigned this way continues on its own persisted branch at
+the committed head; the replacement captain attaches to that branch rather than
+cutting a fresh one from the default branch, so committed work is never
+orphaned. Continuation is authorized by an active dock on the same vessel,
+tenant and branch, resolved from the live dock records and not from the
 mission's dock pointer. A retry after a failed launch or provision clears that
 pointer but keeps the committed branch, and the still-active dock re-authorizes
-the continuation, so the retry never cuts a fresh branch from the default branch.
-When the persisted branch still carries committed work but no active dock
-authorizes it, the mission holds with the assignment hold
-`root_continuation_dock_missing` rather than cutting a fresh branch. If an active
-dock authorizes the branch but it no longer resolves in the vessel repository,
-the mission holds with `root_continuation_ref_missing`. A branch name with no
-committed work and no active dock still gets a fresh captain branch, exactly as a
-first assignment would. A saved branch whose head is reachable from the mission's
-start ref (the default branch when none is set) holds no committed work, so a
-dockless root mission with such a branch takes a fresh dock and branch and
-releases its hold. Unknown ancestry keeps the hold.
+the continuation, so the retry never cuts a fresh branch from the default
+branch. When the persisted branch still carries committed work but no active
+dock authorizes it, the mission holds with the assignment hold
+`root_continuation_dock_missing` rather than cutting a fresh branch. If an
+active dock authorizes the branch but it no longer resolves in the vessel
+repository, the mission holds with `root_continuation_ref_missing`. A branch
+name with no committed work and no active dock still gets a fresh captain
+branch, exactly as a first assignment would. A saved branch whose head is
+reachable from the mission's start ref (the default branch when none is set)
+holds no committed work, so a dockless root mission with such a branch takes a
+fresh dock and branch and releases its hold. Unknown ancestry keeps the hold.
 
 ## Ref cleanup evidence
 
