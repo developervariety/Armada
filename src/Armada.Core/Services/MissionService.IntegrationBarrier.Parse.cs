@@ -27,15 +27,25 @@ namespace Armada.Core.Services
             foreach (string? source in sources)
             {
                 if (String.IsNullOrWhiteSpace(source) || !ArchitectVersionedPlanParser.ContainsPlanFence(source)) continue;
-                result.Missions = ParseVersionedArchitectOutput(source, maximum, out string? failure);
+                result.Missions = CarryReadContract(architectMission, ParseVersionedArchitectOutput(source, maximum, out string? failure));
                 if (result.Missions.Count == 0) result.InvalidPlanReason = failure;
                 return result;
             }
 
             List<ParsedArchitectMission> legacy = ParseArchitectOutput(architectMission, out string? fallbackReason);
-            result.Missions = legacy;
+            result.Missions = CarryReadContract(architectMission, legacy);
             result.FallbackReason = fallbackReason;
             return result;
+        }
+
+        // Each plan block becomes its own mission brief, so the Architect brief's read contract reaches the
+        // captains of the planned work only when every block carries it.
+        private static List<ParsedArchitectMission> CarryReadContract(Mission architectMission, List<ParsedArchitectMission> missions)
+        {
+            List<string> readContract = MissionPromptBuilder.ExtractReadContractLines(architectMission.Description);
+            foreach (ParsedArchitectMission mission in missions)
+                mission.Description = KeepReadContractLines(mission.Description, readContract);
+            return missions;
         }
 
         private static List<ParsedArchitectMission> ParseVersionedArchitectOutput(

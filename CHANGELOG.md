@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Architect plan blocks carry the Architect brief's read contract
+
+- Every plan block an Architect produces, from a versioned plan or from mission blocks, now starts with each `Read contract:` line of the Architect brief that it does not already hold, so the launch prompts of the planned stages carry that contract. An indented, quoted or fenced line is not carried, and a brief with no such line leaves the blocks unchanged.
+
 ### A named review list may call the pending revising Worker "revision"
 
 - In a report's named pending review list, "revision" and "revision Worker" now read as the pending revising Worker, as "revising Worker" already did. They hand off only when the owned review chain holds a pending Worker; other words such as "rework" still block.

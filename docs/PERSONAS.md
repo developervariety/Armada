@@ -275,7 +275,10 @@ launch prompt names it as `read_contract_line_too_long` or
 `read_contract_too_many_lines` and keeps the default paged read. A pipeline
 handoff that cuts a stage brief to its budget puts back at the top every
 `Read contract:` line the cut removed, so each stage's launch prompt carries
-the same contract.
+the same contract. When an Architect splits its brief into plan blocks, every
+block, from a versioned plan or from mission blocks, starts with each
+`Read contract:` line of the Architect brief that it does not already hold, so
+the planned stages carry the Architect's contract too.
 
 ### Lean and Compact prompt variants
 
