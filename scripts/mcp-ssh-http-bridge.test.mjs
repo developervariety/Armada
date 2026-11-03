@@ -6,6 +6,8 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PassThrough } from "node:stream";
+import { runBridge } from "./mcp-ssh-http-bridge.mjs";
 
 const bridgePath = join(dirname(fileURLToPath(import.meta.url)), "mcp-ssh-http-bridge.mjs");
 
@@ -81,4 +83,84 @@ test("requests carry the transport headers and no session-identity header, whate
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+// Drive runBridge in process with a stand-in request function, so a test controls when each
+// remote call answers.
+function startInProcessBridge(request) {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const lines = [];
+  let buffered = "";
+  const waiters = [];
+  output.on("data", (chunk) => {
+    buffered += chunk.toString("utf8");
+    let index;
+    while ((index = buffered.indexOf("\n")) >= 0) {
+      const line = buffered.substring(0, index).trim();
+      buffered = buffered.substring(index + 1);
+      if (line.length > 0) lines.push(JSON.parse(line));
+    }
+    for (const waiter of waiters.splice(0)) waiter();
+  });
+  const done = runBridge({ input, output, errorOutput: new PassThrough(), environment: {}, request });
+  const send = (id, name) => input.write(JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: {} } }) + "\n");
+  const waitFor = (predicate, milliseconds, label) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(label)), milliseconds);
+    const check = () => { if (predicate()) { clearTimeout(timer); resolve(); } else waiters.push(check); };
+    check();
+  });
+  return { input, lines, done, send, waitFor };
+}
+
+function reply(id, sessionId) {
+  return { statusCode: 200, sessionId, contentType: "application/json", body: JSON.stringify({ jsonrpc: "2.0", id, result: {} }) };
+}
+
+test("a read is answered while an earlier long write is still waiting for its response", async () => {
+  let releaseWrite;
+  const writeHeld = new Promise((resolve) => { releaseWrite = resolve; });
+  const bridge = startInProcessBridge(async (message, sessionId, requestObject) => {
+    if (requestObject.id === 1) return reply(1, null);
+    if (requestObject.id === 2) { await writeHeld; return reply(2, null); }
+    return reply(requestObject.id, null);
+  });
+
+  bridge.send(1, "armada_status");
+  await bridge.waitFor(() => bridge.lines.some((line) => line.id === 1), 2000, "the first call did not answer");
+  bridge.send(2, "armada_review_hold");
+  bridge.send(3, "armada_status");
+  await bridge.waitFor(() => bridge.lines.some((line) => line.id === 3), 2000,
+    "the read waited behind the held write");
+  assert.equal(bridge.lines.some((line) => line.id === 2), false, "the write is still held when the read answers");
+
+  releaseWrite();
+  await bridge.waitFor(() => bridge.lines.some((line) => line.id === 2), 2000, "the held write did not answer after release");
+  bridge.input.end();
+  await bridge.done;
+  assert.deepEqual(bridge.lines.map((line) => line.id).sort(), [1, 2, 3], "each call is answered exactly once");
+});
+
+test("calls sent while the first call is in flight carry the session id that call returns", async () => {
+  let releaseFirst;
+  const firstHeld = new Promise((resolve) => { releaseFirst = resolve; });
+  const seen = [];
+  const bridge = startInProcessBridge(async (message, sessionId, requestObject) => {
+    seen.push({ id: requestObject.id, sessionId });
+    if (requestObject.id === 1) { await firstHeld; return reply(1, "session-one"); }
+    return reply(requestObject.id, null);
+  });
+
+  bridge.send(1, "armada_status");
+  bridge.send(2, "armada_status");
+  bridge.send(3, "armada_status");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(seen.map((call) => call.id), [1], "later calls wait until the first call has answered");
+
+  releaseFirst();
+  await bridge.waitFor(() => bridge.lines.length === 3, 2000, "not every call answered");
+  bridge.input.end();
+  await bridge.done;
+  assert.deepEqual(seen.filter((call) => call.id !== 1).map((call) => call.sessionId), ["session-one", "session-one"],
+    "the later calls carry the session id from the first response");
 });
