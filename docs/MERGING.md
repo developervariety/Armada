@@ -67,7 +67,10 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
       substitute for a failed one. Direct landing reads its evidence through the same
       collector.
    7. Run the dock-boundary scan (protected paths, secrets, private identifiers) on
-      that evidence. A finding marks the entry `Failed`.
+      that evidence. A finding marks the entry `Failed`. A protected-path finding on
+      an entry with no mission is recorded as `Merge entry with no mission modified
+      protected path`, which names no captain; an operator lands such a change with a
+      direct landing.
    8. Validate the integration candidate (see [Integration Validation](#integration-validation)).
       A refused candidate marks the entry `Failed` with the named reason.
    9. Run the configured merge-queue test command, if one is set. It is an extra

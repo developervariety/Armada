@@ -56,7 +56,7 @@ namespace Armada.Core.Services
             DockBoundaryScanResult boundary = await ScanDockBoundaryAsync(entry, evidence, token).ConfigureAwait(false);
             if (!boundary.Passed)
             {
-                string reason = FormatDockBoundaryFailureReason(boundary, evidence.Vessel?.Name ?? entry.VesselId ?? "unknown");
+                string reason = FormatDockBoundaryFailureReason(boundary, evidence.Vessel?.Name ?? entry.VesselId ?? "unknown", !String.IsNullOrEmpty(entry.MissionId));
                 await TransitionEntryToFailureAsync(entry, reason, token, fireRecovery: false).ConfigureAwait(false);
                 await RemoveHarborIntegrationAsync(entry, integration, token).ConfigureAwait(false);
                 return;

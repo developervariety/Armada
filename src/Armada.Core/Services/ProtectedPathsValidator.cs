@@ -91,6 +91,25 @@ namespace Armada.Core.Services
         public const string FailureReasonPrefix = "Captain modified protected path";
 
         /// <summary>
+        /// Start of the failure reason recorded when a merge entry with no mission touches a protected path.
+        /// No captain produced such a change, so the reason names no captain and no proposal block.
+        /// </summary>
+        public const string NoMissionFailureReasonPrefix = "Merge entry with no mission modified protected path";
+
+        /// <summary>
+        /// Format the failure reason recorded on a merge entry with no mission that touches a protected path.
+        /// </summary>
+        /// <param name="matchedPath">The first offending path.</param>
+        /// <param name="vesselName">The vessel's display name.</param>
+        /// <returns>Failure-reason string suitable for MergeEntry.TestOutput.</returns>
+        public static string FormatNoMissionFailureReason(string matchedPath, string vesselName)
+        {
+            return NoMissionFailureReasonPrefix + " '" + (matchedPath ?? "") +
+                "' on vessel '" + (vesselName ?? "") +
+                "'. The merge queue does not land a protected-path change; an operator lands it with a direct landing.";
+        }
+
+        /// <summary>
         /// Format the failure reason persisted on the mission and shown to the captain.
         /// The literal token <c>[CLAUDE.MD-PROPOSAL]</c> is included so captains learn
         /// the structured-proposal convention from a single failure.

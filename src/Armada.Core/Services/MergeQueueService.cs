@@ -1634,7 +1634,8 @@ namespace Armada.Core.Services
             {
                 string failureReason = FormatDockBoundaryFailureReason(
                     boundaryResult,
-                    evidence.Vessel?.Name ?? entry.VesselId ?? "unknown");
+                    evidence.Vessel?.Name ?? entry.VesselId ?? "unknown",
+                    !String.IsNullOrEmpty(entry.MissionId));
                 _Logging.Warn(_Header + "dock-boundary violation for " + entryTag + ": " + failureReason);
                 await TransitionEntryToFailureAsync(entry, failureReason, token, fireRecovery: false).ConfigureAwait(false);
                 await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
@@ -2522,7 +2523,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private static string FormatDockBoundaryFailureReason(DockBoundaryScanResult result, string vesselName)
+        private static string FormatDockBoundaryFailureReason(DockBoundaryScanResult result, string vesselName, bool hasMission)
         {
             if (result == null || result.Findings.Count == 0)
             {
@@ -2532,7 +2533,9 @@ namespace Armada.Core.Services
             DockBoundaryFinding first = result.Findings[0];
             if (first.Kind == DockBoundaryFindingKindEnum.ProtectedPath)
             {
-                return ProtectedPathsValidator.FormatFailureReason(first.Path ?? first.FindingLabel, vesselName);
+                return hasMission
+                    ? ProtectedPathsValidator.FormatFailureReason(first.Path ?? first.FindingLabel, vesselName)
+                    : ProtectedPathsValidator.FormatNoMissionFailureReason(first.Path ?? first.FindingLabel, vesselName);
             }
 
             return "Dock-boundary gate failed for vessel '" + (vesselName ?? "") + "': " + first.Message;

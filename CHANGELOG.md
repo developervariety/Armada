@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A merge entry with no mission is not refused as a captain change
+
+- When the merge queue refuses an entry with no mission for a protected path, the reason reads "Merge entry with no mission modified protected path" and names neither a captain nor a `[CLAUDE.MD-PROPOSAL]` block. A mission's entry keeps the captain wording.
+
 ### Architect plan blocks carry the Architect brief's read contract
 
 - Every plan block an Architect produces, from a versioned plan or from mission blocks, now starts with each `Read contract:` line of the Architect brief that it does not already hold, so the launch prompts of the planned stages carry that contract. An indented, quoted or fenced line is not carried, and a brief with no such line leaves the blocks unchanged.

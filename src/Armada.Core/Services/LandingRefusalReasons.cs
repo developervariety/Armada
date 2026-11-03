@@ -26,7 +26,8 @@ namespace Armada.Core.Services
             string reason = failureReason.TrimStart();
             return reason.StartsWith(LandingEvidence.RefusalPrefix, StringComparison.Ordinal)
                 || reason.StartsWith(DockBoundaryPrefix, StringComparison.Ordinal)
-                || reason.StartsWith(ProtectedPathsValidator.FailureReasonPrefix, StringComparison.Ordinal);
+                || reason.StartsWith(ProtectedPathsValidator.FailureReasonPrefix, StringComparison.Ordinal)
+                || reason.StartsWith(ProtectedPathsValidator.NoMissionFailureReasonPrefix, StringComparison.Ordinal);
         }
     }
 }
