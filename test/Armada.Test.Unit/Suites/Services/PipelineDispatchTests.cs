@@ -1090,6 +1090,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Every plan block carries the Architect brief's read contract, from a versioned plan and from mission blocks alike", async () =>
+            {
+                const string contract = "Read contract: read the vessel instructions file whole before any edit";
+                string described = "Break this down\n" + contract + "\n" +
+                    "  Read contract: an indented example line\n" +
+                    "```\nRead contract: a fenced example line\n```\n";
+                string versioned = "```armada-plan\n{\"contractVersion\":3,\"requirements\":[\"REQ-1\"],\"decisions\":[\"Keep defaults\"],\"missions\":[" +
+                    PlanMissionJson("Branch A", "Implement A", "implementation", "null", "AC-1", "A") + "," +
+                    PlanMissionJson("Branch B", "Implement B independently", "implementation", "null", "AC-2", "B") + "," +
+                    PlanMissionJson("Integrate", "Join branches", "integration", "1", "AC-3", "integration") + "]}\n```";
+                string blocks =
+                    "[ARMADA:MISSION]\nid: M1\ntitle: Branch A\npreferredModel: mid\ndescription: Implement A\n[ARMADA:MISSION-END]\n" +
+                    "[ARMADA:MISSION]\nid: M2\ntitle: Branch B\npreferredModel: mid\ndescription: Implement B\n[ARMADA:MISSION-END]\n";
+
+                foreach (string plan in new[] { versioned, blocks })
+                {
+                    Dictionary<string, string> plain = await ReadPlanBlockBriefsAsync(plan, "Break this down").ConfigureAwait(false);
+                    Dictionary<string, string> carried = await ReadPlanBlockBriefsAsync(plan, described).ConfigureAwait(false);
+                    string path = plan == versioned ? "versioned plan" : "mission blocks";
+                    AssertEqual(2, plain.Count, "Both plan blocks of the " + path + " become Workers");
+                    foreach (KeyValuePair<string, string> brief in plain)
+                    {
+                        AssertEqual(0, MissionPromptBuilder.ExtractReadContractLines(brief.Value).Count,
+                            "With no read contract in the Architect brief, the " + path + " block " + brief.Key + " carries none");
+                        AssertEqual(contract, String.Join("|", MissionPromptBuilder.ExtractReadContractLines(carried[brief.Key])),
+                            "The " + path + " block " + brief.Key + " carries the column-zero read contract line");
+                        AssertEqual(brief.Value, carried[brief.Key].Replace(contract + "\n\n", String.Empty),
+                            "The " + path + " block " + brief.Key + " is otherwise unchanged");
+                        AssertFalse(carried[brief.Key].Contains("example line"),
+                            "An indented or fenced read-contract line in the Architect brief is not carried");
+                    }
+
+                    Mission worker = new Mission("vsl_test");
+                    worker.Title = "Branch A";
+                    worker.Persona = "Worker";
+                    worker.Description = carried["Branch A"];
+                    Vessel vessel = new Vessel { Id = "vsl_test", Name = "test", DefaultBranch = "main" };
+                    Captain captain = new Captain { Name = "captain-1", Runtime = AgentRuntimeEnum.Codex };
+                    string worktree = Path.Combine(Path.GetTempPath(), "armada-launch-wt-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktree);
+                    try
+                    {
+                        Dock dock = new Dock("vsl_test");
+                        dock.WorktreePath = worktree;
+                        dock.BranchName = "armada/branch";
+                        string prompt = await MissionPromptBuilder.BuildLaunchPromptAsync(worker, vessel, captain, dock, null).ConfigureAwait(false);
+                        AssertContains(contract, prompt, "The " + path + " Worker's launch prompt states the read contract");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktree, true); }
+                        catch { }
+                    }
+                }
+            });
+
             await RunTest("A plan written as a numbered list is read by the fallback and the fallback is reported", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1920,6 +1976,35 @@ namespace Armada.Test.Unit.Suites.Services
             public List<ArmadaEvent> GateInputEvents { get; set; } = new List<ArmadaEvent>();
         }
 
+        private async Task<Dictionary<string, string>> ReadPlanBlockBriefsAsync(string plan, string architectDescription)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+            {
+                PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                    startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                    diff: "", output: plan, architectDescription: architectDescription).ConfigureAwait(false);
+                Dictionary<string, string> briefs = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (Mission mission in outcome.VoyageMissions.Where(m => m.Persona == "Worker"))
+                {
+                    foreach (string title in new[] { "Branch A", "Branch B" })
+                        if (mission.Title.StartsWith(title, StringComparison.Ordinal)) briefs[title] = mission.Description ?? String.Empty;
+                }
+                return briefs;
+            }
+        }
+
+        private static string PlanMissionJson(string title, string description, string kind, string dependency, string criterionId, string label)
+        {
+            string barrier = kind == "integration" ? ",\"waitForOtherMissions\":true" : "";
+            string command = kind == "integration" ? "dotnet test" : "dotnet test " + label;
+            return "{\"title\":\"" + title + "\",\"description\":\"" + description + "\",\"kind\":\"" + kind
+                + "\",\"dependsOn\":" + dependency + barrier + ",\"validationCommands\":[\"" + command
+                + "\"],\"decisionIndexes\":[1],\"acceptanceCriteria\":[{\"id\":\"" + criterionId
+                + "\",\"requirementIds\":[\"REQ-1\"],\"decisionIndexes\":[1],\"scenario\":\"Run " + label
+                + "\",\"expected\":\"" + label + " passes\",\"verification\":\"" + label
+                + " test\",\"negativeCases\":[\"" + label + " failure blocks integration\"]}]}";
+        }
+
         private async Task<PlannerHandoffOutcome> RunArchitectHandoffAsync(
             TestDatabase testDb,
             DirCreatingGitStub git,
@@ -1929,7 +2014,8 @@ namespace Armada.Test.Unit.Suites.Services
             string headCommit,
             string diff,
             string? output = null,
-            List<string>? gateInputPaths = null)
+            List<string>? gateInputPaths = null,
+            string architectDescription = "Break this down")
         {
             LoggingModule logging = CreateLogging();
             ArmadaSettings settings = CreateSettings();
@@ -1975,7 +2061,7 @@ namespace Armada.Test.Unit.Suites.Services
                 predecessorId = predecessor.Id;
             }
 
-            Mission architect = new Mission("[Architect] Plan", "Break this down");
+            Mission architect = new Mission("[Architect] Plan", architectDescription);
             architect.VesselId = vessel.Id;
             architect.VoyageId = voyage.Id;
             architect.CaptainId = architectCaptain.Id;
