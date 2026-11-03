@@ -2609,6 +2609,10 @@ namespace Armada.Test.Unit.Suites.Services
                 ["phrase-lowercase-ac"] = "ac3 is not met because the source study is unfinished.",
                 ["bullet-then-note"] = "- Criterion 3 is not met because the later reviews have not run.\n- The matrix covers every documented row.",
                 ["named-roles-revising-worker"] = "Criterion 3 is not met because the TestEngineer, Linter, revising Worker, and Judge reviews have not run.",
+                ["named-roles-revision"] = "Criterion 3 is not met because the Test Engineer, Linter, revision, and Judge reviews have not run.",
+                ["named-roles-revision-worker"] = "Criterion 3 is not met because the TestEngineer, Linter, revision Worker, and Judge reviews have not run.",
+                ["named-roles-revision-missing-worker"] = "Criterion 3 is not met because the Test Engineer, Linter, revision, and Judge reviews have not run.",
+                ["named-roles-rework"] = "Criterion 3 is not met because the Test Engineer, Linter, rework, and Judge reviews have not run.",
                 ["other-roles"] = "Criterion 3 is not met because the other roles have not run.",
                 ["other-roles-cancelled-middle"] = "Criterion 3 is not met because the other roles have not run.",
                 ["other-roles-current-gap"] = "Criterion 3 is not met because the other roles have not run and the source study is unfinished."
@@ -2644,6 +2648,8 @@ namespace Armada.Test.Unit.Suites.Services
                 "parenthetical-file-name",
                 "bullet-then-note",
                 "named-roles-revising-worker",
+                "named-roles-revision",
+                "named-roles-revision-worker",
                 "other-roles"
             };
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
@@ -2657,7 +2663,7 @@ namespace Armada.Test.Unit.Suites.Services
                         List<Mission> futureStages = new List<Mission>();
                         foreach (string persona in new[] { "PortingReferenceAnalyst", "TestEngineer", "Linter", "Worker" })
                         {
-                            if ((scenario is "at-stage-missing-worker" or "colon-missing-worker" or "natural-missing-worker") && persona == "Worker") continue;
+                            if ((scenario is "at-stage-missing-worker" or "colon-missing-worker" or "natural-missing-worker" or "named-roles-revision-missing-worker") && persona == "Worker") continue;
                             Mission stage = new Mission("Review report", "Independently review the report.")
                             {
                                 TenantId = rig.Mission.TenantId,
