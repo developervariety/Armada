@@ -505,7 +505,7 @@ namespace Armada.Core.Services
                 if (!obligations.Contains(PersonaCatalog.Worker)) return false;
                 subject = subject.Substring(0, revision.Index);
             }
-            Match generic = Regex.Match(subject, @"\A(?:the\s+)?(?:(?<count>[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:later|downstream|future)\s+(?:role\s+)?reviews\z",
+            Match generic = Regex.Match(subject, @"\A(?:the\s+)?(?:(?<count>[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:later|downstream|future|other)\s+(?:(?:role\s+)?reviews|roles)\z",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             if (generic.Success) return obligations.ReviewCount > 0
                 && (!generic.Groups["count"].Success || ReadReviewCount(generic.Groups["count"].Value) == obligations.ReviewCount);

@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A report that defers a criterion to the other roles reaches its review chain
+
+- A report-only stage that writes "Criterion N is not met because the other roles have not run" is read as a deferral, as "the later reviews" already is, when an owned pending Judge and pending review stages follow it. With no such chain, or with a current-role gap in the same sentence, the report still fails as unfinished.
+
 ### The tool batching directive bounds a batch by what can be read whole
 
 - The `mission.tool_batching` module in every captain brief tells the captain to keep each batch small enough to read every result in full, and to split a batch whose combined output could be cut off by the reader's page or line limit. The module grows from 513 to 673 bytes.
