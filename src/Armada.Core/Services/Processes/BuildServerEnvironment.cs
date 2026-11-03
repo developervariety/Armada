@@ -8,8 +8,9 @@ namespace Armada.Core.Services
     /// The environment every build or test command Armada starts carries, so no launcher can forget it: MSBuild
     /// worker-node reuse, the MSBuild server and the shared compiler server are off. A reused node or build server
     /// outlives the command that started it, keeps its memory, holds inherited pipes and lock descriptors open, and
-    /// makes an idle host read as busy to any process check. MSBuild reads an environment variable as a property
-    /// default, so a project that sets <c>UseSharedCompilation</c> itself keeps its own value.
+    /// makes an idle host read as busy to any process check. The .NET CLI telemetry upload is also off, so a command
+    /// does not wait on the network or send usage data from the host. MSBuild reads an environment variable as a
+    /// property default, so a project that sets <c>UseSharedCompilation</c> itself keeps its own value.
     /// </summary>
     public static class BuildServerEnvironment
     {
@@ -24,6 +25,9 @@ namespace Armada.Core.Services
         /// <summary>Variable that turns off the shared compiler server when set to <c>false</c>.</summary>
         public const string SharedCompilationVariable = "UseSharedCompilation";
 
+        /// <summary>Variable that turns off .NET CLI telemetry when set to <c>1</c>.</summary>
+        public const string TelemetryOptOutVariable = "DOTNET_CLI_TELEMETRY_OPTOUT";
+
         /// <summary>The variables and the values a build or test command receives.</summary>
         public static IReadOnlyDictionary<string, string> Variables => _Variables;
 
@@ -35,7 +39,8 @@ namespace Armada.Core.Services
         {
             [DisableNodeReuseVariable] = "1",
             [MsBuildServerVariable] = "0",
-            [SharedCompilationVariable] = "false"
+            [SharedCompilationVariable] = "false",
+            [TelemetryOptOutVariable] = "1"
         };
 
         #endregion

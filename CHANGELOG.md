@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Every build or test command runs with .NET CLI telemetry off
+
+- Check runs, the definition-of-done gate, merge queue tests and workspace commands all set `DOTNET_CLI_TELEMETRY_OPTOUT=1` with the other build server variables, so no command waits on a telemetry upload. A profile value still wins.
+
 ### A stage relaunched after a restart no longer holds its branch from the next stage
 
 - A mission stopped by an admiral restart kept its dock active, and its relaunch wrote a second active dock on the same path. When the relaunched stage finished, the older dock kept the worktree, so the next stage on that branch failed `dock_worktree_held` until the orphan-dock sweep ran. The relaunch now retires the older dock once its own dock exists.

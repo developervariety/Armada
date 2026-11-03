@@ -59,15 +59,16 @@ gate runs its commands the same way with 16 MiB per stream, and a failing-test
 set read from truncated output is marked incomplete, so it is never compared.
 
 Every build or test command the admiral starts runs with MSBuild node reuse,
-the MSBuild server and the shared compiler server off
-(`MSBUILDDISABLENODEREUSE=1`, `DOTNET_CLI_USE_MSBUILD_SERVER=0`,
-`UseSharedCompilation=false`): Checks, Definition-of-Done gate commands,
+the MSBuild server and the shared compiler server off, and with .NET CLI
+telemetry opted out (`MSBUILDDISABLENODEREUSE=1`,
+`DOTNET_CLI_USE_MSBUILD_SERVER=0`, `UseSharedCompilation=false`,
+`DOTNET_CLI_TELEMETRY_OPTOUT=1`): Checks, Definition-of-Done gate commands,
 merge-queue test commands, workspace exec commands, the API-endpoint
 `run_command` tool, the self-deploy build, and captain launches. No MSBuild
 worker node, MSBuild server or `VBCSCompiler` outlives the command, so an idle
-admiral has no build process left running. A workflow profile variable of the
-same name still wins for a Check, and a project that sets
-`UseSharedCompilation` itself keeps its own value.
+admiral has no build process left running, and no command waits on a telemetry
+upload. A workflow profile variable of the same name still wins for a Check,
+and a project that sets `UseSharedCompilation` itself keeps its own value.
 
 Use `list_workflow_profiles`, `get_workflow_profile`,
 `validate_workflow_profile`, and `preview_workflow_profile` to inspect the

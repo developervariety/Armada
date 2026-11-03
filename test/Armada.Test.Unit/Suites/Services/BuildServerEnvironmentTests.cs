@@ -26,23 +26,23 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all build server environment tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Every vessel build or test command launcher runs its command with MSBuild node reuse and the build servers off", async () =>
+            await RunTest("Every vessel build or test command launcher runs its command with MSBuild node reuse and the build servers off and .NET CLI telemetry opted out", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;
 
                 List<LauncherCase> cases = new List<LauncherCase>
                 {
-                    new LauncherCase("check run", null, "1/0/false", RunCheckAsync),
-                    new LauncherCase("check run with a profile value", "0", "0/0/false", RunCheckAsync),
-                    new LauncherCase("definition-of-done gate", null, "1/0/false", RunDefinitionOfDoneAsync),
-                    new LauncherCase("merge queue test", null, "1/0/false", RunMergeQueueAsync),
-                    new LauncherCase("workspace exec", null, "1/0/false", RunWorkspaceExecAsync)
+                    new LauncherCase("check run", null, "1/0/false/1", RunCheckAsync),
+                    new LauncherCase("check run with a profile value", "0", "0/0/false/1", RunCheckAsync),
+                    new LauncherCase("definition-of-done gate", null, "1/0/false/1", RunDefinitionOfDoneAsync),
+                    new LauncherCase("merge queue test", null, "1/0/false/1", RunMergeQueueAsync),
+                    new LauncherCase("workspace exec", null, "1/0/false/1", RunWorkspaceExecAsync)
                 };
 
                 // The variables are removed from this process, so a value the command reads can only come from
                 // the launcher.
                 Dictionary<string, string?> prior = new Dictionary<string, string?>(StringComparer.Ordinal);
-                foreach (string name in BuildServerEnvironment.Variables.Keys)
+                foreach (string name in BuildServerEnvironment.Variables.Keys.Append(TelemetryOptOutVariable).Distinct(StringComparer.Ordinal))
                 {
                     prior[name] = Environment.GetEnvironmentVariable(name);
                     Environment.SetEnvironmentVariable(name, null);
@@ -69,7 +69,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }
 
                     AssertTrue(mismatches.Count == 0,
-                        "Each launcher sets MSBUILDDISABLENODEREUSE/DOTNET_CLI_USE_MSBUILD_SERVER/UseSharedCompilation, and a profile value wins: "
+                        "Each launcher sets MSBUILDDISABLENODEREUSE/DOTNET_CLI_USE_MSBUILD_SERVER/UseSharedCompilation/DOTNET_CLI_TELEMETRY_OPTOUT, and a profile value wins: "
                         + String.Join("; ", mismatches));
                 }
                 finally
@@ -80,11 +80,14 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
+        private const string TelemetryOptOutVariable = "DOTNET_CLI_TELEMETRY_OPTOUT";
+
         private static string ProbeCommand(string probePath)
         {
-            return "printf '%s/%s/%s' \"${" + BuildServerEnvironment.DisableNodeReuseVariable + "-unset}\" \"${"
+            return "printf '%s/%s/%s/%s' \"${" + BuildServerEnvironment.DisableNodeReuseVariable + "-unset}\" \"${"
                 + BuildServerEnvironment.MsBuildServerVariable + "-unset}\" \"${"
-                + BuildServerEnvironment.SharedCompilationVariable + "-unset}\" > '" + probePath + "'";
+                + BuildServerEnvironment.SharedCompilationVariable + "-unset}\" \"${"
+                + TelemetryOptOutVariable + "-unset}\" > '" + probePath + "'";
         }
 
         private static LoggingModule CreateLogging()
