@@ -494,7 +494,7 @@ namespace Armada.Test.Unit
                 }
             });
 
-            await RunTest("ProcessSingle_BoundaryViolation_FailsBeforeTestsRun", async () =>
+            await RunTest("ProcessSingle_BoundaryViolation_FailsBeforeTestsRun_AndAMissionlessEntryRefusalNamesNoCaptain", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_boundary_" + Guid.NewGuid().ToString("N"));
                 try
@@ -538,6 +538,14 @@ namespace Armada.Test.Unit
                         AssertNotNull(afterProcess, "Entry after process");
                         AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "Boundary violation must fail the entry");
                         AssertFalse(File.Exists(markerPath), "Boundary validation must block before merge-queue tests run");
+
+                        // No captain produced a mission-less entry, so its refusal names the path and no captain.
+                        string reason = afterProcess.TestOutput ?? "";
+                        AssertTrue(reason.Contains("protected path '_briefing/spec.md'", StringComparison.Ordinal),
+                            "A mission-less entry's refusal names the protected path: " + reason);
+                        AssertFalse(reason.Contains("Captain", StringComparison.OrdinalIgnoreCase) || reason.Contains("[CLAUDE.MD-PROPOSAL]", StringComparison.Ordinal),
+                            "A mission-less entry's refusal names no captain and no proposal block: " + reason);
+                        AssertTrue(LandingRefusalReasons.IsRefusal(reason), "The refusal still reads as a landing refusal: " + reason);
                     }
                 }
                 finally
