@@ -21,6 +21,89 @@ namespace Test.Shared.Infrastructure
             }
         }
 
+        internal static async Task VerifyBuildNodesAsync(string repositoryRoot)
+        {
+            if (!OperatingSystem.IsLinux()) return;
+            foreach (string scenario in new[] { "nodes-default", "nodes-4" })
+            {
+                string root = Path.Combine(Path.GetTempPath(), "gate-nodes-contract-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(root);
+                try { await VerifyAsync(repositoryRoot, root, scenario).ConfigureAwait(false); }
+                finally { Directory.Delete(root, true); }
+            }
+            foreach (string value in new[] { "0", "-1", "x", "4x", "" })
+            {
+                await VerifyRefusedNodesAsync(repositoryRoot, Path.Combine("scripts", "linux", "server-gate.sh"),
+                    new[] { "HEAD", "--ssh-host", "fixture", "--scratch-dir", "/scratch", "--build-nodes", value }).ConfigureAwait(false);
+                await VerifyRefusedNodesAsync(repositoryRoot, Path.Combine("scripts", "common", "run-tests.sh"),
+                    new[] { "--build-nodes", value, "unit" }).ConfigureAwait(false);
+            }
+            await VerifyRunTestsBuildAsync(repositoryRoot, new[] { "unit" }, "dotnet build test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0\n").ConfigureAwait(false);
+            await VerifyRunTestsBuildAsync(repositoryRoot, new[] { "--build-nodes", "4", "unit" }, "dotnet build test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0 -m:4\n").ConfigureAwait(false);
+        }
+
+        private static async Task VerifyRefusedNodesAsync(string repositoryRoot, string relativeScript, string[] arguments)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "gate-nodes-refusal-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                (int exitCode, string text, string recorded) = await RunRecordedScriptAsync(repositoryRoot, root, relativeScript, arguments).ConfigureAwait(false);
+                string label = relativeScript + " " + string.Join(" ", arguments);
+                AssertEqual(2, exitCode, "a bad build node count is a usage error: " + label + "\n" + text);
+                AssertTrue(text.Contains("Build node count must be a positive integer", StringComparison.Ordinal), "the refusal names the build node count: " + label + "\n" + text);
+                AssertEqual("", recorded, "no git, ssh or dotnet call before the refusal: " + label);
+            }
+            finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+        }
+
+        private static async Task VerifyRunTestsBuildAsync(string repositoryRoot, string[] arguments, string expectedBuild)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "run-tests-nodes-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                (int exitCode, string text, string recorded) = await RunRecordedScriptAsync(repositoryRoot, root, Path.Combine("scripts", "common", "run-tests.sh"), arguments).ConfigureAwait(false);
+                AssertEqual(1, exitCode, "the stub build fails, so the runner stops after its first build\n" + text);
+                AssertEqual(expectedBuild, recorded, "the suite build command line for " + string.Join(" ", arguments));
+            }
+            finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+        }
+
+        private static async Task<(int ExitCode, string Text, string Recorded)> RunRecordedScriptAsync(string repositoryRoot, string root, string relativeScript, string[] arguments)
+        {
+            string bin = Path.Combine(root, "bin");
+            string checkout = Path.Combine(root, "checkout");
+            string calls = Path.Combine(root, "calls");
+            string script = Path.Combine(checkout, relativeScript);
+            Directory.CreateDirectory(bin);
+            Directory.CreateDirectory(Path.GetDirectoryName(script)!);
+            File.Copy(Path.Combine(repositoryRoot, relativeScript), script);
+            foreach (string tool in new[] { "git", "ssh", "dotnet" })
+            {
+                WriteExecutable(bin, tool, "#!/bin/bash\nprintf '" + tool + " %s\\n' \"$*\" >> \"$FIXTURE_CALLS\"\nexit 1");
+            }
+            ProcessStartInfo start = new("/bin/bash") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, WorkingDirectory = checkout };
+            start.ArgumentList.Add(script);
+            foreach (string arg in arguments) start.ArgumentList.Add(arg);
+            foreach (string name in new[] { "DOTNET_ROOT", "ARMADA_TEST_FRAMEWORK", "ARMADA_TEST_UNIT_SHARDS", "ARMADA_TEST_RESULTS_DIRECTORY", "ARMADA_GATE_SSH_HOST", "ARMADA_GATE_SCRATCH_DIR" })
+                start.Environment.Remove(name);
+            start.Environment["HOME"] = root;
+            start.Environment["PATH"] = bin + ":/usr/bin:/bin";
+            start.Environment["ARMADA_TEST_LOG_DIR"] = Path.Combine(root, "logs");
+            start.Environment["FIXTURE_CALLS"] = calls;
+            using Process process = Process.Start(start) ?? throw new InvalidOperationException("script did not start");
+            Task<string> output = process.StandardOutput.ReadToEndAsync();
+            Task<string> errors = process.StandardError.ReadToEndAsync();
+            Task wait = process.WaitForExitAsync();
+            if (await Task.WhenAny(wait, Task.Delay(15000)).ConfigureAwait(false) != wait)
+            {
+                process.Kill(entireProcessTree: true);
+                throw new InvalidOperationException("script exceeded 15 seconds: " + relativeScript);
+            }
+            await wait.ConfigureAwait(false);
+            string text = await output.ConfigureAwait(false) + await errors.ConfigureAwait(false);
+            return (process.ExitCode, text, File.Exists(calls) ? File.ReadAllText(calls) : "");
+        }
+
         private static async Task VerifyAsync(string repositoryRoot, string root, string scenario)
         {
             string bin = Path.Combine(root, "bin");
@@ -113,6 +196,7 @@ namespace Test.Shared.Infrastructure
             WriteExecutable(root, "runner", """
                 #!/bin/bash
                 printf 'tests\n' >> "$FIXTURE_CALLS"
+                printf 'runner-args %s\n' "$*" >> "$FIXTURE_CALLS"
                 printf 'RESULT: PASS\n'
                 """);
             string sibling = Path.Combine(root, "foreign-proof");
@@ -127,6 +211,7 @@ namespace Test.Shared.Infrastructure
                 WriteExecutable(runnerDir, "run-tests.sh", """
                     #!/bin/bash
                     printf 'tests\n' >> "$FIXTURE_CALLS"
+                    printf 'runner-args %s\n' "$*" >> "$FIXTURE_CALLS"
                     printf 'RESULT: PASS\n'
                     """);
                 Directory.CreateDirectory(Path.Combine(scratch, "tmp"));
@@ -146,6 +231,7 @@ namespace Test.Shared.Infrastructure
             ProcessStartInfo start = new("/bin/bash") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
             foreach (string arg in new[] { script, "HEAD", "--ssh-host", "fixture", "--scratch-dir", scratch, "--host-lock", hostLock, "--min-available-mb", "0" }) start.ArgumentList.Add(arg);
             if (scenario == "caller-lock") start.ArgumentList.Add("--lock-held");
+            if (scenario == "nodes-4") { start.ArgumentList.Add("--build-nodes"); start.ArgumentList.Add("4"); }
             // The environment contract is used so the pre-fix public script reaches costly work and gives a meaningful RED.
             start.Environment["ARMADA_GATE_MIN_FREE_DISK_MB"] = "8000";
             start.Environment.Remove("DOTNET_ROOT");
@@ -170,13 +256,23 @@ namespace Test.Shared.Infrastructure
                 await wait.ConfigureAwait(false);
                 string text = await output.ConfigureAwait(false) + await errors.ConfigureAwait(false);
                 string recorded = File.Exists(calls) ? File.ReadAllText(calls) : "";
-                bool success = scenario == "boundary";
+                bool success = scenario is "boundary" or "nodes-default" or "nodes-4";
                 AssertEqual(success ? 0 : 1, process.ExitCode, "disk admission result for " + scenario + "\n" + text + "\n" + recorded);
                 AssertEqual("foreign evidence", File.ReadAllText(sibling), "foreign proof is untouched");
                 if (success)
                 {
                     AssertTrue(recorded.Contains("git fetch", StringComparison.Ordinal) && recorded.Contains("dotnet build src/Armada.sln", StringComparison.Ordinal) && recorded.Contains("tests\n", StringComparison.Ordinal), "exact floor admits the full stub gate");
                     AssertTrue(text.Contains("RESULT: PASS", StringComparison.Ordinal), "the public gate result stays intact");
+                    if (scenario == "nodes-4")
+                    {
+                        AssertTrue(recorded.Contains("dotnet build src/Armada.sln -m:4\n", StringComparison.Ordinal), "the solution build carries the node cap\n" + recorded);
+                        AssertTrue(recorded.Contains("runner-args --build-nodes 4\n", StringComparison.Ordinal), "the gate passes the node cap to run-tests.sh\n" + recorded);
+                    }
+                    if (scenario == "nodes-default")
+                    {
+                        AssertTrue(recorded.Contains("dotnet build src/Armada.sln\n", StringComparison.Ordinal), "with no cap the solution build is unchanged\n" + recorded);
+                        AssertTrue(!recorded.Contains("-m:", StringComparison.Ordinal) && !recorded.Contains("--build-nodes", StringComparison.Ordinal), "with no cap no node switch is passed\n" + recorded);
+                    }
                 }
                 else
                 {

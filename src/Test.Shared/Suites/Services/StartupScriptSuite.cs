@@ -29,6 +29,9 @@ namespace Test.Shared.Suites.Services
             cases.Add(CaseAsync("server_gate_disk_admission", "Server Gate Disk Admission", TestTags.Positive,
                 () => ServerGateScriptFixture.VerifyDiskAdmissionAsync(FindRepositoryRoot())));
 
+            cases.Add(CaseAsync("server_gate_build_nodes", "Server Gate Build Node Cap", TestTags.Positive,
+                () => ServerGateScriptFixture.VerifyBuildNodesAsync(FindRepositoryRoot())));
+
             cases.Add(Case("script_layout_exists", "Script Layout Exists", TestTags.Positive, () =>
             {
                 string root = FindRepositoryRoot();
