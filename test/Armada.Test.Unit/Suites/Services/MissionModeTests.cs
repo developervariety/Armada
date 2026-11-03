@@ -524,6 +524,27 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A report-only launch prompt hands a criterion to later roles in the skeleton shape, which the report detector accepts", async () =>
+            {
+                Vessel vessel = new Vessel("ModeVessel", "https://github.com/test/repo");
+                Captain captain = new Captain("mode-handoff-captain");
+                captain.Runtime = AgentRuntimeEnum.ClaudeCode;
+                Mission research = new Mission();
+                research.Title = "Report-only handoff probe";
+                research.Description = "Compare the helpers.";
+                research.Persona = "Worker";
+                research.Mode = MissionModeEnum.Research;
+                Dock dock = new Dock(vessel.Id);
+                dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_mode_handoff_" + Guid.NewGuid().ToString("N"));
+
+                string launch = await MissionPromptBuilder.BuildLaunchPromptAsync(research, vessel, captain, dock, null);
+                AssertContains("`Criterion N: <Role> part delivered; criterion N carried by the later roles`", launch, "the launch prompt gives the skeleton handoff shape");
+                AssertFalse(launch.Contains("is not met because", StringComparison.Ordinal), "the launch prompt does not ask for a not-met line for a role that has not run");
+
+                string report = "Criterion 1: Worker part delivered; criterion 1 carried by the later roles\nThe helpers share one contract.\n[ARMADA:RESULT] COMPLETE";
+                AssertFalse(ReportIncompleteResult.TryRead(report, out string statement), "a report in the skeleton shape is not unfinished (read: " + statement + ")");
+            });
+
             await RunTest("The no-commit gate exempts read-only modes and still catches implementation misses", async () =>
             {
                 // PersonaMustProduceChanges is the persona half of the gate; the mode half is
