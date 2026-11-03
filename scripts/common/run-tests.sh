@@ -12,6 +12,7 @@
 #   scripts/common/run-tests.sh                    # unit shards, automated, runtimes, shared
 #   scripts/common/run-tests.sh unit               # one runner by name (unit|automated|runtimes|shared)
 #   scripts/common/run-tests.sh --shards 4         # unit shard count (default: min(cores/2, 6))
+#   scripts/common/run-tests.sh --build-nodes 8    # MSBuild node count for the suite builds (default: the SDK's)
 #   scripts/common/run-tests.sh unit --suite "Git Service"
 #                                                  # one runner with its own arguments, never sharded
 #   ARMADA_TEST_UNIT_SHARDS=1 scripts/common/run-tests.sh
@@ -70,11 +71,19 @@ default_shards() {
 selected="all"
 shards="${ARMADA_TEST_UNIT_SHARDS:-}"
 declare -a passthrough=()
+build_nodes=""
+build_nodes_given=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --shards)
       if [ "$#" -lt 2 ]; then echo "--shards requires a count" >&2; exit 2; fi
       shards="$2"
+      shift 2
+      ;;
+    --build-nodes)
+      if [ "$#" -lt 2 ]; then echo "--build-nodes requires a count" >&2; exit 2; fi
+      build_nodes="$2"
+      build_nodes_given=1
       shift 2
       ;;
     *)
@@ -87,6 +96,13 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$build_nodes_given" -eq 1 ] && ! [[ "$build_nodes" =~ ^[1-9][0-9]{0,3}$ ]]; then
+  echo "Build node count must be a positive integer, got '$build_nodes'." >&2
+  exit 2
+fi
+declare -a build_node_args=()
+if [ -n "$build_nodes" ]; then build_node_args=("-m:$build_nodes"); fi
 
 if [ -z "$shards" ]; then shards="$(default_shards)"; fi
 if ! [[ "$shards" =~ ^[1-9][0-9]*$ ]]; then
@@ -130,7 +146,7 @@ for i in "${!SUITE_NAMES[@]}"; do
   if [ "$selected" != "all" ] && [ "$selected" != "$name" ]; then
     continue
   fi
-  if ! dotnet build "${SUITE_PROJECTS[$i]}" --framework "$FRAMEWORK" > "$LOG_DIR/$name-build.log" 2>&1; then
+  if ! dotnet build "${SUITE_PROJECTS[$i]}" --framework "$FRAMEWORK" "${build_node_args[@]}" > "$LOG_DIR/$name-build.log" 2>&1; then
     cat "$LOG_DIR/$name-build.log"
     echo "RESULT: FAIL (build $name)"
     echo "Full output: $LOG_DIR"

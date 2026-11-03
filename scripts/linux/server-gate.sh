@@ -12,6 +12,7 @@
 # Usage:
 #   scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>] [--shards <n>]
 #                                [--host-lock <path>] [--lock-held] [--min-available-mb <n>] [--min-free-disk-mb <n>]
+#                                [--build-nodes <n>]
 #
 #   <ref>            Local commit to test (a branch, tag or SHA). It must be committed; the script refuses
 #                    to run while tracked files have uncommitted changes.
@@ -29,6 +30,9 @@
 #                    Refuse before copying source, and recheck under the host lock before building, when
 #                    scratch storage is below this floor. Default: $ARMADA_GATE_MIN_FREE_DISK_MB, else 8000.
 #                    This reserves headroom; unrelated writers can still consume space after admission.
+#   --build-nodes    MSBuild node count for the solution build and the suite builds (-m:<n>). Default: the
+#                    SDK's own, one node per core. A lower count keeps a gate build from saturating a host
+#                    that other work shares.
 #
 # Example:
 #   ARMADA_GATE_SSH_HOST=<server-host> ARMADA_GATE_SCRATCH_DIR=<scratch-dir> scripts/linux/server-gate.sh HEAD
@@ -40,7 +44,7 @@
 set -euo pipefail
 
 usage() {
-  sed -n '12,35p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '12,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 ref=""
@@ -51,6 +55,8 @@ host_lock="${ARMADA_GATE_HOST_LOCK:-/tmp/armada-gate-host.lock}"
 lock_held="0"
 min_available_mb="${ARMADA_GATE_MIN_AVAILABLE_MB:-8000}"
 min_free_disk_mb="${ARMADA_GATE_MIN_FREE_DISK_MB:-8000}"
+build_nodes=""
+build_nodes_given="0"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -74,6 +80,9 @@ while [ "$#" -gt 0 ]; do
     --min-free-disk-mb)
       if [ "$#" -lt 2 ]; then echo "--min-free-disk-mb requires a number" >&2; exit 2; fi
       min_free_disk_mb="$2"; shift 2 ;;
+    --build-nodes)
+      if [ "$#" -lt 2 ]; then echo "--build-nodes requires a count" >&2; exit 2; fi
+      build_nodes="$2"; build_nodes_given="1"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     -*)
@@ -84,6 +93,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "$build_nodes_given" = "1" ] && ! [[ "$build_nodes" =~ ^[1-9][0-9]{0,3}$ ]]; then
+  echo "Build node count must be a positive integer, got '$build_nodes'." >&2; exit 2
+fi
 if [ -z "$ref" ]; then echo "A ref to test is required." >&2; usage >&2; exit 2; fi
 if [ -z "$ssh_host" ]; then echo "No gate host: pass --ssh-host or set ARMADA_GATE_SSH_HOST." >&2; exit 2; fi
 if [ -z "$scratch_dir" ]; then echo "No scratch directory: pass --scratch-dir or set ARMADA_GATE_SCRATCH_DIR." >&2; exit 2; fi
@@ -165,7 +177,7 @@ ssh "$ssh_host" "mkdir -p $quoted_scratch && { [ -d $quoted_scratch/repo.git ] |
 # Push the commit under a gate-only ref, so no branch on the host moves.
 git push -q "${ssh_host}:${scratch_dir}/repo.git" "${sha}:${gate_ref}"
 
-remote_args="$(printf '%q ' "$scratch_dir" "$sha" "$shards" "$host_lock" "$lock_held" "$min_available_mb" "$ref" "$min_free_disk_mb" "$disk_admission_script")"
+remote_args="$(printf '%q ' "$scratch_dir" "$sha" "$shards" "$host_lock" "$lock_held" "$min_available_mb" "$ref" "$min_free_disk_mb" "$disk_admission_script" "$build_nodes")"
 
 set +e
 ssh "$ssh_host" "bash -s -- $remote_args" <<'REMOTE'
@@ -179,6 +191,9 @@ min_available_mb="$6"
 gate_label="$7"
 min_free_disk_mb="$8"
 disk_admission_script="$9"
+build_nodes="${10}"
+declare -a build_node_args=()
+if [ -n "$build_nodes" ]; then build_node_args=("-m:$build_nodes"); fi
 repo="$scratch/repo.git"
 worktree="$scratch/worktree"
 logs="$scratch/logs/$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:12}"
@@ -244,7 +259,7 @@ run_gate() {
   for attempt in 1 2 3; do
     DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=1 DOTNET_EnableCrashReport=1 \
       DOTNET_DbgMiniDumpName="$logs/build-abort-$attempt.%p" \
-      dotnet build src/Armada.sln < /dev/null > "$logs/build.log" 2>&1 9>&-
+      dotnet build src/Armada.sln "${build_node_args[@]}" < /dev/null > "$logs/build.log" 2>&1 9>&-
     if ! grep -q 'Internal CLR error' "$logs/build.log" || grep -q -E 'Determining projects to restore|Restored |Build succeeded| error ' "$logs/build.log"; then
       break
     fi
@@ -263,6 +278,7 @@ run_gate() {
 
   declare -a gate_args=()
   if [ -n "$shards" ]; then gate_args=(--shards "$shards"); fi
+  if [ -n "$build_nodes" ]; then gate_args+=(--build-nodes "$build_nodes"); fi
   ARMADA_TEST_KEEP_LOGS=1 ARMADA_TEST_LOG_DIR="$logs/runners" scripts/common/run-tests.sh "${gate_args[@]}" < /dev/null > "$logs/run-tests.log" 2>&1 9>&-
   status=$?
   dotnet build-server shutdown < /dev/null > /dev/null 2>&1 9>&- || true

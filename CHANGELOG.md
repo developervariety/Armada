@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### The gate and the test runner take a build node cap
+
+- `scripts/linux/server-gate.sh --build-nodes <n>` passes `-m:<n>` to the solution build and forwards the cap to `scripts/common/run-tests.sh`, and `run-tests.sh --build-nodes <n>` passes `-m:<n>` to each suite build, so a gate build need not take every core of a shared host. Without the option both builds keep the SDK's node count; a count that is not a positive integer is refused before any work. See docs/TESTING.md, "Gate Host".
+
 ### A merge entry with no mission is not refused as a captain change
 
 - When the merge queue refuses an entry with no mission for a protected path, the reason reads "Merge entry with no mission modified protected path" and names neither a captain nor a `[CLAUDE.MD-PROPOSAL]` block. A mission's entry keeps the captain wording.

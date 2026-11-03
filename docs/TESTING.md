@@ -91,7 +91,8 @@ As a safety net, `server-gate.sh` retries that abort at most twice, and only whe
 
 ```bash
 scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>] [--shards <n>]
-                             [--host-lock <path>] [--lock-held] [--min-available-mb <n>]
+                             [--host-lock <path>] [--lock-held] [--min-available-mb <n>] [--min-free-disk-mb <n>]
+                             [--build-nodes <n>]
 
 # host and scratch directory from the environment
 export ARMADA_GATE_SSH_HOST=<server-host>
@@ -109,6 +110,8 @@ The script:
 6. Prints the combined summary and exits non-zero when the build or any runner fails. The build log, the combined log and every runner log (`runners/`) stay on the host under `<scratch-dir>/logs/<time>-<sha>/`.
 
 **One gate per host.** A gate build and its test runners hold several GB of memory, and two gates at once run a host without swap out of memory. So every gate takes a host-wide lock directory (`--host-lock`, else `$ARMADA_GATE_HOST_LOCK`, else `/tmp/armada-gate-host.lock`) on the host, for the whole run. The script takes the lock itself, inside the session that runs the gate, so the lock is held exactly as long as the gate. It writes an `owner` file (pid, UTC start time, scratch directory, ref and commit), and its exit trap shuts down this run's build servers and then releases the lock only while the owner file still names this gate's pid (it leaves any other holder's lock in place and prints a warning), on success, failure, or a dropped session. A waiting gate prints the holder every five minutes. When the owner file names a numeric pid whose process no longer exists on the host, one waiter reports it and takes the lock over; an owner file with any other pid, or no owner file, counts as live and the waiter keeps waiting, so a killed gate cannot block the host. The gate's build temp files go to `<scratch-dir>/tmp` on disk, which the exit trap removes, so a memory-backed host `/tmp` does not fill. The test runners keep the host temp directory for their per-run roots (`ARMADA_TEST_TEMP_ROOT`), so their databases stay on fast storage, and each runner removes its root on exit. The build runs without MSBuild node reuse and without the shared compiler server, so no build process outlives the gate. After it takes the lock, the gate waits until `MemAvailable` reaches `--min-available-mb` (else `$ARMADA_GATE_MIN_AVAILABLE_MB`, else 8000; `0` turns the wait off) and prints the value. A caller that already holds the same lock for the run passes `--lock-held`, and the script then neither takes nor releases it.
+
+**Build node cap.** By default the solution build and the suite builds use the SDK's node count, one MSBuild node per core. On a host that other work shares, a full-width build can drive the load past what that work tolerates. `--build-nodes <n>` caps the node count: the gate passes `-m:<n>` to the `src/Armada.sln` build and `--build-nodes <n>` to `run-tests.sh`, which passes `-m:<n>` to each suite build. The option is the cap because the `dotnet` CLI puts its own `-maxcpucount` switch on the MSBuild command line, and a command-line switch wins over a `Directory.Build.rsp` file. A count that is not a positive integer is a usage error before any git, ssh or build step. Without the option, both command lines are unchanged.
 
 Only one gate runs per scratch directory at a time. The host needs git, bash and the .NET SDK; `~/.dotnet` is added to `PATH` when `dotnet` is not already on it.
 
