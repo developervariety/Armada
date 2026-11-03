@@ -196,10 +196,13 @@ export async function runBridge(options = {}) {
   const request = options.request ||
     ((message, sessionId, requestObject) => sendRequestOverSsh(message, sessionId, requestObject, environment));
   let sessionId = null;
-  let queue = Promise.resolve();
+  // Calls run concurrently, so a slow call does not hold back the calls after it. The first
+  // proxied call may return the session id, so every later call waits until it has answered.
+  let firstCallAnswered = null;
+  const inFlight = new Set();
 
   const parser = new McpInputParser((message) => {
-    queue = queue.then(async () => {
+    const handled = (async () => {
       let requestObject;
       try {
         requestObject = JSON.parse(message);
@@ -253,6 +256,13 @@ export async function runBridge(options = {}) {
 
       const cleanedMessage = cleanedObject === requestObject ? message : JSON.stringify(cleanedObject);
 
+      let markAnswered = null;
+      if (firstCallAnswered === null) {
+        firstCallAnswered = new Promise((resolve) => { markAnswered = resolve; });
+      } else {
+        await firstCallAnswered;
+      }
+
       try {
         const response = await request(cleanedMessage, sessionId, cleanedObject);
         if (response.sessionId) {
@@ -291,8 +301,14 @@ export async function runBridge(options = {}) {
         } else {
           errorOutput.write("Armada MCP bridge notification failed: " + messageText + "\n");
         }
+      } finally {
+        if (markAnswered !== null) {
+          markAnswered();
+        }
       }
-    });
+    })();
+    inFlight.add(handled);
+    handled.finally(() => inFlight.delete(handled)).catch(() => {});
   });
 
   input.on("data", (chunk) => {
@@ -310,7 +326,7 @@ export async function runBridge(options = {}) {
   });
 
   parser.end();
-  await queue;
+  await Promise.all(inFlight);
 }
 
 const RESERVED_META_PREFIX = "io.modelcontextprotocol/";

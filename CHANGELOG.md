@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### The MCP SSH bridge answers a read while a long write is still running
+
+- `scripts/mcp-ssh-http-bridge.mjs` sends independent calls at the same time, so a slow call such as a review-hold clear no longer holds back the reads after it. The first proxied call still answers before any later call starts, so a session id it returns reaches every later call.
+
 ### A report that defers a criterion to the other roles reaches its review chain
 
 - A report-only stage that writes "Criterion N is not met because the other roles have not run" is read as a deferral, as "the later reviews" already is, when an owned pending Judge and pending review stages follow it. With no such chain, or with a current-role gap in the same sentence, the report still fails as unfinished.
