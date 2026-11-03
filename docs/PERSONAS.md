@@ -677,7 +677,10 @@ be Pending. The Judge
 must decide final acceptance. An unrelated, missing, cancelled or foreign stage
 does not excuse an unmet criterion. Numbered unmet-criterion statements can use an explicit future-only explanation
 for that same criterion. Named duties must exist on the verified Pending path,
-including a separately named revising Worker. Separate unfinished current work
+including a separately named revising Worker. In a named review list, "revision",
+"revision Worker" and "revising Worker" each name that pending Worker and count
+only when the owned path holds one; no other word stands for it. Separate
+unfinished current work
 or earlier review duties still block, even when future reviews are pending.
 
 A named pending clause can qualify its roles as the current reviews, give a

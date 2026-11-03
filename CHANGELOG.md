@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A named review list may call the pending revising Worker "revision"
+
+- In a report's named pending review list, "revision" and "revision Worker" now read as the pending revising Worker, as "revising Worker" already did. They hand off only when the owned review chain holds a pending Worker; other words such as "rework" still block.
+
 ### The report-only brief names the skeleton handoff shape
 
 - A report-only launch prompt tells the captain to hand a criterion to later review stages as `Criterion N: <Role> part delivered; criterion N carried by the later roles`, the shape objective skeletons use, and not to write "not met" for a role that has not run. The detector still accepts the `Criterion N is not met because the <roles> reviews have not run.` form.

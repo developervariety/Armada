@@ -536,7 +536,7 @@ namespace Armada.Core.Services
             foreach (string item in Regex.Split(named.Groups["roles"].Value, @"\s*,\s*(?:and\s+)?|\s+and\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
             {
                 string role = item.Trim();
-                if (String.Equals(role.Replace(" ", String.Empty), "RevisingWorker", StringComparison.OrdinalIgnoreCase)) role = PersonaCatalog.Worker;
+                if (_RevisionRole.IsMatch(role)) role = PersonaCatalog.Worker;
                 else if (!PersonaCatalog.Matches(role, "PortingReferenceAnalyst") && !PersonaCatalog.Matches(role, PersonaCatalog.TestEngineer)
                     && !PersonaCatalog.Matches(role, PersonaCatalog.Linter) && !PersonaCatalog.Matches(role, PersonaCatalog.Judge)) return false;
                 role = PersonaCatalog.NormalizeName(role);
@@ -544,6 +544,11 @@ namespace Armada.Core.Services
             }
             return seen.Count > 0;
         }
+
+        // A named review list may call the pending revising Worker "revision", "revision Worker" or "revising Worker";
+        // each still counts only when the owned chain holds a pending Worker.
+        private static readonly Regex _RevisionRole = new Regex(@"\A(?:the\s+)?(?:revising\s*worker|revision(?:\s+worker)?)\z",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
         private static bool IsProcessStatement(string tail)
         {
