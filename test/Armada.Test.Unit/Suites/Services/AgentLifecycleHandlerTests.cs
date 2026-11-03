@@ -2607,7 +2607,8 @@ namespace Armada.Test.Unit.Suites.Services
                 ["phrase-cross"] = "Criterion 2: ✗",
                 ["phrase-cross-emoji"] = "Criterion 2: ❌",
                 ["phrase-lowercase-ac"] = "ac3 is not met because the source study is unfinished.",
-                ["bullet-then-note"] = "- Criterion 3 is not met because the later reviews have not run.\n- The matrix covers every documented row."
+                ["bullet-then-note"] = "- Criterion 3 is not met because the later reviews have not run.\n- The matrix covers every documented row.",
+                ["named-roles-revising-worker"] = "Criterion 3 is not met because the TestEngineer, Linter, revising Worker, and Judge reviews have not run."
             };
             HashSet<string> wholeStatementHandoff = new HashSet<string>(StringComparer.Ordinal)
             {
@@ -2638,7 +2639,8 @@ namespace Armada.Test.Unit.Suites.Services
                 "suffix-item-colon-future",
                 "suffix-item-git-status-future",
                 "parenthetical-file-name",
-                "bullet-then-note"
+                "bullet-then-note",
+                "named-roles-revising-worker"
             };
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
             {
