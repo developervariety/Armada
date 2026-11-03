@@ -432,6 +432,159 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A cancelled mission's failed entry whose branch is gone records delivery by ancestry or by patch-id and the mission is unchanged", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    StubGitService git = new StubGitService();
+                    AuthContext caller = OperatorCaller("Example operator", null, "usr_example");
+                    MergeDeliveryRecorder recorder = new MergeDeliveryRecorder(testDb.Driver, git);
+
+                    // Ancestry: the mission's own commit is on the target branch.
+                    string landed = new String('a', 40);
+                    (Mission ancestryMission, MergeEntry ancestryEntry) = await CreateCancelledMissionMergeAsync(testDb, vessel, git, landed, MissionStatusEnum.Cancelled).ConfigureAwait(false);
+                    git.AncestorResults[landed + "|" + TargetRef] = true;
+
+                    // Patch-id: the work reached the target branch as a different commit with the same patch.
+                    string work = new String('b', 40);
+                    string picked = new String('c', 40);
+                    (Mission patchMission, MergeEntry patchEntry) = await CreateCancelledMissionMergeAsync(testDb, vessel, git, work, MissionStatusEnum.Cancelled).ConfigureAwait(false);
+                    git.AncestorResults[work + "|" + TargetRef] = false;
+                    git.AncestorResults[picked + "|" + TargetRef] = true;
+                    git.PatchIds[work] = "patch-same";
+                    git.PatchIds[picked] = "patch-same";
+
+                    foreach ((string label, Mission mission, MergeEntry entry, string commit, LandingEvidenceKindEnum kind) in new[]
+                    {
+                        ("ancestry", ancestryMission, ancestryEntry, landed, LandingEvidenceKindEnum.CommitAncestry),
+                        ("patch-id", patchMission, patchEntry, picked, LandingEvidenceKindEnum.PatchId)
+                    })
+                    {
+                        MergeDeliveryRecordResult result = await recorder.RecordAsync(entry.Id, commit, caller, null, kind).ConfigureAwait(false);
+
+                        AssertTrue(result.Recorded, label + ": the proven delivery is recorded: " + result.Message);
+                        MergeEntry after = (await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
+                        AssertEqual(MergeStatusEnum.Failed, after.Status, label + ": the failed outcome is kept");
+                        LandingReconcileEvidence evidence = after.DeliveryEvidence!;
+                        AssertEqual(kind, evidence.EvidenceKind, label + ": the proof kind is the one proven");
+                        AssertEqual(commit, evidence.EvidenceCommit, label + ": the proof names the commit on the target branch");
+                        AssertEqual(mission.Id, evidence.MissionId, label + ": the proof names the entry's mission");
+                        AssertEqual(mission.CommitHash, evidence.SourceCommit, label + ": the source of the work comes from the mission record");
+                        AssertEqual("Example operator", evidence.RecordedBy, label + ": the recorder is the authenticated caller");
+                        Mission missionAfter = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Cancelled, missionAfter.Status, label + ": the mission is not changed");
+                    }
+
+                    MergeEntry patched = (await testDb.Driver.MergeEntries.ReadAsync(patchEntry.Id).ConfigureAwait(false))!;
+                    AssertContains("same patch", patched.DeliveryEvidence!.Describe(), "the patch-id proof reads as a patch match");
+                }
+            });
+
+            await RunTest("Recording delivery on a mission's entry or by patch-id refuses each unproven case by name and leaves the entry and mission unchanged", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    StubGitService git = new StubGitService();
+                    AuthContext caller = OperatorCaller("Example operator", null, "usr_example");
+                    string onTarget = new String('a', 40);
+                    git.AncestorResults[onTarget + "|" + TargetRef] = true;
+                    git.PatchIds[onTarget] = "patch-target";
+
+                    // The work's patch differs from the commit on the target branch.
+                    string otherWork = new String('b', 40);
+                    git.PatchIds[otherWork] = "patch-other";
+                    (Mission mismatchMission, MergeEntry mismatch) = await CreateCancelledMissionMergeAsync(testDb, vessel, git, otherWork, MissionStatusEnum.Cancelled).ConfigureAwait(false);
+
+                    // The mission recorded no commit, so there is no work to compare; the request's commit is not a source.
+                    (Mission sourcelessMission, MergeEntry sourceless) = await CreateCancelledMissionMergeAsync(testDb, vessel, git, null, MissionStatusEnum.Cancelled).ConfigureAwait(false);
+
+                    // The mission is not Cancelled, so the landing sweep still owns its proof.
+                    (Mission failedMission, MergeEntry notCancelled) = await CreateCancelledMissionMergeAsync(testDb, vessel, git, onTarget, MissionStatusEnum.Failed).ConfigureAwait(false);
+
+                    // The mission's branch still resolves, so the work may still change.
+                    (Mission branchMission, MergeEntry branchPresent) = await CreateCancelledMissionMergeAsync(testDb, vessel, git, onTarget, MissionStatusEnum.Cancelled).ConfigureAwait(false);
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + branchPresent.BranchName] = onTarget;
+
+                    // An entry with no mission whose branch is gone has no work to compare a patch with.
+                    MergeEntry missionlessGone = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, onTarget, true).ConfigureAwait(false);
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + missionlessGone.BranchName] = null;
+
+                    // Git fails while it reads the branch: that is not "branch gone", for a mission's entry or one with none.
+                    (Mission unreadableMission, MergeEntry unreadable) = await CreateCancelledMissionMergeAsync(testDb, vessel, git, onTarget, MissionStatusEnum.Cancelled).ConfigureAwait(false);
+                    git.BranchPresence[vessel.LocalPath + "|" + unreadable.BranchName] = null;
+                    MergeEntry missionlessUnreadable = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, onTarget, true).ConfigureAwait(false);
+                    git.BranchPresence[vessel.LocalPath + "|" + missionlessUnreadable.BranchName] = null;
+
+                    // The branch exists but its tip cannot be resolved.
+                    MergeEntry tipUnreadable = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, onTarget, true).ConfigureAwait(false);
+                    git.BranchPresence[vessel.LocalPath + "|" + tipUnreadable.BranchName] = true;
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + tipUnreadable.BranchName] = null;
+
+                    (string Label, MergeEntry Entry, Mission? Mission, LandingEvidenceKindEnum Kind, string Code)[] cases = new (string, MergeEntry, Mission?, LandingEvidenceKindEnum, string)[]
+                    {
+                        ("patch-id that differs from the work", mismatch, mismatchMission, LandingEvidenceKindEnum.PatchId, MergeDeliveryRecorder.PatchIdMismatchCode),
+                        ("mission with no recorded commit", sourceless, sourcelessMission, LandingEvidenceKindEnum.PatchId, MergeDeliveryRecorder.SourceCommitUnavailableCode),
+                        ("mission that is not Cancelled", notCancelled, failedMission, LandingEvidenceKindEnum.CommitAncestry, MergeDeliveryRecorder.MissionBoundCode),
+                        ("mission whose branch is present", branchPresent, branchMission, LandingEvidenceKindEnum.CommitAncestry, MergeDeliveryRecorder.MissionBoundCode),
+                        ("entry with no mission and no branch", missionlessGone, null, LandingEvidenceKindEnum.PatchId, MergeDeliveryRecorder.SourceCommitUnavailableCode),
+                        ("proof kind the recorder does not read", missionlessGone, null, LandingEvidenceKindEnum.MissionTrailer, MergeDeliveryRecorder.ProofKindUnsupportedCode),
+                        ("mission whose branch cannot be read", unreadable, unreadableMission, LandingEvidenceKindEnum.CommitAncestry, MergeDeliveryRecorder.RepositoryUnavailableCode),
+                        ("entry with no mission whose branch cannot be read", missionlessUnreadable, null, LandingEvidenceKindEnum.CommitAncestry, MergeDeliveryRecorder.RepositoryUnavailableCode),
+                        ("branch whose tip cannot be read", tipUnreadable, null, LandingEvidenceKindEnum.CommitAncestry, MergeDeliveryRecorder.RepositoryUnavailableCode)
+                    };
+
+                    MergeDeliveryRecorder recorder = new MergeDeliveryRecorder(testDb.Driver, git);
+                    foreach ((string label, MergeEntry entry, Mission? mission, LandingEvidenceKindEnum kind, string code) in cases)
+                    {
+                        MergeEntry before = (await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
+                        MergeDeliveryRecordResult result = await recorder.RecordAsync(entry.Id, onTarget, caller, null, kind).ConfigureAwait(false);
+
+                        AssertFalse(result.Recorded, label + ": refused");
+                        AssertEqual(code, result.Code, label + ": the refusal names its reason: " + result.Message);
+                        MergeEntry after = (await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
+                        AssertEqual(before.Status, after.Status, label + ": the status is unchanged");
+                        AssertNull(after.DeliveryEvidence, label + ": no proof is stored");
+                        int recordedEvents = (await testDb.Driver.Events.EnumerateByEntityAsync("merge_entry", entry.Id, 50).ConfigureAwait(false))
+                            .Count(item => item.EventType == MergeDeliveryRecorder.RecordedEventType);
+                        AssertEqual(0, recordedEvents, label + ": a refusal writes no event");
+                        if (mission != null)
+                        {
+                            Mission missionAfter = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                            AssertEqual(mission.Status, missionAfter.Status, label + ": the mission is not changed");
+                        }
+                    }
+                }
+            });
+
+            await RunTest("An entry with no mission whose branch moved records delivery when the commit on the target carries the branch tip's patch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    StubGitService git = new StubGitService();
+                    string picked = new String('a', 40);
+                    string tip = new String('d', 40);
+                    MergeEntry entry = await CreateMissionlessFailedMergeAsync(testDb, vessel, git, picked, true).ConfigureAwait(false);
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + entry.BranchName] = tip;
+                    git.PatchIds[picked] = "patch-same";
+                    git.PatchIds[tip] = "patch-same";
+                    MergeDeliveryRecorder recorder = new MergeDeliveryRecorder(testDb.Driver, git);
+                    AuthContext caller = OperatorCaller("Example operator", null, "usr_example");
+
+                    MergeDeliveryRecordResult byAncestry = await recorder.RecordAsync(entry.Id, picked, caller, null, LandingEvidenceKindEnum.CommitAncestry).ConfigureAwait(false);
+                    AssertEqual(MergeDeliveryRecorder.BranchTipDiffersCode, byAncestry.Code, "ancestry still needs the branch tip to be the commit: " + byAncestry.Message);
+
+                    MergeDeliveryRecordResult byPatch = await recorder.RecordAsync(entry.Id, picked, caller, null, LandingEvidenceKindEnum.PatchId).ConfigureAwait(false);
+                    AssertTrue(byPatch.Recorded, "the same patch on the target proves the delivery: " + byPatch.Message);
+                    LandingReconcileEvidence evidence = (await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!.DeliveryEvidence!;
+                    AssertEqual(LandingEvidenceKindEnum.PatchId, evidence.EvidenceKind, "patch-id is the proof");
+                    AssertEqual(picked, evidence.EvidenceCommit, "the proof names the commit on the target branch");
+                    AssertEqual(tip, evidence.SourceCommit, "the source is the branch tip the repository resolves");
+                }
+            });
+
             await RunTest("REST and MCP record delivery under the caller's own identity and ignore a recorder in the request", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
@@ -451,6 +604,21 @@ namespace Armada.Test.Unit.Suites.Services
                         MergeEntry after = (await harness.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
                         AssertEqual(expected, after.DeliveryEvidence?.RecordedBy, surface + ": the recorder comes from the credential, never the request");
                         AssertEqual("inc_example", after.DeliveryEvidence?.IncidentId, surface + ": the incident is kept");
+
+                        string picked = Guid.NewGuid().ToString("N") + "00000000";
+                        string tip = Guid.NewGuid().ToString("N") + "00000000";
+                        MergeEntry moved = await CreateMissionlessFailedMergeAsync(harness.Database, vessel, harness.Git, picked, true).ConfigureAwait(false);
+                        harness.Git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + moved.BranchName] = tip;
+                        harness.Git.PatchIds[picked] = "patch-" + surface;
+                        harness.Git.PatchIds[tip] = "patch-" + surface;
+                        SurfaceReply patchReply = surface == "REST"
+                            ? await harness.RestAsync(System.Net.Http.HttpMethod.Post, "/api/v1/merge-queue/" + moved.Id + "/delivery-evidence",
+                                new { commit = picked, proofKind = "PatchId" }).ConfigureAwait(false)
+                            : await harness.McpAsync("armada_record_merge_delivery",
+                                new { entryId = moved.Id, commit = picked, proofKind = "PatchId" }).ConfigureAwait(false);
+                        AssertFalse(patchReply.Refused, surface + ": the proof kind in the request reaches the recorder: " + patchReply);
+                        MergeEntry movedAfter = (await harness.Driver.MergeEntries.ReadAsync(moved.Id).ConfigureAwait(false))!;
+                        AssertEqual(LandingEvidenceKindEnum.PatchId, movedAfter.DeliveryEvidence?.EvidenceKind, surface + ": the patch-id proof is stored");
                     }
 
                     SurfaceReply restRefusal = await harness.RestAsync(System.Net.Http.HttpMethod.Post, "/api/v1/merge-queue/mrg_missing_example/delivery-evidence",
@@ -558,6 +726,25 @@ namespace Armada.Test.Unit.Suites.Services
             git.AncestorResults[commit + "|" + TargetRef] = onTarget;
             git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + entry.BranchName] = commit;
             return await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+        }
+
+        private static async Task<(Mission Mission, MergeEntry Entry)> CreateCancelledMissionMergeAsync(
+            TestDatabase testDb, Vessel vessel, StubGitService git, string? missionCommit, MissionStatusEnum status)
+        {
+            Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Cancelled " + Guid.NewGuid().ToString("N").Substring(0, 6))
+            {
+                Status = status,
+                VesselId = vessel.Id,
+                CommitHash = missionCommit
+            }).ConfigureAwait(false);
+            MergeEntry entry = new MergeEntry("armada/captain/" + mission.Id, "main")
+            {
+                MissionId = mission.Id,
+                VesselId = vessel.Id,
+                Status = MergeStatusEnum.Failed
+            };
+            git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + entry.BranchName] = null;
+            return (mission, await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false));
         }
 
         private static async Task<List<ArmadaEvent>> ProposalsAsync(TestDatabase testDb, Mission mission)

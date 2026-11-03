@@ -335,6 +335,26 @@ namespace Test.Shared.Infrastructure
             return Task.FromResult(IsAncestorResult);
         }
 
+        /// <summary>
+        /// Branch presence keyed by "repoPath|branchName"; null is a read that failed. With no entry, a branch is present
+        /// when <see cref="GetRevisionCommitShaAsync"/> resolves <c>refs/heads/&lt;branchName&gt;</c>.
+        /// </summary>
+        public Dictionary<string, bool?> BranchPresence { get; } = new Dictionary<string, bool?>(StringComparer.Ordinal);
+
+        public async Task<bool?> TryBranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
+        {
+            if (BranchPresence.TryGetValue(repoPath + "|" + branchName, out bool? keyed)) return keyed;
+            return !String.IsNullOrWhiteSpace(await GetRevisionCommitShaAsync(repoPath, "refs/heads/" + branchName, token).ConfigureAwait(false));
+        }
+
+        /// <summary>Patch-ids keyed by commit; a commit with no entry has no patch-id, as the interface default answers.</summary>
+        public Dictionary<string, string?> PatchIds { get; } = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        public Task<string?> GetPatchIdAsync(string repoPath, string commit, CancellationToken token = default)
+        {
+            return Task.FromResult(PatchIds.TryGetValue(commit, out string? patchId) ? patchId : null);
+        }
+
         public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {
             if (ShouldThrowOnDiff) throw new InvalidOperationException("Simulated diff failure");

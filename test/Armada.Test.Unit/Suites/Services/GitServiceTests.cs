@@ -367,6 +367,90 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetPatchIdAsync gives a cherry-pick the patch-id of its source and a different change another one", async () =>
+            {
+                GitService git = CreateService();
+                string directory = Path.Combine(Path.GetTempPath(), "armada-patch-id-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    await RunGitAsync(directory, "init", "-b", "main");
+                    await RunGitAsync(directory, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(directory, "config", "user.email", "armada-tests@example.com");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "base.txt"), "base\n");
+                    await RunGitAsync(directory, "add", "base.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Base");
+                    string baseSha = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+                    await RunGitAsync(directory, "checkout", "-b", "work");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "work.txt"), "work\n");
+                    await RunGitAsync(directory, "add", "work.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Work");
+                    string workSha = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+                    await RunGitAsync(directory, "checkout", "main");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "other.txt"), "other\n");
+                    await RunGitAsync(directory, "add", "other.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Other");
+                    string otherSha = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+                    await RunGitAsync(directory, "cherry-pick", workSha);
+                    string pickedSha = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+
+                    string? work = await git.GetPatchIdAsync(directory, workSha);
+                    string? picked = await git.GetPatchIdAsync(directory, pickedSha);
+                    string? other = await git.GetPatchIdAsync(directory, otherSha);
+                    AssertFalse(String.IsNullOrWhiteSpace(work), "a commit with a change has a patch-id");
+                    AssertNotEqual(workSha, pickedSha, "the cherry-pick is a different commit");
+                    AssertEqual(work, picked, "a cherry-pick onto another parent carries the same patch-id");
+                    AssertFalse(String.IsNullOrWhiteSpace(other), "the other change has a patch-id");
+                    AssertNotEqual(work, other, "a different change has a different patch-id");
+                    AssertNull(await git.GetPatchIdAsync(directory, new string('0', 40)), "a commit missing from the repository has no patch-id");
+                    AssertNull(await git.GetPatchIdAsync(Path.Combine(directory, "no-such-repository"), baseSha), "a read that cannot start has no patch-id");
+                }
+                finally
+                {
+                    if (Directory.Exists(directory))
+                    {
+                        foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                            File.SetAttributes(file, FileAttributes.Normal);
+                        Directory.Delete(directory, true);
+                    }
+                }
+            });
+
+            await RunTest("TryBranchExistsAsync answers present and absent only when git answers and unknown when the repository cannot be read", async () =>
+            {
+                GitService git = CreateService();
+                string directory = Path.Combine(Path.GetTempPath(), "armada-branch-presence-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    await RunGitAsync(directory, "init", "-b", "main");
+                    await RunGitAsync(directory, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(directory, "config", "user.email", "armada-tests@example.com");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "base.txt"), "base\n");
+                    await RunGitAsync(directory, "add", "base.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Base");
+                    await RunGitAsync(directory, "branch", "feature/work");
+
+                    AssertEqual<bool?>(true, await git.TryBranchExistsAsync(directory, "feature/work"), "an existing branch is present");
+                    AssertEqual<bool?>(false, await git.TryBranchExistsAsync(directory, "feature/gone"), "a branch git does not list is absent");
+                    AssertEqual<bool?>(false, await git.TryBranchExistsAsync(directory, "feature"), "a prefix of a branch name is not that branch");
+                    string notRepository = Path.Combine(directory, "not-a-repository");
+                    Directory.CreateDirectory(notRepository);
+                    await File.WriteAllTextAsync(Path.Combine(notRepository, ".git"), "gitdir: missing\n");
+                    AssertNull(await git.TryBranchExistsAsync(notRepository, "feature/work"), "a repository git cannot read is unknown, never absent");
+                    AssertNull(await git.TryBranchExistsAsync(Path.Combine(directory, "no-such-directory"), "feature/work"), "a read that cannot start is unknown, never absent");
+                }
+                finally
+                {
+                    if (Directory.Exists(directory))
+                    {
+                        foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                            File.SetAttributes(file, FileAttributes.Normal);
+                        Directory.Delete(directory, true);
+                    }
+                }
+            });
+
             await RunTest("ReadChangedPathsBetweenCommitsAsync lists only the paths changed between two commits and reports a bad commit as unavailable", async () =>
             {
                 GitService git = CreateService();
