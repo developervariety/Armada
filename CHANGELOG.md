@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A named review list with a serial comma reaches its review chain
+
+- A report-only stage that writes "Criterion N is not met because the TestEngineer, Linter, revising Worker, and Judge reviews have not run" is read as a deferral when each named role is a verified pending stage of its chain. The comma before the final "and" no longer leaves "and Judge" as an unknown role.
+
 ### The MCP SSH bridge answers a read while a long write is still running
 
 - `scripts/mcp-ssh-http-bridge.mjs` sends independent calls at the same time, so a slow call such as a review-hold clear no longer holds back the reads after it. The first proxied call still answers before any later call starts, so a session id it returns reaches every later call.

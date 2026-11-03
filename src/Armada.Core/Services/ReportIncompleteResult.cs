@@ -513,7 +513,7 @@ namespace Armada.Core.Services
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
             if (!named.Success) return false;
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string item in Regex.Split(named.Groups["roles"].Value, @"\s*,\s*|\s+and\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+            foreach (string item in Regex.Split(named.Groups["roles"].Value, @"\s*,\s*(?:and\s+)?|\s+and\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
             {
                 string role = item.Trim();
                 if (String.Equals(role.Replace(" ", String.Empty), "RevisingWorker", StringComparison.OrdinalIgnoreCase)) role = PersonaCatalog.Worker;
