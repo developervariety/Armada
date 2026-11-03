@@ -365,7 +365,7 @@ on request.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_get_merge_entry`, `armada_drain_audit_queue`, `armada_list_judge_followups` |
-| Write | `armada_enqueue_merge`, `armada_record_audit_verdict`, `armada_backfill_judge_followups`, `armada_record_judge_followup_handled` |
+| Write | `armada_enqueue_merge`, `armada_record_merge_delivery`, `armada_record_audit_verdict`, `armada_backfill_judge_followups`, `armada_record_judge_followup_handled` |
 | Execute | `armada_process_merge_entry`, `armada_process_merge_queue` |
 | Interrupt | `armada_cancel_merge` |
 | Destructive | `armada_delete_merge`, `armada_purge_merge_queue`, `armada_purge_merge_entry`, `armada_purge_merge_entries` |

@@ -1784,7 +1784,7 @@ using WatsonWebserver.Core.Routing;
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Merge queue
-            new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions)
+            new MergeQueueRoutes(_Database, _MergeQueue, EmitEventAsync, _JsonOptions, _Git)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Background jobs

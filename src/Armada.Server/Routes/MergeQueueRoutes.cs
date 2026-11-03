@@ -21,6 +21,7 @@ namespace Armada.Server.Routes
         private readonly IMergeQueueService _mergeQueue;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly MergeEntryCancellation _cancellation;
+        private readonly MergeDeliveryRecorder? _deliveryRecorder;
         private readonly JsonSerializerOptions _jsonOptions;
 
         /// <summary>
@@ -30,12 +31,15 @@ namespace Armada.Server.Routes
         /// <param name="mergeQueue">Merge queue service.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
+        /// <param name="git">Git service the delivery record reads its proof with; null answers that route with 503.</param>
         public MergeQueueRoutes(
             DatabaseDriver database,
             IMergeQueueService mergeQueue,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
-            JsonSerializerOptions jsonOptions)
+            JsonSerializerOptions jsonOptions,
+            IGitService? git = null)
         {
+            _deliveryRecorder = git == null ? null : new MergeDeliveryRecorder(database, git);
             _database = database;
             _mergeQueue = mergeQueue;
             _emitEvent = emitEvent;
@@ -232,6 +236,46 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<MergeEntry>("Cancelled merge entry"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The entry already finished"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/merge-queue/{id}/delivery-evidence", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+                if (_deliveryRecorder == null)
+                {
+                    req.Http.Response.StatusCode = 503;
+                    return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = "Delivery records need a git service, and this server has none." };
+                }
+                string id = req.Parameters["id"];
+                MergeDeliveryRecordRequest body = JsonSerializer.Deserialize<MergeDeliveryRecordRequest>(String.IsNullOrWhiteSpace(req.Http.Request.DataAsString) ? "{}" : req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new MergeDeliveryRecordRequest();
+
+                // The recorder is the authenticated caller, never a name in the body.
+                MergeDeliveryRecordResult result = await _deliveryRecorder.RecordAsync(id, body.Commit ?? String.Empty, ctx, body.IncidentId).ConfigureAwait(false);
+                if (!result.Recorded)
+                {
+                    req.Http.Response.StatusCode = result.NotFound ? 404 : 409;
+                    return new ApiErrorResponse
+                    {
+                        Error = result.NotFound ? ApiResultEnum.NotFound : ApiResultEnum.Conflict,
+                        Message = result.Code + ": " + result.Message
+                    };
+                }
+                return (object)result.Entry!;
+            },
+            api => api
+                .WithTag("MergeQueue")
+                .WithSummary("Record delivery proof on a failed merge entry")
+                .WithDescription("Records that a Failed merge entry with no mission is already delivered. The commit must be on origin/<target branch> after a fetch, and the entry's branch, when it still resolves, must point at it. The entry keeps its Failed outcome, the recorder is the authenticated caller, and a merge.delivery_recorded event is written. Each refusal names its reason, leaves the entry unchanged, and returns 404 for an unknown entry or 409 otherwise. Global administrator only; MCP armada_record_merge_delivery runs the same record.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Merge entry ID (mrg_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<MergeDeliveryRecordRequest>("Commit and optional incident", true))
+                .WithResponse(200, OpenApiJson.For<MergeEntry>("Merge entry with its delivery proof"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The record was refused; the message starts with the reason code"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/merge-queue/{id}/process", async (ApiRequest req) =>

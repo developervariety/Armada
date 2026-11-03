@@ -122,6 +122,7 @@ namespace Armada.Core.Authorization
             if (method == "POST" && path.StartsWith("/api/v1/captains/") && path.TrimEnd('/').EndsWith("/probe"))
                 return PermissionLevel.AdminOnly;
             if (path.TrimEnd('/') == "/api/v1/merge-queue/process" && method == "POST") return PermissionLevel.AdminOnly;
+            if (path.StartsWith("/api/v1/merge-queue/") && path.TrimEnd('/').EndsWith("/delivery-evidence") && method == "POST") return PermissionLevel.AdminOnly;
 
             // A workspace command runs as the server process with the server's filesystem, network and credentials,
             // so it is host shell access: only a global administrator may run one.

@@ -252,7 +252,7 @@ namespace Armada.Test.Unit.TestHelpers
                 operations: Operations).Register(_Server, authenticate, authz);
             new ObjectiveRoutes(Driver, objectives, gitHub, new ObjectiveDispatchPreviewService(Driver, workflowProfiles, readiness, Git, Settings))
                 .Register(_Server, authenticate, authz);
-            new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
+            new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions, Git).Register(_Server, authenticate, authz);
             new DockRoutes(Driver, Docks, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
             new EventRoutes(Driver, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
             new TenantRoutes(Driver, _RestJsonOptions, defaults).Register(_Server, authenticate, authz);

@@ -342,7 +342,8 @@ These are observed behaviors that the entry status alone does not make obvious.
 | `armada_process_merge_queue` | Trigger a processing run (no-op if already running). |
 | `armada_process_merge_entry` | Process a single entry by ID. |
 | `armada_get_merge_entry` | Get a single entry by ID. |
-| `armada_cancel_merge` | Cancel a queued entry. |
+| `armada_cancel_merge` | Cancel an active entry; a finished entry keeps its outcome and is refused. |
+| `armada_record_merge_delivery` | Record operator delivery proof on a `Failed` entry that has no mission. |
 | `armada_delete_merge` | Delete a terminal entry and clean up its branches. |
 | `armada_purge_merge_queue` | Bulk delete all terminal entries, with optional vessel/status filters. |
 
@@ -501,3 +502,28 @@ target branch, and stores it on the entry as `DeliveryEvidence`; it records
 inbox lists such an entry as an `Info` item of kind `merge_failed_delivered` that
 carries the evidence. An entry with no proof, or whose ancestry cannot be read, stays
 a `Critical` `merge_failed` item.
+
+The sweep reads proof only for an entry that belongs to a mission. For a `Failed`
+entry with no mission, a global administrator names the commit that carries its work
+with MCP `armada_record_merge_delivery` or REST
+`POST /api/v1/merge-queue/{id}/delivery-evidence`. The record reads the proof before
+it stores anything: after a fetch, the commit must be on `origin/<target branch>`,
+and when the entry's branch still resolves in the vessel repository, its tip must be
+that commit. The stored `DeliveryEvidence` names the recorder, taken from the
+authenticated caller (principal name, else credential, else user) and never from the
+request, plus an optional incident. A caller that signs in with the server API key
+records the label `API Key`, so every API-key operator records the same name. The entry keeps its `Failed` outcome, the record
+writes `merge.delivery_recorded` once, and the inbox lists the entry as
+`merge_failed_delivered` with "Recorded by" and the recorder's name. A refusal names
+its reason and leaves the entry unchanged:
+
+| Reason | When |
+|---|---|
+| `merge_entry_not_found` | No such entry in the caller's scope. |
+| `merge_entry_not_failed` | The entry is not `Failed`. |
+| `merge_delivery_already_recorded` | The entry already carries delivery proof. |
+| `merge_entry_mission_bound` | The entry belongs to a mission; the sweep reads its proof. |
+| `merge_repository_unavailable` | No vessel, no vessel repository, or the fetch failed. |
+| `merge_delivery_no_caller_identity` | The caller carries no principal, credential or user name. |
+| `merge_commit_not_on_target` | No commit was given, or it is not proven on `origin/<target branch>`. |
+| `merge_branch_tip_differs` | The entry's branch resolves to a different commit. |

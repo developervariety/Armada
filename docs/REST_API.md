@@ -3522,6 +3522,34 @@ cancelled by operator, and a `merge.cancelled` event is written.
 
 ---
 
+#### POST /api/v1/merge-queue/{id}/delivery-evidence
+
+Record that a `Failed` merge entry with no mission is already delivered. Global administrator only; MCP
+`armada_record_merge_delivery` runs the same record. After a fetch, the commit must be on `origin/<target branch>`, and
+when the entry's branch still resolves in the vessel repository, its tip must be that commit. The entry keeps its
+`Failed` outcome. Its `DeliveryEvidence` names the recorder, taken from the authenticated caller and never from the
+body, and a `merge.delivery_recorded` event is written. The refusal reasons are listed in
+[MERGING.md](MERGING.md); a refusal leaves the entry unchanged and its message starts with the reason.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Merge entry ID (`mrg_` prefix) |
+
+**Request Body:**
+```json
+{
+  "Commit": "0123456789abcdef0123456789abcdef01234567",
+  "IncidentId": "inc_abc123"
+}
+```
+
+**Response:** `200 OK` - the merge entry with its delivery proof
+
+**Error:** `404` - Merge entry not found; `409` - the record was refused
+
+---
+
 #### POST /api/v1/merge-queue/process
 
 Trigger processing of the merge queue. Creates integration branches, runs tests, and lands passing batches. It processes every tenant's entries, so it requires a global administrator; any other caller receives `403`. A tenant administrator processes one of their own tenant's entries with `POST /api/v1/merge-queue/{id}/process`.
@@ -5415,6 +5443,8 @@ A recorded event representing a state change in the system.
 - `mission.branch_unverified` - At completion capture, the mission branch does not hold the captured commit, or git could not answer; the payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch
 - `mission.landing_reconcile_proposed` - The landing sweep found proof that a `LandingFailed` mission's work is on the vessel's default branch; the payload carries the evidence (kind, commit, ref, failure reason). The sweep records one per mission and never changes the mission
 - `mission.landing_reconciled` - An operator confirmed a landing proposal and the mission moved from `LandingFailed` to `Complete`; the payload repeats the evidence and the failure reason the landing had
+- `merge.delivery_proven` - The landing sweep found proof that a `Failed` merge entry's mission work is on its target branch and stored it on the entry; the message carries the evidence. The entry keeps its `Failed` outcome
+- `merge.delivery_recorded` - An operator recorded proven delivery on a `Failed` merge entry with no mission; the message carries the evidence and the recorder. The entry keeps its `Failed` outcome
 - `dock.reclaimed` - A dock was reclaimed. The message and payload name the caller (`<source file>.<member>`), the dock's mission and the mission's status at reclaim, so a reclaim of a dock whose mission still has unlanded work can be traced to the code path that requested it. A reclaim that is deferred or finds the dock already inactive records nothing
 - `voyage.dispatched` - A voyage was created: by a dispatch with all of its missions, by an autonomous rescue with its missions, or without missions (the message then counts 0 missions)
 - `voyage.completed` - The voyage completion rule wrote the voyage Complete: every mission done without failure, a cancelled stage only beside a `Complete` mission, and its Checks green or absent

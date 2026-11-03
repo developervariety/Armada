@@ -32,6 +32,12 @@ namespace Armada.Core.Models
         /// <summary>When the proof was found.</summary>
         public DateTime ProposedUtc { get; set; } = DateTime.UtcNow;
 
+        /// <summary>The operator who recorded the proof, or null when the landing sweep found it.</summary>
+        public string? RecordedBy { get; set; } = null;
+
+        /// <summary>The incident the operator's record answers, or null.</summary>
+        public string? IncidentId { get; set; } = null;
+
         #endregion
 
         #region Public-Methods
@@ -43,9 +49,10 @@ namespace Armada.Core.Models
         public string Describe()
         {
             string commit = EvidenceCommit.Length > 12 ? EvidenceCommit.Substring(0, 12) : EvidenceCommit;
-            return EvidenceKind == LandingEvidenceKindEnum.CommitAncestry
+            string proof = EvidenceKind == LandingEvidenceKindEnum.CommitAncestry
                 ? "Its commit " + commit + " is already on " + TargetRef + "."
                 : "Commit " + commit + " on " + TargetRef + " carries its Armada-Mission-Id trailer.";
+            return String.IsNullOrWhiteSpace(RecordedBy) ? proof : proof + " Recorded by " + RecordedBy.Trim() + ".";
         }
 
         #endregion

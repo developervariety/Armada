@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### An operator can record delivery proof on a failed merge entry with no mission
+
+- MCP `armada_record_merge_delivery` and REST `POST /api/v1/merge-queue/{id}/delivery-evidence` (global administrator only) store delivery proof on a `Failed` merge entry with no mission once the named commit is proven on `origin/<target branch>` after a fetch and the entry's branch, when it still resolves, points at it. The entry keeps its `Failed` outcome, the proof names the recorder from the authenticated caller and an optional incident, `merge.delivery_recorded` is written, and the inbox shows the entry as delivered context with "Recorded by". Each refusal names its reason and leaves the entry unchanged. MCP caller identity and the new record share one rule: principal name, else credential, else user. See docs/MERGING.md.
+
 ### The gate and the test runner take a build node cap
 
 - `scripts/linux/server-gate.sh --build-nodes <n>` passes `-m:<n>` to the solution build and forwards the cap to `scripts/common/run-tests.sh`, and `run-tests.sh --build-nodes <n>` passes `-m:<n>` to each suite build, so a gate build need not take every core of a shared host. Without the option both builds keep the SDK's node count; a count that is not a positive integer is refused before any work. See docs/TESTING.md, "Gate Host".

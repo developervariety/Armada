@@ -8,6 +8,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Enums;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Server;
 
@@ -37,7 +38,8 @@ namespace Armada.Server.Mcp.Tools
         /// that check, for hosts that register the tools without a database.
         /// </param>
         /// <param name="notifier">Event sink for the shared merge cancel; null writes no events.</param>
-        public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue, LongRunningJobService? jobs = null, DatabaseDriver? database = null, OperationNotifier? notifier = null)
+        /// <param name="git">Git service the delivery record reads its proof with; null leaves that tool unregistered.</param>
+        public static void Register(RegisterToolDelegate register, IMergeQueueService mergeQueue, LongRunningJobService? jobs = null, DatabaseDriver? database = null, OperationNotifier? notifier = null, IGitService? git = null)
         {
             register(
                 "armada_get_merge_entry",
@@ -126,6 +128,34 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = cancel.Message, Code = cancel.Code };
                     return (object)new { Status = "cancelled", EntryId = entryId };
                 });
+
+            if (database != null && git != null)
+            {
+                MergeDeliveryRecorder recorder = new MergeDeliveryRecorder(database, git);
+                register(
+                    "armada_record_merge_delivery",
+                    "Record that a Failed merge entry with no mission is already delivered. The commit must be on origin/<target branch> after a fetch, and the entry's branch, when it still resolves, must point at it. The entry keeps its Failed outcome; the recorder is the authenticated caller. Each refusal names its reason and leaves the entry unchanged.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            entryId = new { type = "string", description = "Merge entry ID (mrg_ prefix)" },
+                            commit = new { type = "string", description = "Commit that carries the entry's work on its target branch" },
+                            incidentId = new { type = "string", description = "Optional incident the record answers" }
+                        },
+                        required = new[] { "entryId", "commit" }
+                    },
+                    async (args) =>
+                    {
+                        MergeDeliveryRecordArgs request = JsonSerializer.Deserialize<MergeDeliveryRecordArgs>(args!.Value, _JsonOptions)!;
+                        MergeDeliveryRecordResult result = await recorder
+                            .RecordAsync(request.EntryId, request.Commit, McpCallerContext.Current, request.IncidentId).ConfigureAwait(false);
+                        if (!result.Recorded)
+                            return (object)new { Error = result.Message, Code = result.Code };
+                        return (object)result.Entry!;
+                    });
+            }
 
             register(
                 "armada_process_merge_entry",
