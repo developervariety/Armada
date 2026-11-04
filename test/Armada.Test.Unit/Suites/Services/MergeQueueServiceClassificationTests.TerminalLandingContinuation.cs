@@ -71,6 +71,15 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertNotEqual(MissionStatusEnum.Cancelled, assigned.Status, "the terminal-voyage rule does not cancel the granted Judge: " + assigned.FailureReason);
                         AssertNotEqual(MissionAssignmentHold.DependencyUnfinished, assigned.AssignmentHoldReason, "the named Failed predecessor does not hold it");
                         AssertEqual(1, assigned.GeneratedArtifactReview!.TerminalContinuation!.AdmittedAttempt, "the admission is recorded for this candidate");
+
+                        Mission sibling = await testDb.Driver.Missions.CreateAsync(new Mission("Sibling without a grant", "Document the work")
+                        {
+                            TenantId = Armada.Core.Constants.DefaultTenantId, VesselId = c.Prepared.Vessel.Id, VoyageId = c.Voyage.Id,
+                            Persona = "Worker", Status = MissionStatusEnum.Pending, BranchName = c.Branch
+                        }).ConfigureAwait(false);
+                        await c.Prepared.Missions.TryAssignAsync(sibling, c.Prepared.Vessel).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(sibling.Id).ConfigureAwait(false))!.Status,
+                            "the grant admits only its own Judge; another Pending mission of the Failed voyage is still cancelled");
                     }
                 }
                 finally { DeleteTerminalRoot(rootDir); }
@@ -306,6 +315,109 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { DeleteTerminalRoot(rootDir); }
             }).ConfigureAwait(false);
 
+            await RunTest("A granted Judge of a Failed voyage lands its candidate only after a real PASS and Checks at that candidate, and the voyage stays Failed", async () =>
+            {
+                string rootDir = NewTerminalRoot();
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        TerminalCase c = await CreateTerminalCaseAsync(testDb, rootDir).ConfigureAwait(false);
+                        Vessel vessel = (await testDb.Driver.Vessels.ReadAsync(c.Prepared.Vessel.Id).ConfigureAwait(false))!;
+                        vessel.LandingMode = LandingModeEnum.LocalMerge;
+                        vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                        AssertTrue((await c.Prepared.Missions.ContinueTerminalLandingAsync(c.Judge.Id, "operator-a").ConfigureAwait(false)).Granted);
+                        string candidate = (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!.GeneratedArtifactReview!.CandidateCommit;
+                        AssertNotEqual(c.Source, candidate, "the grant prepared a regenerated candidate");
+
+                        SyslogLogging.LoggingModule logging = CreateLogging();
+                        GitService git = new GitService(logging);
+                        DockService docks = new DockService(logging, testDb.Driver, c.Prepared.Settings, git);
+                        int launches = 0;
+                        c.Prepared.Captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(Int32.MaxValue - 60); };
+                        await testDb.Driver.Captains.CreateAsync(new Captain("terminal-full-flow")
+                        {
+                            TenantId = Armada.Core.Constants.DefaultTenantId, AllowedPersonas = "[\"Judge\"]"
+                        }).ConfigureAwait(false);
+
+                        Mission pending = (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!;
+                        AssertTrue(await c.Prepared.Missions.TryAssignAsync(pending, vessel).ConfigureAwait(false), "the granted Judge launches");
+                        Mission running = (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!;
+                        AssertEqual(1, launches);
+                        AssertEqual(candidate, running.CommitHash, "the Judge reviews the regenerated candidate");
+
+                        WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
+                        WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            TenantId = Armada.Core.Constants.DefaultTenantId, UserId = Armada.Core.Constants.DefaultUserId,
+                            Name = "Terminal continuation commands", Scope = WorkflowProfileScopeEnum.Vessel, VesselId = vessel.Id,
+                            IsDefault = true, BuildCommand = "git rev-parse HEAD", UnitTestCommand = "git status --porcelain && git rev-parse HEAD"
+                        }).ConfigureAwait(false);
+                        List<CheckRun> armed = new List<CheckRun>();
+                        foreach (CheckRunTypeEnum type in new[] { CheckRunTypeEnum.Build, CheckRunTypeEnum.UnitTest })
+                            armed.Add(await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                            {
+                                TenantId = Armada.Core.Constants.DefaultTenantId, UserId = Armada.Core.Constants.DefaultUserId,
+                                VesselId = vessel.Id, VoyageId = c.Voyage.Id, WorkflowProfileId = profile.Id, MissionId = c.Judge.Id,
+                                Type = type, Status = CheckRunStatusEnum.Pending, Source = CheckRunSourceEnum.Armada,
+                                CommitHash = candidate, BranchName = running.BranchName,
+                                Command = type == CheckRunTypeEnum.Build ? profile.BuildCommand : profile.UnitTestCommand, Label = type.ToString()
+                            }).ConfigureAwait(false));
+
+                        CheckRunService checks = new CheckRunService(testDb.Driver, profiles, new VesselReadinessService(testDb.Driver, profiles, logging), logging);
+                        LandingService landing = new LandingService(logging, testDb.Driver, c.Prepared.Settings, git);
+                        landing.GeneratedArtifactPreparer = c.Prepared.Missions.PrepareGeneratedArtifactsForTargetAsync;
+                        using (RemoteTriggerHttpClient remoteHttp = new RemoteTriggerHttpClient(logging))
+                        {
+                            Armada.Server.MissionLandingHandler handler = new Armada.Server.MissionLandingHandler(
+                                logging, testDb.Driver, c.Prepared.Settings, git, c.Prepared.Queue, landing,
+                                new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator(),
+                                new MessageTemplateService(logging), null, docks, new RemoteTriggerService(null, remoteHttp, logging), null);
+                            landing.OnPerformLanding = handler.HandleMissionCompleteAsync;
+                            c.Prepared.Missions.OnMissionComplete = handler.HandleMissionCompleteAsync;
+                            string narrative = "The regenerated manifest and the authored change were reviewed at the exact candidate. "
+                                + "The candidate keeps the reconciled Worker commit as an ancestor and changes only the declared artifact beyond it. "
+                                + "Earlier Checks at the source commit are history and cannot prove this candidate; its Build and UnitTest commands remain required.";
+                            c.Prepared.Missions.OnGetMissionOutput = _ => "## Completeness\n" + narrative + "\n## Correctness\n" + narrative
+                                + "\n## Evidence\n" + narrative + "\n## Residual Risks\n" + narrative + "\n## Verdict\nPASS\n[ARMADA:VERDICT] PASS";
+
+                            Captain captain = (await testDb.Driver.Captains.ReadAsync(running.CaptainId!).ConfigureAwait(false))!;
+                            await c.Prepared.Missions.HandleCompletionAsync(captain, c.Judge.Id).ConfigureAwait(false);
+
+                            Mission reviewed = (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!;
+                            string state = System.Text.Json.JsonSerializer.Serialize(new
+                            { reviewed.Status, reviewed.FailureReason, reviewed.HeldForOperatorReviewReason, reviewed.GeneratedArtifactReview });
+                            AssertTrue(JudgeCheckWaitHold.IsHeld(reviewed), "the real PASS waits for its Checks at the candidate: " + state);
+                            AssertNull(reviewed.GeneratedArtifactReview!.ApprovedUtc, "no approval before the Checks pass");
+                            AssertEqual(c.MainBefore, await RunGitCaptureAsync(c.BareDir, "rev-parse", "main").ConfigureAwait(false), "nothing lands before the Checks pass");
+
+                            Armada.Core.Models.AuthContext auth = Armada.Core.Models.AuthContext.Authenticated(
+                                Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "UnitTest");
+                            foreach (CheckRun check in armed)
+                            {
+                                CheckRun executed = await checks.RetryAsync(auth, check.Id).ConfigureAwait(false);
+                                AssertEqual(CheckRunStatusEnum.Passed, executed.Status, executed.Summary);
+                                AssertEqual(candidate, executed.CommitHash);
+                                AssertContains(candidate, executed.Output ?? String.Empty, "the Check ran at the candidate");
+                            }
+                            AssertEqual(1, await c.Prepared.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false), "the held PASS is released");
+
+                            Mission landed = (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!;
+                            AssertNotNull(landed.GeneratedArtifactReview!.ApprovedUtc, "the real PASS and the candidate Checks approve it");
+                            AssertEqual(MissionStatusEnum.Complete, landed.Status, landed.FailureReason);
+                            AssertEqual(candidate, await RunGitCaptureAsync(c.BareDir, "rev-parse", "main").ConfigureAwait(false), "the target moves onto exactly the candidate");
+                            List<ArmadaEvent> landedEvents = await testDb.Driver.Events.EnumerateByTypeAsync(MissionService.TerminalContinuationLandedEventType).ConfigureAwait(false);
+                            AssertEqual(1, landedEvents.Count, "the direct landing writes one continuation landed event");
+                            AssertContains(candidate, landedEvents[0].Payload ?? String.Empty);
+                            AssertEqual(VoyageStatusEnum.Failed, (await testDb.Driver.Voyages.ReadAsync(c.Voyage.Id).ConfigureAwait(false))!.Status, "the voyage stays Failed as history");
+                            Mission worker = (await testDb.Driver.Missions.ReadAsync(c.Worker.Id).ConfigureAwait(false))!;
+                            AssertEqual(MissionStatusEnum.Failed, worker.Status, "the reconciled Worker keeps its Failed status");
+                        }
+                    }
+                }
+                finally { DeleteTerminalRoot(rootDir); }
+            }).ConfigureAwait(false);
+
             await RunTest("A re-prepared candidate after target drift keeps the grant and can be admitted once more", async () =>
             {
                 Mission judge = new Mission("Judge drift", "Review") { Persona = "Judge", Status = MissionStatusEnum.WorkProduced, CommitHash = "candidate-1" };
@@ -374,6 +486,8 @@ namespace Armada.Test.Unit.Suites.Services
             judge.Status = MissionStatusEnum.LandingFailed;
             judge.AgentOutput = "terminal review\n[ARMADA:VERDICT] PASS";
             judge.FailureReason = "Landing conflict confined to " + GeneratedManifest;
+            judge.RecoveryAttempts = 1;
+            judge.LandingRetryCount = 1;
             await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
 
             return new TerminalCase

@@ -39,6 +39,7 @@ namespace Armada.Test.Unit.Suites.Services
             public MergeQueueService Queue { get; set; } = null!;
             public Vessel Vessel { get; set; } = null!;
             public MissionService Missions { get; set; } = null!;
+            public ICaptainService Captains { get; set; } = null!;
             public ArmadaSettings Settings { get; set; } = null!;
         }
 
@@ -548,7 +549,7 @@ namespace Armada.Test.Unit.Suites.Services
                 new MergeFailureClassification(MergeFailureClassEnum.TextConflict, "Recording classifier", new List<string>()));
             MergeQueueService queue = new MergeQueueService(logging, testDb.Driver, settings, git, classifier);
             queue.GeneratedArtifactPreparer = missions.PrepareGeneratedArtifactsForTargetAsync;
-            return new PreparingQueue { Queue = queue, Vessel = vessel, Missions = missions, Settings = settings };
+            return new PreparingQueue { Queue = queue, Vessel = vessel, Missions = missions, Captains = captains, Settings = settings };
         }
 
         /// <summary>A Worker, a passed Judge and a Recorder in one voyage, with the Recorder queued for landing.</summary>
