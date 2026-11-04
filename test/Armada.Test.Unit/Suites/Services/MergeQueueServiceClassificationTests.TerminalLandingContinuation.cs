@@ -125,7 +125,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "terminal_continuation_source_changed"),
                     ("cancelled voyage", async (db, c) => { c.Voyage.Status = VoyageStatusEnum.Cancelled; await db.Driver.Voyages.UpdateAsync(c.Voyage).ConfigureAwait(false); },
                         "terminal_continuation_voyage_cancelled"),
-                    ("no recorded PASS", async (db, c) => { c.Judge.AgentOutput = "[ARMADA:VERDICT] FAIL terminal review"; await db.Driver.Missions.UpdateAsync(c.Judge).ConfigureAwait(false); },
+                    ("no recorded PASS", async (db, c) => { c.Judge.AgentOutput = "terminal review\n[ARMADA:VERDICT] FAIL"; await db.Driver.Missions.UpdateAsync(c.Judge).ConfigureAwait(false); },
                         "terminal_continuation_no_pass")
                 };
                 foreach ((string name, Func<TestDatabase, TerminalCase, Task> arrange, string reason) in cases)
@@ -372,6 +372,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             Mission judge = stages.Judge;
             judge.Status = MissionStatusEnum.LandingFailed;
+            judge.AgentOutput = "terminal review\n[ARMADA:VERDICT] PASS";
             judge.FailureReason = "Landing conflict confined to " + GeneratedManifest;
             await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
 
