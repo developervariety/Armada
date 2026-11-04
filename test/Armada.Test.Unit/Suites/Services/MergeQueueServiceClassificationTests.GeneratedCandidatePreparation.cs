@@ -161,6 +161,45 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A nondeterministic generator fails the landing by name before any review binding and keeps the Judge's verdict", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_unstable_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GeneratedManifestRepos repos = await CreateGeneratedManifestReposAsync(rootDir, true, "b.txt").ConfigureAwait(false);
+                    string source = await RunGitCaptureAsync(repos.BareDir, "rev-parse", repos.Branches[0]).ConfigureAwait(false);
+                    string mainBefore = await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        PreparingQueue prepared = await CreatePreparingQueueAsync(testDb, repos.BareDir).ConfigureAwait(false);
+                        prepared.Vessel.GeneratedArtifacts!.RegenerateCommand = "sh tools/regen.sh && od -An -N16 -tx1 /dev/urandom >> " + GeneratedManifest;
+                        await testDb.Driver.Vessels.UpdateAsync(prepared.Vessel).ConfigureAwait(false);
+                        RoutedStages stages = await CreateRoutedStagesAsync(testDb, prepared.Vessel, repos.Branches[0], source, "unstable").ConfigureAwait(false);
+
+                        await prepared.Queue.ProcessEntryByIdAsync(stages.Entry.Id).ConfigureAwait(false);
+
+                        MergeEntry entry = (await testDb.Driver.MergeEntries.ReadAsync(stages.Entry.Id).ConfigureAwait(false))!;
+                        Mission judge = (await testDb.Driver.Missions.ReadAsync(stages.Judge.Id).ConfigureAwait(false))!;
+                        AssertNotEqual(MergeStatusEnum.Landed, entry.Status, "an unstable generator never lands");
+                        AssertContains("generated_nondeterministic_output: " + GeneratedManifest, (entry.TestOutput ?? String.Empty) + entry.MergeFailureSummary,
+                            "the entry names the refusal and the differing path");
+                        AssertNull(judge.GeneratedArtifactReview, "no candidate is bound for review or approval");
+                        AssertEqual(MissionStatusEnum.Complete, judge.Status, "the Judge is not reopened for an unstable candidate");
+                        AssertEqual(source, judge.CommitHash, "the Judge keeps the commit it reviewed");
+                        AssertContains("unstable review", judge.AgentOutput ?? String.Empty, "the Judge's verdict output is kept");
+                        AssertEqual(mainBefore, await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false), "the target does not move");
+                        AssertEqual(source, await RunGitCaptureAsync(repos.BareDir, "rev-parse", repos.Branches[0]).ConfigureAwait(false),
+                            "the reviewed branch is not rewritten");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); }
+                    catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
+                }
+            }).ConfigureAwait(false);
+
             foreach (int maxRetries in new[] { 0, 2 })
             await RunTest("A generated candidate target drift " + (maxRetries == 0
                 ? "ends with a named preparation limit" : "replaces approval with the next bounded review"), async () =>
