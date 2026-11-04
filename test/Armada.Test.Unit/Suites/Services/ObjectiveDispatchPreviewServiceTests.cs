@@ -1544,6 +1544,21 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(denied.Value, deniedResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 2).Status,
                             "a denied test commitment does not erase another positive obligation: " + denied.Key);
                     }
+                    Dictionary<string, PreflightFactStatusEnum> censusCases = new Dictionary<string, PreflightFactStatusEnum>
+                    {
+                        ["Census at the tip: produce a report to the owner."] = PreflightFactStatusEnum.Pass,
+                        ["Run a census of the fixtures and produce a findings report."] = PreflightFactStatusEnum.Pass,
+                        ["Write the census file at docs/census.md."] = PreflightFactStatusEnum.Fail,
+                        ["Update the census document with the new rows."] = PreflightFactStatusEnum.Fail,
+                        ["Commit the census and produce a report to the owner."] = PreflightFactStatusEnum.Unknown
+                    };
+                    foreach (KeyValuePair<string, PreflightFactStatusEnum> census in censusCases)
+                    {
+                        objective.Description = census.Key;
+                        ObjectiveDispatchPreview censusResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                        AssertEqual(census.Value, censusResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 2).Status,
+                            "a census studied in a report is not committed work, and a census file to write is: " + census.Key);
+                    }
                     foreach (var sample in new[]
                     {
                         (Description: "Inspect the existing export and report exact counts. Documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Unknown),
