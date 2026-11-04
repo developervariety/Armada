@@ -379,7 +379,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 + "The candidate keeps the reconciled Worker commit as an ancestor and changes only the declared artifact beyond it. "
                                 + "Earlier Checks at the source commit are history and cannot prove this candidate; its Build and UnitTest commands remain required.";
                             c.Prepared.Missions.OnGetMissionOutput = _ => "## Completeness\n" + narrative + "\n## Correctness\n" + narrative
-                                + "\n## Evidence\n" + narrative + "\n## Residual Risks\n" + narrative + "\n## Verdict\nPASS\n[ARMADA:VERDICT] PASS";
+                                + "\n## Tests\n" + narrative + "\n## Failure Modes\n" + narrative + "\n## Verdict\nPASS\n[ARMADA:VERDICT] PASS";
 
                             Captain captain = (await testDb.Driver.Captains.ReadAsync(running.CaptainId!).ConfigureAwait(false))!;
                             await c.Prepared.Missions.HandleCompletionAsync(captain, c.Judge.Id).ConfigureAwait(false);
