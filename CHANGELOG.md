@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### The dispatch preview reads a census study as a report
+
+- Dispatch preview question 2 no longer treats the bare word "census" as committed work, so a report-only Research objective that studies a census ("Census at the tip: produce a report to the owner") passes as a report deliverable. "Census file", "census document" and the existing commit phrases ("commit the census") still mark committed work.
+
 ### A passed Judge in a Failed voyage can rerun at a regenerated candidate
 
 - MCP `armada_continue_terminal_landing` and REST `POST /api/v1/missions/{id}/terminal-landing-continuation` (global administrator only) grant one continuation to a passed Judge whose landing failed inside a `Failed` voyage. Each predecessor must be delivered, or `Failed` with reconciliation reason `terminal_voyage_work_unlanded` and a commit contained in the Judge's commit; any other state refuses with a named `terminal_continuation_*` reason and changes nothing. The grant lives in the Judge's review binding, runs the ordinary generated-candidate preparation, and admits that Judge past the terminal-voyage cancellation and the named predecessors once per prepared candidate. A predecessor that changed after the grant, or a candidate already admitted and launched, holds the Judge by name. A new Judge PASS and the required Checks at the exact candidate are still required. The voyage stays `Failed`; `mission.terminal_continuation_granted` and `mission.terminal_continuation_landed` record the grant and the landing. No migration. See docs/MERGING.md.

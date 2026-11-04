@@ -505,7 +505,7 @@ namespace Armada.Core.Services
         {
             const int question = 2;
             string[] reportWords = { "deliver a report", "deliverable is a report", "report only, no code", "a report", "produce a report", "findings report", "report to the owner" };
-            string[] committedWords = { "commit a", "commit the", "committed doc", "committed document", "committed test", "census", "ledger row", "discoveries.d", "write a file", "record a file" };
+            string[] committedWords = { "commit a", "commit the", "committed doc", "committed document", "committed test", "census file", "census document", "ledger row", "discoveries.d", "write a file", "record a file" };
             string committedPattern = @"\b(?:" + String.Join("|", committedWords.Select(Regex.Escape)) + ")";
             string described = Regex.Replace(description.ToLowerInvariant(),
                 @"\b(?:no|without)\s+committed\s+tests?\b|\b(?:not|never)\s+(?:(?:add|write|deliver|produce|create|include|require|commit)\s+)?(?:any\s+)?committed\s+tests?\b",
