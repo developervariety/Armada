@@ -901,9 +901,10 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            // Check the full sibling lane for active work. The current vessel keeps its explicit
-            // AllowConcurrentMissions behavior, but a build-participating sibling is always another
-            // repository writer and therefore blocks this assignment.
+            // Check the full sibling lane for active work. A broad-scope mission anywhere in the lane holds
+            // every member. Other in-flight work on a build-participating sibling does not: each dock builds
+            // against its own sibling checkout, and every landing re-measures the merged commit through the
+            // vessel's required checks. The current vessel keeps its explicit AllowConcurrentMissions behavior.
             // Use lightweight summaries (id/title/status only) to avoid hydrating large
             // description, diff_snapshot, and agent_output columns for every pending check.
             List<ActiveMissionSummary> activeSummaries = new List<ActiveMissionSummary>();
@@ -932,15 +933,6 @@ namespace Armada.Core.Services
             // Check if this mission is broad-scope and vessel already has active work.
             // activeSummaries already contains only Assigned/InProgress missions.
             int concurrentCount = activeSummaries.Count;
-
-            if (activeSiblingSummaries.Count > 0)
-            {
-                _Logging.Info(_Header + "sibling lane for vessel " + vessel.Id + " has "
-                    + activeSiblingSummaries.Count + " active mission(s); deferring " + mission.Id);
-                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
-                await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                return false;
-            }
 
             if (IsBroadScope(mission) && concurrentCount > 0)
             {

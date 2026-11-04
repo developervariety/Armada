@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### An in-flight build sibling no longer holds its consumer
+
+- Mission assignment no longer defers a mission while a build-participating sibling vessel has an `Assigned` or `InProgress` mission, so the two repositories of a lane can run missions at the same time. Each dock builds against its own sibling checkout, and every landing re-measures the merged commit through the vessel's Build and UnitTest checks. A broad-scope mission on any lane member still defers the whole lane, and the short lane reservation and `sibling_lane_capacity_reached` are unchanged. See docs/SCHEDULING.md.
+
 ### The report-incomplete reader keeps one obligation path
 
 - `ReportIncompleteResult` drops its two unused public `TryRead` overloads that took a pending-Judge flag and a review count, and the pattern only they reached. A report is read either with no pending reviews or with the owned chain's verified pending review obligations; both paths behave as before.

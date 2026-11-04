@@ -279,6 +279,13 @@ never defers the lane's other missions on every tick. A reservation held by
 another admiral process still defers at once, with assignment state
 `WaitingForVesselMutex`.
 
+Inside the lane, a broad-scope mission (one whose title names a repository-wide
+change, such as "restructure" or "refactor all") on any member defers every
+other member's missions with `WaitingForVesselMutex`. Other in-flight work on a
+build-participating sibling does not defer a mission: each dock builds against
+its own sibling checkout, and every landing re-measures the merged commit
+through the vessel's Build and UnitTest checks.
+
 A normal autonomous fleet can use two or three concurrent voyages when it has
 that many independent writable lanes. One global voyage is a deliberate
 throttle, not Armada's required operating model. Inspect both
