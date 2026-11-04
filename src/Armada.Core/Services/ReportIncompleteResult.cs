@@ -134,11 +134,6 @@ namespace Armada.Core.Services
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
-        private static readonly Regex _PendingRoleReviewsOnly = new Regex(
-            @"\A\s*(?:at\s+this\s+[A-Za-z]+\s+precursor\s+stage\s+)?(?:only\s+)?because\s+(?:the\s+)?(?:(?<count>[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:later|downstream|future)\s+(?:role\s+)?reviews\s+(?:do\s+not\s+(?:yet\s+)?exist|have\s+not\s+(?:yet\s+)?run|(?:are|remain)\s+(?:still\s+)?pending)\s*[.!]?\s*\z",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-            TimeSpan.FromSeconds(1));
-
         private static readonly Regex _ProcessAssertionSeparator = new Regex(
             @"\s*,?\s*\b(?:although|while|and)\b\s+",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
@@ -244,38 +239,15 @@ namespace Armada.Core.Services
         /// <returns>True when the stage claims COMPLETE for a report it states is unfinished.</returns>
         public static bool TryRead(string? agentOutput, out string statement)
         {
-            return TryRead(agentOutput, false, out statement);
+            return TryRead(agentOutput, null, out statement);
         }
 
-        /// <summary>Read unmet current work while retaining the obligation of an actual pending downstream Judge.</summary>
+        /// <summary>Read unmet work while retaining only the verified pending review obligations of the mission's owned chain.</summary>
         /// <param name="agentOutput">Captain output.</param>
-        /// <param name="hasPendingDownstreamJudge">Whether the current mission has a pending Judge in its dependency chain.</param>
-        /// <param name="statement">The bounded statement of unfinished current work.</param>
-        /// <returns>True when an unmet criterion is not solely awaiting that configured Judge.</returns>
-        public static bool TryRead(string? agentOutput, bool hasPendingDownstreamJudge, out string statement)
-        {
-            return TryRead(agentOutput, hasPendingDownstreamJudge, 0, out statement);
-        }
-
-        /// <summary>Read unmet work while retaining only verified future review obligations.</summary>
-        /// <param name="agentOutput">Captain output.</param>
-        /// <param name="hasPendingDownstreamJudge">Whether an owned pending Judge depends on this mission through pending stages.</param>
-        /// <param name="pendingDownstreamReviewCount">Distinct pending review roles on that dependency path, excluding Workers.</param>
+        /// <param name="obligations">Pending review obligations of the owned chain, or null when the mission has none.</param>
         /// <param name="statement">The bounded statement of unfinished work.</param>
-        /// <returns>True when an unmet criterion is not solely awaiting the verified future reviews.</returns>
-        public static bool TryRead(string? agentOutput, bool hasPendingDownstreamJudge, int pendingDownstreamReviewCount, out string statement)
-        {
-            return TryRead(agentOutput, hasPendingDownstreamJudge, pendingDownstreamReviewCount, null, out statement);
-        }
-
+        /// <returns>True when an unmet criterion is not solely awaiting the verified pending reviews.</returns>
         internal static bool TryRead(string? agentOutput, PendingReviewObligations? obligations, out string statement)
-        {
-            return TryRead(agentOutput, obligations?.Contains(PersonaCatalog.Judge) == true,
-                obligations?.ReviewCount ?? 0, obligations, out statement);
-        }
-
-        private static bool TryRead(string? agentOutput, bool hasPendingDownstreamJudge, int pendingDownstreamReviewCount,
-            PendingReviewObligations? obligations, out string statement)
         {
             statement = String.Empty;
             if (String.IsNullOrEmpty(agentOutput)) return false;
@@ -316,56 +288,39 @@ namespace Armada.Core.Services
                     return true;
                 }
                 ObligationKindEnum kind = ObligationKindEnum.Blocking;
-                if (hasPendingDownstreamJudge)
+                if (obligations != null && obligations.Contains(PersonaCatalog.Judge))
                 {
                     string reason = text.Substring(match.PhraseEnd, end - match.PhraseEnd);
                     try
                     {
                         if (match.Acceptable && IsSubjectOnlyStatement(text, match))
                         {
-                            if (obligations == null)
+                            kind = ClassifyObligation(reason, obligations);
+                            if (kind == ObligationKindEnum.BareStage)
                             {
-                                if (_PendingJudgeOnly.IsMatch(reason)) kind = ObligationKindEnum.FutureOnly;
-                                Match futureReviews = _PendingRoleReviewsOnly.Match(reason);
-                                if (futureReviews.Success && pendingDownstreamReviewCount > 0
-                                    && (!futureReviews.Groups["count"].Success
-                                        || ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount)) kind = ObligationKindEnum.FutureOnly;
-                                if (kind == ObligationKindEnum.FutureOnly)
+                                int tailEnd = ItemTailEnd(text, match, end, nextCriterion, resultIndex);
+                                string tail = NormalizeTail(text.Substring(end, tailEnd - end));
+                                if (tail.Length > 0)
                                 {
-                                    int tailEnd = ItemTailEnd(text, match, end, nextCriterion, resultIndex);
-                                    if (NormalizeTail(text.Substring(end, tailEnd - end)).Length > 0) kind = ObligationKindEnum.Blocking;
+                                    bool future = false;
+                                    foreach (string clause in Regex.Split(tail, @"(?<=[.!?])\s+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                                    {
+                                        if (IsFutureClause(clause, obligations)) future = true;
+                                        else if (!IsParentObjectiveOpen(clause))
+                                        {
+                                            kind = ObligationKindEnum.Blocking;
+                                            break;
+                                        }
+                                    }
+                                    if (kind != ObligationKindEnum.Blocking && future) kind = ObligationKindEnum.FutureOnly;
                                     end = tailEnd;
                                 }
                             }
-                            else
+                            else if (kind == ObligationKindEnum.FutureOnly)
                             {
-                                kind = ClassifyObligation(reason, obligations);
-                                if (kind == ObligationKindEnum.BareStage)
-                                {
-                                    int tailEnd = ItemTailEnd(text, match, end, nextCriterion, resultIndex);
-                                    string tail = NormalizeTail(text.Substring(end, tailEnd - end));
-                                    if (tail.Length > 0)
-                                    {
-                                        bool future = false;
-                                        foreach (string clause in Regex.Split(tail, @"(?<=[.!?])\s+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
-                                        {
-                                            if (IsFutureClause(clause, obligations)) future = true;
-                                            else if (!IsParentObjectiveOpen(clause))
-                                            {
-                                                kind = ObligationKindEnum.Blocking;
-                                                break;
-                                            }
-                                        }
-                                        if (kind != ObligationKindEnum.Blocking && future) kind = ObligationKindEnum.FutureOnly;
-                                        end = tailEnd;
-                                    }
-                                }
-                                else if (kind == ObligationKindEnum.FutureOnly)
-                                {
-                                    int tailEnd = ItemTailEnd(text, match, end, nextCriterion, resultIndex);
-                                    if (!IsFutureOnlyTail(NormalizeTail(text.Substring(end, tailEnd - end)), obligations)) kind = ObligationKindEnum.Blocking;
-                                    end = tailEnd;
-                                }
+                                int tailEnd = ItemTailEnd(text, match, end, nextCriterion, resultIndex);
+                                if (!IsFutureOnlyTail(NormalizeTail(text.Substring(end, tailEnd - end)), obligations)) kind = ObligationKindEnum.Blocking;
+                                end = tailEnd;
                             }
                         }
                     }

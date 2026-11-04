@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### The report-incomplete reader keeps one obligation path
+
+- `ReportIncompleteResult` drops its two unused public `TryRead` overloads that took a pending-Judge flag and a review count, and the pattern only they reached. A report is read either with no pending reviews or with the owned chain's verified pending review obligations; both paths behave as before.
+
 ### The surface parity harness retries a lost loopback port
 
 - The unit-test surface parity harness starts its REST server through the shared loopback-port start, so a port taken between finding it and binding it is detected by its address-in-use failure and the server is rebuilt on a new port. The harness no longer keeps its own port finder.
