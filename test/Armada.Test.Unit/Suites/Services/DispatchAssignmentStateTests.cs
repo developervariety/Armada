@@ -1770,58 +1770,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("TryAssign_ActiveBuildSiblingMission_BlocksBeforeProvisioning", async () =>
+            // Each consumer dock builds against its own sibling checkout, and every landing re-measures the
+            // merged commit, so an in-flight mission on a build-participating sibling does not hold the consumer.
+            await RunTest("TryAssign_InProgressBuildSiblingMission_DoesNotDeferTheConsumer", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
-                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-                    captains.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    SiblingLaneFixture lane = await SiblingLaneFixture.CreateAsync(testDb, CreateLogging(), CreateSettings(), "operator work").ConfigureAwait(false);
 
-                    Vessel producer = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("lane-producer-assignment", "https://github.com/test/lane-producer-assignment.git")
-                        {
-                            TenantId = Constants.DefaultTenantId,
-                            AllowConcurrentMissions = true
-                        }).ConfigureAwait(false);
-                    Vessel consumer = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("lane-consumer-assignment", "https://github.com/test/lane-consumer-assignment.git")
-                        {
-                            TenantId = Constants.DefaultTenantId,
-                            AllowConcurrentMissions = true
-                        }).ConfigureAwait(false);
-                    consumer.SiblingRepos = "[{\"relativePath\":\"../producer\",\"vesselRef\":\""
-                        + producer.Id + "\",\"buildParticipant\":true}]";
-                    consumer = await testDb.Driver.Vessels.UpdateAsync(consumer).ConfigureAwait(false);
+                    bool assigned = await lane.Missions.TryAssignAsync(lane.Candidate, lane.Consumer).ConfigureAwait(false);
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(lane.Candidate.Id).ConfigureAwait(false);
 
-                    await testDb.Driver.Missions.CreateAsync(new Mission("operator work", "No objective link.")
-                    {
-                        TenantId = Constants.DefaultTenantId,
-                        VesselId = producer.Id,
-                        Status = MissionStatusEnum.InProgress
-                    }).ConfigureAwait(false);
-                    Mission candidate = await testDb.Driver.Missions.CreateAsync(
-                        new Mission("candidate", "Must wait for the sibling lane.")
-                        {
-                            TenantId = Constants.DefaultTenantId,
-                            VesselId = consumer.Id,
-                            Status = MissionStatusEnum.Pending
-                        }).ConfigureAwait(false);
-                    await testDb.Driver.Captains.CreateAsync(new Captain("lane-captain")
-                    {
-                        State = CaptainStateEnum.Idle
-                    }).ConfigureAwait(false);
+                    AssertTrue(assigned, "An in-flight build sibling must not hold the consumer; state=" + readBack!.AssignmentState);
+                    AssertEqual(MissionStatusEnum.InProgress, readBack.Status);
+                    AssertTrue(lane.Git.WorktreeCalls.Count > 0, "The consumer provisions its own dock.");
+                }
+            });
 
-                    bool assigned = await missions.TryAssignAsync(candidate, consumer).ConfigureAwait(false);
-                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(candidate.Id).ConfigureAwait(false);
+            // A broad-scope mission anywhere in the lane still holds every lane member before provisioning.
+            await RunTest("TryAssign_BroadScopeBuildSiblingMission_DefersBeforeProvisioning", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SiblingLaneFixture lane = await SiblingLaneFixture.CreateAsync(testDb, CreateLogging(), CreateSettings(), "Restructure the producer").ConfigureAwait(false);
 
-                    AssertFalse(assigned, "An active build sibling must block assignment.");
+                    bool assigned = await lane.Missions.TryAssignAsync(lane.Candidate, lane.Consumer).ConfigureAwait(false);
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(lane.Candidate.Id).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "A broad-scope build sibling must hold the consumer.");
                     AssertEqual(MissionAssignmentStateEnum.WaitingForVesselMutex, readBack!.AssignmentState);
-                    AssertEqual(0, git.WorktreeCalls.Count, "A blocked sibling mission must not provision a dock.");
+                    AssertEqual(0, lane.Git.WorktreeCalls.Count, "A held consumer must not provision a dock.");
                 }
             });
 
@@ -2642,6 +2620,67 @@ namespace Armada.Test.Unit.Suites.Services
         #endregion
 
         #region Private-Types
+
+        /// <summary>
+        /// A consumer vessel that declares a build-participating producer sibling, one InProgress producer mission
+        /// with the given title, one Pending consumer mission, and one idle captain.
+        /// </summary>
+        private sealed class SiblingLaneFixture
+        {
+            public MissionService Missions { get; private set; } = null!;
+            public StubGitService Git { get; private set; } = null!;
+            public Vessel Consumer { get; private set; } = null!;
+            public Mission Candidate { get; private set; } = null!;
+
+            public static async Task<SiblingLaneFixture> CreateAsync(TestDatabase testDb, LoggingModule logging, ArmadaSettings settings, string producerMissionTitle)
+            {
+                SiblingLaneFixture lane = new SiblingLaneFixture();
+                lane.Git = new StubGitService();
+                IDockService docks = new DockService(logging, testDb.Driver, settings, lane.Git);
+                ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, lane.Git, docks);
+                captains.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                lane.Missions = new MissionService(logging, testDb.Driver, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                Vessel producer = await testDb.Driver.Vessels.CreateAsync(
+                    new Vessel("lane-producer-assignment", "https://github.com/test/lane-producer-assignment.git")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        AllowConcurrentMissions = true,
+                        LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N")),
+                        DefaultBranch = "main"
+                    }).ConfigureAwait(false);
+                Vessel consumer = await testDb.Driver.Vessels.CreateAsync(
+                    new Vessel("lane-consumer-assignment", "https://github.com/test/lane-consumer-assignment.git")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        AllowConcurrentMissions = true,
+                        LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N")),
+                        DefaultBranch = "main"
+                    }).ConfigureAwait(false);
+                consumer.SiblingRepos = "[{\"relativePath\":\"../producer\",\"vesselRef\":\""
+                    + producer.Id + "\",\"buildParticipant\":true}]";
+                lane.Consumer = await testDb.Driver.Vessels.UpdateAsync(consumer).ConfigureAwait(false);
+
+                await testDb.Driver.Missions.CreateAsync(new Mission(producerMissionTitle, "No objective link.")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    VesselId = producer.Id,
+                    Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                lane.Candidate = await testDb.Driver.Missions.CreateAsync(
+                    new Mission("candidate", "Consumer work.")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        VesselId = lane.Consumer.Id,
+                        Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+                await testDb.Driver.Captains.CreateAsync(new Captain("lane-captain")
+                {
+                    State = CaptainStateEnum.Idle
+                }).ConfigureAwait(false);
+                return lane;
+            }
+        }
 
         /// <summary>
         /// A stage-2 mission whose first checkout held uncommitted work when the admiral restarted: the mission is
