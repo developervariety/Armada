@@ -3598,6 +3598,35 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock Git anchors read a long same-named file whole and find the cited ranges holding in it", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_long_same_named_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "src/App/Program.cs", "line 1\nline 2\nline 3\n");
+                    // The long copy is over one mebibyte, so a reader capped at that size cannot return its lines.
+                    StringBuilder longFile = new StringBuilder();
+                    for (int line = 1; line <= 22000; line++) longFile.Append("        // line " + line + " of the long program file with padding text\n");
+                    string longPath = Path.Combine(worktree, "tests", "App.Tests", "Program.cs");
+                    Directory.CreateDirectory(Path.GetDirectoryName(longPath)!);
+                    await File.WriteAllTextAsync(longPath, longFile.ToString());
+                    await RunGitAsync(worktree, "add", "-A");
+                    await RunGitAsync(worktree, "commit", "-q", "-m", "long program");
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree,
+                        "Port Program.cs:2, Program.cs:21110-21114 and Program.cs:21140-21147 first.", null);
+
+                    AssertNull(anchors.ResolutionError, "the anchors resolve completely");
+                    AssertEqual(0, anchors.CitationIssues.Count,
+                        "ranges that hold in the long copy are not stale in the same-named files: " + String.Join(" | ", anchors.CitationIssues));
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("Dock Git anchors read a Git LFS file's content, never its pointer, and name an unreadable one as not checked", async () =>
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada_lfs_pointer_" + Guid.NewGuid().ToString("N"));
