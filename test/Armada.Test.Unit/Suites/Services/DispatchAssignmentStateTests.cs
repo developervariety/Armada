@@ -2636,6 +2636,15 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 SiblingLaneFixture lane = new SiblingLaneFixture();
                 lane.Git = new StubGitService();
+                // A build-participant sibling must provision with content, so every stub checkout
+                // holds one file, as a real checkout of a non-empty repository would.
+                lane.Git.CreateWorktreeDirectories = true;
+                StubGitService git = lane.Git;
+                lane.Git.BeforeWorktreeCreate = () =>
+                {
+                    File.WriteAllText(Path.Combine(git.WorktreeCalls[git.WorktreeCalls.Count - 1], "README.md"), "checkout");
+                    return Task.CompletedTask;
+                };
                 IDockService docks = new DockService(logging, testDb.Driver, settings, lane.Git);
                 ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, lane.Git, docks);
                 captains.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
