@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### The surface parity harness retries a lost loopback port
+
+- The unit-test surface parity harness starts its REST server through the shared loopback-port start, so a port taken between finding it and binding it is detected by its address-in-use failure and the server is rebuilt on a new port. The harness no longer keeps its own port finder.
+
 ### The dispatch preview reads a census study as a report
 
 - Dispatch preview question 2 no longer treats the bare word "census" as committed work, so a report-only Research objective that studies a census ("Census at the tip: produce a report to the owner") passes as a report deliverable. "Census file", "census document" and the existing commit phrases ("commit the census") still mark committed work.

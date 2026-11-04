@@ -28,6 +28,7 @@ namespace Armada.Test.Unit.TestHelpers
     using Armada.Runtimes;
     using Armada.Server;
     using Armada.Server.Mcp;
+    using global::Test.Shared.Infrastructure;
     using Armada.Server.Mcp.Tools;
     using Armada.Server.Routes;
     using Armada.Server.WebSocket;
@@ -89,7 +90,7 @@ namespace Armada.Test.Unit.TestHelpers
         public Dictionary<string, Func<JsonElement?, Task<object>>> RawMcp { get; } = new Dictionary<string, Func<JsonElement?, Task<object>>>(StringComparer.Ordinal);
 
         /// <summary>REST client sending the administrator key.</summary>
-        public HttpClient Rest { get; }
+        public HttpClient Rest { get; private set; } = null!;
 
         /// <summary>Create a mission-scoped session token for a route scope test.</summary>
         /// <param name="tenantId">Token owner's tenant.</param>
@@ -122,7 +123,9 @@ namespace Armada.Test.Unit.TestHelpers
             Converters = { new JsonStringEnumConverter() }
         };
 
-        private readonly Webserver _Server;
+        private readonly Func<int, Webserver> _CreateServer;
+        private readonly string _ApiKey;
+        private Webserver _Server = null!;
         private readonly CancellationTokenSource _Cancellation = new CancellationTokenSource();
         private readonly string _Root;
         private readonly SessionTokenService _SessionTokens = new SessionTokenService();
@@ -228,42 +231,46 @@ namespace Armada.Test.Unit.TestHelpers
             LandingPreviewService landingPreview = new LandingPreviewService(Driver, logging, Settings);
             AuthenticationService authentication = new AuthenticationService(Driver, _SessionTokens, Settings, logging);
 
-            int port = ReservePort();
-            WebserverSettings webserverSettings = new WebserverSettings();
-            webserverSettings.Hostname = "127.0.0.1";
-            webserverSettings.Port = port;
-            _Server = new Webserver(webserverSettings, async (HttpContextBase ctx) =>
+            _ApiKey = apiKey;
+            _CreateServer = CreateServer;
+
+            // Each start attempt builds a new server with every route, because a server that lost its port is disposed.
+            Webserver CreateServer(int port)
             {
-                ctx.Response.StatusCode = 404;
-                await ctx.Response.Send().ConfigureAwait(false);
-            });
+                WebserverSettings webserverSettings = new WebserverSettings();
+                webserverSettings.Hostname = "127.0.0.1";
+                webserverSettings.Port = port;
+                Webserver server = new Webserver(webserverSettings, async (HttpContextBase ctx) =>
+                {
+                    ctx.Response.StatusCode = 404;
+                    await ctx.Response.Send().ConfigureAwait(false);
+                });
 
-            Func<HttpContextBase, Task<AuthContext>> authenticate = ctx => authentication.AuthenticateAsync(
-                ctx.Request.Headers.Get("Authorization"),
-                ctx.Request.Headers.Get("X-Token"),
-                ctx.Request.Headers.Get("X-Api-Key"));
-            AuthorizationService authz = new AuthorizationService();
-            DefaultCredentialService defaults = new DefaultCredentialService(Driver, logging);
-            new AuthRoutes(_SessionTokens, authentication, Driver, Settings, _RestJsonOptions, defaults).Register(_Server, authenticate, authz);
+                Func<HttpContextBase, Task<AuthContext>> authenticate = ctx => authentication.AuthenticateAsync(
+                    ctx.Request.Headers.Get("Authorization"),
+                    ctx.Request.Headers.Get("X-Token"),
+                    ctx.Request.Headers.Get("X-Api-Key"));
+                AuthorizationService authz = new AuthorizationService();
+                DefaultCredentialService defaults = new DefaultCredentialService(Driver, logging);
+                new AuthRoutes(_SessionTokens, authentication, Driver, Settings, _RestJsonOptions, defaults).Register(server, authenticate, authz);
 
-            new MissionRoutes(Driver, Admiral.Service, missionService, Settings, Git, landing, landingPreview, gitHub,
-                emitEvent, null, logging, _RestJsonOptions, transitions, Operations).Register(_Server, authenticate, authz);
-            new VoyageRoutes(Driver, Admiral.Service, emitEvent, null, logging, objectives, null, Settings, _RestJsonOptions,
-                operations: Operations).Register(_Server, authenticate, authz);
-            new ObjectiveRoutes(Driver, objectives, gitHub, new ObjectiveDispatchPreviewService(Driver, workflowProfiles, readiness, Git, Settings))
-                .Register(_Server, authenticate, authz);
-            new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions, Git).Register(_Server, authenticate, authz);
-            new DockRoutes(Driver, Docks, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
-            new EventRoutes(Driver, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
-            new TenantRoutes(Driver, _RestJsonOptions, defaults).Register(_Server, authenticate, authz);
-            new CaptainRoutes(Driver, Admiral.Service, Settings, runtimeFactory, lifecycle, new CaptainToolService(logging, Driver, Settings),
-                emitEvent, _RestJsonOptions, null, null, logging, null, captainAdministration).Register(_Server, authenticate, authz);
-            new VesselRoutes(Driver, readiness, landingPreview, emitEvent, _RestJsonOptions, Docks, operations: Operations)
-                .Register(_Server, authenticate, authz);
+                new MissionRoutes(Driver, Admiral.Service, missionService, Settings, Git, landing, landingPreview, gitHub,
+                    emitEvent, null, logging, _RestJsonOptions, transitions, Operations).Register(server, authenticate, authz);
+                new VoyageRoutes(Driver, Admiral.Service, emitEvent, null, logging, objectives, null, Settings, _RestJsonOptions,
+                    operations: Operations).Register(server, authenticate, authz);
+                new ObjectiveRoutes(Driver, objectives, gitHub, new ObjectiveDispatchPreviewService(Driver, workflowProfiles, readiness, Git, Settings))
+                    .Register(server, authenticate, authz);
+                new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions, Git).Register(server, authenticate, authz);
+                new DockRoutes(Driver, Docks, emitEvent, _RestJsonOptions).Register(server, authenticate, authz);
+                new EventRoutes(Driver, emitEvent, _RestJsonOptions).Register(server, authenticate, authz);
+                new TenantRoutes(Driver, _RestJsonOptions, defaults).Register(server, authenticate, authz);
+                new CaptainRoutes(Driver, Admiral.Service, Settings, runtimeFactory, lifecycle, new CaptainToolService(logging, Driver, Settings),
+                    emitEvent, _RestJsonOptions, null, null, logging, null, captainAdministration).Register(server, authenticate, authz);
+                new VesselRoutes(Driver, readiness, landingPreview, emitEvent, _RestJsonOptions, Docks, operations: Operations)
+                    .Register(server, authenticate, authz);
 
-            _Server.Start(_Cancellation.Token);
-            Rest = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:" + port + "/"), Timeout = TimeSpan.FromSeconds(20) };
-            Rest.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
+                return server;
+            }
         }
 
         /// <summary>Start a harness over a fresh test database.</summary>
@@ -271,7 +278,9 @@ namespace Armada.Test.Unit.TestHelpers
         public static async Task<SurfaceParityHarness> StartAsync()
         {
             TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-            return new SurfaceParityHarness(database);
+            SurfaceParityHarness harness = new SurfaceParityHarness(database);
+            await harness.StartServerAsync().ConfigureAwait(false);
+            return harness;
         }
 
         #endregion
@@ -414,15 +423,32 @@ namespace Armada.Test.Unit.TestHelpers
             await Driver.Events.CreateAsync(evt).ConfigureAwait(false);
         }
 
-        private static int ReservePort()
+        /// <summary>
+        /// Start the REST server on a found loopback port. The port is released before the server binds it, so a
+        /// start that loses the port to another socket is stopped and repeated on a new port.
+        /// </summary>
+        private async Task StartServerAsync()
         {
-            using (TcpListener listener = new TcpListener(IPAddress.Loopback, 0))
-            {
-                listener.Start();
-                int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-                listener.Stop();
-                return port;
-            }
+            int port = 0;
+            Webserver? started = null;
+            await LoopbackPorts.StartAsync(
+                () =>
+                {
+                    port = LoopbackPorts.FindFree();
+                    started = _CreateServer(port);
+                    started.Start(_Cancellation.Token);
+                    return Task.CompletedTask;
+                },
+                () =>
+                {
+                    try { started?.Stop(); }
+                    catch (Exception exception) { Console.WriteLine("Parity harness server that lost its port did not stop: " + exception.Message); }
+                    started?.Dispose();
+                    started = null;
+                }).ConfigureAwait(false);
+            _Server = started!;
+            Rest = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:" + port + "/"), Timeout = TimeSpan.FromSeconds(20) };
+            Rest.DefaultRequestHeaders.Add("X-Api-Key", _ApiKey);
         }
 
         #endregion
