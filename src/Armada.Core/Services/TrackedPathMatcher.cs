@@ -14,9 +14,20 @@ namespace Armada.Core.Services
     /// case. Within a tier an exact file or directory wins at once; otherwise a suffix resolves only when
     /// it names exactly one file or directory, because asserting one of several candidates sends a
     /// captain to the wrong file.
+    ///
+    /// A project file (<c>.csproj</c>, <c>.fsproj</c>, <c>.vbproj</c>) that matches nothing as written is read
+    /// once more as cited one directory short: a directory named like the file stem, in the cited directory,
+    /// that holds the file. <c>src/Area/Name.Shared.csproj</c> then names
+    /// <c>src/Area/Name.Shared/Name.Shared.csproj</c>.
     /// </summary>
     public static class TrackedPathMatcher
     {
+        #region Private-Members
+
+        private static readonly string[] _ProjectFileExtensions = new[] { ".csproj", ".fsproj", ".vbproj" };
+
+        #endregion
+
         #region Public-Methods
 
         /// <summary>
@@ -43,6 +54,18 @@ namespace Armada.Core.Services
             // The exact-case tier found nothing, so any match here spells the path differently.
             TrackedPathMatch ignoredCase = MatchTier(files, needle, StringComparison.OrdinalIgnoreCase);
             ignoredCase.CaseDiffers = ignoredCase.Path != null;
+            if (ignoredCase.CandidateCount > 0) return ignoredCase;
+
+            string? inStemDirectory = InStemDirectory(needle);
+            if (inStemDirectory == null) return ignoredCase;
+            foreach (StringComparison comparison in new[] { StringComparison.Ordinal, StringComparison.OrdinalIgnoreCase })
+            {
+                TrackedPathMatch corrected = MatchTier(files, inStemDirectory, comparison);
+                if (corrected.CandidateCount == 0) continue;
+                if (corrected.Path == null || corrected.IsDirectory) return ignoredCase;
+                corrected.CaseDiffers = comparison == StringComparison.OrdinalIgnoreCase;
+                return corrected;
+            }
             return ignoredCase;
         }
 
@@ -84,6 +107,20 @@ namespace Armada.Core.Services
             string needle = requested.Trim().Replace('\\', '/');
             while (needle.StartsWith("./", StringComparison.Ordinal)) needle = needle.Substring(2);
             return needle.Trim('/');
+        }
+
+        // The path of a project file inside a directory named like its stem, or null for any other path.
+        private static string? InStemDirectory(string needle)
+        {
+            int slash = needle.LastIndexOf('/');
+            string name = slash >= 0 ? needle.Substring(slash + 1) : needle;
+            foreach (string extension in _ProjectFileExtensions)
+            {
+                if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase) || name.Length == extension.Length) continue;
+                string stem = name.Substring(0, name.Length - extension.Length);
+                return (slash >= 0 ? needle.Substring(0, slash + 1) : String.Empty) + stem + "/" + name;
+            }
+            return null;
         }
 
         private static TrackedPathMatch MatchTier(List<string> files, string needle, StringComparison comparison)

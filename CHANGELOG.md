@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A project file cited one directory short resolves to its tracked path
+
+- A `.csproj`, `.fsproj` or `.vbproj` path that matches no tracked path is read once more as cited one directory short: a directory named like the file stem, in the cited directory, that holds the file. `src/Area/Name.Shared.csproj` then resolves to `src/Area/Name.Shared/Name.Shared.csproj` and is reported present at that path in the Git anchors, never as a file to create. A project file with no such directory stays absent.
+
 ### A cited symbol held on its line outranks a copy where it only drifted
 
 - When a bare file name matches several same-named files, a copy that holds every cited symbol on its cited lines is the one the citation means, even if another copy has the symbol nearby within the drift tolerance. Such a name is no longer reported as holding in more than one copy. Copies that all hold by drift only, or that hold a citation with no symbol, stay ambiguous.

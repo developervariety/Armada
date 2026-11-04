@@ -309,8 +309,11 @@ A brief carries only what the mission's mode and persona can use:
 - The Git Anchors block resolves a named path against the dock's start commit
   as a file or a directory, exactly, by a unique suffix, or ignoring letter
   case, and names the tracked path. A name that matches several paths is
-  reported as ambiguous, and an absent path the text cites with line numbers is
-  reported as a stale citation; neither reads as new work. A bare file name
+  reported as ambiguous. A project file (`.csproj`, `.fsproj`, `.vbproj`) cited
+  one directory short resolves to the file inside the directory named like its
+  stem. An absent path the text cites with line numbers is
+  reported as a stale citation; an ambiguous or stale path never reads as new
+  work. A bare file name
   the text cites with line numbers (`Name.cs:12`) is a named path too. Every
   cited range is checked: a range past the end of its file, or one that no
   longer holds its symbol, is listed under "Cited line ranges to recheck" with
