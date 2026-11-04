@@ -3627,6 +3627,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock Git anchors take the copy holding the cited symbol on its line over a copy where the symbol only drifted nearby", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_symbol_copies_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "src/Owner/SpeedWorkflow.cs", LedgerFixture);
+                    // Two copies of equal length: the tracked one declares Decode at line 121, the extracted one
+                    // declares it four lines later, so the cited line differs between them.
+                    string Copy(int declaredAt)
+                    {
+                        StringBuilder copy = new StringBuilder();
+                        for (int line = 1; line <= 130; line++)
+                            copy.Append(line == declaredAt ? "    public int Decode(int value)\n" : "    // filler " + line + "\n");
+                        return copy.ToString();
+                    }
+                    string sibling = Path.Combine(root, "ExampleSibling");
+                    await CreateFixtureRepositoryAsync(sibling, "lib/Codec.cs", Copy(121));
+                    string artifact = Path.Combine(sibling, "output", "extracted", "versions", "v1", "lib", "Codec.cs");
+                    Directory.CreateDirectory(Path.GetDirectoryName(artifact)!);
+                    await File.WriteAllTextAsync(artifact, Copy(125));
+                    string siblings = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { RelativePath = "../ExampleSibling", ExtractionArtifactPaths = new List<string> { "output/extracted" } }
+                    });
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree, "The port keeps `Decode` at Codec.cs:121 as it is.", siblings);
+
+                    AssertNull(anchors.ResolutionError, "the anchors resolve completely");
+                    AssertEqual(0, anchors.CitationIssues.Count,
+                        "the copy that holds the symbol on the cited line is the one meant: " + String.Join(" | ", anchors.CitationIssues));
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("Dock Git anchors read a Git LFS file's content, never its pointer, and name an unreadable one as not checked", async () =>
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada_lfs_pointer_" + Guid.NewGuid().ToString("N"));
