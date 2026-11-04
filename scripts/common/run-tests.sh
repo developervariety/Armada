@@ -146,7 +146,7 @@ for i in "${!SUITE_NAMES[@]}"; do
   if [ "$selected" != "all" ] && [ "$selected" != "$name" ]; then
     continue
   fi
-  if ! dotnet build "${SUITE_PROJECTS[$i]}" --framework "$FRAMEWORK" "${build_node_args[@]}" > "$LOG_DIR/$name-build.log" 2>&1; then
+  if ! dotnet build "${SUITE_PROJECTS[$i]}" --framework "$FRAMEWORK" ${build_node_args[@]+"${build_node_args[@]}"} > "$LOG_DIR/$name-build.log" 2>&1; then
     cat "$LOG_DIR/$name-build.log"
     echo "RESULT: FAIL (build $name)"
     echo "Full output: $LOG_DIR"
