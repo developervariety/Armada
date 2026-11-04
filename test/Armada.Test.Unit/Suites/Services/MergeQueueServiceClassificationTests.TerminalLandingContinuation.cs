@@ -376,6 +376,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 new MessageTemplateService(logging), null, docks, new RemoteTriggerService(null, remoteHttp, logging), null);
                             landing.OnPerformLanding = handler.HandleMissionCompleteAsync;
                             c.Prepared.Missions.OnMissionComplete = handler.HandleMissionCompleteAsync;
+                            c.Prepared.Missions.OnCaptureDiff = handler.HandleCaptureDiffAsync;
                             string narrative = "The regenerated manifest and the authored change were reviewed at the exact candidate. "
                                 + "The candidate keeps the reconciled Worker commit as an ancestor and changes only the declared artifact beyond it. "
                                 + "Earlier Checks at the source commit are history and cannot prove this candidate; its Build and UnitTest commands remain required.";
@@ -406,7 +407,8 @@ namespace Armada.Test.Unit.Suites.Services
                             Mission landed = (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!;
                             AssertNotNull(landed.GeneratedArtifactReview!.ApprovedUtc, "the real PASS and the candidate Checks approve it");
                             AssertEqual(MissionStatusEnum.Complete, landed.Status, landed.FailureReason);
-                            AssertEqual(candidate, await RunGitCaptureAsync(c.BareDir, "rev-parse", "main").ConfigureAwait(false), "the target moves onto exactly the candidate");
+                            AssertEqual(candidate, await RunGitCaptureAsync(c.BareDir, "rev-parse", "main").ConfigureAwait(false),
+                                "the target moves onto exactly the candidate (main before " + c.MainBefore + ", diff snapshot length " + (landed.DiffSnapshot?.Length ?? 0) + ")");
                             List<ArmadaEvent> landedEvents = await testDb.Driver.Events.EnumerateByTypeAsync(MissionService.TerminalContinuationLandedEventType).ConfigureAwait(false);
                             AssertEqual(1, landedEvents.Count, "the direct landing writes one continuation landed event");
                             AssertContains(candidate, landedEvents[0].Payload ?? String.Empty);
