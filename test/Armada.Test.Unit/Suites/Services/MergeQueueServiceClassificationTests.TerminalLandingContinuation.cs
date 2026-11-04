@@ -325,6 +325,7 @@ namespace Armada.Test.Unit.Suites.Services
                         TerminalCase c = await CreateTerminalCaseAsync(testDb, rootDir).ConfigureAwait(false);
                         Vessel vessel = (await testDb.Driver.Vessels.ReadAsync(c.Prepared.Vessel.Id).ConfigureAwait(false))!;
                         vessel.LandingMode = LandingModeEnum.LocalMerge;
+                        vessel.WorkingDirectory = Path.Combine(rootDir, "source");
                         vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                         AssertTrue((await c.Prepared.Missions.ContinueTerminalLandingAsync(c.Judge.Id, "operator-a").ConfigureAwait(false)).Granted);
                         string candidate = (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!.GeneratedArtifactReview!.CandidateCommit;
