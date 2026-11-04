@@ -145,6 +145,19 @@ namespace Armada.Core.Services.Interfaces
         Task<Mission> FailOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default);
 
         /// <summary>
+        /// Grant a terminal landing continuation: let one passed Judge whose landing failed in a Failed voyage rerun at
+        /// a regenerated candidate. Refuses with a named reason and changes nothing when the failure is not landing-only.
+        /// </summary>
+        /// <param name="missionId">Judge mission.</param>
+        /// <param name="grantedBy">Operator recorded on the grant.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The grant result.</returns>
+        Task<TerminalLandingContinuationResult> ContinueTerminalLandingAsync(string missionId, string grantedBy, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Terminal landing continuation is not implemented by this mission service.");
+        }
+
+        /// <summary>
         /// Resolve a stage handoff held by the <c>handoff_outcome</c> hold. Release hands the stage off
         /// unchanged; MailAndRelease prepends the unmet-criteria note to the next stage's brief and hands
         /// the stage off; Rescue fails the held stage and cancels its dependent stages, so autonomous

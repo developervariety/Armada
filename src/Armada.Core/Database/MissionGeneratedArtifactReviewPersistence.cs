@@ -92,6 +92,51 @@ namespace Armada.Core.Database
             }
         }
 
+        /// <summary>
+        /// Record that a terminal landing continuation admitted the Judge's current candidate to assignment. Only the
+        /// admission fields of the grant change, the Judge must still be Pending at the unapproved candidate, and the
+        /// stored binding must equal the one the caller read. The mission's update stamp is not changed.
+        /// </summary>
+        internal static async Task<bool> TryRecordContinuationAdmissionAsync(DbConnection connection, DatabaseTypeEnum provider,
+            Mission expected, GeneratedArtifactReviewBinding next, CancellationToken token)
+        {
+            if (expected == null) throw new ArgumentNullException(nameof(expected));
+            if (next == null) throw new ArgumentNullException(nameof(next));
+            GeneratedArtifactReviewBinding? prior = expected.GeneratedArtifactReview;
+            TerminalLandingContinuation? priorGrant = prior?.TerminalContinuation;
+            TerminalLandingContinuation? nextGrant = next.TerminalContinuation;
+            if (prior == null || priorGrant == null || nextGrant == null || prior.ApprovedUtc != null || next.ApprovedUtc != null
+                || expected.Status != MissionStatusEnum.Pending || expected.HeldForOperatorReview || expected.ProcessId.HasValue
+                || !Same(expected.CommitHash, prior.CandidateCommit)
+                || nextGrant.AdmittedAttempt != prior.PreparationAttempt || nextGrant.AdmittedUtc == null
+                || priorGrant.AdmittedAttempt >= prior.PreparationAttempt)
+                return false;
+            GeneratedArtifactReviewBinding unchanged = JsonSerializer.Deserialize<GeneratedArtifactReviewBinding>(JsonSerializer.Serialize(next))!;
+            unchanged.TerminalContinuation!.AdmittedAttempt = priorGrant.AdmittedAttempt;
+            unchanged.TerminalContinuation.AdmittedUtc = priorGrant.AdmittedUtc;
+            if (!String.Equals(JsonSerializer.Serialize(unchanged), JsonSerializer.Serialize(prior), StringComparison.Ordinal)) return false;
+
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE missions SET generated_artifact_review_json=@next"
+                    + " WHERE id=@id AND status=@status AND process_id IS NULL AND held_for_operator_review=@not_held"
+                    + " AND " + EqualSql("generated_artifact_review_json", "@previous", provider)
+                    + " AND " + EqualSql("commit_hash", "@candidate", provider) + ";";
+                StoredParameters parameters = StoredValueBinder.For(provider).For(command, "missions");
+                parameters.Text("@next", "generated_artifact_review_json", JsonSerializer.Serialize(next))
+                    .Text("@previous", "generated_artifact_review_json", JsonSerializer.Serialize(prior))
+                    .Text("@id", "id", expected.Id).Text("@status", "status", expected.Status.ToString())
+                    .Text("@candidate", "commit_hash", prior.CandidateCommit)
+                    .Bool("@not_held", "held_for_operator_review", false);
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (IDisposable? writeLease = provider == DatabaseTypeEnum.Sqlite
+                    ? await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false) : null)
+                {
+                    return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                }
+            }
+        }
+
         internal static bool SameBinding(Mission first, Mission second) =>
             String.Equals(JsonSerializer.Serialize(first.GeneratedArtifactReview),
                 JsonSerializer.Serialize(second.GeneratedArtifactReview), StringComparison.Ordinal);

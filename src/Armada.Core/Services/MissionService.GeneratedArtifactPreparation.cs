@@ -22,7 +22,7 @@ namespace Armada.Core.Services
             string? targetBranch, CancellationToken token = default)
         {
             if (produced == null) throw new ArgumentNullException(nameof(produced));
-            try { return await PrepareGeneratedArtifactsCoreAsync(produced, targetBranch, token).ConfigureAwait(false); }
+            try { return await PrepareGeneratedArtifactsCoreAsync(produced, targetBranch, null, token).ConfigureAwait(false); }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
@@ -35,7 +35,7 @@ namespace Armada.Core.Services
         }
 
         private async Task<GeneratedArtifactLandingResult> PrepareGeneratedArtifactsCoreAsync(Mission produced,
-            string? targetBranch, CancellationToken token)
+            string? targetBranch, TerminalLandingContinuation? grant, CancellationToken token)
         {
             Vessel? vessel = String.IsNullOrWhiteSpace(produced.VesselId) ? null
                 : await _Database.Vessels.ReadAsync(produced.VesselId, token).ConfigureAwait(false);
@@ -116,6 +116,7 @@ namespace Armada.Core.Services
                     };
                     GeneratedArtifactReviewBinding next = GeneratedArtifactReviewRule.NextBinding(judge, reviewed,
                         _Settings.MaxLandingRetries, DateTime.UtcNow);
+                    if (grant != null) next.TerminalContinuation = grant;
                     using (await MissionExecutionBoundary.LaunchWrites.AcquireAsync(judge.Id, token).ConfigureAwait(false))
                     {
                         if (!await _Database.Missions.TryWriteGeneratedArtifactReviewAsync(judge, next, true, token).ConfigureAwait(false))

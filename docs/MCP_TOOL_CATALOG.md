@@ -114,7 +114,7 @@ When `armada_update_mission` changes the description of a running mission (Assig
 that does not apply a brief mid-mission, the result includes `Delivery` `stored_until_next_launch` and a
 `DeliveryReason` that names the runtime. REST `PUT /api/v1/missions/{id}` and WebSocket `update_mission` return
 the same notice. The stored description is used at the next launch.
-| Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_review_hold` (`action=clear` lands or hands off the held PASS), `armada_handoff_hold` (`action=release` or `mail_release` hands off the held stage) |
+| Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_continue_terminal_landing` (global administrator; see docs/MERGING.md), `armada_review_hold` (`action=clear` lands or hands off the held PASS), `armada_handoff_hold` (`action=release` or `mail_release` hands off the held stage) |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
 

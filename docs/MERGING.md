@@ -144,6 +144,41 @@ terminal stage resumes through the supported landing retry after the same Judge
 approves the candidate. A pipeline without a Judge keeps ordinary fast-forward
 landing; it refuses only when the generated candidate needs a new Judge review.
 
+### Terminal landing continuation
+
+Assignment cancels a `Pending` mission of a `Failed` voyage, and a `Failed`
+predecessor holds its dependants. So a passed Judge whose landing failed after
+its voyage ended cannot rerun at a regenerated candidate on its own. A global
+administrator can grant one continuation for that Judge: MCP
+`armada_continue_terminal_landing` or REST
+`POST /api/v1/missions/{id}/terminal-landing-continuation`, each naming the
+operator.
+
+The grant needs all of these, and otherwise refuses with a named
+`terminal_continuation_*` reason and changes nothing: the mission is a Judge in
+`LandingFailed` with a recorded PASS, not held and with no process; it has no
+earlier grant; its voyage is `Failed` (a `Cancelled` voyage is refused); no
+dispatch hold covers its vessel; the vessel declares generated artifacts and is
+not Harbor-owned; the Judge's branch tip is its commit. Each predecessor is
+delivered, or is `Failed` with the terminal-voyage reconciliation reason
+`terminal_voyage_work_unlanded` and a commit contained in the Judge's commit.
+Any other predecessor refuses with `terminal_continuation_upstream_failure:<id>`.
+
+The grant stores the operator, the voyage and each named predecessor's status
+and commit in the Judge's `GeneratedArtifactReview` binding, then runs the
+ordinary preparation. The Judge returns to `Pending` at the candidate with its
+output, facts and counters kept. Assignment admits that Judge past the
+terminal-voyage cancellation and past the named predecessors once per prepared
+candidate, and records the admission. A predecessor whose status or commit
+changed after the grant holds the Judge with
+`terminal_continuation_predecessor_changed`; a candidate already admitted and
+launched holds it with `terminal_continuation_replayed`. Approval, publication
+and drift follow the rules above: a new Judge PASS and the required Checks at the
+exact candidate, and a moved target prepares again. The voyage and its
+predecessors keep their `Failed` status as history. The grant writes
+`mission.terminal_continuation_granted`, and the landing writes
+`mission.terminal_continuation_landed`.
+
 ## Integration Validation
 
 A branch's own Checks measure the branch. Two branches that each pass alone can

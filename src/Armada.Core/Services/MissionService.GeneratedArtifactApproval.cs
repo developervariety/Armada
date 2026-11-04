@@ -89,7 +89,8 @@ namespace Armada.Core.Services
             {
                 SourceCommit = binding.SourceCommit, TargetBaseCommit = binding.TargetBaseCommit,
                 CandidateCommit = binding.CandidateCommit, PreparationAttempt = binding.PreparationAttempt,
-                RequestedUtc = binding.RequestedUtc, ApprovedUtc = DateTime.UtcNow
+                RequestedUtc = binding.RequestedUtc, ApprovedUtc = DateTime.UtcNow,
+                TerminalContinuation = binding.TerminalContinuation
             };
             if (!await _Database.Missions.TryWriteGeneratedArtifactReviewAsync(current, approved, false, token).ConfigureAwait(false))
                 return false;

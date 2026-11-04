@@ -1003,6 +1003,7 @@ namespace Armada.Server
                     _Logging.Info(_Header + "mission " + mission.Id + " landed successfully, status set to Complete");
                     await Armada.Core.Services.MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Landed, "landed", _Logging).ConfigureAwait(false);
                     FireIndexRefreshForVessel(mission.VesselId, "mission " + mission.Id + " landed successfully");
+                    await Armada.Core.Services.TerminalLandingContinuationEvents.RecordLandedAsync(_Database, mission, _Logging).ConfigureAwait(false);
 
                     // Emit mission.completed event
                     try

@@ -22,5 +22,8 @@ namespace Armada.Core.Models
 
         /// <summary>Set only after a verified Judge PASS at the exact candidate with its required Checks.</summary>
         public DateTime? ApprovedUtc { get; set; }
+
+        /// <summary>Operator grant that lets this Judge rerun inside its Failed voyage; null for an ordinary review.</summary>
+        public TerminalLandingContinuation? TerminalContinuation { get; set; }
     }
 }

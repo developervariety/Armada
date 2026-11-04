@@ -1063,6 +1063,53 @@ namespace Armada.Server.Routes
                 .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The mission is not Failed or Cancelled, or the fleet has no capacity"))
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/missions/{id}/terminal-landing-continuation", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+                if (!ctx.IsAdmin)
+                {
+                    req.Http.Response.StatusCode = 403;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "A terminal landing continuation requires a global administrator." };
+                }
+                string id = req.Parameters["id"];
+                TerminalLandingContinuationRequest body = JsonSerializer.Deserialize<TerminalLandingContinuationRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? new TerminalLandingContinuationRequest();
+                if (String.IsNullOrWhiteSpace(body.Operator))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "operator is required." };
+                }
+                TerminalLandingContinuationResult result = await _missionService.ContinueTerminalLandingAsync(id, body.Operator.Trim()).ConfigureAwait(false);
+                if (!result.Granted)
+                {
+                    req.Http.Response.StatusCode = result.Reason == "terminal_continuation_mission_not_found" ? 404 : 409;
+                    return new ApiErrorResponse { Error = result.Reason == "terminal_continuation_mission_not_found" ? ApiResultEnum.NotFound : ApiResultEnum.Conflict, Message = result.Reason };
+                }
+                return (object)new
+                {
+                    Granted = true,
+                    result.Binding!.CandidateCommit,
+                    result.Binding.SourceCommit,
+                    result.Binding.TargetBaseCommit,
+                    result.Binding.PreparationAttempt
+                };
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Grant a terminal landing continuation")
+                .WithDescription("Lets one passed Judge whose landing failed inside a Failed voyage rerun at a regenerated candidate in the same voyage. Every predecessor must be delivered, or Failed only because terminal-voyage reconciliation found its work unlanded with its commit contained in the Judge's commit. Any other state returns 409 with a named terminal_continuation_* reason and changes nothing. The Judge reruns for real; its candidate lands only after a new PASS and the required Checks at that exact commit. The voyage stays Failed. One grant per Judge. Global administrators only.")
+                .WithRequestBody(OpenApiJson.BodyFor<TerminalLandingContinuationRequest>("Operator granting the continuation", true))
+                .WithResponse(200, OpenApiJson.For<object>("Grant stored; the Judge waits to rerun at the candidate"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(403, OpenApiJson.For<ApiErrorResponse>("The caller is not a global administrator"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("Refused with a named terminal_continuation_* reason"))
+                .WithSecurity("ApiKey"));
+
             app.Post("/api/v1/missions/{id}/retry-landing", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

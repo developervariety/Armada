@@ -18,5 +18,14 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 return await MissionGeneratedArtifactReviewPersistence.TryWriteAsync(connection, DatabaseTypeEnum.SqlServer,
                     expected, next, prepareReview, token).ConfigureAwait(false);
         }
+
+        /// <inheritdoc />
+        public async Task<bool> TryRecordTerminalContinuationAdmissionAsync(Mission expected, GeneratedArtifactReviewBinding next,
+            CancellationToken token = default)
+        {
+            using (SqlConnection connection = new SqlConnection(_Driver.ConnectionString))
+                return await MissionGeneratedArtifactReviewPersistence.TryRecordContinuationAdmissionAsync(connection, DatabaseTypeEnum.SqlServer,
+                    expected, next, token).ConfigureAwait(false);
+        }
     }
 }

@@ -2248,6 +2248,15 @@ Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empt
 
 ---
 
+#### POST /api/v1/missions/{id}/terminal-landing-continuation
+
+Grant a terminal landing continuation (global administrator only; MCP `armada_continue_terminal_landing`). Body: `{ "operator": "<name>" }`.
+A passed Judge in `LandingFailed` inside a `Failed` voyage reruns at a regenerated candidate in the same voyage. Each
+predecessor must be delivered, or `Failed` with reconciliation reason `terminal_voyage_work_unlanded` and a commit
+contained in the Judge's commit. A refusal returns 409 with a named `terminal_continuation_*` reason and changes nothing;
+an unknown mission returns 404. Success returns the candidate, source and target commits and the preparation attempt. The
+voyage stays `Failed`. See docs/MERGING.md, "Terminal landing continuation".
+
 #### POST /api/v1/missions/{id}/restart
 
 Restart a failed or cancelled mission by resetting it to `Pending` for re-dispatch. Clears captain assignment, branch, PR URL, and timing fields. Optionally update the title and description (instructions) before restarting.

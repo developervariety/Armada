@@ -18,5 +18,14 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 return await MissionGeneratedArtifactReviewPersistence.TryWriteAsync(connection, DatabaseTypeEnum.Postgresql,
                     expected, next, prepareReview, token).ConfigureAwait(false);
         }
+
+        /// <inheritdoc />
+        public async Task<bool> TryRecordTerminalContinuationAdmissionAsync(Mission expected, GeneratedArtifactReviewBinding next,
+            CancellationToken token = default)
+        {
+            using (NpgsqlConnection connection = new NpgsqlConnection(_Driver.ConnectionString))
+                return await MissionGeneratedArtifactReviewPersistence.TryRecordContinuationAdmissionAsync(connection, DatabaseTypeEnum.Postgresql,
+                    expected, next, token).ConfigureAwait(false);
+        }
     }
 }

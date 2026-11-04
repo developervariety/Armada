@@ -747,6 +747,7 @@ namespace Armada.Test.Unit.Suites.Services
             }).ConfigureAwait(false);
 
             await RunGeneratedCandidatePreparationTestsAsync().ConfigureAwait(false);
+            await RunTerminalLandingContinuationTestsAsync().ConfigureAwait(false);
 
             await RunTest("Constructor_NullClassifier_ThrowsArgumentNullException", async () =>
             {

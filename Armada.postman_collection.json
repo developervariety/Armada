@@ -5255,6 +5255,36 @@
 					}
 				},
 				{
+					"name": "Grant a Terminal Landing Continuation",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"operator\": \"operator-name\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/terminal-landing-continuation",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"missions",
+								"{{missionId}}",
+								"terminal-landing-continuation"
+							]
+						},
+						"description": "Global administrator only. Lets one passed Judge in LandingFailed inside a Failed voyage rerun at a regenerated candidate. Each predecessor must be delivered, or Failed with reconciliation reason terminal_voyage_work_unlanded and a commit contained in the Judge's commit. A refusal returns 409 with a named terminal_continuation_* reason and changes nothing. The voyage stays Failed."
+					}
+				},
+				{
 					"name": "Retry Landing for a Mission",
 					"request": {
 						"method": "POST",

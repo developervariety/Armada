@@ -96,6 +96,14 @@ namespace Armada.Core.Database.Interfaces
             throw new NotSupportedException("Generated candidate review persistence is not implemented by this database.");
         }
 
+        /// <summary>Conditionally record that a terminal landing continuation admitted the Judge's current candidate.
+        /// Only the grant's admission fields change; the caller's loaded binding must still be stored.</summary>
+        Task<bool> TryRecordTerminalContinuationAdmissionAsync(Mission expected, GeneratedArtifactReviewBinding next,
+            CancellationToken token = default)
+        {
+            throw new NotSupportedException("Terminal landing continuation persistence is not implemented by this database.");
+        }
+
         /// <summary>Atomically bind an assigned mission and its captain to a durable Harbor job before launch.</summary>
         /// <param name="update">Exact owner, assignment and process identity.</param>
         /// <param name="token">Cancellation token.</param>

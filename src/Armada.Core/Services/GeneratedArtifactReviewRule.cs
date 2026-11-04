@@ -46,7 +46,8 @@ namespace Armada.Core.Services
                 CandidateCommit = candidate.CandidateCommit,
                 PreparationAttempt = attempt,
                 RequestedUtc = requestedUtc,
-                ApprovedUtc = null
+                ApprovedUtc = null,
+                TerminalContinuation = prior?.TerminalContinuation
             };
         }
 

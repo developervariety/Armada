@@ -18,5 +18,14 @@ namespace Armada.Core.Database.Mysql.Implementations
                 return await MissionGeneratedArtifactReviewPersistence.TryWriteAsync(connection, DatabaseTypeEnum.Mysql,
                     expected, next, prepareReview, token).ConfigureAwait(false);
         }
+
+        /// <inheritdoc />
+        public async Task<bool> TryRecordTerminalContinuationAdmissionAsync(Mission expected, GeneratedArtifactReviewBinding next,
+            CancellationToken token = default)
+        {
+            using (MySqlConnection connection = new MySqlConnection(_ConnectionString))
+                return await MissionGeneratedArtifactReviewPersistence.TryRecordContinuationAdmissionAsync(connection, DatabaseTypeEnum.Mysql,
+                    expected, next, token).ConfigureAwait(false);
+        }
     }
 }

@@ -650,7 +650,10 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrEmpty(mission.VoyageId))
                 {
                     Voyage? voyage = await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
-                    if (voyage != null &&
+                    bool? continuation = voyage == null ? null
+                        : await TryAdmitTerminalContinuationAsync(mission, voyage, token).ConfigureAwait(false);
+                    if (continuation == false) return false;
+                    if (voyage != null && continuation != true &&
                         (voyage.Status == VoyageStatusEnum.Cancelled ||
                          voyage.Status == VoyageStatusEnum.Failed ||
                          voyage.Status == VoyageStatusEnum.Complete))
@@ -745,7 +748,7 @@ namespace Armada.Core.Services
                     return false;
                 }
 
-                if (!IsDependencySatisfyingStatus(dependency.Status))
+                if (!IsDependencySatisfyingStatus(dependency.Status) && !ContinuationCoversDependency(mission, dependency))
                 {
                     // Dependency not yet satisfied -- don't assign. PullRequestOpen unblocks
                     // dependents per the breaking-change PR-fallback design: the captain
