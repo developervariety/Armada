@@ -98,28 +98,25 @@ namespace Armada.Core.Services
                     return Failed(result, "generated_authored_conflict: " + conflicts);
                 }
                 string mergedTree = await RequiredGitAsync(git, token, "write-tree").ConfigureAwait(false);
-                ValidatePaths(root, policy);
-                try
+                // The generator runs twice on the same merged tree. Identical declared bytes are the evidence that
+                // the candidate depends only on the tree; any difference refuses before a candidate exists.
+                string? firstTree = null;
+                for (int run = 0; run < 2; run++)
                 {
-                    if (await runCommand(policy.RegenerateCommand, token).ConfigureAwait(false) != 0)
-                        return Failed(result, "generated_command_failed");
+                    if (run == 1)
+                        await RequiredGitAsync(git, token, "read-tree", "--reset", "-u", mergedTree).ConfigureAwait(false);
+                    string? refusal = await RunGeneratorAsync(root, policy, paths, mergedTree, result.TargetBaseCommit!, git, runCommand, token).ConfigureAwait(false);
+                    if (refusal != null) return Failed(result, refusal);
+                    await RequiredGitAsync(git, token, new[] { "add", "-A", "--" }.Concat(paths.Select(Literal)).ToArray()).ConfigureAwait(false);
+                    string tree = await RequiredGitAsync(git, token, "write-tree").ConfigureAwait(false);
+                    if (firstTree == null) { firstTree = tree; continue; }
+                    if (!String.Equals(firstTree, tree, StringComparison.Ordinal))
+                    {
+                        string differing = await RequiredGitAsync(git, token, new[] { "diff", "--name-only", "-z", firstTree, tree, "--" }
+                            .Concat(paths.Select(Literal)).ToArray()).ConfigureAwait(false);
+                        return Failed(result, "generated_nondeterministic_output: " + String.Join(", ", GitDiffPaths.SplitNulSeparated(differing)));
+                    }
                 }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex)
-                {
-                    return Failed(result, "generated_command_failed: " + ex.GetType().Name);
-                }
-                ValidatePaths(root, policy);
-                if (!String.Equals(result.TargetBaseCommit, await RequiredGitAsync(git, token, "rev-parse", "HEAD").ConfigureAwait(false), StringComparison.Ordinal))
-                    return Failed(result, "generated_command_changed_head");
-
-                string changed = await RequiredGitAsync(git, token, "diff", "--name-only", "-z", mergedTree).ConfigureAwait(false);
-                string untracked = await RequiredGitAsync(git, token, "ls-files", "--others", "-z").ConfigureAwait(false);
-                HashSet<string> allowed = new HashSet<string>(paths, StringComparer.Ordinal);
-                string[] outside = GitDiffPaths.SplitNulSeparated(changed).Concat(GitDiffPaths.SplitNulSeparated(untracked))
-                    .Where(path => !allowed.Contains(path)).Distinct(StringComparer.Ordinal).ToArray();
-                if (outside.Length != 0) return Failed(result, "generated_undeclared_write: " + String.Join(", ", outside));
-                await RequiredGitAsync(git, token, new[] { "add", "-A", "--" }.Concat(paths.Select(Literal)).ToArray()).ConfigureAwait(false);
                 await RequiredGitAsync(git, token, "commit", "-m", "Merge authored changes and regenerate declared artifacts").ConfigureAwait(false);
                 result.CandidateCommit = await RequiredGitAsync(git, token, "rev-parse", "HEAD").ConfigureAwait(false);
                 string artifactDelta = await RequiredGitAsync(git, token, new[] { "diff", "--name-only", "-z", result.SourceCommit, result.CandidateCommit, "--" }
@@ -135,6 +132,34 @@ namespace Armada.Core.Services
             {
                 return Failed(result, "generated_preparation_failed: " + ex.Message);
             }
+        }
+
+        /// <summary>Run the generator once on the checked-out merged tree; return a refusal reason or null.</summary>
+        private static async Task<string?> RunGeneratorAsync(string root, GeneratedArtifactPolicy policy, string[] paths, string mergedTree,
+            string targetBase, Func<string[], CancellationToken, Task<GeneratedArtifactGitOutput>> git,
+            Func<string, CancellationToken, Task<int>> runCommand, CancellationToken token)
+        {
+            ValidatePaths(root, policy);
+            try
+            {
+                if (await runCommand(policy.RegenerateCommand, token).ConfigureAwait(false) != 0)
+                    return "generated_command_failed";
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                return "generated_command_failed: " + ex.GetType().Name;
+            }
+            ValidatePaths(root, policy);
+            if (!String.Equals(targetBase, await RequiredGitAsync(git, token, "rev-parse", "HEAD").ConfigureAwait(false), StringComparison.Ordinal))
+                return "generated_command_changed_head";
+
+            string changed = await RequiredGitAsync(git, token, "diff", "--name-only", "-z", mergedTree).ConfigureAwait(false);
+            string untracked = await RequiredGitAsync(git, token, "ls-files", "--others", "-z").ConfigureAwait(false);
+            HashSet<string> allowed = new HashSet<string>(paths, StringComparer.Ordinal);
+            string[] outside = GitDiffPaths.SplitNulSeparated(changed).Concat(GitDiffPaths.SplitNulSeparated(untracked))
+                .Where(path => !allowed.Contains(path)).Distinct(StringComparer.Ordinal).ToArray();
+            return outside.Length != 0 ? "generated_undeclared_write: " + String.Join(", ", outside) : null;
         }
 
         private static string Literal(string path) => ":(literal)" + path;
