@@ -105,7 +105,8 @@ an undeclared write and a failed command each refuse preparation with a named
 reason. The command runs twice, each time from the same merged tree. When the
 declared bytes of the two runs differ, preparation refuses with
 `generated_nondeterministic_output: <paths>` before any candidate exists, so
-nothing is bound for review or published and the Judge keeps its verdict. A Harbor-owned landing with a declaration refuses with
+nothing is bound for review or published and the Judge keeps its verdict. A
+Harbor-owned landing with a declaration refuses with
 `generated_artifacts_harbor_unsupported`; ordinary Harbor landings are unchanged.
 Native pull-request publication with a declaration or candidate binding refuses
 with `generated_artifacts_pull_request_unsupported`. A held, unapproved or changed
