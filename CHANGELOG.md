@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A cited symbol held on its line outranks a copy where it only drifted
+
+- When a bare file name matches several same-named files, a copy that holds every cited symbol on its cited lines is the one the citation means, even if another copy has the symbol nearby within the drift tolerance. Such a name is no longer reported as holding in more than one copy. Copies that all hold by drift only, or that hold a citation with no symbol, stay ambiguous.
+
 ### A cited range is checked against a long source file
 
 - The citation check reads a candidate file's lines with a 32 MiB limit instead of the 1 MiB limit of the anchor listing and excerpt reads, so a bare file name that several tracked files share no longer reports a range as holding in none of them when the range sits in a file of tens of thousands of lines. The excerpt and listing reads keep their 1 MiB limit.

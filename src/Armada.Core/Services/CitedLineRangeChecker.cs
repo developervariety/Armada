@@ -213,7 +213,10 @@ namespace Armada.Core.Services
         /// Of the files a cited name matches, the ones whose lines hold every given citation, in candidate
         /// order. A bare file name that matches several files means the one whose lines hold the citation:
         /// exactly one holding candidate resolves the name, several leave it ambiguous, and none make the
-        /// citation stale. Every caller that resolves a cited name against several files asks this rule.
+        /// citation stale. A candidate that holds every citation exactly, with each symbol on its cited
+        /// lines, outranks a candidate that holds one only by drift, so a copy that merely has the symbol
+        /// nearby never makes the name ambiguous. Every caller that resolves a cited name against several
+        /// files asks this rule.
         /// </summary>
         /// <param name="ranges">The citations of the name.</param>
         /// <param name="candidates">The files the name matches.</param>
@@ -228,20 +231,27 @@ namespace Armada.Core.Services
             if (candidates == null) throw new ArgumentNullException(nameof(candidates));
             if (readLines == null) throw new ArgumentNullException(nameof(readLines));
             List<string> holding = new List<string>();
+            List<string> exact = new List<string>();
             foreach (string candidate in candidates)
             {
                 IReadOnlyList<string>? lines = await readLines(candidate).ConfigureAwait(false);
                 if (lines == null) continue;
                 bool holds = true;
+                bool holdsExactly = true;
                 foreach (CitedLineRange range in ranges)
                 {
-                    if (Holds(range, lines)) continue;
-                    holds = false;
-                    break;
+                    if (!Holds(range, lines))
+                    {
+                        holds = false;
+                        break;
+                    }
+                    if (!GitLfsPointer.IsPointer(lines) && Evaluate(range, lines) != null) holdsExactly = false;
                 }
-                if (holds) holding.Add(candidate);
+                if (!holds) continue;
+                holding.Add(candidate);
+                if (holdsExactly) exact.Add(candidate);
             }
-            return holding;
+            return exact.Count > 0 ? exact : holding;
         }
 
         #endregion

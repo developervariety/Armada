@@ -200,8 +200,21 @@ namespace Armada.Core.Services
                 return meant == null ? null : CitedLineRangeChecker.Evaluate(range, meant);
             }
             if (holding.Count > 1)
+            {
+                string differ = String.Empty;
+                if (String.IsNullOrEmpty(range.Symbol))
+                {
+                    HashSet<string> atLine = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (string holder in holding)
+                    {
+                        IReadOnlyList<string>? held = await cached(holder).ConfigureAwait(false);
+                        if (held != null && range.StartLine <= held.Count) atLine.Add(held[range.StartLine - 1].Trim());
+                    }
+                    if (atLine.Count > 1) differ = ", and the copies differ at line " + range.StartLine;
+                }
                 return "`" + range.Text + "`: `" + name + "` matches " + candidates.Count + " files " + where +
-                    " and the cited lines hold in more than one (" + ListCandidates(holding) + "); find the one meant before relying on the cited lines.";
+                    " and the cited lines hold in more than one (" + ListCandidates(holding) + ")" + differ + "; find the one meant before relying on the cited lines.";
+            }
             return NoCandidateHoldsIssue(range, name, where, candidates);
         }
 
