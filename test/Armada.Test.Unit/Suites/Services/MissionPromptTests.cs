@@ -3665,6 +3665,38 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock Git anchors resolve a project file cited one directory short and still call a genuinely absent one absent", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_project_file_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "src/Area/Name.Shared/Name.Shared.csproj", "<Project />\n");
+                    string other = Path.Combine(worktree, "src", "Area", "Plain", "Other.csproj");
+                    Directory.CreateDirectory(Path.GetDirectoryName(other)!);
+                    await File.WriteAllTextAsync(other, "<Project />\n");
+                    await RunGitAsync(worktree, "add", "-A");
+                    await RunGitAsync(worktree, "commit", "-q", "-m", "second project");
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree,
+                        "Add a package reference to src/Area/Name.Shared.csproj and drop src/Area/Gone.Shared.csproj and src/Area/Other.csproj.", null);
+
+                    AssertNull(anchors.ResolutionError, "the anchors resolve completely");
+                    Dictionary<string, GitAnchorFileHistory> byName = new Dictionary<string, GitAnchorFileHistory>(StringComparer.Ordinal);
+                    foreach (GitAnchorFileHistory file in anchors.Files) byName[String.IsNullOrEmpty(file.RequestedPath) ? file.Path : file.RequestedPath] = file;
+
+                    GitAnchorFileHistory corrected = byName["src/Area/Name.Shared.csproj"];
+                    AssertTrue(corrected.ExistsOnRevision, "a project file cited one directory short is present, never absent");
+                    AssertEqual("src/Area/Name.Shared/Name.Shared.csproj", corrected.Path, "it is anchored at the corrected path");
+                    AssertFalse(byName["src/Area/Gone.Shared.csproj"].ExistsOnRevision, "a project file with no directory of its name stays absent");
+                    AssertFalse(byName["src/Area/Other.csproj"].ExistsOnRevision, "a project file in a differently named directory stays absent");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("Dock Git anchors read a Git LFS file's content, never its pointer, and name an unreadable one as not checked", async () =>
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada_lfs_pointer_" + Guid.NewGuid().ToString("N"));
