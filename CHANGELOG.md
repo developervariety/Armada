@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### A cited range is checked against a long source file
+
+- The citation check reads a candidate file's lines with a 32 MiB limit instead of the 1 MiB limit of the anchor listing and excerpt reads, so a bare file name that several tracked files share no longer reports a range as holding in none of them when the range sits in a file of tens of thousands of lines. The excerpt and listing reads keep their 1 MiB limit.
+
 ### An in-flight build sibling no longer holds its consumer
 
 - Mission assignment no longer defers a mission while a build-participating sibling vessel has an `Assigned` or `InProgress` mission, so the two repositories of a lane can run missions at the same time. Each dock builds against its own sibling checkout, and every landing re-measures the merged commit through the vessel's Build and UnitTest checks. A broad-scope mission on any lane member still defers the whole lane, and the short lane reservation and `sibling_lane_capacity_reached` are unchanged. See docs/SCHEDULING.md.

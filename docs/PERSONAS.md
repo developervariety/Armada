@@ -315,8 +315,9 @@ A brief carries only what the mission's mode and persona can use:
   cited range is checked: a range past the end of its file, or one that no
   longer holds its symbol, is listed under "Cited line ranges to recheck" with
   where the symbol is now: its declaration nearest the cited lines, else its
-  occurrence nearest them. A range inside the body of the symbol's declaration
-  holds. The symbol is the backticked identifier written
+  occurrence nearest them. A file is read whole for this check up to 32 MiB, so
+  a range in a source file of tens of thousands of lines is checked against
+  it. A range inside the body of the symbol's declaration holds. The symbol is the backticked identifier written
   beside the citation, or the one backticked identifier or call expression in
   the same sentence when that sentence cites nothing else. A citation into a
   declared sibling checkout (`../Sibling/path:line`) is read at that

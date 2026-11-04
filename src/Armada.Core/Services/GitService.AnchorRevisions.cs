@@ -42,8 +42,8 @@ namespace Armada.Core.Services
             try
             {
                 string commit = await RequireAnchorRevisionAsync(worktreePath, revision, token).ConfigureAwait(false);
-                // The show output is capped by the anchor reader, so a very large blob reads as unavailable.
-                content = await ShowAnchorFileAsync(worktreePath, commit, relativePath, token).ConfigureAwait(false);
+                // The show output is capped at the line-read limit, so a very large blob reads as unavailable.
+                content = await ShowAnchorFileAsync(worktreePath, commit, relativePath, _AnchorLineReadLimitBytes, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -151,7 +151,7 @@ namespace Armada.Core.Services
                 string commit = await RequireAnchorRevisionAsync(worktreePath, revision, token).ConfigureAwait(false);
                 // The show output is capped by the anchor reader, so a very large blob fails rather than
                 // loading unbounded content.
-                content = await ShowAnchorFileAsync(worktreePath, commit, relativePath, token).ConfigureAwait(false);
+                content = await ShowAnchorFileAsync(worktreePath, commit, relativePath, _AnchorOutputLimitBytes, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -183,11 +183,11 @@ namespace Armada.Core.Services
         /// reader's limit, the pointer is returned, and a reader of the lines names the file as not checked.
         /// The LFS remote is never contacted.
         /// </summary>
-        private static async Task<string> ShowAnchorFileAsync(string worktreePath, string commit, string relativePath, CancellationToken token)
+        private static async Task<string> ShowAnchorFileAsync(string worktreePath, string commit, string relativePath, int limitBytes, CancellationToken token)
         {
-            string content = await RunAnchorGitAsync(worktreePath, token, "show", commit + ":" + relativePath).ConfigureAwait(false);
+            string content = await RunAnchorGitAsync(worktreePath, limitBytes, token, "show", commit + ":" + relativePath).ConfigureAwait(false);
             if (!GitLfsPointer.TryParse(content, out string oid, out long size)) return content;
-            if (size > _AnchorOutputLimitBytes) return content;
+            if (size > limitBytes) return content;
 
             List<string> copies = new List<string>();
             string root = Path.GetFullPath(worktreePath);
@@ -234,14 +234,19 @@ namespace Armada.Core.Services
             }
         }
 
-        private static async Task<string> RunAnchorGitAsync(string path, CancellationToken token, params string[] arguments)
+        private static Task<string> RunAnchorGitAsync(string path, CancellationToken token, params string[] arguments)
+        {
+            return RunAnchorGitAsync(path, _AnchorOutputLimitBytes, token, arguments);
+        }
+
+        private static async Task<string> RunAnchorGitAsync(string path, int limitBytes, CancellationToken token, params string[] arguments)
         {
             token.ThrowIfCancellationRequested();
 
-            // A pinned query reads one file or listing; past 1 MiB it is refused rather than returned partial.
+            // A pinned query reads one file or listing; past its limit it is refused rather than returned partial.
             BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(path, arguments), GitProcessTimeouts.Resolve())
             {
-                OutputLimitBytes = _AnchorOutputLimitBytes,
+                OutputLimitBytes = limitBytes,
                 OutputShape = Armada.Core.Enums.BoundedOutputShapeEnum.Head
             };
             BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
@@ -258,6 +263,10 @@ namespace Armada.Core.Services
         }
 
         private const int _AnchorOutputLimitBytes = 1048576;
+
+        // A citation check reads a whole file to count its lines, and a source file of tens of thousands of
+        // lines is larger than the listing and excerpt limit.
+        private const int _AnchorLineReadLimitBytes = 32 * 1048576;
 
         private async Task<string> RequireAnchorRevisionAsync(string path, string revision, CancellationToken token)
         {
