@@ -3211,6 +3211,8 @@ namespace Armada.Core.Services
                     mission.CompletedUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "reconciled mission " + missionId + " to " + targetStatus + ": " + reason);
+                if (targetStatus == MissionStatusEnum.Complete)
+                    await TerminalLandingContinuationEvents.RecordLandedAsync(_Database, mission, _Logging, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

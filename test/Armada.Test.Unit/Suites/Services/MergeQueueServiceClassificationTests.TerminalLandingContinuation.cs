@@ -76,6 +76,39 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { DeleteTerminalRoot(rootDir); }
             }).ConfigureAwait(false);
 
+            await RunTest("The admiral dispatch sweep reaches a granted Judge of a Failed voyage and admits it", async () =>
+            {
+                string rootDir = NewTerminalRoot();
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        TerminalCase c = await CreateTerminalCaseAsync(testDb, rootDir).ConfigureAwait(false);
+                        AssertTrue((await c.Prepared.Missions.ContinueTerminalLandingAsync(c.Judge.Id, "operator-a").ConfigureAwait(false)).Granted);
+                        await testDb.Driver.Captains.CreateAsync(new Captain("terminal-continuation-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                        SyslogLogging.LoggingModule logging = CreateLogging();
+                        GitService git = new GitService(logging);
+                        Armada.Core.Services.Interfaces.IDockService docks = new DockService(logging, testDb.Driver, c.Prepared.Settings, git);
+                        Armada.Core.Services.Interfaces.ICaptainService captains = new CaptainService(logging, testDb.Driver, c.Prepared.Settings, git, docks);
+                        captains.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                        Armada.Core.Services.Interfaces.IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, c.Prepared.Settings, captains,
+                            c.Prepared.Missions, new VoyageService(logging, testDb.Driver), docks);
+                        admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+                        await Task.Delay(200).ConfigureAwait(false);
+
+                        Mission after = (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!;
+                        AssertNotEqual(MissionStatusEnum.Cancelled, after.Status, "the sweep does not cancel the granted Judge: " + after.FailureReason);
+                        AssertEqual(1, after.GeneratedArtifactReview!.TerminalContinuation!.AdmittedAttempt,
+                            "the sweep reached assignment for a mission of a Failed voyage (hold: " + after.AssignmentHoldReason + ")");
+                        AssertEqual(VoyageStatusEnum.Failed, (await testDb.Driver.Voyages.ReadAsync(c.Voyage.Id).ConfigureAwait(false))!.Status,
+                            "the voyage stays Failed");
+                    }
+                }
+                finally { DeleteTerminalRoot(rootDir); }
+            }).ConfigureAwait(false);
+
             await RunTest("A terminal landing continuation is refused by name and changes nothing when the failure is not landing-only", async () =>
             {
                 List<(string Name, Func<TestDatabase, TerminalCase, Task> Arrange, string Reason)> cases = new List<(string, Func<TestDatabase, TerminalCase, Task>, string)>
@@ -208,6 +241,66 @@ namespace Armada.Test.Unit.Suites.Services
 
                         AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(c.Judge.Id).ConfigureAwait(false))!.Status,
                             "only a granted Judge passes the terminal-voyage rule");
+                    }
+                }
+                finally { DeleteTerminalRoot(rootDir); }
+            }).ConfigureAwait(false);
+
+            foreach (bool granted in new[] { true, false })
+            await RunTest("A merge-queue landing of an approved Judge candidate " + (granted
+                ? "writes the terminal continuation landed event" : "without a grant writes no continuation event"), async () =>
+            {
+                string rootDir = NewTerminalRoot();
+                try
+                {
+                    GeneratedManifestRepos repos = await CreateGeneratedManifestReposAsync(rootDir, false, "b.txt").ConfigureAwait(false);
+                    string branch = repos.Branches[0];
+                    string source = await RunGitCaptureAsync(repos.BareDir, "rev-parse", branch).ConfigureAwait(false);
+                    string mainBefore = await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        PreparingQueue prepared = await CreatePreparingQueueAsync(testDb, repos.BareDir).ConfigureAwait(false);
+                        RoutedStages stages = await CreateRoutedStagesAsync(testDb, prepared.Vessel, branch, source, "queue-landed").ConfigureAwait(false);
+                        await testDb.Driver.Missions.DeleteAsync(stages.Recorder.Id).ConfigureAwait(false);
+                        stages.Entry.MissionId = stages.Judge.Id;
+                        await testDb.Driver.MergeEntries.UpdateAsync(stages.Entry).ConfigureAwait(false);
+
+                        Mission judge = (await testDb.Driver.Missions.ReadAsync(stages.Judge.Id).ConfigureAwait(false))!;
+                        judge.Status = MissionStatusEnum.WorkProduced;
+                        await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                        judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        GeneratedArtifactReviewBinding requested = new GeneratedArtifactReviewBinding
+                        {
+                            SourceCommit = source, TargetBaseCommit = mainBefore, CandidateCommit = source, PreparationAttempt = 1,
+                            RequestedUtc = DateTime.UtcNow,
+                            TerminalContinuation = granted ? new TerminalLandingContinuation
+                            {
+                                GrantedBy = "operator-a", GrantedUtc = DateTime.UtcNow, VoyageId = judge.VoyageId!, AdmittedAttempt = 1, AdmittedUtc = DateTime.UtcNow
+                            } : null
+                        };
+                        AssertTrue(await testDb.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(judge, requested, true).ConfigureAwait(false));
+                        judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        judge.Status = MissionStatusEnum.WorkProduced;
+                        await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                        judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        GeneratedArtifactReviewBinding approved = System.Text.Json.JsonSerializer.Deserialize<GeneratedArtifactReviewBinding>(
+                            System.Text.Json.JsonSerializer.Serialize(judge.GeneratedArtifactReview))!;
+                        approved.ApprovedUtc = DateTime.UtcNow;
+                        AssertTrue(await testDb.Driver.Missions.TryWriteGeneratedArtifactReviewAsync(judge, approved, false).ConfigureAwait(false),
+                            "Fixture approval isolates the queue landing event, not a real Judge verdict.");
+
+                        await prepared.Queue.ProcessEntryByIdAsync(stages.Entry.Id).ConfigureAwait(false);
+
+                        MergeEntry entry = (await testDb.Driver.MergeEntries.ReadAsync(stages.Entry.Id).ConfigureAwait(false))!;
+                        AssertEqual(MergeStatusEnum.Landed, entry.Status, entry.TestOutput + entry.MergeFailureSummary);
+                        AssertEqual(MissionStatusEnum.Complete, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Status);
+                        List<ArmadaEvent> landed = await testDb.Driver.Events.EnumerateByTypeAsync(MissionService.TerminalContinuationLandedEventType).ConfigureAwait(false);
+                        AssertEqual(granted ? 1 : 0, landed.Count, "one event only for a granted Judge");
+                        if (granted)
+                        {
+                            AssertEqual(judge.Id, landed[0].MissionId);
+                            AssertContains(source, landed[0].Payload ?? String.Empty, "the event names the landed candidate");
+                        }
                     }
                 }
                 finally { DeleteTerminalRoot(rootDir); }
