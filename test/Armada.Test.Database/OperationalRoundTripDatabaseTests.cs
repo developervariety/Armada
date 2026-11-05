@@ -2031,14 +2031,20 @@ namespace Armada.Test.Database
                     Active = false,
                     CreatedUtc = baseUtc.AddMinutes(-5)
                 };
+                DatabaseAssert.Equal(5, vessel.JudgeFindingThreshold, "New vessel score threshold default");
+                vessel.AutoResolveAddOnlyMarkdown = true;
+                vessel.JudgeFindingThreshold = 5;
                 Vessel created = await _Driver.Vessels.CreateAsync(vessel, token).ConfigureAwait(false);
                 vesselId = created.Id;
-                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(created.Id, token).ConfigureAwait(false), "Vessel");
-                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Vessel by tenant");
-                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "Vessel by tenant and user");
-                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadByNameAsync(tenant.Id, created.Name, token).ConfigureAwait(false), "Vessel by name");
+                Vessel saved = DatabaseAssert.NotNull(await _Driver.Vessels.ReadAsync(created.Id, token).ConfigureAwait(false), "Created vessel retained");
+                DatabaseAssert.True(saved.AutoResolveAddOnlyMarkdown, "Created vessel Markdown policy ON is saved");
+                DatabaseAssert.Equal(5, saved.JudgeFindingThreshold, "Created vessel default threshold is saved");
+                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(created.Id, token).ConfigureAwait(false), "Vessel", nameof(Vessel.JudgeFindingThresholdSpecified), nameof(Vessel.AutoResolveAddOnlyMarkdownSpecified));
+                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(tenant.Id, created.Id, token).ConfigureAwait(false), "Vessel by tenant", nameof(Vessel.JudgeFindingThresholdSpecified), nameof(Vessel.AutoResolveAddOnlyMarkdownSpecified));
+                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadAsync(tenant.Id, user.Id, created.Id, token).ConfigureAwait(false), "Vessel by tenant and user", nameof(Vessel.JudgeFindingThresholdSpecified), nameof(Vessel.AutoResolveAddOnlyMarkdownSpecified));
+                DatabaseAssert.AllProperties(created, await _Driver.Vessels.ReadByNameAsync(tenant.Id, created.Name, token).ConfigureAwait(false), "Vessel by name", nameof(Vessel.JudgeFindingThresholdSpecified), nameof(Vessel.AutoResolveAddOnlyMarkdownSpecified));
                 List<Vessel> byFleet = await _Driver.Vessels.EnumerateByFleetAsync(fleet.Id, token).ConfigureAwait(false);
-                DatabaseAssert.AllProperties(created, byFleet.Find(item => item.Id == created.Id), "Vessel by fleet");
+                DatabaseAssert.AllProperties(created, byFleet.Find(item => item.Id == created.Id), "Vessel by fleet", nameof(Vessel.JudgeFindingThresholdSpecified), nameof(Vessel.AutoResolveAddOnlyMarkdownSpecified));
 
                 created.LocalPath = null;
                 created.WorkingDirectory = null;
@@ -2065,10 +2071,15 @@ namespace Armada.Test.Database
                 created.ProtectedPathPatterns = new List<string>();
                 created.PrivateIdentifierDenylist = new List<string>();
                 created.Active = true;
+                created.AutoResolveAddOnlyMarkdown = false;
+                created.JudgeFindingThreshold = 9;
                 Vessel updated = await _Driver.Vessels.UpdateAsync(created, token).ConfigureAwait(false);
                 using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
                 {
-                    DatabaseAssert.AllProperties(updated, await reopened.Vessels.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Vessel");
+                    Vessel savedUpdate = DatabaseAssert.NotNull(await reopened.Vessels.ReadAsync(created.Id, token).ConfigureAwait(false), "Updated vessel retained");
+                    DatabaseAssert.True(!savedUpdate.AutoResolveAddOnlyMarkdown, "Updated vessel Markdown policy OFF survives reopen");
+                    DatabaseAssert.Equal(9, savedUpdate.JudgeFindingThreshold, "Updated vessel threshold nine survives reopen");
+                    DatabaseAssert.AllProperties(updated, await reopened.Vessels.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Vessel", nameof(Vessel.JudgeFindingThresholdSpecified), nameof(Vessel.AutoResolveAddOnlyMarkdownSpecified));
                 }
             }
             finally
