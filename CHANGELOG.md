@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- The brief-budget fallback preserves mission head-and-tail context beside pinned criteria and output references, and removes small code-index lookup guidance with matching ledger telemetry when more space is required.
+
 ### Add-only Markdown landing conflicts
 
 - Landing resolves conflicts in `CHANGELOG.md` and `.md` files under `docs/` only when both sides add lines without deleting or replacing base lines. Target additions precede mission additions. The stored per-vessel `AutoResolveAddOnlyMarkdown` switch defaults on for existing and new vessels; an omitted update preserves its value. Native and Harbor landing paths record the resolved files, while legacy synchronization calls retain the sole-CHANGELOG union behavior. Required Checks and candidate review remain in force.

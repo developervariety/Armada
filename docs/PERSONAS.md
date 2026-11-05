@@ -553,7 +553,10 @@ The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a
 `mission.prompt_over_budget` warning event naming the budget, the assembled
 and written sizes, the largest modules and every module the backstop
-shortened.
+shortened. The metadata description keeps bounded head-and-tail context beside
+its complete criteria and output references. The final reference pass can drop
+small code-index lookup guidance and updates its ledger size to zero. It does
+not drop the persona, rules or metadata to hide a budget excess.
 
 When commit metadata is on and the mission is not read-only, the launch prompt
 ends with the `commit.instructions_preamble` text and the Armada trailers. The

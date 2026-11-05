@@ -10360,7 +10360,7 @@ namespace Armada.Core.Services
             working = ShrinkEmbeddedDescription(working, ledger, budgetBytes, embeddedDescription);
             if (System.Text.Encoding.UTF8.GetByteCount(working) <= budgetBytes) return working;
 
-            return ElideModules(working, ledger, budgetBytes, _ReferenceBriefModules);
+            return ElideModules(working, ledger, budgetBytes, _ReferenceBriefModules, dropSmallCodeIndex: true);
         }
 
         // Reference-only modules elided after the content modules and the embedded description. They
@@ -10377,7 +10377,7 @@ namespace Armada.Core.Services
         // the head brief and the newest handoff block cannot both survive.
         internal const int _MinEmbeddedDescriptionChars = 2000;
 
-        private static string ElideModules(string content, PromptModuleLedger ledger, int budgetBytes, string[] moduleNames)
+        private static string ElideModules(string content, PromptModuleLedger ledger, int budgetBytes, string[] moduleNames, bool dropSmallCodeIndex = false)
         {
             string working = content;
             bool changed = true;
@@ -10393,7 +10393,8 @@ namespace Armada.Core.Services
 
                     string name = entry.Key;
                     if (Array.IndexOf(moduleNames, name) < 0) continue;
-                    if (entry.Value <= _MinElidedModuleChars) continue;
+                    bool dropLookup = dropSmallCodeIndex && name == "mission.code_index" && entry.Value <= _MinElidedModuleChars;
+                    if (entry.Value <= _MinElidedModuleChars && !dropLookup) continue;
 
                     string? moduleText = ledger.GetModuleText(name);
                     if (String.IsNullOrEmpty(moduleText)) continue;
@@ -10405,7 +10406,8 @@ namespace Armada.Core.Services
                     int targetChars = Math.Max(_MinElidedModuleChars, currentChars - overBytes - 64);
 
                     string marker = "\n\n...(content elided to fit the captain brief budget; see the mission record)\n";
-                    string bounded = BoundDescriptionWithCriteria(moduleText, targetChars, _ElidedModuleHeadChars, marker);
+                    string bounded = dropLookup ? String.Empty
+                        : BoundDescriptionWithCriteria(moduleText, targetChars, _ElidedModuleHeadChars, marker);
                     if (bounded.Length >= moduleText.Length) continue;
 
                     // Replace in the assembled content and in the ledger so both stay in lockstep.
@@ -10446,7 +10448,7 @@ namespace Armada.Core.Services
                 if (targetChars >= current.Length) break;
 
                 const string marker = "\n\n...(middle of the mission description elided to fit the captain brief budget; the full description is in the mission record)\n";
-                string shrunk = BoundDescriptionWithCriteria(current, targetChars, Math.Min(_MaxMetadataDescriptionHeadChars, targetChars / 3), marker);
+                string shrunk = BoundDescriptionWithCriteria(current, targetChars, Math.Min(_MaxMetadataDescriptionHeadChars, targetChars / 3), marker, _ElidedModuleHeadChars);
                 if (shrunk.Length >= current.Length) break;
 
                 string newMetadata = metadata.Replace(current, shrunk, StringComparison.Ordinal);

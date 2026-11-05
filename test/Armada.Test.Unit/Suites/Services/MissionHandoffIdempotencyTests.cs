@@ -737,6 +737,22 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
+            await RunTest("The final budget fallback drops only code-index lookup guidance and updates its ledger", async () =>
+            {
+                PromptModuleLedger ledger = new PromptModuleLedger();
+                string metadata = new string('m', 800);
+                string lookup = "## Code Index Context\n" + new string('c', 300);
+                string brief = ledger.Track("mission.metadata", metadata) + ledger.Track("mission.code_index", lookup);
+                AssertEqual(brief, MissionService.EnforceTotalBriefBudget(brief, ledger, 2000), "an in-budget file is byte-identical");
+                AssertEqual(lookup, ledger.GetModuleText("mission.code_index"), "in-budget lookup ledger is unchanged");
+                string bounded = MissionService.EnforceTotalBriefBudget(brief, ledger, 1000);
+                AssertEqual(metadata, bounded, "the protected metadata stays byte-identical");
+                AssertEqual(String.Empty, ledger.GetModuleText("mission.code_index"), "dropped lookup text is removed from the ledger");
+                AssertEqual(0, ledger.Modules["mission.code_index"], "dropped lookup records zero bytes");
+                AssertEqual(System.Text.Encoding.UTF8.GetByteCount(metadata), ledger.TotalBytes, "ledger total equals the actual remaining module bytes");
+                await Task.CompletedTask;
+            });
+
             await RunTest("EnforceTotalBriefBudget elides content modules until the brief fits", async () =>
             {
                 PromptModuleLedger ledger = new PromptModuleLedger();

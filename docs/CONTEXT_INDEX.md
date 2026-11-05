@@ -336,8 +336,12 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
   report references are pinned whole beside it, and at least 8,000 characters
   of that head and tail stay with them even when the pinned lines alone reach
   the cap, so large criteria never leave the captain without its role text.
-  When the byte budget shrinks that bounded copy further, it shortens only the
-  head and tail beside the pinned lines, so the role text stays at the head. A copy is kept under
+  When the byte budget shrinks that bounded copy further, it keeps a 600-character
+  head-and-tail reserve beside the complete pinned lines. The final reference pass
+  can remove small code-index lookup guidance and records zero bytes for that
+  module in the ledger. Persona instructions, rules, criteria, report references
+  and metadata remain protected; required content that still exceeds the budget
+  is reported as over-budget. A copy is kept under
   `<mission id>.mission/`. Neither counts against the instruction-file byte
   budget (`captainInstructionByteBudget`, default 65,536), so the budget
   bounds the brief itself; `docs/PERSONAS.md` describes its warning event.
