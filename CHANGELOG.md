@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- PostgreSQL and SQL Server vessel-policy migrations validate existing columns through the strict additive-column replay guard.
+
 - The brief-budget fallback preserves mission head-and-tail context beside pinned criteria and output references, and removes small code-index lookup guidance with matching ledger telemetry when more space is required.
 
 ### Add-only Markdown landing conflicts
