@@ -13,12 +13,12 @@ namespace Armada.Core.Settings
         #region Public-Members
 
         /// <summary>
-        /// Global switch. Off keeps every Judge NEEDS_REVISION on the unchanged rescue path.
+        /// Global switch. Off holds Judge NEEDS_REVISION recovery instead of dispatching a rescue.
         /// </summary>
-        public bool Enabled { get; set; } = false;
+        public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// Vessels whose Judge verdicts are never challenged. A listed vessel keeps the unchanged rescue path.
+        /// Vessels whose Judge verdicts are never challenged. A listed vessel holds NEEDS_REVISION rescue.
         /// </summary>
         public List<string> ExcludedVesselIds
         {
@@ -39,7 +39,7 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// Minutes a Challenger may take from dispatch to a terminal state. After that the challenge is
-        /// unavailable and the rescue proceeds with every finding. Clamped to 10-1440.
+        /// unavailable and rescue remains held. Clamped to 10-1440.
         /// </summary>
         public int TimeoutMinutes
         {

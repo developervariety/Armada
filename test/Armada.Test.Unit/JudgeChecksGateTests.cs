@@ -278,9 +278,98 @@ namespace Armada.Test.Unit
             await testDb.Driver.CheckRuns.CreateAsync(run).ConfigureAwait(false);
         }
 
+        private sealed class FindingFixture
+        {
+            internal MissionService Service = null!;
+            internal Voyage Voyage = null!;
+            internal Mission Judge = null!;
+        }
+
+        private async Task<FindingFixture> CreateFindingFixtureAsync(TestDatabase db, int threshold = 5)
+        {
+            Vessel vessel = await db.Driver.Vessels.CreateAsync(new Vessel("finding-vessel", "https://example.invalid/repo.git")
+                { JudgeFindingThreshold = threshold }).ConfigureAwait(false);
+            Voyage voyage = await db.Driver.Voyages.CreateAsync(new Voyage("finding-voyage")
+                { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+            await db.Driver.Missions.CreateAsync(new Mission("[Worker] Implement", "implementation")
+            {
+                VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced,
+                BranchName = _WorkBranch, CommitHash = _ReviewedCommit
+            }).ConfigureAwait(false);
+            Mission judge = await db.Driver.Missions.CreateAsync(new Mission("[Judge] Review", "review")
+            {
+                VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", Status = MissionStatusEnum.Pending,
+                BranchName = _WorkBranch, CommitHash = _ReviewedCommit
+            }).ConfigureAwait(false);
+            return new FindingFixture { Service = CreateGateService(db), Voyage = voyage, Judge = judge };
+        }
+
+        private static string ScoredReview(string verdict, string? citation = null)
+        {
+            string finding = "## Findings\n[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"src/Parser.cs:12 wording improvement\",\"frequency\":1,\"severity\":4,\"criterion\":"
+                + (citation == "criterion" ? "\"Deliver parser behaviour\"" : "null") + ",\"rule\":"
+                + (citation == "rule" ? "\"Preserve source fidelity\"" : "null") + "}\n\n";
+            return ImplementationJudgePassOutput.Replace("## Verdict", finding + "## Verdict", StringComparison.Ordinal)
+                .Replace("[ARMADA:VERDICT] PASS", "[ARMADA:VERDICT] " + verdict, StringComparison.Ordinal);
+        }
+
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("JudgeFindings_ScoresPreserveCheckCriterionRuleAndVesselGates", async () =>
+            {
+                foreach (string variant in new[] { "follow_up", "red_check", "criterion", "rule", "threshold", "pass_blocker" })
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        FindingFixture fixture = await CreateFindingFixtureAsync(db, variant == "threshold" ? 4 : 5).ConfigureAwait(false);
+                        await AddExecutedCheckAsync(db, fixture.Voyage.Id, CheckRunTypeEnum.Build,
+                            variant == "red_check" ? CheckRunStatusEnum.Failed : CheckRunStatusEnum.Passed, _ReviewedCommit).ConfigureAwait(false);
+                        await AddExecutedCheckAsync(db, fixture.Voyage.Id, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, _ReviewedCommit).ConfigureAwait(false);
+                        string output = ScoredReview(variant == "pass_blocker" ? "PASS" : "NEEDS_REVISION",
+                            variant == "pass_blocker" ? "criterion" : variant);
+                        fixture.Service.OnGetMissionOutput = _ => output;
+                        Captain captain = await StartJudgeAsync(db, fixture.Judge, "finding-" + variant).ConfigureAwait(false);
+                        await fixture.Service.HandleCompletionAsync(captain, fixture.Judge.Id).ConfigureAwait(false);
+                        Mission saved = (await db.Driver.Missions.ReadAsync(fixture.Judge.Id).ConfigureAwait(false))!;
+                        AssertEqual(output, saved.AgentOutput, variant + ": original review retained");
+                        AssertEqual(variant != "follow_up", saved.Status == MissionStatusEnum.Failed, variant + ": only the uncited low score clears the existing gates");
+                        List<ArmadaEvent> events = await db.Driver.Events.EnumerateByMissionAsync(saved.Id, 100).ConfigureAwait(false);
+                        ArmadaEvent? applied = events.Find(e => e.EventType == JudgeFindingTriage.AppliedEvent);
+                        AssertNotNull(applied, variant + ": decision retained for replay");
+                        JudgeFindingTriageResult? decision = JudgeFindingTriage.ReadApplied(applied!.Payload, output);
+                        AssertNotNull(decision, variant + ": decision matches original review");
+                        AssertEqual(variant == "follow_up" || variant == "red_check" ? 1 : 0, decision!.FollowUps.Count, variant + ": scored subset retained");
+                        if (variant == "red_check") AssertContains("independent Check failed", saved.FailureReason ?? "", "red Check still rejects low scores");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("JudgeFindings_MissingScoresGetOneCorrectionWithoutRescueBudget", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FindingFixture fixture = await CreateFindingFixtureAsync(db).ConfigureAwait(false);
+                    fixture.Service.OnGetMissionOutput = _ => "## Completeness\nMissing work.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                    fixture.Judge.Status = MissionStatusEnum.InProgress;
+                    fixture.Judge.StartedUtc = DateTime.UtcNow;
+                    Captain first = await StartJudgeAsync(db, fixture.Judge, "finding-format-first").ConfigureAwait(false);
+                    await fixture.Service.HandleCompletionAsync(first, fixture.Judge.Id).ConfigureAwait(false);
+                    Mission saved = (await db.Driver.Missions.ReadAsync(fixture.Judge.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Pending, saved.Status, "first malformed review is re-asked");
+                    AssertTrue(JudgeFindingTriage.HasCorrection(saved.Description), "correction is durable");
+                    AssertEqual(0, saved.RecoveryAttempts, "format correction uses no rescue budget");
+                    saved.Status = MissionStatusEnum.InProgress;
+                    saved.StartedUtc = DateTime.UtcNow;
+                    Captain second = await StartJudgeAsync(db, saved, "finding-format-second").ConfigureAwait(false);
+                    await fixture.Service.HandleCompletionAsync(second, saved.Id).ConfigureAwait(false);
+                    saved = (await db.Driver.Missions.ReadAsync(saved.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Failed, saved.Status, "second malformed review stops");
+                    AssertContains(JudgeFindingTriage.InvalidReason, saved.FailureReason ?? "", "named refusal reaches operator recovery");
+                    AssertEqual(0, saved.RecoveryAttempts, "second refusal consumes no rescue budget");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("AllChecksGreen_VoyageCompletes", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1564,6 +1653,7 @@ namespace Armada.Test.Unit
                     "## Correctness\nThe cache grows without bound.\n\n" +
                     "The template's form, quoted back:\n" +
                     "`CRITERION-CONFLICT: <criterion text exactly as the brief lists it> -- <the required fix>`\n\n" +
+                    "## Findings\n[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"The cache is unbounded\",\"frequency\":5,\"severity\":6,\"criterion\":null,\"rule\":null}\n" +
                     "## Verdict\nBound the cache.\n\n" +
                     "[ARMADA:VERDICT] NEEDS_REVISION";
 

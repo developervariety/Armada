@@ -1264,6 +1264,8 @@ namespace Armada.Server
                     if (challenge.JustDispatched)
                         await AnnounceJudgeChallengePendingAsync(auth, latest, decision, challenge, token).ConfigureAwait(false);
                     if (challenge.IsPending) return false;
+                    if (JudgeChallenge.IsChallengeableFailure(latest) && challenge.Result == null)
+                        decision = RecoveryDecision.Blocked("judge_challenge_required_unavailable: a settled Challenger is required before rescue");
                     if (challenge.Result != null && challenge.Result.Upheld.Count == 0)
                         decision = RecoveryDecision.Blocked(JudgeChallengeRefutedAllReason);
                 }
@@ -1414,6 +1416,8 @@ namespace Armada.Server
         private RecoveryDecision Classify(Mission mission, bool repeatedIdenticalTestFailure = false)
         {
             string reason = mission.FailureReason ?? String.Empty;
+            if (reason.StartsWith(JudgeFindingTriage.InvalidReason, StringComparison.Ordinal))
+                return RecoveryDecision.Blocked("Judge finding format is invalid after its one correction; operator review is required");
 
             // A stage that ended with [ARMADA:RESULT] BLOCKED is waiting on an owner answer. A rescue would
             // re-run the same stage without it and ask the same question, so no mode or budget turns it
@@ -3820,8 +3824,7 @@ namespace Armada.Server
         /// <summary>
         /// Run the challenge round for a failed mission. A Judge NEEDS_REVISION on an enabled vessel gets one
         /// read-only Challenger on a model other than the Judge's; while it runs the outcome is pending, and once
-        /// it finishes its rulings are settled. Every way the challenge cannot be used is recorded and falls back
-        /// to the unchanged rescue with every finding. Never throws into the sweep.
+        /// it finishes its rulings are settled. An unavailable challenge is recorded and holds rescue. Never throws into the sweep.
         /// </summary>
         private async Task<JudgeChallengeOutcome> ApplyJudgeChallengeAsync(Mission failed, Objective? owningObjective, CancellationToken token)
         {
@@ -3829,11 +3832,33 @@ namespace Armada.Server
             {
                 JudgeChallengeSettings settings = _Settings.AutonomousRecovery.JudgeChallenge;
                 if (!JudgeChallenge.IsChallengeableFailure(failed)) return JudgeChallengeOutcome.NotApplicable;
-                if (!settings.AppliesTo(failed.VesselId)) return JudgeChallengeOutcome.NotApplicable;
+                if (!settings.AppliesTo(failed.VesselId))
+                {
+                    await RecordJudgeChallengeEventOnceAsync(JudgeChallenge.SkippedEvent, failed, String.Empty,
+                        settings.Enabled ? "Challenge excluded for this vessel; rescue remains held" : "Challenge disabled; rescue remains held", null, token).ConfigureAwait(false);
+                    return JudgeChallengeOutcome.NotApplicable;
+                }
+                List<ArmadaEvent> priorEvents = await _Database.Events.EnumerateByMissionAsync(failed.Id, 100, token).ConfigureAwait(false);
+                if (priorEvents.Any(e => e.EventType == JudgeChallenge.UnavailableEvent
+                    && e.CreatedUtc >= (failed.CompletedUtc ?? DateTime.MinValue))) return JudgeChallengeOutcome.NotApplicable;
 
                 MissionOutputArtifactPage artifact = MissionOutputArtifact.Build(failed, 0, MissionOutputArtifact.MaximumPageLength);
                 string review = artifact.Content ?? String.Empty;
-                List<string> findings = JudgeChallenge.ExtractFindings(review, out bool findingsComplete);
+                bool findingsComplete;
+                List<string> findings;
+                if (JudgeFindingTriage.HasSection(review))
+                {
+                    JudgeFindingTriageResult? applied = null;
+                    foreach (ArmadaEvent appliedEvent in priorEvents)
+                    {
+                        if (appliedEvent.EventType != JudgeFindingTriage.AppliedEvent) continue;
+                        applied = JudgeFindingTriage.ReadApplied(appliedEvent.Payload, failed.AgentOutput);
+                        if (applied != null) break;
+                    }
+                    findingsComplete = applied != null;
+                    findings = applied?.Blocking.Select(f => JudgeFindingTriage.Format(new[] { f }).Substring(2)).ToList() ?? new List<string>();
+                }
+                else findings = JudgeChallenge.ExtractFindings(review, out findingsComplete);
                 Vessel? vessel = await _Database.Vessels.ReadAsync(failed.VesselId!, token).ConfigureAwait(false);
 
                 ArmadaEvent? dispatched = await ReadJudgeChallengeDispatchAsync(failed, token).ConfigureAwait(false);
@@ -3852,7 +3877,7 @@ namespace Armada.Server
                     if (skip != null)
                     {
                         await RecordJudgeChallengeEventOnceAsync(JudgeChallenge.SkippedEvent, failed, String.Empty,
-                            "Challenge round skipped for Judge mission " + failed.Id + ": " + skip + ". The rescue carries every finding.",
+                            "Challenge round skipped for Judge mission " + failed.Id + ": " + skip + ". Rescue remains held.",
                             null, token).ConfigureAwait(false);
                         return JudgeChallengeOutcome.NotApplicable;
                     }
@@ -3909,9 +3934,9 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "challenge round failed for mission " + failed.Id + ", the rescue carries every finding: " + ex.Message);
+                _Logging.Warn(_Header + "challenge round failed for mission " + failed.Id + ", rescue remains held: " + ex.Message);
                 await RecordJudgeChallengeEventOnceAsync(JudgeChallenge.UnavailableEvent, failed, String.Empty,
-                    "Challenge round unavailable for Judge mission " + failed.Id + ": error: " + ex.Message + ". The rescue carries every finding.",
+                    "Challenge round unavailable for Judge mission " + failed.Id + ": error: " + ex.Message + ". Rescue remains held.",
                     null, token).ConfigureAwait(false);
                 return JudgeChallengeOutcome.NotApplicable;
             }
@@ -4124,8 +4149,8 @@ namespace Armada.Server
             CancellationToken token)
         {
             await RecordJudgeChallengeEventOnceAsync(JudgeChallenge.UnavailableEvent, failed, challengerId,
-                "Challenge round unavailable for Judge mission " + failed.Id + ": " + reason + ". The rescue carries all "
-                + findings.Count + " findings.",
+                "Challenge round unavailable for Judge mission " + failed.Id + ": " + reason + ". Rescue remains held with all "
+                + findings.Count + " findings retained.",
                 null, token).ConfigureAwait(false);
             return JudgeChallengeOutcome.NotApplicable;
         }
@@ -5026,7 +5051,7 @@ namespace Armada.Server
         /// </summary>
         internal sealed class JudgeChallengeOutcome
         {
-            /// <summary>The round does not apply, or cannot be used: the rescue carries every finding.</summary>
+            /// <summary>No settled ruling is available; a challengeable Judge failure cannot dispatch a rescue.</summary>
             public static readonly JudgeChallengeOutcome NotApplicable = new JudgeChallengeOutcome(false, false, String.Empty, new List<string>(), null);
 
             /// <summary>A Challenger is ruling: recovery waits.</summary>

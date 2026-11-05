@@ -50,6 +50,8 @@ namespace Armada.Server.Mcp
 
         /// <summary>Whether add-only Markdown landing conflicts may resolve automatically.</summary>
         public bool? AutoResolveAddOnlyMarkdown { get; set; }
+        /// <summary>Uncited Judge finding score threshold, default five.</summary>
+        public int? JudgeFindingThreshold { get; set; }
 
         /// <summary>
         /// Whether to enable model context accumulation on this vessel. Default false.

@@ -11,6 +11,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Landing resolves conflicts in `CHANGELOG.md` and `.md` files under `docs/` only when both sides add lines without deleting or replacing base lines. Target additions precede mission additions. The stored per-vessel `AutoResolveAddOnlyMarkdown` switch defaults on for existing and new vessels; an omitted update preserves its value. Native and Harbor landing paths record the resolved files, while legacy synchronization calls retain the sole-CHANGELOG union behavior. Required Checks and candidate review remain in force.
 
+### Judge findings use vessel scores and a settled Challenger before rescue
+
+- Judge FAIL and NEEDS_REVISION findings carry frequency and severity. Uncited scores below the vessel threshold (default 5) become retained follow-ups and enter the existing PASS and Check gates. Cited unmet criteria and memory rules always block; required Check failures remain authoritative. One malformed-score correction uses no rescue budget; a second malformed review holds rescue for operator review. Applied decisions retain the original report hash for replay. The Challenger round defaults on. A NEEDS_REVISION rescue requires a settled ruling. Disabled, excluded and unavailable rounds hold rescue instead of bypassing it. Vessel threshold storage uses restart-time migrations SQLite 147, PostgreSQL 152, MySQL 140 and SQL Server 143, after the add-only Markdown migrations.
+
 ### A project file cited one directory short resolves to its tracked path
 
 - A `.csproj`, `.fsproj` or `.vbproj` path that matches no tracked path is read once more as cited one directory short: a directory named like the file stem, in the cited directory, that holds the file. `src/Area/Name.Shared.csproj` then resolves to `src/Area/Name.Shared/Name.Shared.csproj` and is reported present at that path in the Git anchors, never as a file to create. A project file with no such directory stays absent.

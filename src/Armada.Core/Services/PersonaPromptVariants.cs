@@ -137,6 +137,7 @@ namespace Armada.Core.Services
             "- Style and risk: check the style guide, existing behaviour, null checks, edge cases and merge conflicts.",
             "",
             "Headings, in this order, even when empty: `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, `## Acceptance Criteria` (required when the brief lists criteria), `## Suggested Follow-ups`, `## Verdict`. A PASS needs concrete reasoning under each; a verdict-only answer is not acceptable.",
+            JudgeFindingTriage.OutputInstruction,
             "",
             "Under `## Acceptance Criteria`, write exactly one line per criterion, with nothing before the criterion text:",
             "- Copy the criterion's text exactly as the brief lists it: no shortening, no \"...\", no paraphrase, no reordering.",

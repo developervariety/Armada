@@ -131,12 +131,44 @@ DRY answer to "more personas": the analyst runs when the question is genuinely
 open and never otherwise. The recommendation is advisory — the operator confirms
 it; the adapter never inserts a stage by itself. The decision ships `Gate`.
 
+### Scored Judge findings
+
+A FAIL or NEEDS_REVISION review includes exactly one `## Findings` section.
+Each finding occupies one physical line in this form:
+
+```text
+[ARMADA:FINDING] {"id":"F1","text":"src/File.cs:12 and the defect evidence","frequency":2,"severity":3,"criterion":null,"rule":null}
+```
+
+Ids are unique. Both scores are integers from 1 to 10. The section has no prose
+or code fences. A PASS can omit this section or use `(none)` for an empty section.
+The normal review headings, acceptance walk and standalone verdict remain required.
+The reader accepts at most 50 findings and 262144 report characters.
+
+`Vessel.JudgeFindingThreshold` is an integer from 1 to 100 and defaults to 5.
+An uncited finding blocks when frequency multiplied by severity meets this
+threshold. A finding that cites an unmet criterion or a violated memory rule
+always blocks. An uncited finding below the threshold becomes a retained follow-up.
+When all findings are follow-ups, the review enters the existing PASS validation
+and independent Check gates. It cannot override a failed required Check. A PASS
+with a scored blocker becomes NEEDS_REVISION. Criterion-conflict holds take
+precedence over score classification.
+
+A missing Findings section or a malformed score gets one finding-format correction
+on the same Judge mission and returns it to Pending. This correction uses no rescue attempt. A second malformed review
+fails with `judge_finding_format_invalid` and holds automatic rescue for operator
+review. A stored failed review without a scored section uses the blocking-list
+reader during recovery. The original completed review stays in `AgentOutput`; `judge.findings_evaluated`
+and `judge.findings_applied` retain the threshold, subsets, report hash and applied
+verdict. Follow-up replay and the Challenger use the applied decision for that
+same report, so a later vessel threshold change does not rewrite its decision.
+
 ### Challenge round (`autonomousRecovery.judgeChallenge`)
 
 A Judge NEEDS_REVISION can name findings that do not block the work: a criterion
 read too literally, a limit the report already states, or a check that has not
 finished. The challenge round tests each blocking finding before a rescue is
-spent on it. It is off by default (`enabled: false`) and hot-reloads.
+spent on it. It is on by default (`enabled: true`) and hot-reloads.
 
 Remaining or pre-existing observations explicitly outside the allowed edit scope
 are advisory. Explicit Blocking and NOT MET items remain findings. Instruction
@@ -145,7 +177,7 @@ the review section; an unclosed proposal ends at the next peer review heading.
 
 When the round is enabled and a Judge mission fails with `Judge verdict:
 NEEDS_REVISION`, autonomous recovery numbers the review's blocking findings with
-the same extraction the rescue brief uses, and dispatches one `Challenger`
+the persisted scored decision (or the blocking-list reader for an older review), and dispatches one `Challenger`
 mission (template `persona.challenger`, mode `Audit`) checked out at the
 reviewed commit. Its brief holds the numbered findings, the Judge's output and
 the reviewed stage's brief with the objective. Routing skips every captain on the
@@ -206,8 +238,10 @@ skips a review with no findings, more than `maxFindings` (default 20) findings,
 an incomplete output, or a failed Check on the reviewed commit. A Challenger
 that fails, times out (`timeoutMinutes`, default 180), ran on the Judge's model,
 or writes a ruling line that does not rule every finding exactly once makes the
-round unavailable: the rescue then carries every finding, as with the round off.
-`excludedVesselIds` turns the round off for a vessel.
+round unavailable. Rescue stays held until an operator resolves the failure.
+A disabled round or a vessel in `excludedVesselIds` also holds rescue; neither
+setting bypasses the required Challenger. An unavailable round is not dispatched
+again for the same Judge completion. A fresh Judge attempt can start a new round.
 
 Each outcome is an event on the Judge mission: `judge_challenge.dispatched`
 (payload: the Challenger id, the Judge completion time and the finding count),

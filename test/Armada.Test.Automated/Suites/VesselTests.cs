@@ -51,6 +51,26 @@ namespace Armada.Test.Automated.Suites
         /// </summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Vessel Judge threshold defaults to five and omitted update preserves override", async () =>
+            {
+                string fleetId = await CreateFleetAsync("JudgeThresholdFleet");
+                string repoUrl = "https://example.invalid/judge-threshold.git";
+                HttpResponseMessage created = await _Client.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    { Name = "JudgeThreshold", FleetId = fleetId, RepoUrl = repoUrl }));
+                AssertEqual(HttpStatusCode.Created, created.StatusCode);
+                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(created);
+                _CreatedVesselIds.Add(vessel.Id);
+                AssertEqual(5, vessel.JudgeFindingThreshold);
+                HttpResponseMessage changed = await _Client.PutAsync("/api/v1/vessels/" + vessel.Id, JsonHelper.ToJsonContent(new
+                    { Name = vessel.Name, FleetId = fleetId, RepoUrl = repoUrl, JudgeFindingThreshold = 9 }));
+                AssertEqual(HttpStatusCode.OK, changed.StatusCode);
+                AssertEqual(9, (await JsonHelper.DeserializeAsync<Vessel>(changed)).JudgeFindingThreshold);
+                HttpResponseMessage omitted = await _Client.PutAsync("/api/v1/vessels/" + vessel.Id, JsonHelper.ToJsonContent(new
+                    { Name = vessel.Name, FleetId = fleetId, RepoUrl = repoUrl }));
+                AssertEqual(HttpStatusCode.OK, omitted.StatusCode);
+                AssertEqual(9, (await JsonHelper.DeserializeAsync<Vessel>(omitted)).JudgeFindingThreshold);
+            });
+
             #region CRUD - Create
 
             await RunTest("Create Vessel With All Fields Returns 201 With Correct Properties", async () =>

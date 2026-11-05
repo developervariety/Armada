@@ -627,7 +627,9 @@ namespace Armada.Test.Unit.Suites.Services
             string narrative = "The change covers every acceptance item and the tests exercise the primary and negative paths with specifics.";
             scenario.Missions.OnGetMissionOutput = _ =>
                 "## Completeness\n" + narrative + "\n## Correctness\n" + narrative + "\n## Tests\n" + narrative
-                + "\n## Failure Modes\n" + narrative + "\n## Verdict\n" + verdict + "\n[ARMADA:VERDICT] " + verdict;
+                + "\n## Failure Modes\n" + narrative
+                + (verdict == "NEEDS_REVISION" ? "\n## Findings\n[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"Required behavior needs correction\",\"frequency\":2,\"severity\":3,\"criterion\":null,\"rule\":null}\n" : String.Empty)
+                + "\n## Verdict\n" + verdict + "\n[ARMADA:VERDICT] " + verdict;
 
             await scenario.Missions.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
             landed.Judge = judge;

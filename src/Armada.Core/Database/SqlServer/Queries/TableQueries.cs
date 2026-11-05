@@ -1043,7 +1043,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"ALTER TABLE vessels ADD generated_artifacts_json NVARCHAR(MAX) NULL;",
                     @"ALTER TABLE missions ADD generated_artifact_review_json NVARCHAR(MAX) NULL;"),
                 new SchemaMigration(142, "Persist the add-only Markdown landing policy",
-                    @"ALTER TABLE vessels ADD auto_resolve_add_only_markdown BIT NOT NULL DEFAULT 1;")
+                    @"ALTER TABLE vessels ADD auto_resolve_add_only_markdown BIT NOT NULL DEFAULT 1;"),
+                new SchemaMigration(143, "Persist per-vessel Judge finding thresholds",
+                    @"ALTER TABLE vessels ADD judge_finding_threshold INT NOT NULL DEFAULT 5;")
             };
         }
 

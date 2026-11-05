@@ -35,6 +35,36 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Finding triage scores uncited follow-ups and preserves criterion and rule blockers", () =>
+            {
+                string low = "## Findings\n[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"Prefer a shorter label\",\"frequency\":1,\"severity\":4,\"criterion\":null,\"rule\":null}";
+                JudgeFindingTriageResult result = JudgeFindingTriage.Evaluate(low, 5);
+                AssertTrue(result.IsValid);
+                AssertTrue(result.EligibleForPassGates, "below-threshold uncited findings enter the existing PASS gates");
+                AssertEqual(1, result.FollowUps.Count);
+                foreach (string reference in new[] { "criterion", "rule" })
+                {
+                    string cited = low.Replace("\"" + reference + "\":null", "\"" + reference + "\":\"Required behavior\"");
+                    AssertEqual(1, JudgeFindingTriage.Evaluate(cited, 5).Blocking.Count, reference + " blocks regardless of score");
+                }
+                AssertEqual(1, JudgeFindingTriage.Evaluate(low, 4).Blocking.Count, "vessel threshold override takes effect");
+            });
+            await RunTest("Finding triage refuses missing scores, malformed findings and duplicate ids", () =>
+            {
+                foreach (string body in new[]
+                {
+                    "- The result is wrong.",
+                    "[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"Wrong\",\"frequency\":1}",
+                    "[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"Wrong\",\"frequency\":0,\"severity\":6}",
+                    "[ARMADA:FINDING] {}", "(none)"
+                }) AssertFalse(JudgeFindingTriage.Evaluate("## Findings\n" + body, 5).IsValid, body);
+                string finding = "[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"Wrong\",\"frequency\":2,\"severity\":3,\"criterion\":null,\"rule\":null}";
+                AssertFalse(JudgeFindingTriage.Evaluate("## Findings\n" + finding + "\n" + finding, 5).IsValid);
+                AssertTrue(JudgeFindingTriage.Evaluate("## Findings\n(none)", 5, allowEmpty: true).IsValid, "PASS can explicitly have no findings");
+                AssertFalse(JudgeFindingTriage.HasCorrection("ordinary brief"));
+                AssertTrue(JudgeFindingTriage.HasCorrection(JudgeFindingTriage.CorrectionHeading));
+            });
+
             await RunTest("Only a Judge NEEDS_REVISION without a conflict or comment-only marker is challengeable", () =>
             {
                 Dictionary<string, bool> cases = new Dictionary<string, bool>
@@ -396,10 +426,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             });
 
-            await RunTest("The round is off by default, and an excluded vessel is never challenged", () =>
+            await RunTest("The round is on by default, and an excluded vessel is never challenged", () =>
             {
                 JudgeChallengeSettings settings = new JudgeChallengeSettings();
-                AssertFalse(settings.AppliesTo("vsl_example"), "off by default");
+                AssertTrue(settings.AppliesTo("vsl_example"), "on by default");
+                settings.Enabled = false;
+                AssertFalse(settings.AppliesTo("vsl_example"), "explicit disable still applies");
                 settings.Enabled = true;
                 settings.ExcludedVesselIds = new List<string> { "vsl_excluded" };
                 AssertTrue(settings.AppliesTo("vsl_example"), "an enabled round applies to other vessels");

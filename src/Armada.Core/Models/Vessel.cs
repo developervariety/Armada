@@ -168,6 +168,17 @@ namespace Armada.Core.Models
         /// </summary>
         public bool AllowConcurrentMissions { get; set; } = false;
 
+        /// <summary>Minimum uncited Judge frequency-times-severity score that blocks, from one to one hundred.</summary>
+        public int JudgeFindingThreshold
+        {
+            get => _JudgeFindingThreshold;
+            set { _JudgeFindingThreshold = Math.Clamp(value, 1, 100); JudgeFindingThresholdSpecified = true; }
+        }
+
+        /// <summary>Whether an update explicitly supplied the finding threshold.</summary>
+        [JsonIgnore]
+        public bool JudgeFindingThresholdSpecified { get; private set; }
+
         /// <summary>
         /// Resolve landing conflicts only in add-only CHANGELOG.md and docs Markdown files.
         /// False leaves every content conflict for operator review.
@@ -356,6 +367,7 @@ namespace Armada.Core.Models
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.VesselIdPrefix, 24);
         private string _Name = "My Vessel";
         private bool _AutoResolveAddOnlyMarkdown = true;
+        private int _JudgeFindingThreshold = 5;
         private string? _RepoUrl = null;
         private string? _GitHubTokenOverride = null;
         private bool? _HasGitHubTokenOverride = null;

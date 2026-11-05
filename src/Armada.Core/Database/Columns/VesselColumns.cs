@@ -45,6 +45,7 @@ namespace Armada.Core.Database
             vessel.ArchitectMaxMissionsPerVoyage = row.NullableInt("architect_max_missions_per_voyage");
             vessel.AllowConcurrentMissions = row.Bool("allow_concurrent_missions");
             vessel.AutoResolveAddOnlyMarkdown = row.Bool("auto_resolve_add_only_markdown");
+            vessel.JudgeFindingThreshold = row.Int("judge_finding_threshold");
             vessel.RequirePassingChecksToLand = row.Bool("require_passing_checks_to_land");
             vessel.ProtectedBranchPatterns = row.Json<List<string>>("protected_branch_patterns", _Json) ?? new List<string>();
             vessel.ReleaseBranchPrefix = row.Text("release_branch_prefix");
@@ -93,6 +94,7 @@ namespace Armada.Core.Database
                 .Text("branch_cleanup_policy", vessel.BranchCleanupPolicy?.ToString())
                 .Bool("allow_concurrent_missions", vessel.AllowConcurrentMissions)
                 .Bool("auto_resolve_add_only_markdown", vessel.AutoResolveAddOnlyMarkdown)
+                .Int("judge_finding_threshold", vessel.JudgeFindingThreshold)
                 .Bool("require_passing_checks_to_land", vessel.RequirePassingChecksToLand)
                 .Text("protected_branch_patterns", JsonSerializer.Serialize(vessel.ProtectedBranchPatterns ?? new List<string>()))
                 .Text("release_branch_prefix", vessel.ReleaseBranchPrefix ?? "release/")

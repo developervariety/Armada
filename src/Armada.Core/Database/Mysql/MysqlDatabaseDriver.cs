@@ -760,7 +760,9 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE vessels ADD COLUMN generated_artifacts_json LONGTEXT NULL;",
                     @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json LONGTEXT NULL;"),
                 new SchemaMigration(139, "Persist the add-only Markdown landing policy",
-                    @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown INTEGER NOT NULL DEFAULT 1;")
+                    @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown INTEGER NOT NULL DEFAULT 1;"),
+                new SchemaMigration(140, "Persist per-vessel Judge finding thresholds",
+                    @"ALTER TABLE vessels ADD COLUMN judge_finding_threshold INTEGER NOT NULL DEFAULT 5;")
             };
         }
 

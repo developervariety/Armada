@@ -1299,6 +1299,7 @@ namespace Test.Shared.Suites.Services
                     await testDb.Driver.Captains.UpdateAsync(judgeCaptain).ConfigureAwait(false);
 
                     missionService.OnGetMissionOutput = _ =>
+                        "## Findings\n[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"The change exceeds the allowed scope\",\"frequency\":2,\"severity\":3,\"criterion\":null,\"rule\":null}\n## Verdict\n" +
                         "NEEDS_REVISION\n" +
                         "Scope violation: test file should be removed.";
 
@@ -1370,6 +1371,7 @@ namespace Test.Shared.Suites.Services
                         "- **PASS** -- all requirements satisfied.\n" +
                         "- **FAIL** -- the branch is incorrect.\n" +
                         "- **NEEDS_REVISION** -- scope or quality issues remain.\n\n" +
+                        "## Findings\n[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"The change exceeds the allowed scope\",\"frequency\":2,\"severity\":3,\"criterion\":null,\"rule\":null}\n## Verdict\n" +
                         "`NEEDS_REVISION`\n" +
                         "Scope violation: this branch contains unrelated files.";
 
@@ -1445,6 +1447,7 @@ namespace Test.Shared.Suites.Services
                         "Coverage is still missing for the omitted-field preservation path.\n\n" +
                         "## Failure Modes\n" +
                         "This can silently erase stored captain configuration during partial updates.\n\n" +
+                        "## Findings\n[ARMADA:FINDING] {\"id\":\"F1\",\"text\":\"Omitted updates erase stored configuration\",\"frequency\":2,\"severity\":3,\"criterion\":null,\"rule\":null}\n## Verdict\n" +
                         "Judge review complete. Verdict: NEEDS_REVISION. The REST and MCP update contracts still diverge.";
 
                     await missionService.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);

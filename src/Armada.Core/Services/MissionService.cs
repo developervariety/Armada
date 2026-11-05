@@ -3606,6 +3606,22 @@ namespace Armada.Core.Services
                 bool judgeGateRejected = false;
                 bool heldRevisionForChecks = false;
                 bool acceptanceFormatMiss = false;
+                bool findingFormatMiss = false;
+                JudgeFindingTriageResult? findingTriage = null;
+                if ((verdict == JudgeVerdict.NeedsRevision || verdict == JudgeVerdict.Fail
+                    || (verdict == JudgeVerdict.Pass && JudgeFindingTriage.HasSection(mission.AgentOutput)))
+                    && JudgeCriterionConflicts.Extract(mission.AgentOutput).Count == 0)
+                {
+                    findingTriage = await EvaluateJudgeFindingsAsync(mission, verdict == JudgeVerdict.Pass, token).ConfigureAwait(false);
+                    if (!findingTriage.IsValid)
+                    {
+                        verdictFailureReason = findingTriage.Error;
+                        findingFormatMiss = !JudgeFindingTriage.HasCorrection(mission.Description);
+                        if (!findingFormatMiss) verdict = JudgeVerdict.Fail;
+                    }
+                    else if (findingTriage.EligibleForPassGates) verdict = JudgeVerdict.Pass;
+                    else if (verdict == JudgeVerdict.Pass && findingTriage.Blocking.Count > 0) verdict = JudgeVerdict.NeedsRevision;
+                }
                 if (verdict == JudgeVerdict.Pass)
                 {
                     // The deterministic required-heading regex plus the narrative-length floor is the
@@ -3747,7 +3763,16 @@ namespace Armada.Core.Services
                 // line form appended to its brief. The correction section is the persisted record that the
                 // one re-run was used, so a second format miss fails as before. A NOT MET criterion is a
                 // real rejection and never takes this path. The re-run does not consume the rescue budget.
-                if (acceptanceFormatMiss)
+                if (findingFormatMiss)
+                {
+                    mission.Description = AppendFindingFormatCorrection(mission, verdictFailureReason);
+                    await AppendMissionActivityAsync(mission.Id, "Judge finding format refused; one correction requested: "
+                        + verdictFailureReason, token).ConfigureAwait(false);
+                    await ResetMissionForReRunAsync(mission, "judge_finding_format", token, countRecoveryBudget: false).ConfigureAwait(false);
+                    retryingMissingVerdict = true;
+                    retryingAcceptanceFormat = true;
+                }
+                else if (acceptanceFormatMiss)
                 {
                     string priorReview = mission.AgentOutput ?? String.Empty;
                     mission.Description = AppendAcceptanceFormatCorrection(mission.Description, verdictFailureReason, priorReview,
@@ -3827,7 +3852,12 @@ namespace Armada.Core.Services
 
                 // Persist the Judge request before any delivery-record lookup. A merge entry can
                 // appear later, but the audit item must already exist and survive that race.
-                string? followUps = ExtractSuggestedFollowUps(mission.AgentOutput);
+                if (findingTriage?.IsValid == true && !retryingMissingVerdict)
+                {
+                    findingTriage.EffectiveVerdict = verdict.ToString();
+                    await RecordJudgeFindingsAsync(mission, findingTriage, _FindingAppliedEvent, token).ConfigureAwait(false);
+                }
+                string? followUps = CombineFindingFollowUps(ExtractSuggestedFollowUps(mission.AgentOutput), findingTriage);
                 bool hasFollowUps = !String.IsNullOrEmpty(followUps);
                 if (!heldRevisionForChecks && !retryingAcceptanceFormat && (verdict == JudgeVerdict.NeedsRevision || hasFollowUps))
                 {
@@ -4775,6 +4805,8 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(outputContract)) return personaPrompt ?? String.Empty;
             string prompt = (personaPrompt ?? String.Empty).TrimEnd();
+            if (prompt.Contains(JudgeFindingTriage.OutputInstruction, StringComparison.Ordinal))
+                outputContract = outputContract.Replace(JudgeFindingTriage.OutputInstruction, String.Empty, StringComparison.Ordinal);
             if (prompt.Length == 0) return "## Required Output Contract\n" + outputContract;
             return prompt + "\n\n## Required Output Contract\n" + outputContract;
         }
@@ -13226,6 +13258,12 @@ namespace Armada.Core.Services
 
             string? followUps = ExtractSuggestedFollowUps(mission.AgentOutput);
             JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
+            JudgeFindingTriageResult? applied = await ReadAppliedJudgeFindingsAsync(mission, token).ConfigureAwait(false);
+            if (applied != null)
+            {
+                followUps = CombineFindingFollowUps(followUps, applied);
+                if (Enum.TryParse(applied.EffectiveVerdict, out JudgeVerdict effective)) verdict = effective;
+            }
             if (verdict == JudgeVerdict.Pass && mission.Status == MissionStatusEnum.Failed)
             {
                 verdict = mission.FailureReason?.StartsWith("Judge PASS verdict", StringComparison.Ordinal) == true
@@ -13352,7 +13390,7 @@ namespace Armada.Core.Services
         /// verdict check requires when the brief lists criteria, and its line form.
         /// </summary>
         internal const string AcceptanceCriteriaWalkInstruction =
-            "When the brief lists acceptance criteria, also include `## Acceptance Criteria`. " + AcceptanceCriteriaLineForm;
+            "When the brief lists acceptance criteria, also include `## Acceptance Criteria`. " + AcceptanceCriteriaLineForm + " " + JudgeFindingTriage.OutputInstruction;
 
         // Heading of the acceptance-criteria format correction. Deliberately not prefixed with the
         // criteria heading, so the criteria section of the brief never extends into it.

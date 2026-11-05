@@ -2002,3 +2002,18 @@ these tools. Import registers an external working tree and leaves its Git
 references unchanged. A missing import service or an unconfigured import
 request returns the named `Unavailable` error. See
 [Local checkout import](VESSEL_CHECKOUT_IMPORT.md) for path and ownership rules.
+
+### Vessel Judge finding threshold
+
+Vessel create and update accept `judgeFindingThreshold` (integer 1 to 100,
+default 5). Vessel reads and enumeration return this value. An omitted field on
+update preserves the saved value. MCP `armada_vessel_add` and
+`armada_vessel_update` use the same field. The threshold applies only to uncited
+frequency multiplied by severity scores; unmet criteria, memory rules and required
+Check failures remain blockers. See [scored Judge findings](PERSONAS.md#scored-judge-findings).
+
+A completed Judge FAIL or NEEDS_REVISION without valid scored findings receives
+one format correction on the same mission and returns to Pending. A second
+malformed launch fails and holds rescue for operator review. The correction
+spends no rescue attempt. Recovery reads the blocking list of a stored failed
+review when it has no scored section. Required Checks remain authoritative.

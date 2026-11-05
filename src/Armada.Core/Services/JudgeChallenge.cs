@@ -15,8 +15,7 @@ namespace Armada.Core.Services
     /// The Challenger only narrows what a rescue is asked to fix. It never passes work: a block whose
     /// every finding is refuted waits for an operator, and the Judge mission stays failed. A finding the
     /// Challenger does not rule on, rules on without evidence, or refutes below the confidence floor
-    /// stands. Output that cannot be settled makes the whole challenge unavailable, and the rescue then
-    /// carries every finding, as it does with the round switched off.
+    /// stands. Output that cannot be settled makes the challenge unavailable and keeps rescue held.
     /// </remarks>
     public static class JudgeChallenge
     {

@@ -1255,7 +1255,9 @@ $convert$;"),
                     @"ALTER TABLE vessels ADD COLUMN generated_artifacts_json TEXT NULL;",
                     @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json TEXT NULL;"),
                 new SchemaMigration(151, "Persist the add-only Markdown landing policy",
-                    @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown BOOLEAN NOT NULL DEFAULT TRUE;")
+                    @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown BOOLEAN NOT NULL DEFAULT TRUE;"),
+                new SchemaMigration(152, "Persist per-vessel Judge finding thresholds",
+                    @"ALTER TABLE vessels ADD COLUMN judge_finding_threshold INTEGER NOT NULL DEFAULT 5;")
             };
         }
 

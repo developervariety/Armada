@@ -137,7 +137,12 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal("release/", legacy.ReleaseBranchPrefix, "New release prefix default");
                 DatabaseAssert.Equal("hotfix/", legacy.HotfixBranchPrefix, "New hotfix prefix default");
                 DatabaseAssert.True(!legacy.RequirePullRequestForProtectedBranches && !legacy.RequireMergeQueueForReleaseBranches, "New boolean defaults");
+                DatabaseAssert.Equal(5, legacy.JudgeFindingThreshold, "Existing vessel receives score threshold five");
+                legacy.JudgeFindingThreshold = 9;
+                await driver.Vessels.UpdateAsync(legacy, token).ConfigureAwait(false);
                 await driver.InitializeAsync(token).ConfigureAwait(false);
+                Vessel persisted = DatabaseAssert.NotNull(await driver.Vessels.ReadAsync(id, token).ConfigureAwait(false), "Threshold vessel retained");
+                DatabaseAssert.Equal(9, persisted.JudgeFindingThreshold, "Custom threshold survives initialization");
                 Dictionary<int, string> after = await history.ReadHistoryAsync(token).ConfigureAwait(false);
                 Vessel restarted = DatabaseAssert.NotNull(await driver.Vessels.ReadAsync(id, token).ConfigureAwait(false), "Vessel survives repeat initialization");
                 DatabaseAssert.True(!restarted.AutoResolveAddOnlyMarkdown, "Repeated initialization preserves an explicit OFF policy");

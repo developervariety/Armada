@@ -26,6 +26,7 @@ namespace Armada.Server
             if (!updated.AutoResolveAddOnlyMarkdownSpecified)
                 updated.AutoResolveAddOnlyMarkdown = existing.AutoResolveAddOnlyMarkdown;
 
+            if (!updated.JudgeFindingThresholdSpecified) updated.JudgeFindingThreshold = existing.JudgeFindingThreshold;
             updated.Id = existing.Id;
             updated.TenantId = existing.TenantId;
             updated.UserId = existing.UserId;

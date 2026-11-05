@@ -126,6 +126,7 @@ namespace Armada.Server.Mcp.Tools
                             }
                         },
                         autoResolveAddOnlyMarkdown = new { type = "boolean", description = "Auto-resolve add-only CHANGELOG.md and docs Markdown conflicts (default true)" },
+                        judgeFindingThreshold = new { type = "integer", minimum = 1, maximum = 100, description = "Uncited Judge finding score threshold (default 5)" },
                         generatedArtifacts = GeneratedArtifactsSchema(),
                         siblingRepos = new
                         {
@@ -237,6 +238,7 @@ namespace Armada.Server.Mcp.Tools
                     }
                     vessel.AllowConcurrentMissions = request.AllowConcurrentMissions ?? false;
                     vessel.AutoResolveAddOnlyMarkdown = request.AutoResolveAddOnlyMarkdown ?? true;
+                    vessel.JudgeFindingThreshold = request.JudgeFindingThreshold ?? 5;
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     string? addPipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
                         database, request.DefaultPipelineId, null, Armada.Core.Services.PipelineReferenceRule.VesselDefaultSource).ConfigureAwait(false);
@@ -310,6 +312,7 @@ namespace Armada.Server.Mcp.Tools
                             }
                         },
                         autoResolveAddOnlyMarkdown = new { type = "boolean", description = "Auto-resolve add-only CHANGELOG.md and docs Markdown conflicts (default true)" },
+                        judgeFindingThreshold = new { type = "integer", minimum = 1, maximum = 100, description = "Uncited Judge finding score threshold (default 5)" },
                         generatedArtifacts = GeneratedArtifactsSchema(),
                         siblingRepos = new
                         {
@@ -386,6 +389,7 @@ namespace Armada.Server.Mcp.Tools
                         vessel.LocalPath = request.LocalPath;
                     if (request.AutoResolveAddOnlyMarkdown.HasValue)
                         vessel.AutoResolveAddOnlyMarkdown = request.AutoResolveAddOnlyMarkdown.Value;
+                    if (request.JudgeFindingThreshold.HasValue) vessel.JudgeFindingThreshold = request.JudgeFindingThreshold.Value;
                     if (request.AllowConcurrentMissions.HasValue)
                         vessel.AllowConcurrentMissions = request.AllowConcurrentMissions.Value;
                     if (request.EnableModelContext.HasValue)

@@ -59,6 +59,14 @@ namespace Armada.Test.Unit.Suites.Services
                     PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
 
                     string judge = service.GetEmbeddedDefault("persona.judge") ?? "";
+                    string contract = MissionPromptBuilder.GetPersonaOutputContract("Judge");
+                    string combined = MissionService.AppendOutputContract(judge, contract);
+                    string findingInstruction = JudgeFindingTriage.OutputInstruction;
+                    int copies = (combined.Length - combined.Replace(findingInstruction, String.Empty, StringComparison.Ordinal).Length) / findingInstruction.Length;
+                    AssertEqual(1, copies, "the composed Judge renders one precise scored-finding contract");
+                    string custom = MissionService.AppendOutputContract("Operator-authored review guidance.", contract);
+                    AssertEqual(1, (custom.Length - custom.Replace(findingInstruction, String.Empty, StringComparison.Ordinal).Length) / findingInstruction.Length, "a custom template receives the required contract once");
+                    Console.WriteLine("Judge finding instruction: " + System.Text.Encoding.UTF8.GetByteCount(findingInstruction) + " bytes, " + copies + " rendered copy");
                     const string marker = "Example line: `";
                     int start = judge.IndexOf(marker, StringComparison.Ordinal);
                     AssertTrue(start >= 0, "the Judge template carries an example acceptance line");

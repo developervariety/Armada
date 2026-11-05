@@ -466,7 +466,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AllowedPersonas = "[\"Worker\"]"
                 }).ConfigureAwait(false);
                 await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Judge").ConfigureAwait(false);
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.PreferredModel = "high";
                 failed.CommitHash = new string('3', 40);
@@ -514,7 +514,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
                 await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "TestEngineer", "Judge").ConfigureAwait(false);
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.PreferredModel = "high";
                 failed.VoyageId = (await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent recovery tier")
@@ -582,7 +582,7 @@ namespace Armada.Test.Unit.Suites.Services
                     UserId = vessel.UserId,
                     Status = VoyageStatusEnum.Failed
                 }).ConfigureAwait(false);
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.VoyageId = parentVoyage.Id;
                 failed.PreferredModel = "high";
@@ -664,7 +664,7 @@ namespace Armada.Test.Unit.Suites.Services
                     UserId = vessel.UserId,
                     Status = VoyageStatusEnum.Failed
                 }).ConfigureAwait(false);
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.VoyageId = parentVoyage.Id;
                 failed.PreferredModel = "high";
@@ -1332,7 +1332,7 @@ namespace Armada.Test.Unit.Suites.Services
                     CommitHash = "2222222222222222222222222222222222222222"
                 };
                 reviewed = await testDb.Driver.Missions.CreateAsync(reviewed).ConfigureAwait(false);
-                Mission sameVesselFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission sameVesselFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 sameVesselFailure.Persona = "Judge";
                 sameVesselFailure.CommitHash = null;
                 sameVesselFailure.DependsOnMissionId = reviewed.Id;
@@ -1343,7 +1343,7 @@ namespace Armada.Test.Unit.Suites.Services
                     testDb.Driver, admiral, new IncidentService(testDb.Driver),
                     new RunbookService(testDb.Driver, new LoggingModule()));
 
-                Mission producedFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission producedFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 producedFailure.Persona = "Judge";
                 producedFailure.CommitHash = "3333333333333333333333333333333333333333";
                 producedFailure.StartFromRef = "4444444444444444444444444444444444444444";
@@ -1355,7 +1355,7 @@ namespace Armada.Test.Unit.Suites.Services
                     admiral.DispatchedMissions.Single(item => item.ParentMissionId == producedFailure.Id).StartFromRef,
                     "a produced commit must take precedence over the original start ref and dependency commit");
 
-                Mission originalRefFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission originalRefFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 originalRefFailure.Persona = "Judge";
                 originalRefFailure.CommitHash = null;
                 originalRefFailure.StartFromRef = "4444444444444444444444444444444444444444";
@@ -1371,7 +1371,7 @@ namespace Armada.Test.Unit.Suites.Services
                     admiral.DispatchedMissions.Single(item => item.ParentMissionId == sameVesselFailure.Id).StartFromRef,
                     "A same-vessel dependency supplies the reviewed tip when the Judge commit is absent.");
 
-                Mission crossVesselFailure = await CreateFailedMissionAsync(testDb, otherVessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission crossVesselFailure = await CreateFailedMissionAsync(testDb, otherVessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 crossVesselFailure.Persona = "Judge";
                 crossVesselFailure.CommitHash = null;
                 crossVesselFailure.DependsOnMissionId = reviewed.Id;
@@ -1389,7 +1389,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = MissionStatusEnum.Complete
                 };
                 reviewedWithoutCommit = await testDb.Driver.Missions.CreateAsync(reviewedWithoutCommit).ConfigureAwait(false);
-                Mission missingTipFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission missingTipFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 missingTipFailure.Persona = "Judge";
                 missingTipFailure.CommitHash = null;
                 missingTipFailure.DependsOnMissionId = reviewedWithoutCommit.Id;
@@ -2368,7 +2368,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AcceptanceCriteria = new List<string> { "The rescue keeps the voyage classification." }
                     }).ConfigureAwait(false);
 
-                    Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                    Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                     failed.Persona = "Judge";
                     failed.VoyageId = parentVoyage.Id;
                     failed.IsEvaluation = isEvaluation;
@@ -2441,7 +2441,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "the same wait for production work keeps its text unchanged; only evaluation work names the pin");
 
                     // A failed evaluation mission with no voyage still yields an evaluation rescue, with no assignments.
-                    Mission orphan = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                    Mission orphan = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                     orphan.Persona = "Judge";
                     orphan.IsEvaluation = true;
                     orphan.VoyageId = null;
@@ -2503,7 +2503,7 @@ namespace Armada.Test.Unit.Suites.Services
                 parentVoyage.Description = ObjectiveBriefRenderer.Render(child);
                 await testDb.Driver.Voyages.UpdateAsync(parentVoyage).ConfigureAwait(false);
 
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.VoyageId = parentVoyage.Id;
                 failed.Description = ObjectiveBriefRenderer.Render(stale);
@@ -3249,7 +3249,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_rescue_full_review", "usr_rescue_full_review").ConfigureAwait(false);
                 Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_full_review", "usr_rescue_full_review").ConfigureAwait(false);
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 failed.Persona = "Judge";
 
                 StringBuilder review = new StringBuilder();
@@ -3763,7 +3763,7 @@ namespace Armada.Test.Unit.Suites.Services
                     UserId = vessel.UserId,
                     Status = VoyageStatusEnum.Failed
                 }).ConfigureAwait(false);
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.VoyageId = parentVoyage.Id;
                 failed.CommitHash = "9999999999999999999999999999999999999999";
@@ -3854,7 +3854,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 (Mission failed, Voyage parentVoyage, RecordingAdmiralService admiral, AutonomousRecoveryOrchestrator orchestrator) =
-                    await CreateSkippedStageRescueAsync(testDb, "ten_recovery_skip", "Judge verdict: NEEDS_REVISION. The error path swallows the exception.")
+                    await CreateSkippedStageRescueAsync(testDb, "ten_recovery_skip", "Judge verdict: FAIL. The error path swallows the exception.")
                         .ConfigureAwait(false);
 
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
@@ -3884,7 +3884,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 (Mission failed, Voyage parentVoyage, RecordingAdmiralService admiral, AutonomousRecoveryOrchestrator orchestrator) =
-                    await CreateSkippedStageRescueAsync(testDb, "ten_recovery_skip_kept", "Judge verdict: NEEDS_REVISION. No TestEngineer ran, so the new branch has no regression test.")
+                    await CreateSkippedStageRescueAsync(testDb, "ten_recovery_skip_kept", "Judge verdict: FAIL. No TestEngineer ran, so the new branch has no regression test.")
                         .ConfigureAwait(false);
 
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
@@ -3907,7 +3907,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 DuplicateWorkerRescueOutcome outcome = await RescueOnDuplicateWorkerPipelineAsync(
                     testDb, "ten_recovery_dup_judge", "Judge", 5,
-                    "Judge verdict: NEEDS_REVISION. The error path swallows the exception.").ConfigureAwait(false);
+                    "Judge verdict: FAIL. The error path swallows the exception.").ConfigureAwait(false);
 
                 AssertEqual("Worker", outcome.Rescue.Persona, "A Judge rejection is rescued by a Worker.");
                 AssertEqual(1, outcome.Rescue.StageOrder ?? 0, "Recovery starts at the first required stage.");
@@ -3921,7 +3921,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 DuplicateWorkerRescueOutcome outcome = await RescueOnDuplicateWorkerPipelineAsync(
                     testDb, "ten_recovery_planner", "Judge", 6,
-                    "Judge verdict: NEEDS_REVISION. The error path is incomplete.", includePlanner: true).ConfigureAwait(false);
+                    "Judge verdict: FAIL. The error path is incomplete.", includePlanner: true).ConfigureAwait(false);
                 AssertEqual("Architect", outcome.Rescue.Persona, "Recovery retains the first planner duty.");
                 AssertEqual("Architect,Worker,PortingReferenceAnalyst,TestEngineer,Worker,Judge",
                     DescribeStageChain(outcome.RecoveryMissions), "All six recorded stages retain their order.");
@@ -4974,7 +4974,7 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageIds = new List<string> { unrelated.Id }
                 }).ConfigureAwait(false);
 
-                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 failed.VoyageId = parent.Id;
                 await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
 
@@ -5003,7 +5003,7 @@ namespace Armada.Test.Unit.Suites.Services
                 int again = await orchestrator.LinkRescueVoyageToObjectivesAsync(failed, rescue, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual(0, again, "linking is idempotent");
 
-                Mission orphan = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                Mission orphan = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
                 orphan.VoyageId = null;
                 await testDb.Driver.Missions.UpdateAsync(orphan).ConfigureAwait(false);
                 AssertEqual(0, await orchestrator.LinkRescueVoyageToObjectivesAsync(orphan, rescue, CancellationToken.None).ConfigureAwait(false),
@@ -5270,7 +5270,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("refuted 3 of 3", active[0].RecoveryNotes ?? "", "The incident lists the refutations.");
             }).ConfigureAwait(false);
 
-            await RunTest("Challenge round: a Challenger that cannot be used leaves the rescue with every finding and records why", async () =>
+            await RunTest("Challenge round: an unavailable Challenger holds rescue and records why", async () =>
             {
                 Dictionary<string, Func<ChallengeFixture, TestDatabase, Task>> cases = new Dictionary<string, Func<ChallengeFixture, TestDatabase, Task>>
                 {
@@ -5296,17 +5296,16 @@ namespace Armada.Test.Unit.Suites.Services
                     await item.Value(fixture, testDb).ConfigureAwait(false);
                     await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
 
-                    AssertEqual(2, fixture.Admiral.DispatchedMissions.Count, item.Key + ": the rescue is dispatched.");
-                    string description = fixture.Admiral.DispatchedMissions[1].Description ?? "";
-                    AssertContains("Blocking findings to fix (complete list from the full review):", description, item.Key + ": the unchanged list is used.");
-                    AssertContains("src/Parser.cs:40", description, item.Key + ": every finding reaches the rescue.");
+                    AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, item.Key + ": only the Challenger is dispatched.");
+                    await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                    AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, item.Key + ": the unavailable round is not retried and rescue stays held.");
                     List<ArmadaEvent> unavailable = await testDb.Driver.Events.EnumerateByTypeAsync(JudgeChallenge.UnavailableEvent, 10).ConfigureAwait(false);
                     AssertEqual(1, unavailable.Count, item.Key + ": one unavailable event.");
                     AssertContains(item.Key, unavailable[0].Message, item.Key + ": the event names the reason.");
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Challenge round: off, an excluded vessel, or a red Check on the reviewed commit keeps the unchanged rescue", async () =>
+            await RunTest("Challenge round: off, an excluded vessel, or a red Check holds rescue", async () =>
             {
                 foreach (string variant in new[] { "off", "excluded", "red_check" })
                 {
@@ -5331,10 +5330,41 @@ namespace Armada.Test.Unit.Suites.Services
                     }
 
                     await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
-                    AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, variant + ": one mission is dispatched.");
-                    AssertEqual("Worker", fixture.Admiral.DispatchedMissions[0].Persona, variant + ": it is the rescue, with no Challenger.");
+                    AssertEqual(0, fixture.Admiral.DispatchedMissions.Count, variant + ": no rescue bypasses the Challenger.");
                     int skipped = (await testDb.Driver.Events.EnumerateByTypeAsync(JudgeChallenge.SkippedEvent, 10).ConfigureAwait(false)).Count;
-                    AssertEqual(variant == "red_check" ? 1 : 0, skipped, variant + ": only an enabled round records a skip.");
+                    AssertEqual(1, skipped, variant + ": the held round records its reason.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Challenge round uses stored score subsets rather than a later vessel threshold", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ChallengeFixture fixture = await CreateChallengeFixtureAsync(testDb, "ten_challenge_scores").ConfigureAwait(false);
+                    fixture.Failed.AgentOutput = "## Findings\n"
+                        + "[ARMADA:FINDING] {\"id\":\"B1\",\"text\":\"src/Parser.cs:40 loses records\",\"frequency\":2,\"severity\":3,\"criterion\":null,\"rule\":null}\n"
+                        + "[ARMADA:FINDING] {\"id\":\"L1\",\"text\":\"LOW_SCORE_FOLLOW_UP\",\"frequency\":1,\"severity\":4,\"criterion\":null,\"rule\":null}\n"
+                        + "[ARMADA:VERDICT] NEEDS_REVISION";
+                    fixture.Failed.ReviewComment = fixture.Failed.AgentOutput;
+                    await testDb.Driver.Missions.UpdateAsync(fixture.Failed).ConfigureAwait(false);
+                    JudgeFindingTriageResult decision = JudgeFindingTriage.Evaluate(fixture.Failed.AgentOutput, 5);
+                    decision.EffectiveVerdict = "NeedsRevision";
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent(JudgeFindingTriage.AppliedEvent, "Stored score decision")
+                    {
+                        TenantId = fixture.Failed.TenantId, UserId = fixture.Failed.UserId,
+                        EntityType = "mission", EntityId = fixture.Failed.Id, MissionId = fixture.Failed.Id,
+                        VesselId = fixture.Failed.VesselId,
+                        Payload = System.Text.Json.JsonSerializer.Serialize(decision)
+                    }).ConfigureAwait(false);
+                    Vessel vessel = (await testDb.Driver.Vessels.ReadAsync(fixture.Failed.VesselId!).ConfigureAwait(false))!;
+                    vessel.JudgeFindingThreshold = 100;
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                    AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, "stored blocker starts the Challenger despite the new threshold");
+                    AssertEqual("Challenger", fixture.Admiral.DispatchedMissions[0].Persona);
+                    List<ArmadaEvent> dispatched = await testDb.Driver.Events.EnumerateByTypeAsync(JudgeChallenge.DispatchedEvent, 10).ConfigureAwait(false);
+                    AssertEqual(1, dispatched.Count);
+                    AssertEqual(1, JudgeChallenge.ReadDispatchRecord(dispatched[0].Payload).FindingCount, "only the stored blocker is challenged");
                 }
             }).ConfigureAwait(false);
 
@@ -5412,7 +5442,6 @@ namespace Armada.Test.Unit.Suites.Services
             await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
 
             ArmadaSettings settings = new ArmadaSettings();
-            settings.AutonomousRecovery.JudgeChallenge.Enabled = true;
             RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
             AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
                 testDb.Driver, admiral, new IncidentService(testDb.Driver), new RunbookService(testDb.Driver, new LoggingModule()), settings);
@@ -5832,6 +5861,7 @@ namespace Armada.Test.Unit.Suites.Services
             failed.VoyageId = parentVoyage.Id;
             failed.Mode = MissionModeEnum.Implementation;
             await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+            string challengerCaptainId = await SettledJudgeChallengeFixture.PrepareAsync(testDb, failed).ConfigureAwait(false);
 
             await testDb.Driver.Objectives.CreateAsync(new Objective
             {
@@ -5853,10 +5883,16 @@ namespace Armada.Test.Unit.Suites.Services
                 StandardRecoveryTierSettings());
 
             await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+            Mission challenge = admiral.DispatchedMissions.Single();
+            if (challenge.Persona != "Challenger" || admiral.DispatchedMissions.Any(item => item.Persona == "Worker"))
+                throw new Exception("Expected a real Challenger before any Worker rescue");
+            await SettledJudgeChallengeFixture.CompleteAsync(testDb, challenge, challengerCaptainId).ConfigureAwait(false);
+            await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
-            if (admiral.DispatchedMissions.Count != 1)
-                throw new Exception("Expected exactly one rescue dispatch, got " + admiral.DispatchedMissions.Count + ".");
-            Mission rescue = admiral.DispatchedMissions[0];
+            List<Mission> workers = admiral.DispatchedMissions.Where(item => item.Persona == "Worker").ToList();
+            if (workers.Count != 1)
+                throw new Exception("Expected exactly one rescue dispatch, got " + workers.Count + ".");
+            Mission rescue = workers[0];
             if (String.IsNullOrEmpty(rescue.VoyageId))
                 throw new Exception("Expected the rescue to run in a rescue voyage.");
             List<Mission> recoveryMissions = await testDb.Driver.Missions

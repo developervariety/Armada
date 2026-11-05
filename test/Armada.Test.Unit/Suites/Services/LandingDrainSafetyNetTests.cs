@@ -260,15 +260,22 @@ namespace Armada.Test.Unit.Suites.Services
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-5)
                 };
                 await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+                string challengerCaptainId = await SettledJudgeChallengeFixture.PrepareAsync(testDb, judge).ConfigureAwait(false);
 
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, new RecordingMergeQueueService(), admiral);
 
                 await orchestrator.SweepAsync().ConfigureAwait(false);
+                Mission challenge = admiral.DispatchedMissions.Single();
+                AssertEqual("Challenger", challenge.Persona, "The first sweep challenges the Judge before rescue");
+                AssertEqual(0, admiral.DispatchedMissions.Count(item => item.Persona == "Worker"), "No Worker bypasses the unsettled challenge");
+                await SettledJudgeChallengeFixture.CompleteAsync(testDb, challenge, challengerCaptainId).ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
 
-                AssertEqual(1, admiral.DispatchedMissions.Count, "Failed leaf judge should dispatch a Worker rescue.");
-                AssertEqual("Worker", admiral.DispatchedMissions[0].Persona);
-                AssertEqual(worker.CommitHash, admiral.DispatchedMissions[0].StartFromRef,
+                List<Mission> workers = admiral.DispatchedMissions.Where(item => item.Persona == "Worker").ToList();
+                AssertEqual(1, workers.Count, "Failed leaf judge should dispatch a Worker rescue.");
+                AssertEqual("Worker", workers[0].Persona);
+                AssertEqual(worker.CommitHash, workers[0].StartFromRef,
                     "The safety-net rescue must preserve the reviewed Worker tip.");
             }).ConfigureAwait(false);
 

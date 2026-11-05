@@ -2074,6 +2074,13 @@ namespace Armada.Test.Unit.Suites.Services
 
                             string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                             int fileBytes = System.Text.Encoding.UTF8.GetByteCount(content);
+                            if (persona == "Judge")
+                            {
+                                string instruction = JudgeFindingTriage.OutputInstruction;
+                                int copies = (content.Length - content.Replace(instruction, String.Empty, StringComparison.Ordinal).Length) / instruction.Length;
+                                Console.WriteLine("Worst-case Judge brief: " + fileBytes + " bytes; precise Findings instruction copies: " + copies);
+                                AssertEqual(1, copies, "the Judge brief contains one precise Findings instruction");
+                            }
 
                             AssertTrue(fileBytes <= settings.CaptainInstructionByteBudget,
                                 persona + " brief is " + fileBytes + " bytes, over the " + settings.CaptainInstructionByteBudget + " byte budget");
