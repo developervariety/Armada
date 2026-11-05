@@ -758,7 +758,9 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(137, "Drop the coordination board tables", CoordinationBoardDropSchema.MysqlStatements),
                 new SchemaMigration(138, "Persist generated-artifact policy and candidate review",
                     @"ALTER TABLE vessels ADD COLUMN generated_artifacts_json LONGTEXT NULL;",
-                    @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json LONGTEXT NULL;")
+                    @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json LONGTEXT NULL;"),
+                new SchemaMigration(139, "Persist the add-only Markdown landing policy",
+                    @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown INTEGER NOT NULL DEFAULT 1;")
             };
         }
 

@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Security.Cryptography;
     using System.Text;
     using System.Threading;
@@ -46,9 +47,12 @@ namespace Armada.Core.Services
                 || await _Git.TryIsAncestorAsync(integrationPath, sourceTip!, "HEAD", token).ConfigureAwait(false) == true;
             if (!alreadyMerged)
             {
+                List<string> resolvedMarkdown = new List<string>();
                 using (new HarborCheckoutOperationScope("landing-merge:" + attemptId, integrationHead!))
-                    await _Git.MergeBranchLocalAsync(integrationPath, integrationPath + "/repository", branch,
-                        null, commitMessage, token).ConfigureAwait(false);
+                    await _Git.MergeBranchLocalWithPolicyAsync(integrationPath, integrationPath + "/repository", branch,
+                        null, commitMessage, vessel.AutoResolveAddOnlyMarkdown, resolvedMarkdown.Add, token).ConfigureAwait(false);
+                await LandingMarkdownResolution.RecordAsync(_Database, _Settings, mission.Id, vessel.Id, mission.Id,
+                    resolvedMarkdown, token, message => _Logging.Warn(_Header + message)).ConfigureAwait(false);
             }
 
             string? mergedHead = await _Git.GetHeadCommitHashAsync(integrationPath, token).ConfigureAwait(false);

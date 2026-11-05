@@ -637,7 +637,23 @@ namespace Armada.Core.Services
         /// <summary>
         /// Merge a branch from a source repository into a target branch of a working directory.
         /// </summary>
-        public async Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default)
+        public Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default)
+        {
+            return MergeBranchLocalCoreAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch, commitMessage, false, null, true, token);
+        }
+
+        /// <inheritdoc />
+        public Task MergeBranchLocalWithPolicyAsync(string targetWorkDir, string sourceRepoPath, string branchName,
+            string? targetBranch, string? commitMessage, bool autoResolveAddOnlyMarkdown, Action<string>? resolved = null,
+            CancellationToken token = default)
+        {
+            return MergeBranchLocalCoreAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch, commitMessage,
+                autoResolveAddOnlyMarkdown, resolved, false, token);
+        }
+
+        private async Task MergeBranchLocalCoreAsync(string targetWorkDir, string sourceRepoPath, string branchName,
+            string? targetBranch, string? commitMessage, bool autoResolveAddOnlyMarkdown, Action<string>? resolved,
+            bool legacyChangelogOnly, CancellationToken token)
         {
             if (String.IsNullOrEmpty(targetWorkDir)) throw new ArgumentNullException(nameof(targetWorkDir));
             if (String.IsNullOrEmpty(sourceRepoPath)) throw new ArgumentNullException(nameof(sourceRepoPath));
@@ -689,9 +705,9 @@ namespace Armada.Core.Services
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                if (await TryResolveChangelogConflictAsync(targetWorkDir, branchName, token).ConfigureAwait(false))
+                if ((autoResolveAddOnlyMarkdown || legacyChangelogOnly) && await TryResolveChangelogConflictAsync(targetWorkDir, branchName, resolved, legacyChangelogOnly, token).ConfigureAwait(false))
                 {
-                    _Logging.Info(_Header + "merged " + branchName + " into " + targetWorkDir + " keeping both sides of " + ChangelogLandingConflict.ChangelogPath);
+                    _Logging.Info(_Header + "merged " + branchName + " into " + targetWorkDir + (legacyChangelogOnly ? " keeping both sides of CHANGELOG.md" : " keeping both sides of add-only Markdown conflicts"));
                     return;
                 }
 
@@ -1948,10 +1964,10 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        // A merge that stopped on CHANGELOG.md alone is finished with a union of both sides. A resolver
+        // A merge stopped only on add-only Markdown paths is finished with both sides kept. A resolver
         // failure is logged and read as "not resolved" so the caller restores the worktree and reports the
         // original merge failure.
-        private async Task<bool> TryResolveChangelogConflictAsync(string worktreePath, string branchName, CancellationToken token)
+        private async Task<bool> TryResolveChangelogConflictAsync(string worktreePath, string branchName, Action<string>? resolved, bool legacyChangelogOnly, CancellationToken token)
         {
             try
             {
@@ -1965,7 +1981,7 @@ namespace Armada.Core.Services
                     {
                         return new ChangelogGitOutput(1, String.Empty);
                     }
-                }, token, message => _Logging.Warn(_Header + message)).ConfigureAwait(false);
+                }, token, message => _Logging.Warn(_Header + message), resolved, legacyChangelogOnly).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

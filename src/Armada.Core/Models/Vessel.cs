@@ -169,6 +169,24 @@ namespace Armada.Core.Models
         public bool AllowConcurrentMissions { get; set; } = false;
 
         /// <summary>
+        /// Resolve landing conflicts only in add-only CHANGELOG.md and docs Markdown files.
+        /// False leaves every content conflict for operator review.
+        /// </summary>
+        public bool AutoResolveAddOnlyMarkdown
+        {
+            get => _AutoResolveAddOnlyMarkdown;
+            set
+            {
+                _AutoResolveAddOnlyMarkdown = value;
+                AutoResolveAddOnlyMarkdownSpecified = true;
+            }
+        }
+
+        /// <summary>Whether an update explicitly supplied the Markdown merge policy.</summary>
+        [JsonIgnore]
+        public bool AutoResolveAddOnlyMarkdownSpecified { get; private set; }
+
+        /// <summary>
         /// Whether the landing preview requests a passing structured check.
         /// Actual landing uses the immutable Check and landing service gates.
         /// </summary>
@@ -337,6 +355,7 @@ namespace Armada.Core.Models
 
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.VesselIdPrefix, 24);
         private string _Name = "My Vessel";
+        private bool _AutoResolveAddOnlyMarkdown = true;
         private string? _RepoUrl = null;
         private string? _GitHubTokenOverride = null;
         private bool? _HasGitHubTokenOverride = null;

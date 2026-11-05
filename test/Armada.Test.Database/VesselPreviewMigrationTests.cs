@@ -130,17 +130,22 @@ namespace Armada.Test.Database
                 Vessel legacy = DatabaseAssert.NotNull(await driver.Vessels.ReadAsync(id, token).ConfigureAwait(false), "Legacy vessel retained");
                 DatabaseAssert.Equal("Legacy 日本語 " + id, legacy.Name, "Legacy Unicode name retained");
                 DatabaseAssert.True(legacy.RequirePassingChecksToLand, "Equivalent pre-existing value retained");
+                DatabaseAssert.True(legacy.AutoResolveAddOnlyMarkdown, "Existing vessel gains the ON Markdown policy at upgrade");
+                legacy.AutoResolveAddOnlyMarkdown = false;
+                await driver.Vessels.UpdateAsync(legacy, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(0, legacy.ProtectedBranchPatterns.Count, "New pattern default");
                 DatabaseAssert.Equal("release/", legacy.ReleaseBranchPrefix, "New release prefix default");
                 DatabaseAssert.Equal("hotfix/", legacy.HotfixBranchPrefix, "New hotfix prefix default");
                 DatabaseAssert.True(!legacy.RequirePullRequestForProtectedBranches && !legacy.RequireMergeQueueForReleaseBranches, "New boolean defaults");
                 await driver.InitializeAsync(token).ConfigureAwait(false);
                 Dictionary<int, string> after = await history.ReadHistoryAsync(token).ConfigureAwait(false);
+                Vessel restarted = DatabaseAssert.NotNull(await driver.Vessels.ReadAsync(id, token).ConfigureAwait(false), "Vessel survives repeat initialization");
+                DatabaseAssert.True(!restarted.AutoResolveAddOnlyMarkdown, "Repeated initialization preserves an explicit OFF policy");
                 MigrationScenarioRunner.AssertHistory(previewCommitted, after);
                 MigrationScenarioRunner.AssertHistory(before, after);
                 await driver.Vessels.DeleteAsync(id, token).ConfigureAwait(false);
             }
-            Console.WriteLine("PASS preview migration: populated upgrade, equivalent values, incompatible type/null/default, interrupted restart and original history");
+            Console.WriteLine("PASS preview migration: populated upgrade, equivalent values, incompatible type/null/default, interrupted restart and original history; existing Markdown policy ON and explicit OFF retained");
         }
 
         private DatabaseDriver CreateDriver()

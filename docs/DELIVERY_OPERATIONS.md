@@ -25,6 +25,17 @@ objective-to-closeout workflow and MCP catalog.
 
 Do not put this state only in a mission report or release note.
 
+### Add-only Markdown landing conflicts
+
+A vessel's `AutoResolveAddOnlyMarkdown` setting defaults to `true`. A landing can
+resolve conflicting additions to `CHANGELOG.md` and `.md` files under `docs/` only
+when every conflicted file is regular, all three index stages exist, and neither
+side deletes or replaces a base line. Target additions precede mission additions.
+Set the vessel field to `false` to leave these conflicts for an operator. Other
+conflicts keep their normal failure path. The merge entry and mission attempt log
+name each resolved file, with a `landing.markdown_auto_resolved` event. Resolution
+does not satisfy or bypass any required Check or candidate review.
+
 ## 2. Prepare The Delivery Surface
 
 Before a release or deployment:

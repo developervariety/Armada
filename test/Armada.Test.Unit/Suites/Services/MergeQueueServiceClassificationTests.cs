@@ -141,7 +141,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// append a different release-note line to CHANGELOG.md, so the merge stops on a CHANGELOG.md conflict.
         /// With <paramref name="alsoConflictOnCode"/> both sides also edit the same line of Program.cs.
         /// </summary>
-        private async Task<ConflictRepoSetup> CreateChangelogConflictReposAsync(string rootDir, bool alsoConflictOnCode)
+        private async Task<ConflictRepoSetup> CreateChangelogConflictReposAsync(string rootDir, bool alsoConflictOnCode, string markdownPath = "CHANGELOG.md")
         {
             string remoteDir = Path.Combine(rootDir, "remote.git");
             string sourceDir = Path.Combine(rootDir, "source");
@@ -153,20 +153,24 @@ namespace Armada.Test.Unit.Suites.Services
             await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
             await RunGitAsync(sourceDir, "config", "receive.denyCurrentBranch", "ignore").ConfigureAwait(false);
 
-            await File.WriteAllTextAsync(Path.Combine(sourceDir, "CHANGELOG.md"), "# Changelog\n\n- base entry\n").ConfigureAwait(false);
+            Directory.CreateDirectory(Path.Combine(sourceDir, "docs"));
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, markdownPath), "# Changelog\n\n- base entry\n").ConfigureAwait(false);
             await File.WriteAllTextAsync(Path.Combine(sourceDir, "Program.cs"), "original line\n").ConfigureAwait(false);
-            await RunGitAsync(sourceDir, "add", "--", "CHANGELOG.md", "Program.cs").ConfigureAwait(false);
+            if (alsoConflictOnCode) await File.WriteAllTextAsync(Path.Combine(sourceDir, "docs/guide.md"), "# Guide\nbase\n").ConfigureAwait(false);
+            await RunGitAsync(sourceDir, "add", "--all").ConfigureAwait(false);
             await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
 
             string captainBranch = "armada/captain-changelog/msn_test003";
             await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
-            await File.AppendAllTextAsync(Path.Combine(sourceDir, "CHANGELOG.md"), "- captain entry\n").ConfigureAwait(false);
+            await File.AppendAllTextAsync(Path.Combine(sourceDir, markdownPath), "- captain entry\n").ConfigureAwait(false);
             if (alsoConflictOnCode) await File.WriteAllTextAsync(Path.Combine(sourceDir, "Program.cs"), "captain line\n").ConfigureAwait(false);
+            if (alsoConflictOnCode) await File.AppendAllTextAsync(Path.Combine(sourceDir, "docs/guide.md"), "captain addition\n").ConfigureAwait(false);
             await RunGitAsync(sourceDir, "commit", "-a", "-m", "Captain adds a release note").ConfigureAwait(false);
 
             await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
-            await File.AppendAllTextAsync(Path.Combine(sourceDir, "CHANGELOG.md"), "- main entry\n").ConfigureAwait(false);
+            await File.AppendAllTextAsync(Path.Combine(sourceDir, markdownPath), "- main entry\n").ConfigureAwait(false);
             if (alsoConflictOnCode) await File.WriteAllTextAsync(Path.Combine(sourceDir, "Program.cs"), "main line\n").ConfigureAwait(false);
+            if (alsoConflictOnCode) await File.AppendAllTextAsync(Path.Combine(sourceDir, "docs/guide.md"), "main addition\n").ConfigureAwait(false);
             await RunGitAsync(sourceDir, "commit", "-a", "-m", "Main adds a release note").ConfigureAwait(false);
 
             await RunGitAsync(rootDir, "clone", "--bare", sourceDir, remoteDir).ConfigureAwait(false);
@@ -184,7 +188,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>
         /// Run one merge-queue entry for the captain branch against a local bare repository.
         /// </summary>
-        private async Task<MergeEntry> ProcessChangelogEntryAsync(ConflictRepoSetup repos, string vesselName)
+        private async Task<MergeEntry> ProcessChangelogEntryAsync(ConflictRepoSetup repos, string vesselName, bool autoResolve = true, bool recordMission = false, string? priorOutput = null, bool commitFails = false)
         {
             using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
             {
@@ -195,24 +199,59 @@ namespace Armada.Test.Unit.Suites.Services
 
                 Vessel vessel = new Vessel(vesselName, repos.RemoteDir);
                 vessel.LocalPath = repos.BareDir;
+                vessel.AutoResolveAddOnlyMarkdown = autoResolve;
                 vessel.DefaultBranch = "main";
                 vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
                 await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
+                ArmadaSettings settings = CreateSettings();
+                settings.LogDirectory = Path.Combine(Path.GetDirectoryName(repos.BareDir)!, "logs");
+                Mission? loggedMission = null;
+                if (recordMission)
+                {
+                    loggedMission = new Mission { Title = "Documentation landing", VesselId = vessel.Id };
+                    await testDb.Driver.Missions.CreateAsync(loggedMission).ConfigureAwait(false);
+                }
                 MergeEntry entry = new MergeEntry();
+                entry.MissionId = loggedMission?.Id;
                 entry.VesselId = vessel.Id;
                 entry.BranchName = repos.CaptainBranch;
                 entry.TargetBranch = "main";
                 entry.Status = MergeStatusEnum.Queued;
+                entry.TestOutput = priorOutput;
                 entry.CreatedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
 
-                MergeQueueService service = new MergeQueueService(logging, testDb.Driver, CreateSettings(), git, classifier);
+                IMergeFailureClassifier selectedClassifier = commitFails ? new MergeFailureClassifier() : classifier;
+                MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, selectedClassifier);
+                if (commitFails)
+                {
+                    string hooks = Path.Combine(Path.GetDirectoryName(repos.BareDir)!, "rejecting-hooks");
+                    Directory.CreateDirectory(hooks);
+                    string hook = Path.Combine(hooks, "pre-commit");
+                    await File.WriteAllTextAsync(hook, "#!/bin/sh\nexit 1\n").ConfigureAwait(false);
+                    if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                    await RunGitAsync(repos.BareDir, "config", "core.hooksPath", hooks).ConfigureAwait(false);
+                }
                 await service.ProcessEntryByIdAsync(entry.Id).ConfigureAwait(false);
 
                 MergeEntry? updated = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
                 AssertNotNull(updated, "the entry should still exist");
+                if (recordMission && updated!.Status == MergeStatusEnum.Landed)
+                {
+                    AssertContains("docs/guide.md", updated.TestOutput ?? "", "merge entry names the resolved file");
+                    List<ArmadaEvent> resolutions = await testDb.Driver.Events.EnumerateByTypeAsync("landing.markdown_auto_resolved", 10).ConfigureAwait(false);
+                    AssertEqual(1, resolutions.Count, "one resolution event is stored for the merge");
+                    AssertEqual(entry.Id, resolutions[0].EntityId);
+                    AssertContains("docs/guide.md", resolutions[0].Message);
+                    string log = await File.ReadAllTextAsync(MissionAttemptArtifacts.LogPath(settings.LogDirectory, loggedMission!)).ConfigureAwait(false);
+                    AssertContains("docs/guide.md", log, "mission log names the resolved file");
+                }
+                if (commitFails)
+                {
+                    AssertContains("CHANGELOG.md", updated!.ConflictedFiles ?? "", "original conflict paths persist on the entry after a staged but rejected commit");
+                }
                 return updated!;
             }
         }
@@ -669,6 +708,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            foreach (bool autoResolve in new[] { true, false })
+            {
+                await RunTest("ProcessEntry_AddOnlyDocs_UsesPersistedVesselPolicy_" + autoResolve, async () =>
+                {
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_docs_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        ConflictRepoSetup repos = await CreateChangelogConflictReposAsync(rootDir, false, "docs/guide.md").ConfigureAwait(false);
+                        string before = await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false);
+                        MergeEntry updated = await ProcessChangelogEntryAsync(repos, "documentation-vessel", autoResolve, true, "old-attempt " + new string('x', 5000)).ConfigureAwait(false);
+                        AssertEqual(autoResolve ? MergeStatusEnum.Landed : MergeStatusEnum.Failed, updated.Status, "persisted vessel switch controls real landing");
+                        AssertFalse((updated.TestOutput ?? "").Contains("old-attempt", StringComparison.Ordinal), "new attempt drops stale failure text");
+                        if (autoResolve)
+                        {
+                            string text = await RunGitCaptureAsync(repos.BareDir, "show", "main:docs/guide.md").ConfigureAwait(false);
+                            AssertContains("- main entry\n- captain entry", text, "target additions precede mission additions");
+                        }
+                        else
+                        {
+                            AssertEqual(before, await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false), "disabled policy preserves target");
+                            AssertContains("integration_merge_failed", updated.TestOutput ?? "", "disabled conflict has its named reason");
+                        }
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
+                    }
+                }).ConfigureAwait(false);
+            }
+
+            await RunTest("ProcessEntry_ResolverCommitFailure_PreservesOriginalConflictedFiles", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_mq_rejected_commit_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    ConflictRepoSetup repos = await CreateChangelogConflictReposAsync(root, false).ConfigureAwait(false);
+                    string before = await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false);
+                    MergeEntry result = await ProcessChangelogEntryAsync(repos, "rejected-commit-vessel", commitFails: true).ConfigureAwait(false);
+                    AssertEqual(MergeStatusEnum.Failed, result.Status);
+                    AssertEqual(before, await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false), "no target publication after a rejected commit");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ProcessEntry_ChangelogAndCodeConflict_StillFailsAndLeavesTargetUnchanged", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_changelog_code_" + Guid.NewGuid().ToString("N"));
@@ -681,6 +767,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MergeEntry updated = await ProcessChangelogEntryAsync(repos, "changelog-code-vessel").ConfigureAwait(false);
 
                     AssertEqual(MergeStatusEnum.Failed, updated.Status, "a conflict that also touches code must still fail");
+                    AssertContains("integration_merge_failed", updated.TestOutput ?? "", "mixed changelog/docs/code refusal has its named reason");
                     AssertEqual(mainBefore, await RunGitCaptureAsync(repos.BareDir, "rev-parse", "main").ConfigureAwait(false), "the target is not moved");
                 }
                 finally

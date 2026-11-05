@@ -2080,6 +2080,8 @@ namespace Armada.Test.Unit.Suites.Services
             AssertFalse(run.Observer.Output.Contains(token, StringComparison.Ordinal), "mission token values never appear in streamed child output");
             await VerifyInterruptedReclaimDeleteEscalationAsync(harness, run, checkouts, vessel, grantId, root).ConfigureAwait(false);
             await VerifyCancelledHarborLandingRefusedAsync(harness, landing, checkouts, run, vessel, root).ConfigureAwait(false);
+            foreach (string scenario in new[] { "add", "disabled", "edit" })
+                await VerifyHarborMarkdownQueueRecordingAsync(harness, checkouts, run, vessel, root, scenario).ConfigureAwait(false);
             await RefuseOutsideMissionConfigurationAsync(harness, restarted, run, root, release, counter).ConfigureAwait(false);
         }
 
@@ -2212,6 +2214,67 @@ namespace Armada.Test.Unit.Suites.Services
                 await process.WaitForExitAsync().ConfigureAwait(false);
                 return process.ExitCode == 0;
             }
+        }
+
+        private async Task VerifyHarborMarkdownQueueRecordingAsync(Harness harness, HarborCheckoutService checkouts,
+            OwnedMissionRun run, Vessel vessel, string root, string scenario)
+        {
+            vessel.AutoResolveAddOnlyMarkdown = scenario != "disabled";
+            await harness.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+            string seed = Path.Combine(root, "seed");
+            string branch = "armada/markdown-" + Guid.NewGuid().ToString("N");
+            await RunGitFixtureAsync(seed, "fetch", "origin").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "checkout", "-B", "main", "origin/main").ConfigureAwait(false);
+            Directory.CreateDirectory(Path.Combine(seed, "docs"));
+            await File.WriteAllTextAsync(Path.Combine(seed, "docs/queue-guide.md"), "# Guide\nbase\n").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "add", "docs/queue-guide.md").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "commit", "-m", "Base queue guide").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "push", "origin", "main").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "checkout", "-b", branch).ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(seed, "docs/queue-guide.md"), scenario == "edit" ? "# Guide\nmission replacement\n" : "# Guide\nbase\nmission addition\n").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "commit", "-a", "-m", "Mission queue guide").ConfigureAwait(false);
+            string tip = (await RunGitFixtureOutputAsync(seed, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+            await RunGitFixtureAsync(seed, "push", "origin", branch).ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "checkout", "main").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(seed, "docs/queue-guide.md"), scenario == "edit" ? "# Guide\ntarget replacement\n" : "# Guide\nbase\ntarget addition\n").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "commit", "-a", "-m", "Target queue guide").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "push", "origin", "main").ConfigureAwait(false);
+            Mission mission = new Mission("Harbor Markdown queue")
+            {
+                TenantId = run.Mission.TenantId, UserId = run.Mission.UserId, VesselId = vessel.Id,
+                Status = MissionStatusEnum.WorkProduced, BranchName = branch, CommitHash = tip
+            };
+            mission = await harness.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+            MergeEntry entry = new MergeEntry(branch, "main")
+            {
+                TenantId = mission.TenantId, UserId = mission.UserId,
+                MissionId = mission.Id, VesselId = vessel.Id, Status = MergeStatusEnum.Merging
+            };
+            entry = await harness.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+            HarborCheckoutBinding binding = run.Dock.HostCheckout!;
+            string attempt = "mq_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entry.Id + "\n0"))).ToLowerInvariant();
+            Dock integration = await checkouts.ProvisionAuxiliaryAsync(vessel, "armada/merge-queue/" + entry.Id,
+                binding.RunnerId, binding.RepositoryGrantId, "refs/heads/main", true, attempt, run.Dock.CaptainId).ConfigureAwait(false);
+            HostAwareGitService git = new HostAwareGitService(new GitService(run.Logging, null, harness.Driver), checkouts);
+            run.Settings.LogDirectory = Path.Combine(root, "markdown-logs");
+            MergeQueueService queue = new MergeQueueService(run.Logging, harness.Driver, run.Settings, git, new MergeFailureClassifier());
+            queue.SetHarborCheckouts(checkouts);
+            System.Reflection.MethodInfo method = typeof(MergeQueueService).GetMethod("MergeHarborIntegrationAsync",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            await ((Task)method.Invoke(queue, new object[] { entry, integration, CancellationToken.None })!).ConfigureAwait(false);
+            MergeEntry recorded = (await harness.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false))!;
+            if (scenario != "add")
+            {
+                AssertEqual(MergeStatusEnum.Failed, recorded.Status, scenario + " refuses Harbor merge");
+                AssertContains("harbor_merge_failed", recorded.TestOutput ?? "", "base Harbor reason is unchanged");
+                return;
+            }
+            AssertContains("docs/queue-guide.md", recorded.TestOutput ?? "", "Harbor merge entry records resolution");
+            List<ArmadaEvent> events = await harness.Driver.Events.EnumerateByMissionAsync(mission.Id, 20).ConfigureAwait(false);
+            AssertTrue(events.Any(e => e.EventType == "landing.markdown_auto_resolved" && e.EntityId == entry.Id), "Harbor queue records its resolution event");
+            string log = await File.ReadAllTextAsync(MissionAttemptArtifacts.LogPath(run.Settings.LogDirectory, mission)).ConfigureAwait(false);
+            AssertContains("docs/queue-guide.md", log, "Harbor queue appends the current mission log");
+            await checkouts.ReleaseAuxiliaryAsync(integration, attempt, CancellationToken.None).ConfigureAwait(false);
         }
 
         private async Task VerifyCancelledHarborLandingRefusedAsync(Harness harness, LandingService landing,
@@ -2777,6 +2840,31 @@ namespace Armada.Test.Unit.Suites.Services
             }).ConfigureAwait(false);
             HarborWorkspaceOperationResult gitResult = await gitTask.ConfigureAwait(false);
             AssertEqual("main", gitResult.Git!.Text, "typed Git result survives wire serialization");
+
+            foreach (bool autoResolve in new[] { false, true })
+            {
+                HarborWorkspaceOperationRequest mergePolicy = BoundWorkspaceRequest(binding, dock.Id, vessel.Id, fingerprint);
+                mergePolicy.Operation = HarborWorkspaceOperationEnum.Git;
+                mergePolicy.ExpectedHead = binding.BaseCommit;
+                mergePolicy.OperationKey = "merge-policy-" + autoResolve;
+                mergePolicy.Git = new HarborGitOperationRequest
+                {
+                    Operation = HarborGitOperationEnum.MergeBranchLocal,
+                    BranchName = "feature/docs",
+                    AutoResolveAddOnlyMarkdown = autoResolve, LegacyChangelogResolution = false
+                };
+                Task<HarborWorkspaceOperationResult> mergeTask = harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, mergePolicy);
+                HarborWorkspaceOperationRequest mergeWire = await runner.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+                AssertEqual(autoResolve, mergeWire.Git!.AutoResolveAddOnlyMarkdown, "coordinator copy preserves the vessel policy");
+                AssertFalse(mergeWire.Git.LegacyChangelogResolution, "modern request does not become a legacy sync");
+                HarborWorkspaceOperationResult mergeReply = WorkspaceAccepted(mergeWire, fingerprint);
+                mergeReply.Git = new HarborGitOperationResult { Flag = true, Paths = autoResolve ? new List<string> { "docs/guide.md" } : new List<string>() };
+                await runner.SendAsync(mergeReply).ConfigureAwait(false);
+                HarborWorkspaceOperationResult mergeResult = await mergeTask.ConfigureAwait(false);
+                AssertEqual(true, mergeResult.Git!.Flag, "policy acknowledgement survives coordinator return");
+                AssertEqual(autoResolve ? "docs/guide.md" : "", String.Join("|", mergeResult.Git.Paths), "resolved paths survive coordinator return");
+
+            }
 
             HarborWorkspaceOperationRequest mutation = BoundWorkspaceRequest(binding, dock.Id, vessel.Id, fingerprint);
             mutation.Operation = HarborWorkspaceOperationEnum.WriteText;

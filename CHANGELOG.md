@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Add-only Markdown landing conflicts
+
+- Landing resolves conflicts in `CHANGELOG.md` and `.md` files under `docs/` only when both sides add lines without deleting or replacing base lines. Target additions precede mission additions. The stored per-vessel `AutoResolveAddOnlyMarkdown` switch defaults on for existing and new vessels; an omitted update preserves its value. Native and Harbor landing paths record the resolved files, while legacy synchronization calls retain the sole-CHANGELOG union behavior. Required Checks and candidate review remain in force.
+
 ### A project file cited one directory short resolves to its tracked path
 
 - A `.csproj`, `.fsproj` or `.vbproj` path that matches no tracked path is read once more as cited one directory short: a directory named like the file stem, in the cited directory, that holds the file. `src/Area/Name.Shared.csproj` then resolves to `src/Area/Name.Shared/Name.Shared.csproj` and is reported present at that path in the Git anchors, never as a file to create. A project file with no such directory stays absent.

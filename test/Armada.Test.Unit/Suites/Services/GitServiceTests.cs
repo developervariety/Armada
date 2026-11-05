@@ -77,6 +77,36 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("details", harbor.Request?.Body);
             }).ConfigureAwait(false);
 
+            foreach (bool acknowledged in new[] { true, false })
+            {
+                await RunTest("HostAwareGitService merge policy requires Harbor acknowledgement_" + acknowledged, async () =>
+                {
+                    RecordingHarborGit harbor = new RecordingHarborGit { MergeAcknowledged = acknowledged };
+                    HostAwareGitService service = new HostAwareGitService(CreateService(), harbor);
+                    string address = HarborCheckoutAddress.ForDock("dck_0123456789abcdef0123456789abcdef");
+                    List<string> paths = new List<string>();
+                    InvalidOperationException? failure = null;
+                    try
+                    {
+                        await service.MergeBranchLocalWithPolicyAsync(address, address + "/repository", "mission-docs",
+                            null, null, false, paths.Add).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex) { failure = ex; }
+                    AssertEqual(false, harbor.Request!.AutoResolveAddOnlyMarkdown, "disabled policy crosses the host boundary");
+                    if (acknowledged)
+                    {
+                        AssertNull(failure);
+                        AssertEqual(0, paths.Count, "disabled policy returns no resolved path");
+                    }
+                    else
+                    {
+                        AssertNotNull(failure, "an older runner cannot silently ignore the policy");
+                        AssertContains("harbor_markdown_policy_unacknowledged", failure!.Message);
+                        AssertEqual(0, paths.Count, "unacknowledged paths are not recorded as resolved");
+                    }
+                }).ConfigureAwait(false);
+            }
+
             await RunTest("Ref deletion refuses recovery and user branches before git runs", async () =>
             {
                 GitService service = CreateService();
@@ -2577,7 +2607,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("MergeBranchLocalAsync keeps both sides when CHANGELOG.md is the only conflict", async () =>
+            await RunTest("MergeBranchLocalWithPolicyAsync keeps both sides when CHANGELOG.md is the only conflict", async () =>
             {
                 string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_changelog_" + Guid.NewGuid().ToString("N"));
                 try
@@ -2598,7 +2628,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await File.AppendAllTextAsync(Path.Combine(target, "CHANGELOG.md"), "- target entry\n").ConfigureAwait(false);
                     await RunGitAsync(target, "commit", "-a", "-m", "Target release note").ConfigureAwait(false);
 
-                    await CreateService().MergeBranchLocalAsync(target, source, "armada/mission/changelog", "main").ConfigureAwait(false);
+                    await CreateService().MergeBranchLocalWithPolicyAsync(target, source, "armada/mission/changelog", "main", null, true).ConfigureAwait(false);
 
                     string changelog = await File.ReadAllTextAsync(Path.Combine(target, "CHANGELOG.md")).ConfigureAwait(false);
                     AssertContains("- base entry", changelog);
@@ -2613,6 +2643,78 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
             }).ConfigureAwait(false);
+
+            foreach (string scenario in new[] { "docs-add", "changelog-edit", "changelog-delete", "disabled", "legacy-docs", "legacy-changelog-edit", "commit-fail" })
+            {
+                await RunTest("MergeBranchLocalWithPolicyAsync handles " + scenario, async () =>
+                {
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada_markdown_merge_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        string source = Path.Combine(rootDir, "source");
+                        string target = Path.Combine(rootDir, "target");
+                        string relative = (scenario.StartsWith("docs-", StringComparison.Ordinal) || scenario == "legacy-docs") ? "docs/guide.md" : "CHANGELOG.md";
+                        SeedTemplateRepository(source);
+                        Directory.CreateDirectory(Path.Combine(source, "docs"));
+                        await File.WriteAllTextAsync(Path.Combine(source, relative), "# Guide\n\n- base entry\n").ConfigureAwait(false);
+                        await RunGitAsync(source, "add", relative).ConfigureAwait(false);
+                        await RunGitAsync(source, "commit", "-m", "Base documentation").ConfigureAwait(false);
+                        await RunGitAsync(source, "checkout", "-b", "mission-docs").ConfigureAwait(false);
+                        string missionText = (scenario == "changelog-edit" || scenario == "legacy-changelog-edit") ? "# Guide\n\n- changed entry\n"
+                            : scenario == "changelog-delete" ? "# Guide\n\n" : "# Guide\n\n- base entry\n- mission entry\n";
+                        await File.WriteAllTextAsync(Path.Combine(source, relative), missionText).ConfigureAwait(false);
+                        await RunGitAsync(source, "commit", "-a", "-m", "Mission documentation").ConfigureAwait(false);
+                        await RunGitAsync(source, "checkout", "main").ConfigureAwait(false);
+                        await RunGitAsync(rootDir, "clone", source, target).ConfigureAwait(false);
+                        await RunGitAsync(target, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(target, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(target, relative), scenario == "changelog-delete" || scenario == "changelog-edit" || scenario == "legacy-changelog-edit"
+                            ? "# Guide\n\n- target replacement\n" : "# Guide\n\n- base entry\n- target entry\n").ConfigureAwait(false);
+                        await RunGitAsync(target, "commit", "-a", "-m", "Target documentation").ConfigureAwait(false);
+                        string before = (await RunGitAsync(target, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                        if (scenario == "commit-fail")
+                        {
+                            string hook = Path.Combine(target, ".git", "hooks", "pre-commit");
+                            await File.WriteAllTextAsync(hook, "#!/bin/sh\nexit 1\n").ConfigureAwait(false);
+                            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                        }
+                        List<string> resolved = new List<string>();
+                        InvalidOperationException? failure = null;
+                        try
+                        {
+                            if (scenario.StartsWith("legacy-", StringComparison.Ordinal)) await CreateService().MergeBranchLocalAsync(target, source, "mission-docs", "main").ConfigureAwait(false);
+                            else await CreateService().MergeBranchLocalWithPolicyAsync(target, source, "mission-docs", "main", null,
+                                scenario != "disabled", resolved.Add).ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex) { failure = ex; }
+                        if (scenario == "docs-add")
+                        {
+                            AssertNull(failure, "add-only documentation resolves");
+                            string text = await File.ReadAllTextAsync(Path.Combine(target, relative)).ConfigureAwait(false);
+                            AssertContains("- base entry\n- target entry\n- mission entry\n", text, "target additions precede mission additions");
+                            AssertEqual(relative, String.Join("|", resolved), "the caller receives every auto-resolved path");
+                        }
+                        else if (scenario == "legacy-changelog-edit")
+                        {
+                            AssertNull(failure, "legacy sync retains the base sole-CHANGELOG union behavior");
+                            string text = await File.ReadAllTextAsync(Path.Combine(target, relative)).ConfigureAwait(false);
+                            AssertContains("target replacement", text);
+                            AssertContains("changed entry", text);
+                        }
+                        else
+                        {
+                            AssertNotNull(failure, "edit/delete conflicts and the disabled policy refuse resolution");
+                            AssertEqual(before, (await RunGitAsync(target, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "refusal leaves target unchanged");
+                            AssertEqual(0, resolved.Count, "a refusal reports no successful resolution");
+                        }
+                        AssertEqual("", (await RunGitAsync(target, "status", "--porcelain", "--untracked-files=all").ConfigureAwait(false)).Trim(), "no merge state or temporary files remain");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(rootDir, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
+                    }
+                }).ConfigureAwait(false);
+            }
 
             await RunTest("MergeBranchLocalAsync still fails and restores the target when a code file conflicts beside CHANGELOG.md", async () =>
             {
@@ -2736,11 +2838,13 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class RecordingHarborGit : IHarborCheckoutOperations
         {
             public HarborGitOperationRequest? Request { get; private set; }
+            public bool MergeAcknowledged { get; set; } = true;
 
             public Task<HarborGitOperationResult> ExecuteGitAsync(string address, HarborGitOperationRequest request, CancellationToken token = default)
             {
                 Request = request;
-                return Task.FromResult(new HarborGitOperationResult { Text = "https://example.invalid/pr/2" });
+                return Task.FromResult(new HarborGitOperationResult { Text = "https://example.invalid/pr/2", Flag = MergeAcknowledged, Paths = request.Operation == HarborGitOperationEnum.MergeBranchLocal && !request.AutoResolveAddOnlyMarkdown
+                    ? new List<string>() : new List<string> { "docs/guide.md" } });
             }
         }
     }

@@ -64,6 +64,38 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task MergeBranchLocalWithPolicyAsync(string targetWorkDir, string sourceRepoPath, string branchName,
+            string? targetBranch, string? commitMessage, bool autoResolveAddOnlyMarkdown, Action<string>? resolved = null,
+            CancellationToken token = default)
+        {
+            bool remoteTarget = IsRemote(targetWorkDir);
+            bool remoteSource = IsRemote(sourceRepoPath);
+            if (!remoteTarget && !remoteSource)
+            {
+                await _Local.MergeBranchLocalWithPolicyAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch,
+                    commitMessage, autoResolveAddOnlyMarkdown, resolved, token).ConfigureAwait(false);
+                return;
+            }
+            if (!remoteTarget || !remoteSource) throw new InvalidOperationException("harbor_checkout_scope_mismatch");
+            SameRemoteScope(targetWorkDir, sourceRepoPath);
+            if (!HarborCheckoutAddress.TryParse(sourceRepoPath, out HarborCheckoutAddress? source) || source == null || !source.UseRepository)
+                throw new InvalidOperationException("harbor_repository_address_required");
+            if (!HarborCheckoutAddress.TryParse(targetWorkDir, out HarborCheckoutAddress? target) || target == null || target.UseRepository)
+                throw new InvalidOperationException("harbor_checkout_address_required");
+            HarborGitOperationRequest request = NewRequest(HarborGitOperationEnum.MergeBranchLocal, targetWorkDir);
+            request.BranchName = branchName;
+            request.TargetBranch = targetBranch;
+            request.CommitMessage = commitMessage;
+            request.AutoResolveAddOnlyMarkdown = autoResolveAddOnlyMarkdown;
+            request.LegacyChangelogResolution = false;
+            HarborGitOperationResult result = await SendAsync(targetWorkDir, request, token).ConfigureAwait(false);
+            if (result.Flag != true) throw new InvalidOperationException("harbor_markdown_policy_unacknowledged");
+            if (!autoResolveAddOnlyMarkdown && result.Paths.Count != 0)
+                throw new InvalidOperationException("harbor_markdown_policy_violated");
+            foreach (string path in result.Paths) resolved?.Invoke(path);
+        }
+
+        /// <inheritdoc />
         public Task PushHeadToRepositoryBranchAsync(string worktreePath, string repositoryPath, string branchName, CancellationToken token = default)
         {
             bool remoteCheckout = IsRemote(worktreePath);

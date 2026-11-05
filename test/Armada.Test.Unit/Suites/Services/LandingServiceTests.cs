@@ -280,6 +280,93 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Resolution evidence warns for a missing mission and retains available owner evidence", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await db.Driver.Vessels.CreateAsync(new Vessel("resolution-owner", "https://github.com/test/repo")).ConfigureAwait(false);
+                    List<string> warnings = new List<string>();
+                    string summary = await LandingMarkdownResolution.RecordAsync(db.Driver, CreateSettings(), "msn_missing", vessel.Id,
+                        "msn_missing", new List<string> { "docs/guide.md" }, CancellationToken.None, warnings.Add).ConfigureAwait(false);
+                    AssertContains("docs/guide.md", summary);
+                    AssertTrue(warnings.Any(w => w.Contains("mission metadata is missing", StringComparison.Ordinal)), "missing optional log metadata is a warning");
+                    List<ArmadaEvent> events = await db.Driver.Events.EnumerateByTypeAsync("landing.markdown_auto_resolved", 10).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "available vessel ownership permits an event without a nonexistent mission FK");
+                    AssertEqual("mission", events[0].EntityType);
+                    AssertNull(events[0].MissionId);
+                }
+            }).ConfigureAwait(false);
+
+            foreach (bool autoResolve in new[] { true, false })
+            {
+                await RunTest("Dedicated landing records add-only Markdown or refuses disabled policy_" + autoResolve, async () =>
+                {
+                    string root = Path.Combine(Path.GetTempPath(), "armada_landing_markdown_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        string source = Path.Combine(root, "source");
+                        string bare = Path.Combine(root, "repository.git");
+                        Directory.CreateDirectory(Path.Combine(source, "docs"));
+                        await RunGitAsync(source, "init", "-b", "main").ConfigureAwait(false);
+                        await RunGitAsync(source, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(source, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(source, "docs/guide.md"), "# Guide\nbase\n").ConfigureAwait(false);
+                        await RunGitAsync(source, "add", "--all").ConfigureAwait(false);
+                        await RunGitAsync(source, "commit", "-m", "Base guide").ConfigureAwait(false);
+                        await RunGitAsync(source, "checkout", "-b", "mission-docs").ConfigureAwait(false);
+                        await File.AppendAllTextAsync(Path.Combine(source, "docs/guide.md"), "mission addition\n").ConfigureAwait(false);
+                        await RunGitAsync(source, "commit", "-a", "-m", "Mission guide").ConfigureAwait(false);
+                        string candidate = (await RunGitAsync(source, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                        await RunGitAsync(source, "checkout", "main").ConfigureAwait(false);
+                        await File.AppendAllTextAsync(Path.Combine(source, "docs/guide.md"), "target addition\n").ConfigureAwait(false);
+                        await RunGitAsync(source, "commit", "-a", "-m", "Target guide").ConfigureAwait(false);
+                        string before = (await RunGitAsync(source, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                        await RunGitAsync(root, "clone", "--bare", source, bare).ConfigureAwait(false);
+                        await RunGitAsync(bare, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(bare, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                        {
+                            ArmadaSettings settings = CreateSettings();
+                            settings.DocksDirectory = Path.Combine(root, "docks");
+                            settings.LogDirectory = Path.Combine(root, "logs");
+                            Vessel vessel = new Vessel("documentation-vessel", source)
+                            {
+                                LocalPath = bare, LandingMode = LandingModeEnum.LocalMerge,
+                                AutoResolveAddOnlyMarkdown = autoResolve
+                            };
+                            await db.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                            Mission mission = new Mission("Documentation landing")
+                            {
+                                VesselId = vessel.Id, Status = MissionStatusEnum.WorkProduced,
+                                BranchName = "mission-docs", CommitHash = candidate
+                            };
+                            await db.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                            LandingService service = new LandingService(CreateLogging(), db.Driver, settings, new GitService(CreateLogging()));
+                            bool result = await service.MergeInDedicatedWorktreeAsync(vessel, mission, "main", "mission-docs").ConfigureAwait(false);
+                            AssertEqual(autoResolve, result, "stored vessel policy controls dedicated landing");
+                            List<ArmadaEvent> events = await db.Driver.Events.EnumerateByTypeAsync("landing.markdown_auto_resolved", 10).ConfigureAwait(false);
+                            if (autoResolve)
+                            {
+                                AssertEqual(1, events.Count);
+                                AssertContains("docs/guide.md", events[0].Message);
+                                string log = await File.ReadAllTextAsync(MissionAttemptArtifacts.LogPath(settings.LogDirectory, mission)).ConfigureAwait(false);
+                                AssertContains("docs/guide.md", log, "native landing records its resolved paths in the current attempt log");
+                            }
+                            else
+                            {
+                                AssertContains("integration_merge_failed", mission.FailureReason ?? "");
+                                AssertEqual(before, (await RunGitAsync(bare, "rev-parse", "main").ConfigureAwait(false)).Trim(), "refused integration never publishes");
+                                AssertEqual(0, events.Count, "refusal does not claim resolution");
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(root, true); } catch (Exception ex) { Console.WriteLine("Test cleanup failed: " + ex.Message); }
+                    }
+                }).ConfigureAwait(false);
+            }
+
             await RunTest("MergeInDedicatedWorktreeAsync_CleanMerge_PushesFromTempWorktreeAndCleansUp", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

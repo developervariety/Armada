@@ -1702,7 +1702,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(144, "Drop the coordination board tables", CoordinationBoardDropSchema.SqliteStatements),
                 new SchemaMigration(145, "Persist generated-artifact policy and candidate review",
                     @"ALTER TABLE vessels ADD COLUMN generated_artifacts_json TEXT NULL;",
-                    @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json TEXT NULL;")
+                    @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json TEXT NULL;"),
+                new SchemaMigration(146, "Persist the add-only Markdown landing policy",
+                    @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown INTEGER NOT NULL DEFAULT 1;")
             };
         }
 

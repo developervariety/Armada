@@ -58,6 +58,12 @@ namespace Armada.Core.Harbor
         /// <summary>Commit or snapshot message.</summary>
         public string? CommitMessage { get; set; }
 
+        /// <summary>Whether a local merge may resolve verified add-only Markdown conflicts.</summary>
+        public bool AutoResolveAddOnlyMarkdown { get; set; } = false;
+
+        /// <summary>Use the base sole-CHANGELOG union behavior for legacy sync operations.</summary>
+        public bool LegacyChangelogResolution { get; set; } = true;
+
         /// <summary>Existing pull request identity.</summary>
         public string? PullRequestUrl { get; set; }
 

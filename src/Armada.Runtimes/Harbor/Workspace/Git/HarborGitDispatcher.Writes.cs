@@ -1,5 +1,6 @@
 namespace Armada.Runtimes.Harbor.Workspace.Git
 {
+    using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Harbor;
@@ -59,8 +60,14 @@ namespace Armada.Runtimes.Harbor.Workspace.Git
                 case HarborGitOperationEnum.EnableAutoMerge:
                     return await EmptyAsync(git.EnableAutoMergeAsync(selectedPath, RequiredHttpUrl(request.PullRequestUrl), token)).ConfigureAwait(false);
                 case HarborGitOperationEnum.MergeBranchLocal:
-                    return await EmptyAsync(git.MergeBranchLocalAsync(checkoutPath, repositoryPath, RequiredBranch(request.BranchName),
-                        OptionalBranch(request.TargetBranch), Optional(request.CommitMessage, "commit_message", 2000), token)).ConfigureAwait(false);
+                    if (request.LegacyChangelogResolution)
+                        return await EmptyAsync(git.MergeBranchLocalAsync(checkoutPath, repositoryPath, RequiredBranch(request.BranchName),
+                            OptionalBranch(request.TargetBranch), Optional(request.CommitMessage, "commit_message", 2000), token)).ConfigureAwait(false);
+                    List<string> resolved = new List<string>();
+                    await git.MergeBranchLocalWithPolicyAsync(checkoutPath, repositoryPath, RequiredBranch(request.BranchName),
+                        OptionalBranch(request.TargetBranch), Optional(request.CommitMessage, "commit_message", 2000),
+                        request.AutoResolveAddOnlyMarkdown, resolved.Add, token).ConfigureAwait(false);
+                    return new HarborGitOperationResult { Flag = true, Paths = resolved };
                 case HarborGitOperationEnum.Pull:
                     return await EmptyAsync(git.PullAsync(selectedPath, token)).ConfigureAwait(false);
                 case HarborGitOperationEnum.PullFastForwardOnly:

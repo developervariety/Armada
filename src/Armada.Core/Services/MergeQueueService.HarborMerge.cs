@@ -15,6 +15,7 @@ namespace Armada.Core.Services
         private async Task MergeHarborIntegrationAsync(MergeEntry entry, Dock integration, CancellationToken token)
         {
             string checkout = HarborCheckoutAddress.ForDock(integration.Id);
+            entry.TestOutput = null;
             string repository = checkout + "/repository";
             string? source = await _Git.GetRevisionCommitShaAsync(repository, "refs/heads/" + entry.BranchName, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(source))
@@ -31,8 +32,20 @@ namespace Armada.Core.Services
             string operation = "mq-merge:" + HarborQueueAttemptId(entry.Id, job.RetryCount) + ":" + head;
             try
             {
+                Vessel? vessel = await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+                if (vessel == null) _Logging.Warn(_Header + "Markdown resolution vessel metadata is missing for " + entry.Id);
+                List<string> resolvedMarkdown = new List<string>();
                 using (new HarborCheckoutOperationScope(operation, head!))
-                    await _Git.MergeBranchLocalAsync(checkout, repository, entry.BranchName, token: token).ConfigureAwait(false);
+                    await _Git.MergeBranchLocalWithPolicyAsync(checkout, repository, entry.BranchName, null, null,
+                        vessel?.AutoResolveAddOnlyMarkdown ?? false, resolvedMarkdown.Add, token).ConfigureAwait(false);
+                string resolution = await LandingMarkdownResolution.RecordAsync(_Database, _Settings,
+                    entry.MissionId, entry.VesselId, entry.Id, resolvedMarkdown, token, message => _Logging.Warn(_Header + message)).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(resolution))
+                {
+                    entry.TestOutput = CombineTestOutput(resolution, entry.TestOutput ?? String.Empty);
+                    entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                }
             }
             catch (Exception exception) when (!(exception is OperationCanceledException && token.IsCancellationRequested))
             {

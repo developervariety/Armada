@@ -23,6 +23,9 @@ namespace Armada.Server
             if (existing == null) throw new ArgumentNullException(nameof(existing));
             if (updated == null) throw new ArgumentNullException(nameof(updated));
 
+            if (!updated.AutoResolveAddOnlyMarkdownSpecified)
+                updated.AutoResolveAddOnlyMarkdown = existing.AutoResolveAddOnlyMarkdown;
+
             updated.Id = existing.Id;
             updated.TenantId = existing.TenantId;
             updated.UserId = existing.UserId;

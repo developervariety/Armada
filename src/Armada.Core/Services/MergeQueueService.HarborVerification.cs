@@ -50,14 +50,14 @@ namespace Armada.Core.Services
                     ConflictedFiles = new System.Collections.Generic.List<string>()
                 });
                 entry.TestExitCode = completed.ExitCode;
-                entry.TestOutput = TruncateOutput(reason + Environment.NewLine + text);
+                entry.TestOutput = CombineTestOutput(entry.TestOutput, reason + Environment.NewLine + text);
                 await TransitionEntryToFailureAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
                 await RemoveHarborIntegrationAsync(entry, integration, token).ConfigureAwait(false);
             }
             else
             {
                 entry.TestExitCode = completed.ExitCode;
-                entry.TestOutput = TruncateOutput(text);
+                entry.TestOutput = CombineTestOutput(entry.TestOutput, text);
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
             }

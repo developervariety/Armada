@@ -131,7 +131,6 @@ namespace Armada.Core.Services.Interfaces
             throw new NotSupportedException("strict_worktree_reconstruction_not_supported");
         }
 
-
         /// <summary>
         /// Check if a path is a valid git repository.
         /// </summary>
@@ -297,6 +296,23 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="commitMessage">Optional custom merge commit message. If null, uses default.</param>
         /// <param name="token">Cancellation token.</param>
         Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default);
+
+        /// <summary>Merge with an explicit Markdown conflict policy and report auto-resolved paths.</summary>
+        /// <param name="targetWorkDir">Integration working directory.</param>
+        /// <param name="sourceRepoPath">Source repository.</param>
+        /// <param name="branchName">Source branch or commit.</param>
+        /// <param name="targetBranch">Optional target branch.</param>
+        /// <param name="commitMessage">Optional merge message.</param>
+        /// <param name="autoResolveAddOnlyMarkdown">Whether add-only Markdown conflicts may resolve.</param>
+        /// <param name="resolved">Receives each resolved path.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task MergeBranchLocalWithPolicyAsync(string targetWorkDir, string sourceRepoPath, string branchName,
+            string? targetBranch, string? commitMessage, bool autoResolveAddOnlyMarkdown, Action<string>? resolved = null,
+            CancellationToken token = default)
+        {
+            if (!autoResolveAddOnlyMarkdown) throw new NotSupportedException("This git implementation cannot enforce the disabled Markdown merge policy.");
+            return MergeBranchLocalAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch, commitMessage, token);
+        }
 
         /// <summary>
         /// Pull latest changes from remote into a working directory.

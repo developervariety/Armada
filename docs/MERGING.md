@@ -54,11 +54,18 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
    3. Create a temporary worktree from the current target branch.
    4. Merge the entry's branch into the worktree (`git merge`). A branch that strictly
       descends from the target lands as a fast-forward, with no merge commit.
-   5. If the merge stops on `CHANGELOG.md` alone (all three index stages present), keep
-      both sides with `git merge-file --union`, stage the result, and complete the merge
-      commit. Otherwise, if the merge conflicts, read the conflicted files (`git diff --name-only -z
-      --diff-filter=U`, before `git merge --abort` clears them), classify the failure
-      with those files and the diff size, mark the entry `Failed`, and move on.
+   5. If every unresolved path is `CHANGELOG.md` or a `.md` file under `docs/`,
+      all three regular-file index stages exist, and neither side deletes or replaces
+      a base line, keep both sides with the target additions before mission additions.
+      Stage the results and complete the merge commit. `AutoResolveAddOnlyMarkdown`
+      defaults to `true` on each vessel; `false` disables this resolution. Any edit,
+      deletion, binary file, add/add, symlink or other path leaves the merge unresolved.
+      The entry and linked mission log name every auto-resolved path; the event type
+      is `landing.markdown_auto_resolved`. Native and Harbor landings use the same
+      policy. A Harbor runner must acknowledge it before the candidate can proceed.
+      For other conflicts, read the conflicted files before `git merge --abort`,
+      classify the failure with those files and diff size, mark the entry `Failed`,
+      and move on. Required validation and Checks still run on the merged candidate.
    6. Read the landing evidence: the vessel record, every changed path
       (`git diff --name-only --no-renames -z`, so a rename reports both names and no
       name arrives C-quoted), and the unified diff. If any read fails, mark the entry
@@ -88,6 +95,11 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
    13. Clean up the temporary worktree.
 
 Because each entry is landed immediately, the next entry in the same group always merges against the up-to-date target branch. This eliminates the cascade failures that occur with batch-style merge queues.
+
+A `landing.markdown_auto_resolved` event records an integration merge, not a
+published landing or a passing Check. A later validation failure still stops
+publication. Each retry can record another integration merge; those events do
+not count as additional landings. Legacy synchronization merges union a sole `CHANGELOG.md` conflict and leave all other content conflicts unresolved. Landing code supplies the vessel policy explicitly.
 
 ## Declared generated artifacts
 

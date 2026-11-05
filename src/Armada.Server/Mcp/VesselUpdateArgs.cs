@@ -55,6 +55,9 @@ namespace Armada.Server.Mcp
         /// </summary>
         public bool? AllowConcurrentMissions { get; set; }
 
+        /// <summary>Whether add-only Markdown landing conflicts may resolve automatically.</summary>
+        public bool? AutoResolveAddOnlyMarkdown { get; set; }
+
         /// <summary>
         /// Whether to enable model context accumulation on this vessel.
         /// </summary>

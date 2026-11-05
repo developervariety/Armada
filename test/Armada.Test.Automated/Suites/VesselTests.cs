@@ -181,6 +181,31 @@ namespace Armada.Test.Automated.Suites
 
             #region CRUD - Update
 
+            await RunTest("REST update preserves an omitted disabled Markdown landing policy", async () =>
+            {
+                string fleetId = await CreateFleetAsync("MarkdownPolicyFleet");
+                string repoUrl = "https://github.com/test/markdown-policy";
+                HttpResponseMessage createdResponse = await _Client.PostAsync("/api/v1/vessels",
+                    JsonHelper.ToJsonContent(new { Name = "MarkdownPolicy", FleetId = fleetId, RepoUrl = repoUrl, AutoResolveAddOnlyMarkdown = false }));
+                AssertEqual(HttpStatusCode.Created, createdResponse.StatusCode);
+                Vessel created = await JsonHelper.DeserializeAsync<Vessel>(createdResponse);
+                _CreatedVesselIds.Add(created.Id);
+                AssertFalse(created.AutoResolveAddOnlyMarkdown);
+                HttpResponseMessage renamed = await _Client.PutAsync("/api/v1/vessels/" + created.Id,
+                    JsonHelper.ToJsonContent(new { Name = "MarkdownPolicyRenamed", FleetId = fleetId, RepoUrl = repoUrl }));
+                AssertEqual(HttpStatusCode.OK, renamed.StatusCode);
+                HttpResponseMessage read = await _Client.GetAsync("/api/v1/vessels/" + created.Id);
+                Vessel stored = await JsonHelper.DeserializeAsync<Vessel>(read);
+                AssertFalse(stored.AutoResolveAddOnlyMarkdown, "an omitted full-update field cannot enable the stored policy");
+                AssertEqual(fleetId, stored.FleetId);
+                AssertEqual(repoUrl, stored.RepoUrl);
+                HttpResponseMessage enabled = await _Client.PutAsync("/api/v1/vessels/" + created.Id,
+                    JsonHelper.ToJsonContent(new { Name = "MarkdownPolicyEnabled", FleetId = fleetId, RepoUrl = repoUrl, AutoResolveAddOnlyMarkdown = true }));
+                AssertEqual(HttpStatusCode.OK, enabled.StatusCode);
+                Vessel explicitlyEnabled = await JsonHelper.DeserializeAsync<Vessel>(enabled);
+                AssertTrue(explicitlyEnabled.AutoResolveAddOnlyMarkdown, "an explicit operator value still changes the policy");
+            });
+
             await RunTest("Update Vessel Name Returns Updated Name", async () =>
             {
                 string fleetId = await CreateFleetAsync();

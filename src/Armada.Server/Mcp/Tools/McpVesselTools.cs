@@ -125,6 +125,7 @@ namespace Armada.Server.Mcp.Tools
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
                         },
+                        autoResolveAddOnlyMarkdown = new { type = "boolean", description = "Auto-resolve add-only CHANGELOG.md and docs Markdown conflicts (default true)" },
                         generatedArtifacts = GeneratedArtifactsSchema(),
                         siblingRepos = new
                         {
@@ -235,6 +236,7 @@ namespace Armada.Server.Mcp.Tools
                         if (localClone != null) vessel.WorkingDirectory = localClone;
                     }
                     vessel.AllowConcurrentMissions = request.AllowConcurrentMissions ?? false;
+                    vessel.AutoResolveAddOnlyMarkdown = request.AutoResolveAddOnlyMarkdown ?? true;
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     string? addPipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
                         database, request.DefaultPipelineId, null, Armada.Core.Services.PipelineReferenceRule.VesselDefaultSource).ConfigureAwait(false);
@@ -307,6 +309,7 @@ namespace Armada.Server.Mcp.Tools
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
                         },
+                        autoResolveAddOnlyMarkdown = new { type = "boolean", description = "Auto-resolve add-only CHANGELOG.md and docs Markdown conflicts (default true)" },
                         generatedArtifacts = GeneratedArtifactsSchema(),
                         siblingRepos = new
                         {
@@ -381,6 +384,8 @@ namespace Armada.Server.Mcp.Tools
                         vessel.WorkingDirectory = request.WorkingDirectory;
                     if (request.LocalPath != null)
                         vessel.LocalPath = request.LocalPath;
+                    if (request.AutoResolveAddOnlyMarkdown.HasValue)
+                        vessel.AutoResolveAddOnlyMarkdown = request.AutoResolveAddOnlyMarkdown.Value;
                     if (request.AllowConcurrentMissions.HasValue)
                         vessel.AllowConcurrentMissions = request.AllowConcurrentMissions.Value;
                     if (request.EnableModelContext.HasValue)

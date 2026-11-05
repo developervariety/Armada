@@ -14,6 +14,8 @@ namespace Armada.Server.Harbor
                 RemoteName = request.RemoteName, Title = request.Title, Body = request.Body, Reason = request.Reason,
                 SourceRef = request.SourceRef, DestinationRef = request.DestinationRef, CommitSha = request.CommitSha,
                 ExpectedOldSha = request.ExpectedOldSha, TargetBranch = request.TargetBranch,
+                AutoResolveAddOnlyMarkdown = request.AutoResolveAddOnlyMarkdown,
+                LegacyChangelogResolution = request.LegacyChangelogResolution,
                 CommitMessage = request.CommitMessage, PullRequestUrl = request.PullRequestUrl, Revision = request.Revision,
                 RelativePath = request.RelativePath, Term = request.Term, MaxCount = request.MaxCount,
                 MaxSamples = request.MaxSamples, Line = request.Line, MaxLines = request.MaxLines,

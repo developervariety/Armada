@@ -1417,6 +1417,8 @@ namespace Armada.Core.Services
             string integrationPath = GetIntegrationPath(entry);
             string entryTag = entry.Id + " branch " + entry.BranchName;
             string headBeforeMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
+            entry.TestOutput = null;
+            List<string> resolvedMarkdown = new List<string>();
 
             // The integration worktree is cut from a bare repo where a mission branch usually exists
             // only as a remote-tracking ref. Git exits 1 for an unresolvable ref ("not something we
@@ -1524,8 +1526,8 @@ namespace Armada.Core.Services
                 // then reported as a merge conflict on a branch that had nothing to conflict with.
                 bool canFastForward = await IsAncestorAsync(integrationPath, "HEAD", mergeRef, token).ConfigureAwait(false);
                 MergeAttemptResult mergeAttempt = canFastForward
-                    ? await FastForwardBranchAsync(integrationPath, mergeRef, token).ConfigureAwait(false)
-                    : await MergeBranchAsync(integrationPath, mergeRef, token).ConfigureAwait(false);
+                    ? await FastForwardBranchAsync(integrationPath, mergeRef, token, generatedVessel?.AutoResolveAddOnlyMarkdown ?? true, resolvedMarkdown.Add).ConfigureAwait(false)
+                    : await MergeBranchAsync(integrationPath, mergeRef, token, generatedVessel?.AutoResolveAddOnlyMarkdown ?? true, resolvedMarkdown.Add).ConfigureAwait(false);
                 if (!mergeAttempt.Ok)
                 {
                     // git exits 1 when the merge stopped on conflicting content and 128 for fatal
@@ -1554,7 +1556,7 @@ namespace Armada.Core.Services
 
                     entry.Status = MergeStatusEnum.Failed;
                     entry.TestOutput = isContentConflict
-                        ? "Merge conflict with " + entry.TargetBranch
+                        ? "integration_merge_failed: Merge conflict with " + entry.TargetBranch
                         : "Merge of " + entry.BranchName + " into " + entry.TargetBranch +
                           " failed without conflicting content (git exit " + mergeAttempt.GitExitCode + "): " +
                           SummarizeGitFailure(mergeAttempt);
@@ -1566,6 +1568,15 @@ namespace Armada.Core.Services
                     FireRecoveryHandlerForEntry(entry.Id);
                     return;
                 }
+            }
+
+            string markdownResolution = await LandingMarkdownResolution.RecordAsync(_Database, _Settings,
+                entry.MissionId, entry.VesselId, entry.Id, resolvedMarkdown, token, message => _Logging.Warn(_Header + message)).ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(markdownResolution))
+            {
+                entry.TestOutput = CombineTestOutput(markdownResolution, entry.TestOutput ?? String.Empty);
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
             }
 
             string integrationHeadAfterMerge = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
@@ -1699,7 +1710,7 @@ namespace Armada.Core.Services
 
                 entry.Status = MergeStatusEnum.Failed;
                 entry.TestExitCode = testResult.ExitCode;
-                entry.TestOutput = TruncateOutput(testResult.Output);
+                entry.TestOutput = CombineTestOutput(entry.TestOutput, testResult.Output);
                 entry.CompletedUtc = DateTime.UtcNow;
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
@@ -3282,7 +3293,7 @@ namespace Armada.Core.Services
             return null;
         }
 
-        private async Task<MergeAttemptResult> FastForwardBranchAsync(string worktreePath, string branchName, CancellationToken token)
+        private async Task<MergeAttemptResult> FastForwardBranchAsync(string worktreePath, string branchName, CancellationToken token, bool autoResolveAddOnlyMarkdown, Action<string>? resolved)
         {
             GitProcessResult result = await RunGitCapturingAsync(worktreePath, token, "merge", "--ff-only", branchName).ConfigureAwait(false);
             if (result.ExitCode == 0)
@@ -3292,7 +3303,7 @@ namespace Armada.Core.Services
 
             // A refused fast-forward means the branch was not actually a descendant; fall back to a
             // real merge so genuine divergence is still surfaced through the normal conflict path.
-            return await MergeBranchAsync(worktreePath, branchName, token).ConfigureAwait(false);
+            return await MergeBranchAsync(worktreePath, branchName, token, autoResolveAddOnlyMarkdown, resolved).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -3308,7 +3319,7 @@ namespace Armada.Core.Services
             return lines[0].Trim();
         }
 
-        private async Task<MergeAttemptResult> MergeBranchAsync(string worktreePath, string branchName, CancellationToken token)
+        private async Task<MergeAttemptResult> MergeBranchAsync(string worktreePath, string branchName, CancellationToken token, bool autoResolveAddOnlyMarkdown, Action<string>? resolved)
         {
             GitProcessResult mergeResult = await RunGitCapturingAsync(worktreePath, token, "merge", "--no-ff", branchName).ConfigureAwait(false);
             if (mergeResult.ExitCode == 0)
@@ -3316,15 +3327,15 @@ namespace Armada.Core.Services
                 return new MergeAttemptResult(true, mergeResult.ExitCode, mergeResult.StandardOutput, mergeResult.StandardError);
             }
 
-            // A conflict confined to CHANGELOG.md keeps both sides; every other conflict falls through.
-            if (await TryResolveChangelogConflictAsync(worktreePath, branchName, token).ConfigureAwait(false))
+            List<string> conflictedFiles = await CollectConflictedFilesAsync(worktreePath, token).ConfigureAwait(false);
+            // Keep the conflict evidence before a resolver can stage files or fail its commit.
+            // Resolve only when every conflict is an add-only Markdown path admitted by the vessel policy.
+            if (autoResolveAddOnlyMarkdown && await TryResolveChangelogConflictAsync(worktreePath, branchName, resolved, token).ConfigureAwait(false))
             {
                 return new MergeAttemptResult(true, 0, mergeResult.StandardOutput, mergeResult.StandardError);
             }
 
-            // The unmerged paths exist only while the merge is in progress, so read them before the
-            // abort that cleans the worktree for cleanup.
-            List<string> conflictedFiles = await CollectConflictedFilesAsync(worktreePath, token).ConfigureAwait(false);
+            // Abort the failed integration with its original conflict evidence retained above.
             try { await RunGitCapturingAsync(worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
             catch (Exception ex)
             {
@@ -3338,10 +3349,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Finish a stopped merge whose only unresolved path is CHANGELOG.md. A resolver failure reads as
+        /// Finish a stopped merge whose conflicts are all add-only Markdown. A resolver failure reads as
         /// "not resolved" so the caller reports the original conflict.
         /// </summary>
-        private async Task<bool> TryResolveChangelogConflictAsync(string worktreePath, string branchName, CancellationToken token)
+        private async Task<bool> TryResolveChangelogConflictAsync(string worktreePath, string branchName, Action<string>? resolved, CancellationToken token)
         {
             try
             {
@@ -3349,7 +3360,7 @@ namespace Armada.Core.Services
                 {
                     GitProcessResult result = await RunGitCapturingAsync(worktreePath, ct, args).ConfigureAwait(false);
                     return new ChangelogGitOutput(result.ExitCode, result.StandardOutput);
-                }, token, message => _Logging.Warn(_Header + message)).ConfigureAwait(false);
+                }, token, message => _Logging.Warn(_Header + message), resolved).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -3648,6 +3659,12 @@ namespace Armada.Core.Services
             // Use /bin/sh (POSIX-guaranteed) instead of /bin/bash which may
             // not exist on Alpine, minimal containers, or some Linux distros.
             return "/bin/sh";
+        }
+
+        private string CombineTestOutput(string? previous, string output)
+        {
+            return TruncateOutput(String.IsNullOrEmpty(previous) ? output
+                : String.IsNullOrEmpty(output) ? previous : previous + Environment.NewLine + output);
         }
 
         private string TruncateOutput(string output)

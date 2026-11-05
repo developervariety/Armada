@@ -1253,7 +1253,9 @@ $convert$;"),
                 new SchemaMigration(149, "Drop the coordination board tables", CoordinationBoardDropSchema.PostgresqlStatements),
                 new SchemaMigration(150, "Persist generated-artifact policy and candidate review",
                     @"ALTER TABLE vessels ADD COLUMN generated_artifacts_json TEXT NULL;",
-                    @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json TEXT NULL;")
+                    @"ALTER TABLE missions ADD COLUMN generated_artifact_review_json TEXT NULL;"),
+                new SchemaMigration(151, "Persist the add-only Markdown landing policy",
+                    @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown BOOLEAN NOT NULL DEFAULT TRUE;")
             };
         }
 

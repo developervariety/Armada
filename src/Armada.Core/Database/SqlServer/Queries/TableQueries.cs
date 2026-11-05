@@ -1041,7 +1041,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(140, "Drop the coordination board tables", CoordinationBoardDropSchema.SqlServerStatements),
                 new SchemaMigration(141, "Persist generated-artifact policy and candidate review",
                     @"ALTER TABLE vessels ADD generated_artifacts_json NVARCHAR(MAX) NULL;",
-                    @"ALTER TABLE missions ADD generated_artifact_review_json NVARCHAR(MAX) NULL;")
+                    @"ALTER TABLE missions ADD generated_artifact_review_json NVARCHAR(MAX) NULL;"),
+                new SchemaMigration(142, "Persist the add-only Markdown landing policy",
+                    @"ALTER TABLE vessels ADD auto_resolve_add_only_markdown BIT NOT NULL DEFAULT 1;")
             };
         }
 

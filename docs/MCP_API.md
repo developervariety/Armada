@@ -1743,6 +1743,12 @@ validation.
 
 ## Vessel Writes
 
+`armada_add_vessel` and `armada_update_vessel` accept
+`autoResolveAddOnlyMarkdown` (boolean, default `true`). An omitted update keeps
+the stored value. `false` disables automatic add-only Markdown conflict
+resolution. The rule applies to `CHANGELOG.md` and `.md` files under `docs/`;
+edits, deletions and other paths remain conflicts. See [Processing flow](MERGING.md#processing-flow).
+
 `armada_add_vessel` and `armada_update_vessel` accept `generatedArtifacts`:
 `{ "paths": ["generated/manifest.json"], "regenerateCommand": "python3 tools/generate.py" }`.
 Paths are exact repository-relative files, not patterns. The command and at least

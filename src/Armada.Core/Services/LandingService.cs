@@ -537,7 +537,11 @@ namespace Armada.Core.Services
                     if (generated.Outcome == "Regenerated" && generated.TargetBaseCommit != targetTip)
                         throw new InvalidOperationException("target branch drift: generated candidate belongs to another landing base");
                     string mergeSource = generated.Outcome == "Regenerated" ? generated.CandidateCommit! : missionBranch;
-                    await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, mergeSource, null, commitMessage, token).ConfigureAwait(false);
+                    List<string> resolvedMarkdown = new List<string>();
+                    await _Git.MergeBranchLocalWithPolicyAsync(worktreePath, vessel.LocalPath, mergeSource, null, commitMessage,
+                        vessel.AutoResolveAddOnlyMarkdown, resolvedMarkdown.Add, token).ConfigureAwait(false);
+                    await LandingMarkdownResolution.RecordAsync(_Database, _Settings, mission.Id, vessel.Id, mission.Id,
+                        resolvedMarkdown, token, message => _Logging.Warn(_Header + message)).ConfigureAwait(false);
                     _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
 
                     string? mergedHead = await _Git.GetRevisionCommitShaAsync(worktreePath, "HEAD", token).ConfigureAwait(false);

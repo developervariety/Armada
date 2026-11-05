@@ -5201,6 +5201,7 @@ A git repository registered with Armada.
 | `ModelContext` | string? | null | Repository context rendered into each mission brief as a `## Model Context` section when `EnableModelContext` is true and the text is not blank |
 | `LandingMode` | [LandingModeEnum](#landingmodeenum)? | null | Per-vessel landing policy override (null = use global setting) |
 | `GeneratedArtifacts` | object? | null | Optional exact `Paths` and `RegenerateCommand` for native generated-artifact landing; full vessel updates must retain it or explicitly clear it |
+| `AutoResolveAddOnlyMarkdown` | bool | true | Resolve only add-only conflicts in CHANGELOG.md and docs Markdown; false leaves conflicts for operator review; omission on update preserves the stored policy |
 | `BranchCleanupPolicy` | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum)? | null | Per-vessel branch cleanup policy override (null = use global setting) |
 | `Active` | bool | true | Whether vessel is active |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
