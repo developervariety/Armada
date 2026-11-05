@@ -1989,6 +1989,7 @@ namespace Armada.Test.Unit.Suites.Services
             HarborCheckoutService checkouts, Vessel vessel, string grantId, string token, string root, string release, string counter)
         {
             HostAwareGitService hostGit = new HostAwareGitService(new GitService(run.Logging, null, harness.Driver), checkouts);
+            checkouts.SetDockLifecycle(new DockService(run.Logging, harness.Driver, run.Settings, hostGit, checkouts));
             MissionDiffResult diff = await Armada.Server.MissionDiffReader.ReadAsync(harness.Driver, run.Settings.LogDirectory,
                 hostGit, run.Mission).ConfigureAwait(false);
             AssertTrue(diff.Available && diff.Diff.Contains("owned-result.txt", StringComparison.Ordinal), "MissionDiffReader reads the runner's committed changes through the Harbor Git facade");
@@ -2564,6 +2565,7 @@ namespace Armada.Test.Unit.Suites.Services
             await harness.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
 
             DockService docks = new DockService(logging, harness.Driver, settings, hostGit, checkouts);
+            checkouts.SetDockLifecycle(docks);
             CaptainService captains = new CaptainService(logging, harness.Driver, settings, hostGit, docks);
             MissionService missions = new MissionService(logging, harness.Driver, settings, docks, captains,
                 git: hostGit,
