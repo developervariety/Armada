@@ -129,6 +129,9 @@ def nuget_cache(path):
 
 def prune_nuget_caches(patterns, roots, excludes, hours, apply, report, skip, read_process_paths):
     """Retire complete isolated package caches; retain the surrounding source and proof."""
+    if not patterns:
+        return
+    paths = read_process_paths()
     seen = set()
     for pattern in patterns:
         for value in sorted(glob.glob(pattern)):
@@ -155,7 +158,7 @@ def prune_nuget_caches(patterns, roots, excludes, hours, apply, report, skip, re
                 if info['keep'] or info['newest_mtime'] > time.time() - hours * 3600:
                     skip('recent_cache')
                     continue
-                if active(scope, read_process_paths()):
+                if active(scope, paths):
                     skip('active')
                     continue
                 candidate = dict(path=p, kind='isolated_nuget_cache', scope=scope,

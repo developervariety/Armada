@@ -82,8 +82,25 @@ def clean(args, settings, report):
         container, pattern = target['container'], target['databasePattern']
         user, root = connection(container)
         rows = query(container, user, "SELECT d.oid,d.datname,r.rolname,d.dattablespace,pg_database_size(d.oid),(SELECT count(*) FROM pg_stat_activity a WHERE a.datname=d.datname) FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba").splitlines()
+        keep_count = int(target.get('keepNewest', 0))
+        if keep_count < 0:
+            raise ValueError('keepNewest cannot be negative')
+        dated = []
+        if keep_count:
+            for row in rows:
+                oid, name, owner, tablespace, size, sessions = row.split('|')
+                if re.fullmatch(pattern, name) and owner == user and tablespace == '1663':
+                    # An unreadable database must never be selected for removal.
+                    try:
+                        dated.append((newest_file(os.path.join(root, 'base', oid)), name))
+                    except (OSError, RuntimeError):
+                        dated.append((float('inf'), name))
+        keep_names = {name for changed, name in sorted(dated, reverse=True)[:keep_count]}
         for row in rows:
             oid, name, owner, tablespace, size, sessions = row.split('|')
+            if name in keep_names:
+                report['skipped'].append({'container': container, 'database': name, 'reason': 'newest database retention'})
+                continue
             if not re.fullmatch(pattern, name):
                 continue
             if owner != user or tablespace != '1663' or sessions != '0':

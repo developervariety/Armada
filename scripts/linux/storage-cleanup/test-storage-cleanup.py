@@ -38,6 +38,7 @@ agents = load_script('prune-agent-caches.py')
 daily = load_script('daily-storage-cleanup.py')
 dumps = load_script('prune-deploy-dumps.py')
 container_build = load_script('prune-container-build-outputs.py')
+databases = load_script('prune-test-databases.py')
 
 DAY = 86400
 STAGE_SECTIONS = {
@@ -176,6 +177,22 @@ class AgentHistoryTests(unittest.TestCase):
                 for path, payload in originals.items():
                     self.assertTrue(path.is_file(), 'Operator receipt requires verified archival: ' + path.name)
                     self.assertEqual(path.read_bytes(), payload)
+
+    def test_low_space_is_failure_even_when_no_stage_failed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config = root / 'config.json'
+            config.write_text(json.dumps({'orchestrator': {
+                'receiptDirectory': str(root / 'receipts'), 'lockPath': str(root / 'lock'),
+                'stages': [], 'minimumFreeGb': 20, 'diskUsagePath': str(root)}}))
+            usage = type('Usage', (), {'free': 10 * 1024**3})()
+            with mock.patch.object(sys, 'argv', ['daily', '--config', str(config)]), \
+                 mock.patch.object(daily.shutil, 'disk_usage', return_value=usage), \
+                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(daily.main(), 1)
+            receipt = json.loads(next((root / 'receipts').glob('daily-*.json')).read_text())
+            self.assertTrue(receipt['low_space'])
+            self.assertEqual(receipt['free_change_bytes'], 0)
 
     def test_apply_keeps_raw_history_in_every_mode_but_can_remove_cache(self):
         for mode in ([], ['--sessions-only'], ['--opencode-db-only']):
@@ -483,13 +500,13 @@ class UnusedImageTagSelectionTests(unittest.TestCase):
 class ContainerAndRetentionTests(unittest.TestCase):
     def test_container_wrapper_pins_identity(self):
         target = {'container': 'example', 'buildOutputs': {'roots': ['/scratch']}}
-        info = [{'Id': 'immutable-container-id', 'State': {'Running': True}}]
+        info = [{'Id': 'immutable-container-id', 'State': {'Running': True, 'Pid': 1234}}]
         with mock.patch.object(container_build.subprocess, 'check_output', return_value=json.dumps(info)), \
              mock.patch.object(container_build.subprocess, 'run') as run:
             run.return_value.returncode = 0
             self.assertEqual(container_build.clean_target(target, False), 0)
             command = run.call_args.args[0]
-            self.assertIn('immutable-container-id', command)
+            self.assertIn('1234', command)
             bundle = json.loads(run.call_args.kwargs['input'])
     @unittest.skipIf(os.path.isdir('/proc/self') and os.geteuid() != 0,
                      'the actual container bootstrap requires root to inspect all processes')
@@ -517,6 +534,30 @@ class ContainerAndRetentionTests(unittest.TestCase):
             retired, sets, unused = docker.plan(settings)
         self.assertEqual([x['image'] for x in retired], ['2'])
         self.assertEqual(len(sets), 3)
+
+
+class DatabaseRetentionTests(unittest.TestCase):
+    def test_newest_rehearsal_stays_and_old_idle_copy_is_dropped(self):
+        settings = {'minimumAgeHours': 48, 'targets': [
+            {'container': 'example', 'databasePattern': 'rehearsal_[a-z]+', 'keepNewest': 1}]}
+        rows = '1|rehearsal_old|tester|1663|100|0\n2|rehearsal_new|tester|1663|100|0'
+        report = {'candidates': [], 'deleted': [], 'skipped': []}
+        with mock.patch.object(databases, 'runners', return_value=[]), \
+             mock.patch.object(databases, 'connection', return_value=('tester', '/example')), \
+             mock.patch.object(databases, 'newest_file', side_effect=lambda p: time.time() - (10 if p.endswith('/1') else 5)*DAY), \
+             mock.patch.object(databases, 'query', side_effect=[rows, '1|0', '', '0']) as query:
+            databases.clean(type('Args', (), {'apply': True})(), settings, report)
+        self.assertEqual([x['database'] for x in report['deleted']], ['rehearsal_old'])
+        self.assertEqual(report['skipped'][0]['database'], 'rehearsal_new')
+        self.assertIn('DROP DATABASE "rehearsal_old"', [c.args[2] for c in query.call_args_list])
+
+    def test_running_test_prevents_any_database_query(self):
+        with mock.patch.object(databases, 'runners', return_value=[{'reason': 'running'}]), \
+             mock.patch.object(databases, 'query') as query:
+            report = {}
+            databases.clean(type('Args', (), {'apply': True})(), {}, report)
+        query.assert_not_called()
+        self.assertEqual(report['skipped'], [{'reason': 'running'}])
 
 
 class DeployDumpRotationTests(unittest.TestCase):

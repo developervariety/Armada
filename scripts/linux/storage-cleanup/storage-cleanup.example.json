@@ -73,13 +73,14 @@
     "retireOlderRetainedSets": false
   },
   "testDatabases": {
-    "_about": "prune-test-databases.py: drops generated test databases older than minimumAgeHours in each target Postgres container, only when no test runner is visible on the host or in runnerContainers. targets, runnerCommandPattern and runnerArgumentPatterns are required.",
+    "_about": "prune-test-databases.py: drops generated test databases older than minimumAgeHours in each target Postgres container, only when no test runner is visible on the host or in runnerContainers. targets, runnerCommandPattern and runnerArgumentPatterns are required. Each target can set keepNewest (default 0), measured by newest database-file change.",
     "lockPath": "/run/lock/armada-prune-test-databases.lock",
     "minimumAgeHours": 48,
     "targets": [
       {
         "container": "example-test-postgres",
-        "databasePattern": "exampletest_[0-9a-f]{32}"
+        "databasePattern": "exampletest_[0-9a-f]{32}",
+        "keepNewest": 0
       }
     ],
     "runnerContainers": {
@@ -99,7 +100,7 @@
     "lockPath": "/run/lock/armada-prune-deploy-dumps.lock"
   },
   "containerBuildOutputs": {
-    "_about": "Optional container-build stage. Deletes only reproducible payloads; whole-folder retirement is refused. Process checks run inside the pinned running container.",
+    "_about": "Optional container-build stage. Deletes only reproducible payloads; whole-folder retirement is refused. Process checks run inside the pinned running container. Host root uses nsenter; no container security profile is changed.",
     "targets": [
       {
         "container": "example-admiral",

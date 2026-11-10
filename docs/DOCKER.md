@@ -535,10 +535,11 @@ ignored:
 | `prune-deploy-dumps.py` | Pre-deploy database dumps in `directory` whose name matches `pattern`, except the newest `keep` (default 2) by modification time. A dump that a process holds open is kept. |
 
 The optional `container-build` stage runs `prune-container-build-outputs.py` in
-configured running containers. It pins the container ID and uses the same build
-cleaner inside that PID namespace, so process paths match container paths. It
+configured running containers. It pins and rechecks the running container ID and PID, then uses host-root
+`nsenter` to run the same build cleaner inside that PID and mount namespace, so process paths match container paths. It
 never starts, stops or restarts a container. Whole-folder scratch retirement is
-refused in this stage. Full JSON receipts are exported to the host stage output.
+refused in this stage. Full JSON receipts are exported to the host stage output. The host needs
+`nsenter` and the container needs Python 3. An inspection failure stops deletion.
 
 `buildOutputs.nugetCachePatterns` selects isolated NuGet package caches below
 `roots`. Every package version must have NuGet completion metadata and a SHA-512
@@ -561,6 +562,11 @@ A value of zero disables this check. The receipt and journal include free bytes
 before and after cleanup and their difference. A run below the floor returns a
 failure even when every cleaner completed. This exposes insufficient cleanup
 coverage instead of reporting a healthy run that freed no space.
+
+A test-database target can set `keepNewest` to retain that many matching
+databases by newest file change, in addition to the session, age, owner and
+test-runner guards. This supports disposable rehearsal copies without removing
+the most recent rehearsal. The default is zero.
 
 The agent-cache stage does not retire raw history. The history archive owns verified upload and local retirement. Archive retirement requires verified remote copies and the supported retention rules; an ordinary local backup is not archive proof. Provider-specific active-writer protection and whole-chat archival must be established before adding mutable chat databases to an archive root.
 

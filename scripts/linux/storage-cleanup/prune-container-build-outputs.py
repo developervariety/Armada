@@ -46,8 +46,16 @@ def clean_target(target, apply):
     bundle = {'sources': {name: (here / name).read_text()
                           for name in ('cleanup_config.py', 'prune-build-outputs.py')},
               'config': {'buildOutputs': section}, 'apply': apply}
-    result = subprocess.run(['docker', 'exec', '-i', '--user', '0', info['Id'],
-                             'python3', '-c', BOOTSTRAP], input=json.dumps(bundle), text=True)
+    current = json.loads(subprocess.check_output(
+        ['docker', 'inspect', info['Id']], text=True, timeout=30))[0]
+    pid = info['State']['Pid']
+    if not current['State']['Running'] or current['State']['Pid'] != pid or pid <= 0:
+        raise RuntimeError('Container changed before cleanup')
+    # Host root retains process-inspection permission after entering the namespaces.
+    # Ordinary docker exec lacks ptrace permission across the runtime's user IDs.
+    result = subprocess.run(['nsenter', '--target', str(pid), '--mount', '--pid',
+                             '--root', '--wd=/', '--', 'python3', '-c', BOOTSTRAP],
+                            input=json.dumps(bundle), text=True)
     return result.returncode
 
 
