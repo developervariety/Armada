@@ -565,6 +565,20 @@ class DatabaseRetentionTests(unittest.TestCase):
         self.assertEqual(report['skipped'][0]['database'], 'rehearsal_new')
         self.assertIn('DROP DATABASE "rehearsal_old"', [c.args[2] for c in query.call_args_list])
 
+    def test_unreadable_retention_order_prevents_any_drop(self):
+        settings = {'minimumAgeHours': 48, 'targets': [
+            {'container': 'example', 'databasePattern': 'rehearsal_[a-z]+', 'keepNewest': 1}]}
+        report = {'candidates': [], 'deleted': [], 'skipped': []}
+        rows = '1|rehearsal_old|tester|1663|100|0\n2|rehearsal_new|tester|1663|100|0'
+        with mock.patch.object(databases, 'runners', return_value=[]), \
+             mock.patch.object(databases, 'connection', return_value=('tester', '/example')), \
+             mock.patch.object(databases, 'newest_file', side_effect=OSError('unreadable')), \
+             mock.patch.object(databases, 'query', return_value=rows) as query:
+            databases.clean(type('Args', (), {'apply': True})(), settings, report)
+        self.assertEqual(query.call_count, 1)
+        self.assertEqual(report['deleted'], [])
+        self.assertEqual(report['candidates'], [])
+
     def test_running_test_prevents_any_database_query(self):
         with mock.patch.object(databases, 'runners', return_value=[{'reason': 'running'}]), \
              mock.patch.object(databases, 'query') as query:

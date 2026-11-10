@@ -577,7 +577,9 @@ directory times do not count and symlinks are not followed. A scratch folder
 that holds an `.armada-keep` file anywhere inside it, or that holds an excluded
 path, is never removed. An unused image tag is removed with `docker rmi` (never
 `-f`); a tag whose image is also named by a `protectedImageTags` entry, or that
-matches `protectedTagPatterns`, is never removed.
+matches `protectedTagPatterns`, is never selected by ordinary unused-tag cleanup.
+Explicit dated-set retirement follows `retireOlderRetainedSets` and still keeps
+container images and `protectedImageTags`.
 
 Install as root:
 

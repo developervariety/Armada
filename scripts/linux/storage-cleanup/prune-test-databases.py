@@ -86,6 +86,7 @@ def clean(args, settings, report):
         if keep_count < 0:
             raise ValueError('keepNewest cannot be negative')
         dated = []
+        unreadable = False
         if keep_count:
             for row in rows:
                 oid, name, owner, tablespace, size, sessions = row.split('|')
@@ -94,7 +95,10 @@ def clean(args, settings, report):
                     try:
                         dated.append((newest_file(os.path.join(root, 'base', oid)), name))
                     except (OSError, RuntimeError):
-                        dated.append((float('inf'), name))
+                        unreadable = True
+                        report['skipped'].append({'container': container, 'database': name, 'reason': 'retention order unreadable'})
+        if unreadable:
+            continue
         keep_names = {name for changed, name in sorted(dated, reverse=True)[:keep_count]}
         for row in rows:
             oid, name, owner, tablespace, size, sessions = row.split('|')
