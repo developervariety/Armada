@@ -568,6 +568,10 @@ databases by newest file change, in addition to the session, age, owner and
 test-runner guards. This supports disposable rehearsal copies without removing
 the most recent rehearsal. The default is zero.
 
+The admiral also honors `.armada-keep` on the operator-evidence root itself.
+That marker protects every child from payload and whole-folder reclamation,
+including in low-space mode. Per-child markers remain valid.
+
 The agent-cache stage does not retire raw history. The history archive owns verified upload and local retirement. Archive retirement requires verified remote copies and the supported retention rules; an ordinary local backup is not archive proof. Provider-specific active-writer protection and whole-chat archival must be established before adding mutable chat databases to an archive root.
 
 Every stage fails closed. It skips a path that a running process references, a

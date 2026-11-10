@@ -902,7 +902,8 @@ namespace Armada.Core.Services
                 category.TotalBytes += bytes;
                 category.TotalItems++;
 
-                if (File.Exists(Path.Combine(full, _KeepMarkerFile)))
+                if (File.Exists(Path.Combine(root, _KeepMarkerFile))
+                    || File.Exists(Path.Combine(full, _KeepMarkerFile)))
                 {
                     category.ProtectedItems++;
                     continue;

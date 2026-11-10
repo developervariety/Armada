@@ -1194,6 +1194,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("An evidence-root keep marker protects expired folders and payloads in low-space mode", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+                try
+                {
+                    string root = Path.Combine(layout.Settings.LogDirectory, "operator-evidence");
+                    string payload = CreateEvidenceFolder(root, "idle-payload", DateTime.UtcNow.AddDays(-2));
+                    string expired = CreateEvidenceFolder(root, "expired-proof", DateTime.UtcNow.AddDays(-30));
+                    File.WriteAllText(Path.Combine(root, ".armada-keep"), "Keep this evidence root.");
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+                    layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 2L * 1024 * 1024 * 1024;
+
+                    DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertTrue(Directory.Exists(Path.Combine(payload, "checkout", ".git")), "The root marker protects an idle payload.");
+                    AssertTrue(File.Exists(Path.Combine(expired, "receipt.json")), "The root marker protects an expired proof folder.");
+                    DiskLifecycleCategory category = report.Categories.First(c => c.Category == "operatorEvidence");
+                    AssertEqual(0, category.ReclaimableItems, "Marked-root contents are not cleanup candidates.");
+                    AssertEqual(2, category.ProtectedItems, "Both child folders are protected by the root marker.");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("An idle evidence payload holding a read-only folder is removed", async () =>
             {
                 // The owner bits mean nothing to a privileged process, so the scenario cannot arise there.
