@@ -408,6 +408,20 @@ class IsolatedNugetCacheTests(unittest.TestCase):
             self.assertTrue((root / 'idle/proof.log').exists())
             self.assertEqual(report['failures'], [])
 
+    def test_cache_is_kept_when_a_process_starts_after_the_plan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            cache = root / 'proof/packages/example.package/1.0.0'
+            write_file(cache / '.nupkg.metadata', 3)
+            write_file(cache / 'example.package.1.0.0.nupkg.sha512', 3)
+            report = {'candidates': [], 'removed': [], 'failures': []}
+            references = iter([[], [str(root / 'proof/repo')]])
+            build.prune_nuget_caches([str(root / 'proof/packages')], [str(root)], [],
+                                    12, True, report, lambda reason: None, lambda: next(references))
+            self.assertTrue(cache.exists())
+            self.assertEqual(len(report['candidates']), 1)
+            self.assertEqual(report['removed'], [])
+
     def test_marker_on_ancestor_blocks_whole_scratch_expiry(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()
