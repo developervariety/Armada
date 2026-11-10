@@ -44,9 +44,9 @@ namespace Armada.Core.Services
             @"\b(?:no|without|never|not|don't)\s+(?:new\s+|added\s+|additional\s+)?" +
             @"(?:(?:add|adding|write|writing|edit|editing|modify|modifying|change|changing|create|creating|commit|committing|touch|touching)" +
             @"(?:\s*,\s*(?:or\s+)?(?:add|edit|modify|change|create|commit|write|touch))*\s+(?:or\s+\w+\s+)?(?:any\s+|new\s+|the\s+)?)?" +
-            @"(?:unit\s+|integration\s+)?tests?\b" +
+            @"(?:unit\s+|integration\s+)?tests?\b(?!-only\b)" +
             @"|\btests?(?:\s+files?|\s+suites?)?\s+(?:are\s+|stay\s+|remain\s+)?(?:unchanged|untouched|out\s+of\s+scope|read-only)" +
-            @"|\b(?:no|not|never|without)\b[^.;\n]{0,30}\b(?:production|source|code)\s+(?:or|and|nor)\s+tests?\b",
+            @"|\b(?:no|not|never|without)\b[^.;\n]{0,30}\b(?:production|source|code)\s+(?:or|and|nor)\s+tests?\b(?!-only\b)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         private static readonly Regex _VerificationRunCriterionPattern = new Regex(
@@ -139,7 +139,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Whether a non-goal forbids test edits (for example "No new tests" or "Do not add, edit, or commit test
-        /// files"). A TestEngineer on such an objective validates only.
+        /// files"). A ban on test-only production seams does not forbid test edits.
+        /// A TestEngineer on an objective that forbids test edits validates only.
         /// </summary>
         /// <param name="nonGoals">The objective's non-goals.</param>
         /// <returns>True when any non-goal forbids test edits.</returns>

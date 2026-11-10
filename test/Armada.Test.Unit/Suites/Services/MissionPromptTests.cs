@@ -1118,6 +1118,28 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("validate-only", testerBrief, "a TestEngineer on a no-new-test objective gets a validate-only duty");
                         AssertContains("the non-goal wins", testerBrief, "the brief records which rule wins");
 
+                        Dictionary<string, bool> testEditScopes = new Dictionary<string, bool>
+                        {
+                            ["No new test-only production seam."] = false,
+                            ["Do not add test-only production hooks."] = false,
+                            ["No production or test-only wrappers."] = false,
+                            ["No new tests."] = true,
+                            ["Do not add, edit, or commit test files."] = true,
+                            ["Tests remain unchanged."] = true,
+                            ["No production or test changes."] = true
+                        };
+                        foreach (KeyValuePair<string, bool> scope in testEditScopes)
+                        {
+                            objective.NonGoals = new List<string> { scope.Key };
+                            await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+                            string scopeDir = Path.Combine(tempDir, Guid.NewGuid().ToString("N"));
+                            Directory.CreateDirectory(scopeDir);
+                            await service.GenerateClaudeMdAsync(scopeDir, tester, vessel).ConfigureAwait(false);
+                            string scopedBrief = await File.ReadAllTextAsync(Path.Combine(scopeDir, "CLAUDE.md")).ConfigureAwait(false);
+                            AssertEqual(scope.Value, scopedBrief.Contains("validate-only"),
+                                "only a ban on test edits makes the TestEngineer validate-only: " + scope.Key);
+                        }
+
                         string workerDir = Path.Combine(tempDir, "worker");
                         Directory.CreateDirectory(workerDir);
                         Mission worker = new Mission();

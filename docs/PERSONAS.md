@@ -454,7 +454,7 @@ A brief also matches the dock it lands in and the tools the captain has:
   authorizing, it states that such an id does not control. When the objective has non-goals, it states that a
   non-goal wins over a conflicting role, rescue or captain duty, and a
   TestEngineer whose objective's non-goals forbid test edits is told it is
-  validate-only.
+  validate-only. A ban on test-only production seams does not forbid test edits.
 - Papercuts says an `unavailable` typed-decision answer is not a papercut. It
   names `armada_check_prior_art` as unavailable when the vessel is
   egress-excluded, the captain tools are disabled, or the `prior_art` decision
@@ -508,7 +508,8 @@ A rescue of an objective whose non-goals forbid test edits runs no TestEngineer
 stage. The skip goes through the same stage-skip rule as a dispatch and is
 recorded on the rescue voyage with the reason "the objective's non-goals forbid
 test edits". The TestEngineer still runs when the rescue itself is the
-TestEngineer, or when the failure names the TestEngineer.
+TestEngineer, or when the failure names the TestEngineer. A ban on test-only
+production seams does not trigger this skip.
 
 Dispatch preview refuses a pinned sibling commit that the sibling repository
 does not hold (`required_sibling_pin_unresolved`) or that is not an ancestor of
