@@ -37,11 +37,13 @@ docker = load_script('prune-docker-storage.py')
 agents = load_script('prune-agent-caches.py')
 daily = load_script('daily-storage-cleanup.py')
 dumps = load_script('prune-deploy-dumps.py')
+container_build = load_script('prune-container-build-outputs.py')
 
 DAY = 86400
 STAGE_SECTIONS = {
     'daily-storage-cleanup.py': 'orchestrator',
     'prune-build-outputs.py': 'buildOutputs',
+    'prune-container-build-outputs.py': 'containerBuildOutputs',
     'prune-agent-caches.py': 'agentCaches',
     'prune-docker-storage.py': 'docker',
     'prune-test-databases.py': 'testDatabases',
@@ -366,6 +368,41 @@ class ScratchExpiryTests(unittest.TestCase):
         self.assertEqual(receipt['removed_bytes'], receipt['candidate_bytes'])
 
 
+class IsolatedNugetCacheTests(unittest.TestCase):
+    def test_only_complete_inactive_cache_is_removed_and_raw_proof_survives(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            for name in ('idle', 'active', 'kept', 'incomplete', 'recent'):
+                cache = root / name / 'packages' / 'example.package' / '1.0.0'
+                write_file(cache / '.nupkg.metadata', 3)
+                write_file(cache / 'example.package.1.0.0.nupkg.sha512', 3)
+                write_file(root / name / 'proof.log', 3)
+            (root / 'incomplete/packages/example.package/1.0.0/.nupkg.metadata').unlink()
+            write_file(root / 'recent/packages/example.package/1.0.0/new', 0)
+            write_file(root / 'kept/.armada-keep', 3)
+            report = {'candidates': [], 'removed': [], 'failures': []}
+            build.prune_nuget_caches([str(root / '*' / 'packages')], [str(root)], [],
+                                    12, True, report, lambda reason: None,
+                                    lambda: [str(root / 'active' / 'repo')])
+            self.assertEqual([Path(x['path']).parent.name for x in report['removed']], ['idle'])
+            self.assertFalse((root / 'idle/packages').exists())
+            for name in ('active', 'kept', 'incomplete', 'recent'):
+                self.assertTrue((root / name / 'packages').exists(), name)
+            self.assertTrue((root / 'idle/proof.log').exists())
+            self.assertEqual(report['failures'], [])
+
+    def test_marker_on_ancestor_blocks_whole_scratch_expiry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            write_file(root / 'scratch/old/proof.log', 10)
+            write_file(root / '.armada-keep', 10)
+            report = {'candidates': [], 'removed': [], 'failures': []}
+            build.prune_scratch([str(root / 'scratch')], 3, [], True, report,
+                                lambda reason: None, lambda: [])
+            self.assertTrue((root / 'scratch/old/proof.log').exists())
+            self.assertEqual(report['removed'], [])
+
+
 class UnusedImageTagSelectionTests(unittest.TestCase):
     NOW = datetime.datetime(2026, 6, 1, tzinfo=datetime.timezone.utc)
 
@@ -441,6 +478,45 @@ class UnusedImageTagSelectionTests(unittest.TestCase):
                 parsed = docker.created_at({'Created': value})
                 self.assertEqual(parsed.replace(microsecond=0),
                                  datetime.datetime(2026, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc))
+
+
+class ContainerAndRetentionTests(unittest.TestCase):
+    def test_container_wrapper_pins_identity(self):
+        target = {'container': 'example', 'buildOutputs': {'roots': ['/scratch']}}
+        info = [{'Id': 'immutable-container-id', 'State': {'Running': True}}]
+        with mock.patch.object(container_build.subprocess, 'check_output', return_value=json.dumps(info)), \
+             mock.patch.object(container_build.subprocess, 'run') as run:
+            run.return_value.returncode = 0
+            self.assertEqual(container_build.clean_target(target, False), 0)
+            command = run.call_args.args[0]
+            self.assertIn('immutable-container-id', command)
+            bundle = json.loads(run.call_args.kwargs['input'])
+    @unittest.skipIf(os.path.isdir('/proc/self') and os.geteuid() != 0,
+                     'the actual container bootstrap requires root to inspect all processes')
+    def test_bootstrap_runs_cleaner_and_exports_full_receipt(self):
+        here = HERE
+        bundle = {'sources': {name: (here / name).read_text()
+                              for name in ('cleanup_config.py', 'prune-build-outputs.py')},
+                  'config': {'buildOutputs': {}}, 'apply': False}
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle['config']['buildOutputs']['roots'] = [str(Path(temporary).resolve())]
+            result = subprocess.run([sys.executable, '-c', container_build.BOOTSTRAP],
+                                    input=json.dumps(bundle), text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('"removed": []', result.stdout)
+
+    def test_old_retention_sets_expire_but_active_and_newest_images_stay(self):
+        images = []
+        for day in range(1, 6):
+            images.append({'Id': str(day), 'Created': '2026-01-01T00:00:00Z',
+                           'RepoTags': ['local/example:armada-retained-tag-2026010'
+                                        + str(day) + 'T000000Z-abc']})
+        settings = dict(docker.DEFAULTS, imageRepository='local/example', retireOlderRetainedSets=True)
+        with mock.patch.object(docker, 'run', return_value='ids'), \
+             mock.patch.object(docker, 'inspect', side_effect=[images, [{'Image': '1'}]]):
+            retired, sets, unused = docker.plan(settings)
+        self.assertEqual([x['image'] for x in retired], ['2'])
+        self.assertEqual(len(sets), 3)
 
 
 class DeployDumpRotationTests(unittest.TestCase):

@@ -4,6 +4,7 @@ import argparse
 import datetime
 import errno
 import fcntl
+import glob
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,9 @@ DEFAULTS = {
     'lockPath': '/run/lock/armada-storage-cleanup.lock',
     'diskUsagePath': '/',
     'scratchRoots': [],
+    'nugetCachePatterns': [],
+    'lowSpaceThresholdGb': 0,
+    'lowSpaceCacheRetentionHours': 48,
     'wholeFolderRetentionDays': 3,
 }
 KEEP_MARKER = '.armada-keep'
@@ -98,6 +102,86 @@ def folder_inventory(path):
             'keep': keep, 'device': initial.st_dev, 'inode': initial.st_ino}
 
 
+def kept(path):
+    """An explicit keep marker on the path or any ancestor protects its contents."""
+    p = Path(path)
+    return any((parent / KEEP_MARKER).exists() for parent in [p, *p.parents])
+
+
+def nuget_cache(path):
+    """Require NuGet completion records for every package version, never a source tree."""
+    packages = list(Path(path).iterdir())
+    if not packages:
+        return False
+    for package in packages:
+        if not package.is_dir() or package.is_symlink():
+            return False
+        versions = list(package.iterdir())
+        if not versions:
+            return False
+        for version in versions:
+            if not version.is_dir() or version.is_symlink():
+                return False
+            if not (version / '.nupkg.metadata').is_file() or not list(version.glob('*.nupkg.sha512')):
+                return False
+    return True
+
+
+def prune_nuget_caches(patterns, roots, excludes, hours, apply, report, skip, read_process_paths):
+    """Retire complete isolated package caches; retain the surrounding source and proof."""
+    seen = set()
+    for pattern in patterns:
+        for value in sorted(glob.glob(pattern)):
+            p = str(Path(value).absolute())
+            scope = str(Path(p).parent)
+            if p in seen:
+                continue
+            seen.add(p)
+            if not any(within(scope, root) and scope != root for root in roots):
+                skip('cache_outside_roots')
+                continue
+            if any(within(p, entry) or within(entry, p) for entry in excludes):
+                skip('excluded')
+                continue
+            try:
+                plain_path(p)
+                if kept(p) or any(Path(scope).rglob(KEEP_MARKER)):
+                    skip('keep_marker')
+                    continue
+                if not nuget_cache(p):
+                    skip('not_complete_nuget_cache')
+                    continue
+                info = folder_inventory(p)
+                if info['keep'] or info['newest_mtime'] > time.time() - hours * 3600:
+                    skip('recent_cache')
+                    continue
+                if active(scope, read_process_paths()):
+                    skip('active')
+                    continue
+                candidate = dict(path=p, kind='isolated_nuget_cache', scope=scope,
+                                 **{k: v for k, v in info.items() if k != 'keep'})
+                report['candidates'].append(candidate)
+                if apply:
+                    current = folder_inventory(p)
+                    if current != info or kept(p) or any(Path(scope).rglob(KEEP_MARKER)):
+                        skip('changed_before_delete')
+                        continue
+                    if not nuget_cache(p) or active(scope, read_process_paths()):
+                        skip('became_active_or_incomplete')
+                        continue
+                    if not shutil.rmtree.avoids_symlink_attacks:
+                        raise RuntimeError('This Python lacks safe directory removal')
+                    shutil.rmtree(p)
+                    report['removed'].append(candidate)
+            except ValueError as error:
+                if 'Symlink' in str(error):
+                    skip('symlink')
+                else:
+                    report['failures'].append({'path': p, 'error': str(error)})
+            except Exception as error:
+                report['failures'].append({'path': p, 'error': str(error)})
+
+
 def prune_scratch(scratch_roots, retention_days, excludes, apply, report, skip, read_process_paths):
     """Remove whole top-level scratch folders whose newest file is older than the retention.
 
@@ -116,6 +200,9 @@ def prune_scratch(scratch_roots, retention_days, excludes, apply, report, skip, 
     for root in scratch_roots:
         if not Path(root).exists():
             skip('missing_scratch_root')
+            continue
+        if kept(root):
+            skip('keep_marker')
             continue
         if any(within(root, entry) for entry in excludes):
             skip('excluded')
@@ -248,6 +335,9 @@ def main():
     excludes = [str(Path(p).absolute()) for p in settings['exclusions']]
     output_hours = max(24, float(settings['buildRetentionHours']))
     cache_hours = max(48, float(settings['cacheRetentionHours']))
+    low_space = shutil.disk_usage(settings['diskUsagePath']).free < float(settings['lowSpaceThresholdGb']) * 1024**3
+    if low_space:
+        cache_hours = min(cache_hours, max(12, float(settings['lowSpaceCacheRetentionHours'])))
     scratch_days = float(settings['wholeFolderRetentionDays'])
     if scratch_roots and scratch_days <= 0:
         raise ValueError('wholeFolderRetentionDays must be above 0 when scratchRoots is set')
@@ -278,13 +368,15 @@ def main():
         try:
             scratch = prune_scratch(scratch_roots, scratch_days, excludes, args.apply,
                                     report, skip, process_paths)
+            prune_nuget_caches(settings['nugetCachePatterns'], roots, excludes, cache_hours,
+                               args.apply, report, skip, process_paths)
             paths = process_paths()
             for root in roots:
                 if not Path(root).exists():
                     skip('missing_root')
                     continue
                 for base, dirs, files in os.walk(root, followlinks=False, onerror=raise_error):
-                    if excluded(base):
+                    if excluded(base) or kept(base):
                         dirs[:] = []
                         skip('excluded')
                         continue
@@ -327,6 +419,9 @@ def main():
                                 owner = git(cli_home.parent, 'rev-parse', '--show-toplevel')
                                 scope = (str(plain_path(owner.stdout.strip())) if owner.returncode == 0
                                          else str(cli_home.parent))
+                            if kept(scope) or any(Path(scope).rglob(KEEP_MARKER)):
+                                skip('keep_marker')
+                                continue
                             info = inventory(p, internal_symlinks=name == 'node_modules')
                             hours = cache_hours if kind == 'nuget_cache' else output_hours
                             if info['newest_mtime'] > time.time() - hours * 3600:
@@ -343,6 +438,9 @@ def main():
                                     raise RuntimeError('Candidate identity changed')
                                 if current['newest_mtime'] > time.time() - hours * 3600:
                                     skip('became_recent')
+                                    continue
+                                if kept(scope) or any(Path(scope).rglob(KEEP_MARKER)):
+                                    skip('became_kept')
                                     continue
                                 if kind == 'build':
                                     current_top, reason = git_guard(p)

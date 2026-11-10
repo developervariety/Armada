@@ -17,6 +17,7 @@ from cleanup_config import add_config_argument, load_config
 DEFAULTS = {
     'lockPath': '/run/lock/armada-prune-docker-storage.lock',
     'retainedSetsRequired': 3,
+    'retireOlderRetainedSets': False,
     'danglingPruneUntil': '48h',
     'disposableVolumes': [],
     'unusedImageTagPatterns': [],
@@ -93,8 +94,17 @@ def plan(settings):
     tags = {t: image for image in images for t in image.get('RepoTags') or []}
     repository = settings['imageRepository']
     required = int(settings['retainedSetsRequired'])
+    if required < 1:
+        raise ValueError('retainedSetsRequired must be at least one')
     sets = sorted({m.group(1) for t in tags if (m := re.fullmatch(retained_pattern(repository), t))}, reverse=True)
     retired = []
+    protected_ids = {tags[t]['Id'] for t in settings.get('protectedImageTags', []) if t in tags}
+    if settings.get('retireOlderRetainedSets'):
+        for tag, image in tags.items():
+            match = re.fullmatch(retained_pattern(repository), tag)
+            if (match and match.group(1) not in sets[:required]
+                    and image['Id'] not in used and image['Id'] not in protected_ids):
+                retired.append({'tag': tag, 'image': image['Id']})
     # Independently dated retention sets must exist before an older tag can go.
     if len(sets) >= required:
         floor = datetime.datetime.strptime(sets[required - 1], '%Y%m%dT%H%M%SZ').replace(tzinfo=datetime.timezone.utc)

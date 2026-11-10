@@ -1,7 +1,6 @@
 {
   "_about": "Host storage cleanup configuration. Install as /etc/armada/storage-cleanup.json. Keys that start with '_' are comments. Paths below are placeholders; replace every /path/to value with a real host path.",
   "receiptDirectory": "/var/log/armada-storage-cleanup",
-
   "orchestrator": {
     "_about": "daily-storage-cleanup.py: runs the stages in order under one lock and writes daily-<stamp>.json plus each stage's stdout and stderr to receiptDirectory. Receipts remain with the verified history archive owner; the former receiptRetentionDays key is ignored.",
     "lockPath": "/run/lock/armada-daily-storage-cleanup.lock",
@@ -9,9 +8,15 @@
     "diskUsagePath": "/",
     "python": "/usr/bin/python3",
     "scriptDirectory": null,
-    "stages": ["build", "agents", "docker", "test-databases", "deploy-dumps"]
+    "stages": [
+      "build",
+      "agents",
+      "docker",
+      "test-databases",
+      "deploy-dumps"
+    ],
+    "minimumFreeGb": 20
   },
-
   "buildOutputs": {
     "_about": "prune-build-outputs.py: removes git-ignored, untracked bin/obj/node_modules and isolated dotnet-cli-home NuGet caches under roots, then (optional) whole idle scratch folders under scratchRoots. roots and receiptDirectory are required.",
     "roots": [
@@ -30,9 +35,11 @@
       "/path/to/scratch",
       "/path/to/agent-home/gate-scratch"
     ],
-    "wholeFolderRetentionDays": 3
+    "wholeFolderRetentionDays": 3,
+    "nugetCachePatterns": [],
+    "lowSpaceThresholdGb": 20,
+    "lowSpaceCacheRetentionHours": 12
   },
-
   "agentCaches": {
     "_about": "Disposable CLI cache cleanup only. Raw sessions, transcripts, chat databases, outputs and backups remain with the verified history archive owner.",
     "home": "/path/to/agent-home",
@@ -44,7 +51,6 @@
     "opencodeBackupRetentionDays": 7,
     "maintenanceRetentionHours": 48
   },
-
   "docker": {
     "_about": "prune-docker-storage.py: retires rollback-before-* tags of imageRepository once retainedSetsRequired dated retention sets exist, removes unused tags that match unusedImageTagPatterns, removes the reviewed disposableVolumes, and prunes dangling layers older than danglingPruneUntil. imageRepository is required.",
     "imageRepository": "local/armada-server",
@@ -52,29 +58,65 @@
     "retainedSetsRequired": 3,
     "danglingPruneUntil": "48h",
     "disposableVolumes": [],
-    "unusedImageTagPatterns": ["example-proof*", "candidate-*"],
+    "unusedImageTagPatterns": [
+      "example-proof*",
+      "candidate-*"
+    ],
     "unusedImageMinAgeDays": 7,
-    "protectedImageTags": ["local/armada-server:latest"],
-    "protectedTagPatterns": ["armada-retained-*", "rollback-before-*"]
+    "protectedImageTags": [
+      "local/armada-server:latest"
+    ],
+    "protectedTagPatterns": [
+      "armada-retained-*",
+      "rollback-before-*"
+    ],
+    "retireOlderRetainedSets": false
   },
-
   "testDatabases": {
     "_about": "prune-test-databases.py: drops generated test databases older than minimumAgeHours in each target Postgres container, only when no test runner is visible on the host or in runnerContainers. targets, runnerCommandPattern and runnerArgumentPatterns are required.",
     "lockPath": "/run/lock/armada-prune-test-databases.lock",
     "minimumAgeHours": 48,
     "targets": [
-      { "container": "example-test-postgres", "databasePattern": "exampletest_[0-9a-f]{32}" }
+      {
+        "container": "example-test-postgres",
+        "databasePattern": "exampletest_[0-9a-f]{32}"
+      }
     ],
-    "runnerContainers": { "admiral": "armada-admiral" },
+    "runnerContainers": {
+      "admiral": "armada-admiral"
+    },
     "runnerCommandPattern": "dotnet|testhost|vstest|\\.Tests",
-    "runnerArgumentPatterns": ["Armada\\.Test|exampletest", "test"]
+    "runnerArgumentPatterns": [
+      "Armada\\.Test|exampletest",
+      "test"
+    ]
   },
-
   "deployDumps": {
     "_about": "prune-deploy-dumps.py: keeps the newest keep regular files whose name matches pattern directly in directory, by modification time, and removes the older ones. A file that a process holds open, or that changed between plan and delete, is kept. directory and pattern are required; the stage runs only when orchestrator.stages names deploy-dumps.",
     "directory": "/path/to/backups",
     "pattern": "example-pre-*.dump",
     "keep": 2,
     "lockPath": "/run/lock/armada-prune-deploy-dumps.lock"
+  },
+  "containerBuildOutputs": {
+    "_about": "Optional container-build stage. Deletes only reproducible payloads; whole-folder retirement is refused. Process checks run inside the pinned running container.",
+    "targets": [
+      {
+        "container": "example-admiral",
+        "buildOutputs": {
+          "roots": [
+            "/tmp"
+          ],
+          "scratchRoots": [],
+          "exclusions": [],
+          "nugetCachePatterns": [
+            "/tmp/*/packages"
+          ],
+          "cacheRetentionHours": 48,
+          "lowSpaceThresholdGb": 20,
+          "lowSpaceCacheRetentionHours": 12
+        }
+      }
+    ]
   }
 }

@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Host storage cleanup supports guarded container build payloads and isolated NuGet caches, honors ancestor keep markers, bounds old image retention sets when enabled, and fails visibly below a configured free-space floor. Raw history stays with verified archive retirement.
+
 - PostgreSQL and SQL Server vessel-policy migrations validate existing columns through the strict additive-column replay guard.
 
 - The brief-budget fallback preserves mission head-and-tail context beside pinned criteria and output references, and removes small code-index lookup guidance with matching ledger telemetry when more space is required.

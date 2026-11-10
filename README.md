@@ -187,3 +187,5 @@ src/
 Armada was created by [jchristn](https://github.com/jchristn) as [`jchristn/Armada`](https://github.com/jchristn/Armada). This fork builds on that work, and all upstream copyright and attribution are retained.
 
 Armada is licensed under the terms in [LICENSE.md](LICENSE.md).
+
+Host storage maintenance includes an optional container build/cache stage, ancestor keep-marker protection, bounded image retention, and a free-space failure floor. Configuration and safety rules are in [Host storage cleanup](docs/DOCKER.md#host-storage-cleanup).

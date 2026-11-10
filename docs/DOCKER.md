@@ -534,6 +534,34 @@ ignored:
 | `prune-test-databases.py` | Generated test databases older than `minimumAgeHours` in each target Postgres container, only when no test runner is running. |
 | `prune-deploy-dumps.py` | Pre-deploy database dumps in `directory` whose name matches `pattern`, except the newest `keep` (default 2) by modification time. A dump that a process holds open is kept. |
 
+The optional `container-build` stage runs `prune-container-build-outputs.py` in
+configured running containers. It pins the container ID and uses the same build
+cleaner inside that PID namespace, so process paths match container paths. It
+never starts, stops or restarts a container. Whole-folder scratch retirement is
+refused in this stage. Full JSON receipts are exported to the host stage output.
+
+`buildOutputs.nugetCachePatterns` selects isolated NuGet package caches below
+`roots`. Every package version must have NuGet completion metadata and a SHA-512
+record. Incomplete caches, active parent scratch areas, symlinks that leave a
+candidate, and keep markers are protected. Only the cache is removed; source,
+logs and proof files beside it remain. Cache age normally uses
+`cacheRetentionHours` with a 48-hour minimum. When free space falls below
+`lowSpaceThresholdGb`, `lowSpaceCacheRetentionHours` can reduce this to a minimum
+of 12 hours. A keep marker on any ancestor also protects build outputs and whole
+scratch retirement. Server roots and cache patterns belong in the installed
+configuration, not in the scripts.
+
+`docker.retireOlderRetainedSets` opts in to removal of dated retention tags older
+than the newest `retainedSetsRequired` sets. Images used by any container or named
+by `protectedImageTags` stay protected. This option defaults off. Removing a tag
+does not imply that its shared image layers were freed.
+
+`orchestrator.minimumFreeGb` sets the required free-space floor after cleanup.
+A value of zero disables this check. The receipt and journal include free bytes
+before and after cleanup and their difference. A run below the floor returns a
+failure even when every cleaner completed. This exposes insufficient cleanup
+coverage instead of reporting a healthy run that freed no space.
+
 The agent-cache stage does not retire raw history. The history archive owns verified upload and local retirement. Archive retirement requires verified remote copies and the supported retention rules; an ordinary local backup is not archive proof. Provider-specific active-writer protection and whole-chat archival must be established before adding mutable chat databases to an archive root.
 
 Every stage fails closed. It skips a path that a running process references, a

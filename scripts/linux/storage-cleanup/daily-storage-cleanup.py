@@ -13,6 +13,7 @@ from cleanup_config import add_config_argument, load_config
 
 STAGES = [
     ('build', 'prune-build-outputs.py'),
+    ('container-build', 'prune-container-build-outputs.py'),
     ('agents', 'prune-agent-caches.py'),
     ('docker', 'prune-docker-storage.py'),
     ('test-databases', 'prune-test-databases.py'),
@@ -27,6 +28,7 @@ DEFAULTS = {
     'python': sys.executable or '/usr/bin/python3',
     'scriptDirectory': None,
     'stages': DEFAULT_STAGES,
+    'minimumFreeGb': 0,
 }
 
 
@@ -67,12 +69,19 @@ def main():
             report['stages'].append(result)
             print(name + ' exit=' + str(result['exit_code']), flush=True)
         report['free_after'] = shutil.disk_usage(settings['diskUsagePath']).free
+        report['free_change_bytes'] = report['free_after'] - report['free_before']
+        report['low_space'] = report['free_after'] < float(settings['minimumFreeGb']) * 1024**3
+        print('Free bytes: before=' + str(report['free_before']) + ' after=' + str(report['free_after'])
+              + ' change=' + str(report['free_change_bytes']), flush=True)
+        if report['low_space']:
+            print('Storage remains below minimumFreeGb; inspect protected and uncovered storage.',
+                  file=sys.stderr, flush=True)
         report['finished_utc'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         path = directory / ('daily-' + stamp + '.json')
         path.write_text(json.dumps(report, indent=2) + '\n')
         print('Receipt: ' + str(path), flush=True)
         # Receipts and stage output are history. Only the verified archive owner may retire them.
-        return 1 if any(s['exit_code'] != 0 for s in report['stages']) else 0
+        return 1 if report['low_space'] or any(s['exit_code'] != 0 for s in report['stages']) else 0
 
 
 if __name__ == '__main__':
