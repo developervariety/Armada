@@ -67,6 +67,7 @@ namespace Armada.Core.Services
             // captain of another tenant is never provisioned a dock it could not claim.
             if (!MissionService.CaptainServesTenant(captain, mission.TenantId)) return ReasonOtherTenant;
             if (isQuarantined(captain)) return ReasonQuarantined;
+            if (JudgeChallenge.IsCaptainExcluded(mission, captain)) return LegacyCaptainSelector.ReasonChallengerExcluded;
             if (MissionService.IsExcludedForAssignment(mission, captain)) return ReasonExcludedAfterRefusal;
             string? holder = reservedBy(captain.Id);
             if (holder != null && !String.Equals(holder, mission.Id, StringComparison.Ordinal)) return ReasonReserved;

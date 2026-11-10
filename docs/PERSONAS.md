@@ -181,7 +181,12 @@ the persisted scored decision (or the blocking-list reader for an older review),
 mission (template `persona.challenger`, mode `Audit`) checked out at the
 reviewed commit. Its brief holds the numbered findings, the Judge's output and
 the reviewed stage's brief with the objective. Routing skips every captain on the
-Judge's model. The Challenger runs outside any voyage, so its read scope comes
+Judge's model as a hard eligibility constraint. It never falls back to those
+captains when independent capacity is busy, exhausted or otherwise unavailable.
+The challenge stays Pending with `challenger_model_excluded` in its per-captain
+assignment explanation until normal routing can select an independent captain.
+Ordinary mission retry skip lists retain their existing fallback. The model is
+checked again before a completed Challenge can be settled. The Challenger runs outside any voyage, so its read scope comes
 from the Judge it challenges: when the brief's `Judge mission: <id>` line names a
 Judge whose `judge_challenge.dispatched` record names this Challenger, it reads
 that Judge, the Judge's voyage and its missions (such as the reviewed Worker's

@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Challenger assignment treats its stored same-model captain exclusions as hard constraints in Legacy and Smart Routing, reports the exclusion while waiting for independent capacity, and retains the settlement model check. Ordinary retry fallback is unchanged.
+
 - The admiral protects every operator-evidence child when its root holds `.armada-keep`, including expired payloads and low-space cleanup.
 
 - Host storage cleanup supports guarded container build payloads and isolated NuGet caches, honors ancestor keep markers, bounds old image retention sets when enabled, and fails visibly below a configured free-space floor. Raw history stays with verified archive retirement.

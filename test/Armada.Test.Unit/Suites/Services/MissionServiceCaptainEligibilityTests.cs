@@ -113,6 +113,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_Challenger_WaitsForAnIndependentCaptain_InBothRoutingModes", async () =>
+            {
+                foreach (bool smart in new[] { false, true })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.ModelTier.UsageRouting.Enabled = smart;
+                        MissionService service = CreateMissionService(testDb.Driver, settings);
+                        Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                        Captain sameModel = await CreateAnyPersonaCaptainAsync(testDb.Driver, "same-model", CaptainStateEnum.Idle).ConfigureAwait(false);
+                        sameModel.Model = "example/judge-model";
+                        await testDb.Driver.Captains.UpdateAsync(sameModel).ConfigureAwait(false);
+                        Mission challenger = new Mission("challenge", "Challenge the blocking findings.");
+                        challenger.VesselId = vessel.Id;
+                        challenger.Persona = PersonaCatalog.Challenger;
+                        challenger.Mode = MissionModeEnum.Audit;
+                        challenger.RetrySkipCaptainIds = sameModel.Id;
+                        challenger = await testDb.Driver.Missions.CreateAsync(challenger).ConfigureAwait(false);
+
+                        string? noIndependentModel = await MissionService.DescribeUnassignableByConstructionAsync(testDb.Driver, settings, challenger).ConfigureAwait(false);
+                        AssertTrue(noIndependentModel != null && noIndependentModel.StartsWith(LegacyCaptainSelector.ReasonChallengerExcluded, StringComparison.Ordinal),
+                            "A missing independent model is not misreported as a tier mismatch.");
+                        AssertFalse(await service.TryAssignAsync(challenger, vessel).ConfigureAwait(false), "A Challenger never falls back to the excluded model.");
+                        Mission held = (await testDb.Driver.Missions.ReadAsync(challenger.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Pending, held.Status, "The challenge waits without running.");
+                        AssertEqual(MissionAssignmentHold.NoEligibleCaptain, held.AssignmentHoldReason, "The wait is explained.");
+                        await MissionReadDerivations.ApplyAsync(testDb.Driver, held).ConfigureAwait(false);
+                        AssertEqual(LegacyCaptainSelector.ReasonChallengerExcluded,
+                            held.AssignmentHoldCaptains.First(item => item.CaptainId == sameModel.Id).Reason,
+                            "The same-model exclusion is named rather than reported as unavailable quota.");
+
+                        Captain independent = await CreateAnyPersonaCaptainAsync(testDb.Driver, "independent-model", CaptainStateEnum.Idle).ConfigureAwait(false);
+                        independent.Model = "example/independent-model";
+                        await testDb.Driver.Captains.UpdateAsync(independent).ConfigureAwait(false);
+                        AssertTrue(await service.TryAssignAsync(held, vessel).ConfigureAwait(false), "An eligible independent captain releases the wait.");
+                        Mission assigned = (await testDb.Driver.Missions.ReadAsync(challenger.Id).ConfigureAwait(false))!;
+                        AssertEqual(independent.Id, assigned.CaptainId, "The independent captain is selected without a pin.");
+                        AssertNull(assigned.AssignmentHoldReason, "The hold clears through normal assignment.");
+                    }
+                }
+            });
+
             await RunTest("TryAssign_NoEligibleCaptain_HoldsWithPerCaptainReasons_AndReleasesWhenOneQualifies", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

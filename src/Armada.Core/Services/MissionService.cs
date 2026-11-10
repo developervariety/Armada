@@ -14289,6 +14289,11 @@ namespace Armada.Core.Services
             if (personaCaptains.Count == 0)
                 return "no captain of the tenant allows persona " + (mission.Persona ?? "(none)");
 
+            personaCaptains = personaCaptains.Where(item => !JudgeChallenge.IsCaptainExcluded(mission, item)).ToList();
+            if (personaCaptains.Count == 0)
+                return LegacyCaptainSelector.ReasonChallengerExcluded
+                    + ": no captain of the tenant that allows Challenger is outside its same-model exclusions";
+
             UsageRoutingSettings usagePolicy = settings.ModelTier.UsageRouting;
             if (usagePolicy.Enabled)
             {

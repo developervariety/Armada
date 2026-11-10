@@ -167,6 +167,42 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Challenger waits when usage removes the independent model while ordinary retries retain fallback", async () =>
+            {
+                Captain same = NewCaptain("same-model", _Luna);
+                Captain independent = NewCaptain("independent-model", _Opus);
+                foreach (Captain captain in new[] { same, independent })
+                {
+                    captain.Tier = CaptainTierEnum.Premium;
+                    captain.AllowedPersonas = "[\"Challenger\",\"Worker\"]";
+                }
+                List<Captain> pool = new List<Captain> { same, independent };
+                Mission mission = new Mission { Persona = PersonaCatalog.Challenger, PreferredModel = "high", RetrySkipCaptainIds = same.Id };
+                UsageRoutingSettings policy = Policy(Account("same-account", 90, same.Id), Account("independent-account", 0, independent.Id));
+                UsageRoutingDecision waiting = await SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+                {
+                    Tiers = Tiers(), Policy = policy, Usage = new UsageRoutingService(), Mission = mission, Pool = pool, RandomPick = _ => 0
+                }).ConfigureAwait(false);
+                AssertEqual(0, waiting.Candidates.Count, "Exhausted independent capacity does not permit the Judge's model.");
+                AssertTrue(waiting.Verdicts.Any(item => item.CaptainId == same.Id && item.Reason == LegacyCaptainSelector.ReasonChallengerExcluded),
+                    "The exclusion is visible in routing diagnostics.");
+
+                mission.Persona = PersonaCatalog.Worker;
+                UsageRoutingDecision retry = await SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+                {
+                    Tiers = Tiers(), Policy = policy, Usage = new UsageRoutingService(), Mission = mission, Pool = pool, RandomPick = _ => 0
+                }).ConfigureAwait(false);
+                AssertEqual(same.Id, retry.Candidates.First().Id, "An ordinary retry still falls back when no alternative is usable.");
+
+                mission.Persona = PersonaCatalog.Challenger;
+                policy.Accounts[1] = Account("independent-account", 90, independent.Id);
+                UsageRoutingDecision available = await SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+                {
+                    Tiers = Tiers(), Policy = policy, Usage = new UsageRoutingService(), Mission = mission, Pool = pool, RandomPick = _ => 0
+                }).ConfigureAwait(false);
+                AssertEqual(independent.Id, available.Candidates.First().Id, "Normal routing selects an independent model when capacity exists.");
+            });
+
             await RunTest("Enabled without persona models or routes keeps the legacy order, removes Exhausted and demotes Low", async () =>
             {
                 List<Captain> pool = Pool();

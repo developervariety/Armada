@@ -78,6 +78,21 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
+        /// Whether the Challenger's stored same-model exclusion prevents this captain from being selected.
+        /// Unlike ordinary retry preferences, an independent challenge never falls back to an excluded captain.
+        /// </summary>
+        /// <param name="mission">Mission being assigned.</param>
+        /// <param name="captain">Candidate captain.</param>
+        /// <returns>True when the Challenger must wait rather than use this captain.</returns>
+        public static bool IsCaptainExcluded(Mission mission, Captain captain)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            return PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Challenger)
+                && MissionService.IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, captain.Id);
+        }
+
+        /// <summary>
         /// Whether a failed mission is a Judge NEEDS_REVISION the round may challenge. A FAIL verdict, a
         /// PASS rejected by a red Check, a criterion conflict and a comment-only revision are never challenged.
         /// </summary>

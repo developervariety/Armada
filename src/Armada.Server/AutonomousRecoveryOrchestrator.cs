@@ -4102,7 +4102,7 @@ namespace Armada.Server
                 .Any(run => run.Status == CheckRunStatusEnum.Failed);
         }
 
-        // The captains that run the Judge's model, so routing prefers a Challenger on another model.
+        // Captains on the Judge's model are hard exclusions for Challenger assignment.
         private async Task<string?> BuildSameModelSkipListAsync(Mission failed, CancellationToken token)
         {
             Captain? judge = String.IsNullOrWhiteSpace(failed.CaptainId)
@@ -4120,7 +4120,7 @@ namespace Armada.Server
             return String.Join(",", sameModel);
         }
 
-        // Routing only prefers another model, so the model is checked again once the Challenger has run.
+        // Keep the settlement check as a second guard after independent Challenger assignment.
         private async Task<string?> DescribeSameModelAsync(Mission failed, Mission challenger, CancellationToken token)
         {
             Captain? judge = String.IsNullOrWhiteSpace(failed.CaptainId)

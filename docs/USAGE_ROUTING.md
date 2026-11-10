@@ -61,14 +61,14 @@ this layer but none of them is idle, the mission waits and Armada records
 `mission.waiting_for_captain` when the wait is first seen and again only when
 its reason changes. The reason names the tier floor, the busy captains that
 may take the mission, and a count of idle captains per exclusion reason
-(`persona_not_allowed`, `below_tier_floor`, `model_pin_mismatch`), plus the
+(`persona_not_allowed`, `below_tier_floor`, `model_pin_mismatch`, `challenger_model_excluded`), plus the
 idle captains that eligibility admits but quarantine, a reservation, a retry
 exclusion or Smart Routing holds back.
 
 When captains of the tenant are idle but none may take the mission, the mission
 is held as `no_eligible_captain`. One per-captain rule decides which idle
 captains enter the assignment pool, and the hold reports the same rule's
-answer: `not_idle`, `quarantined`, `excluded_after_refusal`, `persona_not_allowed`, `model_pin_mismatch` or
+answer: `not_idle`, `quarantined`, `excluded_after_refusal`, `challenger_model_excluded`, `persona_not_allowed`, `model_pin_mismatch` or
 `below_tier_floor` for each captain of the tenant. A captain that only another
 assignment pass has reserved does not make the hold. The reasons are in the
 payload of the `mission.assignment_held` event, in the mission read
@@ -102,7 +102,10 @@ The eligible captains are ordered by these keys, first key first:
    random, so a model with more captains is not favoured.
 
 A retry avoids the captains on its retry skip list while another eligible
-captain remains. A requested captain and a fallback tier are applied before
+captain remains. A Challenger's stored same-model exclusions are hard constraints:
+those captains are never selected, even when usage removes every independent
+candidate. The mission waits for independent capacity and reports the exclusion.
+A requested captain and a fallback tier are applied before
 this layer; see [Requested captain and fallback tier](#requested-captain-and-fallback-tier).
 `reservedHighTierSlots` holds idle Premium captains for downstream work when
 the pipeline can produce a later review stage.
@@ -168,7 +171,8 @@ steps are:
    `reservedPersonas` and `reservedPriorityAtOrAbove` keep a Low or Reserve
    captain in its position for that work (`reserved_work_keeps_position`).
    A retry does not return to a captain on its retry skip list while any
-   other kept or demoted captain remains.
+   other kept or demoted captain remains. A Challenger never returns to a captain
+   on its same-model exclusion list.
 4. **Persona model groups (optional).** See the next section.
 5. The first captain that remains is assigned.
 
@@ -766,7 +770,7 @@ steps of the selection:
 | Field | Content |
 | --- | --- |
 | `legacyOrder` | The Legacy Routing order of the idle, route-restricted captains; each carries `ranking` with effective `tier`, `capabilityDimension`, `capabilityScore`, `preferenceRank`, `externalProviderPreferred`, and `personaPreferred` |
-| `usageFilter` | One verdict per captain: `captainId`, `model`, `accountId`, `state`, `layer` (`eligibility`, `routes`, `usage`), `outcome` (`kept`, `demoted`, `removed`, `outside_routes`, `excluded`), `reason` (for `eligibility`: `persona_not_allowed`, `below_tier_floor`, or `model_pin_mismatch`) |
+| `usageFilter` | One verdict per captain: `captainId`, `model`, `accountId`, `state`, `layer` (`eligibility`, `routes`, `usage`), `outcome` (`kept`, `demoted`, `removed`, `outside_routes`, `excluded`), `reason` (for `eligibility`: `persona_not_allowed`, `below_tier_floor`, `model_pin_mismatch`, or `challenger_model_excluded`) |
 | `modelGroups` | The persona model groups in the order tried, each with its captain IDs |
 | `capacity` | `choice`, `source`, and `asked` |
 | `candidates` | The final order |

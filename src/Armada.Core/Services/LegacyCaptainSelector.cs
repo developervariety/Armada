@@ -29,6 +29,9 @@ namespace Armada.Core.Services
         /// <summary>The captain's tier is below the mission's tier floor.</summary>
         public const string ReasonBelowTierFloor = "below_tier_floor";
 
+        /// <summary>The captain is excluded from an independent Challenger round.</summary>
+        public const string ReasonChallengerExcluded = "challenger_model_excluded";
+
         /// <summary>The mission pins a concrete model that another idle captain runs.</summary>
         public const string ReasonModelPinMismatch = "model_pin_mismatch";
 
@@ -78,7 +81,8 @@ namespace Armada.Core.Services
             List<Captain> eligible = new List<Captain>();
             foreach (Captain captain in idleCaptains)
             {
-                if (captain != null && MissionService.CaptainAllowsPersona(captain, mission.Persona))
+                if (captain != null && MissionService.CaptainAllowsPersona(captain, mission.Persona)
+                    && !JudgeChallenge.IsCaptainExcluded(mission, captain))
                     eligible.Add(captain);
             }
 
@@ -181,7 +185,9 @@ namespace Armada.Core.Services
             foreach (Captain captain in idleCaptains)
             {
                 if (captain == null) continue;
-                if (!MissionService.CaptainAllowsPersona(captain, mission.Persona))
+                if (JudgeChallenge.IsCaptainExcluded(mission, captain))
+                    reasons[captain.Id] = ReasonChallengerExcluded;
+                else if (!MissionService.CaptainAllowsPersona(captain, mission.Persona))
                     reasons[captain.Id] = ReasonPersonaNotAllowed;
                 else if (pinSatisfied && !RunsModel(captain, preferredModel!))
                     reasons[captain.Id] = ReasonModelPinMismatch;

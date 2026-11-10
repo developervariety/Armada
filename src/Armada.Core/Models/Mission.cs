@@ -454,7 +454,8 @@ namespace Armada.Core.Models
         /// different captain rather than re-selecting the same degraded provider. The
         /// count of entries is the in-place re-run budget, which is deliberately kept
         /// separate from <see cref="RecoveryAttempts"/> so an intermittent provider never
-        /// consumes the autonomous-rescue budget.
+        /// consumes the autonomous-rescue budget. For a Challenger, this field instead carries
+        /// the Judge's same-model captain exclusions, which are hard assignment constraints.
         /// </summary>
         public string? RetrySkipCaptainIds { get; set; } = null;
 
