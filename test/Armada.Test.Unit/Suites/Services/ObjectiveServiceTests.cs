@@ -101,6 +101,30 @@ namespace Armada.Test.Unit.Suites.Services
                 report = CampaignCloseoutEvaluator.Evaluate(root.Id, await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false));
                 AssertTrue(report.Items.Any(item => item.ObjectiveId == leaf.Id && item.Reason == "objective_not_completed"),
                     "cancelled scope cannot silently count as delivery");
+
+                root = NotNull(await service.ReadAsync(auth, root.Id).ConfigureAwait(false));
+                ObjectivePreparationClaim retirement = new ObjectivePreparationClaim
+                {
+                    Id = "campaign-retirement:" + leaf.Id, Kind = ObjectivePreparationClaimKindEnum.OwnerDecision,
+                    Text = "The owner retired this scope without claiming delivery.",
+                    EvidenceLinks = new List<string> { "https://example.test/owner-retirement" },
+                    State = ObjectivePreparationClaimStateEnum.Verified, VerifiedUtc = DateTime.UtcNow
+                };
+                root.Preparation = new ObjectivePreparation { Claims = new List<ObjectivePreparationClaim> { retirement } };
+                root.EvidenceLinks.Add("https://example.test/campaign-acceptance");
+                await service.UpdateAsync(auth, root.Id, new ObjectiveUpsertRequest
+                { Preparation = root.Preparation, EvidenceLinks = root.EvidenceLinks }).ConfigureAwait(false);
+                foreach (Objective group in scope.Where(row => row.Id != root.Id && row.Id != leaf.Id))
+                    await service.UpdateAsync(auth, group.Id, new ObjectiveUpsertRequest
+                    { EvidenceLinks = new List<string> { "https://example.test/group-acceptance" } }).ConfigureAwait(false);
+                completed = await service.UpdateAsync(auth, root.Id,
+                    new ObjectiveUpsertRequest { Status = ObjectiveStatusEnum.Completed }).ConfigureAwait(false);
+                report = CampaignCloseoutEvaluator.Evaluate(root.Id, await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false));
+                AssertEqual(0, report.Items.Count, "an explicit verified retirement permits structural closeout");
+                AssertEqual(ObjectiveStatusEnum.Cancelled, NotNull(await service.ReadAsync(auth, leaf.Id).ConfigureAwait(false)).Status,
+                    "retirement does not pretend delivery or change the cancelled record");
+                AssertEqual(parent.Id, NotNull(await service.ReadAsync(auth, leaf.Id).ConfigureAwait(false)).ParentObjectiveId);
+                AssertEqual("Deliver every scoped item", completed.AcceptanceCriteria.Single());
             }).ConfigureAwait(false);
 
             await RunTest("Ready labels require complete preflight and stale repair preserves queue intent", async () =>
