@@ -137,7 +137,7 @@ namespace Armada.Test.Unit.Suites.Services
                 scope = await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false);
                 Objective scopedRoot = scope.Single(row => row.Id == root.Id);
                 Objective scopedLeaf = scope.Single(row => row.Id == leaf.Id);
-                ObjectivePreparationClaim scopedClaim = NotNull(scopedRoot.Preparation).Claims.Single();
+                ObjectivePreparationClaim scopedClaim = scopedRoot.Preparation!.Claims.Single();
                 void AssertRetirementBlocked(string reason)
                 {
                     CampaignCloseoutReport rejected = CampaignCloseoutEvaluator.Evaluate(root.Id, scope);
