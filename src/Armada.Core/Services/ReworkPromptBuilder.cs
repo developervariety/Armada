@@ -20,7 +20,8 @@ namespace Armada.Core.Services
 
         /// <summary>The output contract a reworking captain ends its report with.</summary>
         public const string OutputContract =
-            "End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a short summary that says, for each numbered finding, "
+            "In the final assistant response itself, emit the literal standalone line [ARMADA:RESULT] COMPLETE without quotes or backticks, "
+            + "followed by a short summary that says, for each numbered finding, "
             + "whether you fixed it or rejected it with evidence.";
 
         #endregion
@@ -82,14 +83,14 @@ namespace Armada.Core.Services
             StringBuilder demands = new StringBuilder("Demands:\n");
             int number = 1;
             if (findingCount <= 0)
-                demands.Append(number++).Append(". Address the reviewer feedback above, or reject it with evidence from the code.\n");
+                demands.Append(number++).Append(". Address the reviewer feedback within the mission's assigned role and scope, or reject it with direct evidence.\n");
             for (int i = 0; i < findingCount; i++)
                 demands.Append(number++).Append(". Finding ").Append(i + 1)
-                    .Append(": change the code so it no longer applies, or reject it with evidence from the code.\n");
+                    .Append(": resolve it within the mission's assigned role and scope, or reject it with direct evidence.\n");
             demands.Append(number++).Append(". Keep the work already on the branch. Do not start over.\n");
-            demands.Append(number++).Append(". Change only what the findings require.\n");
-            demands.Append(number++).Append(". Run the vessel's checks again after the fixes.\n");
-            demands.Append(number++).Append(". Commit the fixes on the existing branch.\n");
+            demands.Append(number++).Append(". Change only what the findings require and the mission permits. Read/report-only work must not edit source or create a token commit.\n");
+            demands.Append(number++).Append(". Run only checks required and authorized for this mission. Reuse valid proof on unchanged code; do not replay it to repair a read or report failure.\n");
+            demands.Append(number++).Append(". Commit authorized repository fixes on the existing branch. If no edit was required or allowed, preserve saved work and report the completed reading or review.\n");
             demands.Append(number).Append(". ").Append(OutputContract);
             return demands.ToString();
         }

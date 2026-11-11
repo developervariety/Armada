@@ -30,6 +30,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("1. Finding 1: ", section, "Demand 1 answers finding 1.");
                 AssertContains("2. Finding 2: ", section, "Demand 2 answers finding 2.");
                 AssertFalse(section.Contains("Finding 3:", StringComparison.Ordinal), "No demand exists without a finding.");
+                AssertContains("within the mission's assigned role and scope", section,
+                    "A review finding must not grant an edit outside the assigned role or scope.");
+                AssertContains("Read/report-only work must not edit source or create a token commit", section,
+                    "A reading correction is not an instruction to manufacture code changes.");
+                AssertContains("Run only checks required and authorized for this mission", section,
+                    "Rework must preserve the mission's execution authority.");
+                AssertContains("Reuse valid proof on unchanged code", section,
+                    "A read or report failure does not require replaying valid product proof.");
+                AssertContains("If no edit was required or allowed, preserve saved work", section,
+                    "Read-only work can complete without a repository edit.");
+                AssertContains("In the final assistant response itself, emit the literal standalone line [ARMADA:RESULT] COMPLETE without quotes or backticks", section,
+                    "The completion marker belongs in the actual response, not only in a saved report.");
                 AssertTrue(section.EndsWith(ReworkPromptBuilder.OutputContract, StringComparison.Ordinal), "The output contract closes the section.");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);

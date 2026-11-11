@@ -467,8 +467,11 @@ in one paragraph ("(1) replace ...; (2) add ...") become one finding each. The b
 items that name no defect, then NOT MET criteria, then named defects. A finding is never cut. The list ends with
 a line that says how many findings it dropped and that it is incomplete.
 After the original description, the brief ends with a `Demands:` block: one demand per numbered finding, the fixed rework
-demands (keep the branch, change only what the findings require, rerun the checks, commit on the existing
-branch), and the output contract last.
+demands (keep the branch, resolve findings within the assigned role and scope, run only required and authorized
+checks, and commit only authorized repository fixes), and the output contract last. Read/report-only work does
+not edit source or create a token commit. Valid proof on unchanged code is not replayed to repair a read or
+report failure. The completion marker must appear literally in the final assistant response, not only inside a
+saved report or quoted prose.
 The embedded full-review
 cap is 12,000 characters. When the report fits, the brief carries it whole.
 When it does not, the brief keeps the protected sections whole after removing
