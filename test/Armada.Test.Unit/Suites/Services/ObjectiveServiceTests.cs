@@ -102,6 +102,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(report.Items.Any(item => item.ObjectiveId == leaf.Id && item.Reason == "objective_not_completed"),
                     "cancelled scope cannot silently count as delivery");
 
+                await service.UpdateAsync(auth, root.Id,
+                    new ObjectiveUpsertRequest { Status = ObjectiveStatusEnum.InProgress }).ConfigureAwait(false);
                 root = NotNull(await service.ReadAsync(auth, root.Id).ConfigureAwait(false));
                 ObjectivePreparationClaim retirement = new ObjectivePreparationClaim
                 {
