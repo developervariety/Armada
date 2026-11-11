@@ -1342,8 +1342,9 @@ namespace Armada.Core.Services
 
             // A continued branch comes back with the uncommitted work its previous checkout held: the
             // provisioning step saved that work to a recover ref and then rebuilt the checkout clean.
+            bool restoredDockWork = false;
             if (mission.GeneratedArtifactReview == null && (preserveInheritedBranch || preserveReassignedRootBranch))
-                await ResumeSavedDockWorkAsync(mission, dock, captain, token).ConfigureAwait(false);
+                restoredDockWork = await ResumeSavedDockWorkAsync(mission, dock, captain, token).ConfigureAwait(false);
 
             // Commit the assignment as two conditional writes, each undone explicitly when the other
             // fails, so no failure point leaves a half-assigned row. The captain claim goes first: it is
@@ -1362,7 +1363,7 @@ namespace Armada.Core.Services
             if (mission.PrestagedFiles != null && mission.PrestagedFiles.Count > 0)
             {
                 string? prestageFailure = dock.HostCheckout == null
-                    ? _Prestaging.CopyAll(mission.PrestagedFiles, dock.WorktreePath ?? "")
+                    ? _Prestaging.CopyAll(mission.PrestagedFiles, dock.WorktreePath ?? "", allowIdenticalRestoredFiles: restoredDockWork)
                     : await StageOwnedFilesAsync(mission, dock, token).ConfigureAwait(false);
                 if (prestageFailure != null)
                 {
@@ -12932,22 +12933,23 @@ namespace Armada.Core.Services
         /// that can apply it is configured. An applied or skipped restore is recorded as an event.
         /// Neither outcome fails the assignment.
         /// </summary>
-        private async Task ResumeSavedDockWorkAsync(Mission mission, Dock dock, Captain captain, CancellationToken token)
+        private async Task<bool> ResumeSavedDockWorkAsync(Mission mission, Dock dock, Captain captain, CancellationToken token)
         {
-            if (_Git is not IDockWorkSnapshotApplier applier || String.IsNullOrWhiteSpace(dock.WorktreePath)) return;
+            if (_Git is not IDockWorkSnapshotApplier applier || String.IsNullOrWhiteSpace(dock.WorktreePath)) return false;
+            bool applied = false;
 
             try
             {
                 DockWorkRestore restore = await applier.ApplyDockWorkAsync(dock.WorktreePath!, mission.Id, token).ConfigureAwait(false);
-                if (restore.Status == DockWorkRestoreStatusEnum.NothingSaved) return;
+                if (restore.Status == DockWorkRestoreStatusEnum.NothingSaved) return false;
 
-                bool applied = restore.Status == DockWorkRestoreStatusEnum.Applied;
+                applied = restore.Status == DockWorkRestoreStatusEnum.Applied;
                 // A saved ref already applied or reported for this mission is not reported again: the work it
                 // holds was restored or announced once, and a later assignment finds the same ref.
                 if (!applied && await HasWorkSnapshotEventAsync(mission.Id, restore.RefName, token).ConfigureAwait(false))
                 {
                     _Logging.Info(_Header + "saved work " + restore.RefName + " of mission " + mission.Id + " was already applied or reported; not reported again");
-                    return;
+                    return false;
                 }
                 string message = applied
                     ? "Uncommitted work of mission " + mission.Id + " was applied to the new checkout from " + restore.RefName + "."
@@ -12982,6 +12984,7 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not resume the saved dock work of mission " + mission.Id + ": " + ex.Message);
             }
+            return applied;
         }
 
         private async Task<bool> HasWorkSnapshotEventAsync(string missionId, string? refName, CancellationToken token)

@@ -1156,6 +1156,14 @@ the work. A `recover/` ref that an earlier assignment of the same mission alread
 applied or reported is not reported again. A mission with no saved work records
 nothing.
 
+After a successful local saved-work restore, prestaging retains an existing regular
+file only when its bytes exactly match the assigned input. Inline text compares
+against its UTF-8, no-BOM, LF-normalized bytes. Path-based inputs compare against
+the current source bytes. A link in the destination path, changed bytes or a read
+failure refuses the launch without overwriting the file. The assigned read-only
+attribute is applied after verification. A first launch or a skipped restore still
+refuses every existing destination, including an identical file.
+
 Both families use one retention rule. The sweep keeps an anchor in these cases:
 
 - The dock or mission it names is live. A mission is live while its status is

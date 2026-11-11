@@ -943,7 +943,17 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StageTwoRestart restart = await StageTwoRestart.StopWithUncommittedWorkAsync(testDb, CreateLogging(), CreateSettings(), commitAfterSavingTheWork: false).ConfigureAwait(false);
+                    ArmadaSettings settings = CreateSettings();
+                    Directory.CreateDirectory(settings.LogDirectory);
+                    string stagedSource = Path.Combine(settings.LogDirectory, "assigned-input.bin");
+                    File.WriteAllBytes(stagedSource, new byte[] { 0, 127, 255, 10 });
+                    PrestagedFile textInput = PrestagedFile.FromContent("inputs/context.md", "assigned\r\ncontext\r\n");
+                    textInput.ReadOnly = true;
+                    StageTwoRestart restart = await StageTwoRestart.StopWithUncommittedWorkAsync(testDb, CreateLogging(), settings,
+                        commitAfterSavingTheWork: false, prestagedFiles: new List<PrestagedFile>
+                        {
+                            textInput, new PrestagedFile(stagedSource, "inputs/assigned.bin")
+                        }).ConfigureAwait(false);
 
                     bool assigned = await restart.MissionService.TryAssignAsync(restart.Stage, restart.Vessel).ConfigureAwait(false);
 
@@ -955,6 +965,9 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("edited by the stopped captain", File.ReadAllText(Path.Combine(checkout, "README.md")).Trim(), "The edit is back");
                     AssertFalse(File.Exists(Path.Combine(checkout, "work.txt")), "The deletion is back");
                     AssertEqual("new file", File.ReadAllText(Path.Combine(checkout, "new.txt")).Trim(), "The new file is back");
+                    AssertEqual("assigned\ncontext\n", File.ReadAllText(Path.Combine(checkout, "inputs", "context.md")), "The restored generated input retains its normalized assigned bytes");
+                    AssertTrue(File.ReadAllBytes(stagedSource).SequenceEqual(File.ReadAllBytes(Path.Combine(checkout, "inputs", "assigned.bin"))), "The restored path-based input is byte-identical");
+                    AssertTrue((File.GetAttributes(Path.Combine(checkout, "inputs", "context.md")) & FileAttributes.ReadOnly) != 0, "The assigned read-only attribute is restored");
                     string status = RunGitProcess(checkout, "status", "--porcelain");
                     AssertContains(" M README.md", status);
                     AssertContains(" D work.txt", status);
@@ -2703,7 +2716,8 @@ namespace Armada.Test.Unit.Suites.Services
             public string BareRepo { get; private set; } = "";
             public string BranchHead { get; private set; } = "";
 
-            public static async Task<StageTwoRestart> StopWithUncommittedWorkAsync(TestDatabase testDb, LoggingModule logging, ArmadaSettings settings, bool commitAfterSavingTheWork)
+            public static async Task<StageTwoRestart> StopWithUncommittedWorkAsync(TestDatabase testDb, LoggingModule logging, ArmadaSettings settings, bool commitAfterSavingTheWork,
+                List<PrestagedFile>? prestagedFiles = null)
             {
                 StageTwoRestart restart = new StageTwoRestart();
                 GitService git = new GitService(logging);
@@ -2727,7 +2741,7 @@ namespace Armada.Test.Unit.Suites.Services
                 restart.Stage = await testDb.Driver.Missions.CreateAsync(new Mission("Next stage", "Continue on the branch")
                 {
                     VesselId = restart.Vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.Pending,
-                    DependsOnMissionId = predecessor.Id, BranchName = branch
+                    DependsOnMissionId = predecessor.Id, BranchName = branch, PrestagedFiles = prestagedFiles
                 }).ConfigureAwait(false);
 
                 Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("stage-two-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);

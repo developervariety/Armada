@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Continued local missions retain byte-identical prestaged inputs restored from their own saved dock work; changed inputs, links and ordinary first-launch collisions still refuse staging.
+
 - Alias-based dispatch preserves each pipeline stage's review checkpoint, denial action and role instructions.
 
 - Campaign closeout recognizes explicit verified owner retirement decisions for cancelled descendants, preserves their history, and reports them separately from delivered work. Unrecorded cancellation and active scope still block completion.

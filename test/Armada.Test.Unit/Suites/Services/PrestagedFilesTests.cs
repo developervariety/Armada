@@ -242,6 +242,24 @@ namespace Armada.Test.Unit.Suites.Services
 
                     // Pre-existing content untouched.
                     AssertEqual("pre-existing\n", File.ReadAllText(existing).Replace("\r\n", "\n"));
+                    AssertNotNull(copier.CopyAll(entries, worktree, allowIdenticalRestoredFiles: true), "A restored destination with different bytes is still refused");
+                    AssertEqual("pre-existing\n", File.ReadAllText(existing).Replace("\r\n", "\n"));
+                    File.WriteAllBytes(existing, File.ReadAllBytes(source));
+                    DateTime before = File.GetLastWriteTimeUtc(existing);
+                    AssertNotNull(copier.CopyAll(entries, worktree), "Even identical bytes do not authorize an ordinary first-launch collision");
+                    AssertNull(copier.CopyAll(entries, worktree, allowIdenticalRestoredFiles: true), "An explicitly restored identical regular file is retained");
+                    AssertEqual(before, File.GetLastWriteTimeUtc(existing), "Verification does not rewrite the restored file");
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        File.Delete(existing);
+                        File.CreateSymbolicLink(existing, source);
+                        AssertNotNull(copier.CopyAll(entries, worktree, allowIdenticalRestoredFiles: true), "An identical symlink is not a regular restored file");
+                        AssertEqual("new content\n", File.ReadAllText(source).Replace("\r\n", "\n"), "The external link target is untouched");
+                        File.Delete(existing);
+                        File.CreateSymbolicLink(existing, source + "-missing");
+                        AssertNotNull(copier.CopyAll(entries, worktree, allowIdenticalRestoredFiles: true), "A dangling destination link is refused before a write");
+                        AssertFalse(File.Exists(source + "-missing"), "Staging does not create the link target");
+                    }
                 }
                 finally
                 {
@@ -381,6 +399,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(failure, "Content-based copy should fail when dest exists");
                     AssertContains("already exists", failure!);
                     AssertEqual("pre-existing\n", File.ReadAllText(existing).Replace("\r\n", "\n"));
+                    AssertNotNull(copier.CopyAll(entries, worktree, allowIdenticalRestoredFiles: true), "Changed restored content is refused");
+                    File.WriteAllText(existing, "new content");
+                    AssertNotNull(copier.CopyAll(entries, worktree), "Matching content still collides on first launch");
+                    AssertNull(copier.CopyAll(entries, worktree, allowIdenticalRestoredFiles: true), "Matching restored inline bytes are retained");
                 }
                 finally
                 {
