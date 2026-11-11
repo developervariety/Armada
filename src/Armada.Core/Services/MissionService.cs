@@ -6990,29 +6990,7 @@ namespace Armada.Core.Services
                         "- Never write a mission, voyage, or objective id into committed content -- code, comments, tests, commit messages, or branch names.\n";
 
                 case "mission.context_conservation":
-                    return
-                        "## Context Conservation (CRITICAL)\n" +
-                        "\n" +
-                        "You have a limited context window. Exceeding it will crash your process and fail the mission. " +
-                        "Follow these rules to stay within limits:\n" +
-                        "\n" +
-                        "1. **NEVER read entire large files.** If a file is over 200 lines, read only the specific " +
-                        "section you need using line offsets. Use grep/search to find the right section first.\n" +
-                        "\n" +
-                        "2. **Read before you write, but read surgically.** Read only the 10-30 lines around the code " +
-                        "you need to change, not the whole file.\n" +
-                        "\n" +
-                        "3. **Do not explore the codebase broadly.** Only read files explicitly mentioned in your " +
-                        "mission description. If the mission says to edit README.md, read only the section you need " +
-                        "to edit, not the entire README.\n" +
-                        "\n" +
-                        "4. **Make your changes and finish.** Do not re-read files to verify your changes, do not " +
-                        "read files for 'context' that isn't directly needed for your edit, and do not explore related " +
-                        "files out of curiosity.\n" +
-                        "\n" +
-                        "5. **If the mission scope feels too large** (more than 8 files, or files with 500+ lines to " +
-                        "read), commit what you have, report progress, and exit with code 0. Partial progress is " +
-                        "better than crashing.\n";
+                    return ImplementationContextConservation.Build();
 
                 case "mission.merge_conflict_avoidance":
                     return

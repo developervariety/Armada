@@ -164,11 +164,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         AssertTrue(auditBrief.Length < implBrief.Length, "an audit brief must be smaller than the implementation brief");
 
-                        // The implementation context-conservation module forbids reading any file over
-                        // 200 lines and tells the captain to grep for the section first. In an audit
-                        // that compares whole files against a reference, that rule made captains grep,
-                        // measure, then read the same file anyway -- three steps per file -- and it
-                        // ordered a commit a read-only mission cannot make.
+                        // A read-only brief spends its budget on complete evidence rather than an edit.
                         AssertFalse(auditBrief.Contains("NEVER read entire large files", StringComparison.Ordinal),
                             "an audit brief must not forbid whole-file reads");
                         AssertFalse(auditBrief.Contains("commit what you have", StringComparison.Ordinal),
@@ -195,10 +191,22 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(auditBrief.Contains("partial report with an honest boundary is a success", StringComparison.Ordinal),
                             "an audit brief must not call unfinished required work a success");
 
-                        // The implementation brief keeps the line-budget rule: an edit needs one region
-                        // of one file, so reading the whole file there is waste.
-                        AssertContains("NEVER read entire large files", implBrief,
-                            "an implementation brief must keep the whole-file-read rule");
+                        // Targeted lookup guidance must not override an implementation's explicitly
+                        // required proof, report or source-closure reads.
+                        AssertFalse(implBrief.Contains("NEVER read entire large files", StringComparison.Ordinal),
+                            "an implementation brief must not ban its required whole-file reads");
+                        AssertFalse(implBrief.Contains("more than 8 files", StringComparison.Ordinal),
+                            "an implementation brief must not stop an assigned evidence set at eight files");
+                        AssertFalse(implBrief.Contains("Partial progress is better than crashing", StringComparison.Ordinal),
+                            "context guidance must not call an arbitrary early exit successful");
+                        AssertContains("explicit required reads and approved read budget take precedence", implBrief,
+                            "assigned complete reads take precedence over default lookup guidance");
+                        AssertContains("For an ordinary edit, target the relevant sections", implBrief,
+                            "ordinary edits retain targeted lookup guidance");
+                        AssertContains("consecutive bounded chunks to its end", implBrief,
+                            "required complete implementation evidence is read in bounded chunks");
+                        AssertContains("Never claim unfinished required work is complete", implBrief,
+                            "unread required evidence cannot become a successful completion");
 
                         // Batching applies to both modes. Captains issued one tool call per turn
                         // because no module told them independent calls can share a turn.

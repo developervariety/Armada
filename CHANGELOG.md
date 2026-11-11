@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Implementation context guidance honors explicitly required complete evidence and read budgets instead of ending a mission at an arbitrary file or line count. Seeded and fallback guidance share one definition; only known old built-in template content upgrades automatically.
+
 - Continued local missions retain byte-identical prestaged inputs restored from their own saved dock work; changed inputs, links and ordinary first-launch collisions still refuse staging.
 
 - Alias-based dispatch preserves each pipeline stage's review checkpoint, denial action and role instructions.

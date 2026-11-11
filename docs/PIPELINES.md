@@ -637,6 +637,16 @@ stays one Judge entry. Description, metadata, and total-budget trimming retain
 the complete criteria block and report references before trimming surrounding
 context. If this required content exceeds a budget, it remains intact and
 budget telemetry reports the excess.
+
+Implementation context guidance uses targeted reads for ordinary edits, but an
+explicit required whole-file, report, proof or source-closure read takes
+precedence. Captains read large assigned inputs in consecutive bounded chunks,
+retain a read ledger through compaction, and retrieve clipped ranges. File and
+line counts do not authorize an early successful exit with required evidence
+unread. The seeded built-in template and fallback brief share one definition.
+At startup, only stored template content matching a known old built-in hash
+upgrades automatically; operator-edited content remains for manual review.
+
 For `[DOD:DOC-ONLY]` missions with only non-code changes, the Judge reviews the
 document diff without running the full test suite.
 
