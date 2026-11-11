@@ -7,7 +7,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
-- Review and rescue rework instructions now preserve the mission's assigned role, edit scope and check authority. Read/report-only corrections retain saved work and valid unchanged-code proof without token edits or test replays; the completion marker must appear literally in the final response.
+- Review and rescue rework instructions now preserve the mission's assigned role, edit scope and check authority. Read/report-only corrections retain saved work and valid unchanged-code proof without token edits or test replays; the completion marker must appear literally in the final response. Shared rework limits are stated once so long rescue briefs retain their instruction budget.
 
 - Implementation context guidance honors explicitly required complete evidence and read budgets instead of ending a mission at an arbitrary file or line count. Seeded and fallback guidance share one definition; only known old built-in template content upgrades automatically.
 
