@@ -1879,7 +1879,7 @@ namespace Armada.Core.Services
         /// <param name="stage">The pipeline stage the mission runs.</param>
         /// <param name="stageCount">Number of stages in the pipeline.</param>
         /// <returns>The mission description for this stage.</returns>
-        internal static string AppendPipelineStageSection(string? description, PipelineStage stage, int stageCount)
+        public static string AppendPipelineStageSection(string? description, PipelineStage stage, int stageCount)
         {
             string body = description ?? String.Empty;
             if (stage == null || String.IsNullOrWhiteSpace(stage.Description)) return body;

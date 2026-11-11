@@ -45,8 +45,19 @@ namespace Armada.Test.Unit.Suites.Services
                     Pipeline reviewed = new Pipeline("Reviewed");
                     reviewed.Stages = new List<PipelineStage>
                     {
-                        new PipelineStage(1, "Worker"),
-                        new PipelineStage(2, "Judge") { PreferredModel = "claude-opus-5" }
+                        new PipelineStage(1, "Worker")
+                        {
+                            RequiresReview = true,
+                            ReviewDenyAction = ReviewDenyActionEnum.RetryStage,
+                            Description = "Keep the implementation checkpoint."
+                        },
+                        new PipelineStage(2, "Judge")
+                        {
+                            PreferredModel = "claude-opus-5",
+                            RequiresReview = true,
+                            ReviewDenyAction = ReviewDenyActionEnum.FailPipeline,
+                            Description = "Check the complete revised source."
+                        }
                     };
                     reviewed = await testDb.Driver.Pipelines.CreateAsync(reviewed).ConfigureAwait(false);
 
@@ -122,6 +133,16 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         AssertFalse(String.IsNullOrEmpty(m.Persona),
                             "Pipeline-expanded stage missions must carry a Persona; got null/empty for " + m.Title);
+                        AssertTrue(m.RequiresReview,
+                            "Alias dispatch discarded a required pipeline review checkpoint for " + m.Title);
+                        AssertEqual(m.Persona == "Worker" ? ReviewDenyActionEnum.RetryStage : ReviewDenyActionEnum.FailPipeline,
+                            m.ReviewDenyAction, "Alias dispatch changed the stage review denial action for " + m.Title);
+                        AssertContains(m.Persona == "Worker"
+                            ? "Stage 1 of 2 (Worker): Keep the implementation checkpoint."
+                            : "Stage 2 of 2 (Judge): Check the complete revised source.", m.Description ?? String.Empty,
+                            "Alias dispatch omitted the configured stage instructions for " + m.Title);
+                        AssertTrue(m.Description!.StartsWith(m.Title.Contains("first feature") ? "d1" : "d2", StringComparison.Ordinal),
+                            "The stage instructions must preserve the original mission description");
                     }
                 }
             });
@@ -187,6 +208,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission workerMission = all.First(m => m.Persona == "Worker");
                     Mission judgeMission = all.First(m => m.Persona == "Judge");
+                    AssertTrue(all.All(m => !m.RequiresReview),
+                        "A pipeline without review checkpoints must not gain them during alias dispatch");
                     AssertNotNull(workerMission.PrestagedFiles, "First stage should receive generated context prestage");
                     AssertEqual(1, workerMission.PrestagedFiles!.Count, "First stage should receive exactly the generated context file");
                     AssertEqual("_briefing/context-pack.md", workerMission.PrestagedFiles[0].DestPath);

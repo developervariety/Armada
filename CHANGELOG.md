@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Alias-based dispatch preserves each pipeline stage's review checkpoint, denial action and role instructions.
+
 - Campaign closeout recognizes explicit verified owner retirement decisions for cancelled descendants, preserves their history, and reports them separately from delivered work. Unrecorded cancellation and active scope still block completion.
 
 - Objective scope distinguishes a ban on test-only production seams from a ban on test edits, so TestEngineer instructions, preview warnings and rescue stages keep their intended duties.

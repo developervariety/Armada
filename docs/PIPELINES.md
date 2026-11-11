@@ -340,7 +340,9 @@ chains in the same voyage are never counted.
 A stage's own `Description` is appended to its mission description at dispatch
 as a `## Pipeline Stage` section ("Stage N of M (Persona): ..."), so two
 stages of one persona are told apart. A stage without a description leaves
-the mission description unchanged.
+the mission description unchanged. Ordinary and alias-based dispatch preserve
+each stage's `requiresReview` checkpoint and `reviewDenyAction` as configured;
+using an alias does not remove the operator's review gate or its instructions.
 
 A mission's dock outlives its captain while the mission still lands or is
 approved from it: a mission in `WorkProduced`, `PullRequestOpen` or `Review`

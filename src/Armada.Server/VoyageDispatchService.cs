@@ -1461,7 +1461,7 @@ namespace Armada.Server
                     {
                         Mission stageMission = new Mission(
                             "[" + stage.PersonaName + "] " + baseTitle,
-                            md.Description);
+                            AdmiralService.AppendPipelineStageSection(md.Description, stage, pipeline.Stages.Count));
                         stageMission.TenantId = vessel.TenantId;
                         stageMission.UserId = vessel.UserId;
                         stageMission.VoyageId = voyage.Id;
@@ -1475,6 +1475,8 @@ namespace Armada.Server
                         // finished contributing to.
                         stageMission.StageOrder = stage.Order;
                         stageMission.StageChainId = stageChainId;
+                        stageMission.RequiresReview = stage.RequiresReview;
+                        stageMission.ReviewDenyAction = stage.ReviewDenyAction;
                         stageMission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
                             stage.PreferredModel,
                             md.PreferredModel,
