@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Campaign closeout recognizes explicit verified owner retirement decisions for cancelled descendants, preserves their history, and reports them separately from delivered work. Unrecorded cancellation and active scope still block completion.
+
 - Objective scope distinguishes a ban on test-only production seams from a ban on test edits, so TestEngineer instructions, preview warnings and rescue stages keep their intended duties.
 
 - Challenger assignment treats its stored same-model captain exclusions as hard constraints in Legacy and Smart Routing, reports the exclusion while waiting for independent capacity, and retains the settlement model check. Ordinary retry fallback is unchanged.

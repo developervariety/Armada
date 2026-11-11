@@ -1,6 +1,6 @@
 # Armada Operator Guide
 
-Campaign closeout lists existing delivery proof for linked InProgress work; that proof never completes acceptance criteria by itself.
+Campaign closeout lists existing delivery proof for linked InProgress work and explicit verified owner retirement decisions for Cancelled descendants. A retirement is recorded on the root as an evidence-backed OwnerDecision claim; see the [campaign status contract](MCP_TOOL_CATALOG.md#campaign-status). Retired scope stays visible and supplies no delivery evidence. Neither record completes acceptance criteria by itself.
 
 Mission metadata updates reject unknown or non-patchable fields by name; a refused patch saves nothing.
 

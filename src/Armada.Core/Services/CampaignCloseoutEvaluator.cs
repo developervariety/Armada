@@ -84,6 +84,28 @@ namespace Armada.Core.Services
 
             foreach (Objective row in report.Objectives)
             {
+                List<ObjectivePreparationClaim> retirementClaims = root.Preparation?.Claims
+                    .Where(claim => String.Equals(claim.Id, "campaign-retirement:" + row.Id, StringComparison.Ordinal))
+                    .ToList() ?? new List<ObjectivePreparationClaim>();
+                if (row.Id != root.Id && row.Status == ObjectiveStatusEnum.Cancelled && retirementClaims.Count == 1)
+                {
+                    ObjectivePreparationClaim claim = retirementClaims[0];
+                    if (claim.Kind == ObjectivePreparationClaimKindEnum.OwnerDecision
+                        && claim.State == ObjectivePreparationClaimStateEnum.Verified
+                        && claim.DependsOn == ObjectivePreparationDependencyEnum.None
+                        && claim.VerifiedUtc.HasValue && !claim.InvalidatedUtc.HasValue
+                        && String.IsNullOrWhiteSpace(claim.InvalidationReason)
+                        && !String.IsNullOrWhiteSpace(claim.Text)
+                        && claim.EvidenceLinks.Any(link => !String.IsNullOrWhiteSpace(link)))
+                    {
+                        report.RecordedRetirements.Add(new CampaignCloseoutRetirement
+                        {
+                            ObjectiveId = row.Id, ClaimId = claim.Id, Reason = claim.Text,
+                            EvidenceLinks = claim.EvidenceLinks.ToList(), VerifiedUtc = claim.VerifiedUtc.Value
+                        });
+                        continue;
+                    }
+                }
                 if (row.Status != ObjectiveStatusEnum.Completed)
                     report.Items.Add(new CampaignCloseoutItem { ObjectiveId = row.Id, Reason = "objective_not_completed" });
                 else if (!HasEvidence(row, new HashSet<string>(StringComparer.OrdinalIgnoreCase)))
@@ -110,9 +132,11 @@ namespace Armada.Core.Services
         });
         /// <summary>Unfinished linked work with recorded delivery proof, awaiting criterion/source/check review.</summary>
         public List<CampaignCloseoutDelivery> RecordedDeliveredWork { get; set; } = new List<CampaignCloseoutDelivery>();
+        /// <summary>Explicit owner retirement decisions; these do not assert product delivery.</summary>
+        public List<CampaignCloseoutRetirement> RecordedRetirements { get; set; } = new List<CampaignCloseoutRetirement>();
         /// <summary>Conditions that prevent campaign completion.</summary>
         public List<CampaignCloseoutItem> Items { get; set; } = new List<CampaignCloseoutItem>();
-        /// <summary>True only when every row is Completed with direct or completed-child evidence.</summary>
+        /// <summary>True when completed rows have evidence and every cancelled descendant has a verified retirement decision.</summary>
         public bool ReadyForEvidenceReview => Items.Count == 0;
         /// <summary>Structural closure does not verify the contents of a proof link.</summary>
         public string EvidenceReviewRequirement => "Verify every acceptance criterion against the linked evidence, exact source and required checks. A link or main-branch ancestry alone does not prove completion.";

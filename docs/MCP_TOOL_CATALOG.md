@@ -431,8 +431,15 @@ answers `captain_not_found` and stores nothing.
 - `armada_campaign_status` — return a campaign's whole matrix (lanes, slices,
   status, evidence) in one call.
   It includes a closeout count over every descendant, including levels outside
-  the summary tree. Open or cancelled scope, and completed rows without direct or
-  completed-child evidence, prevent parent completion. `includeSlices=true`
+  the summary tree. Open scope and completed rows without direct or completed-child evidence prevent
+  parent completion. Cancelled descendants require one verified `OwnerDecision`
+  claim on the campaign root with id `campaign-retirement:<descendantId>`, a
+  nonempty reason and evidence link, a verification time, `DependsOn=None`, and
+  no invalidation. Duplicate claims are ambiguous and do not authorize retirement.
+  `RecordedRetirements` lists these decisions separately from delivered work;
+  the default response includes ten and reports its count and truncation.
+  Retirement preserves cancelled rows and their descendants, does not provide
+  completed-child evidence, and cannot waive an active descendant. `includeSlices=true`
   returns the full remaining items and the criterion and evidence review. An
   empty structural check still requires verification of each acceptance
   criterion, its exact source and its required checks; a link or main-branch

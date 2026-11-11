@@ -112,11 +112,13 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 root.Preparation = new ObjectivePreparation { Claims = new List<ObjectivePreparationClaim> { retirement } };
                 root.EvidenceLinks.Add("https://example.test/campaign-acceptance");
+                foreach (Objective group in scope.Where(row => row.Id != root.Id && row.Id != leaf.Id))
+                {
+                    group.EvidenceLinks.Add("https://example.test/group-acceptance");
+                    await testDb.Driver.Objectives.UpdateAsync(group).ConfigureAwait(false);
+                }
                 await service.UpdateAsync(auth, root.Id, new ObjectiveUpsertRequest
                 { Preparation = root.Preparation, EvidenceLinks = root.EvidenceLinks }).ConfigureAwait(false);
-                foreach (Objective group in scope.Where(row => row.Id != root.Id && row.Id != leaf.Id))
-                    await service.UpdateAsync(auth, group.Id, new ObjectiveUpsertRequest
-                    { EvidenceLinks = new List<string> { "https://example.test/group-acceptance" } }).ConfigureAwait(false);
                 completed = await service.UpdateAsync(auth, root.Id,
                     new ObjectiveUpsertRequest { Status = ObjectiveStatusEnum.Completed }).ConfigureAwait(false);
                 report = CampaignCloseoutEvaluator.Evaluate(root.Id, await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false));
@@ -125,6 +127,64 @@ namespace Armada.Test.Unit.Suites.Services
                     "retirement does not pretend delivery or change the cancelled record");
                 AssertEqual(parent.Id, NotNull(await service.ReadAsync(auth, leaf.Id).ConfigureAwait(false)).ParentObjectiveId);
                 AssertEqual("Deliver every scoped item", completed.AcceptanceCriteria.Single());
+
+                AssertEqual(1, report.RecordedRetirements.Count);
+                AssertEqual(leaf.Id, report.RecordedRetirements.Single().ObjectiveId);
+                AssertEqual(retirement.EvidenceLinks.Single(), report.RecordedRetirements.Single().EvidenceLinks.Single());
+                AssertEqual(5, report.Objectives.Count, "retired rows remain visible to the evidence reviewer");
+                scope = await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false);
+                Objective scopedRoot = scope.Single(row => row.Id == root.Id);
+                Objective scopedLeaf = scope.Single(row => row.Id == leaf.Id);
+                ObjectivePreparationClaim scopedClaim = NotNull(scopedRoot.Preparation).Claims.Single();
+                void AssertRetirementBlocked(string reason)
+                {
+                    CampaignCloseoutReport rejected = CampaignCloseoutEvaluator.Evaluate(root.Id, scope);
+                    AssertTrue(rejected.Items.Any(item => item.ObjectiveId == leaf.Id && item.Reason == "objective_not_completed"), reason);
+                    AssertEqual(0, rejected.RecordedRetirements.Count, reason);
+                }
+                scopedClaim.Kind = ObjectivePreparationClaimKindEnum.SourcePath;
+                AssertRetirementBlocked("a source claim cannot authorize retirement");
+                scopedClaim.Kind = ObjectivePreparationClaimKindEnum.OwnerDecision;
+                scopedClaim.State = ObjectivePreparationClaimStateEnum.NeedsRecheck;
+                AssertRetirementBlocked("a stale claim cannot authorize retirement");
+                scopedClaim.State = ObjectivePreparationClaimStateEnum.Verified;
+                scopedClaim.InvalidatedUtc = DateTime.UtcNow;
+                AssertRetirementBlocked("an invalidated claim cannot authorize retirement");
+                scopedClaim.InvalidatedUtc = null;
+                scopedClaim.InvalidationReason = "Recheck required";
+                AssertRetirementBlocked("an unresolved invalidation reason blocks retirement");
+                scopedClaim.InvalidationReason = null;
+                scopedClaim.VerifiedUtc = null;
+                AssertRetirementBlocked("verification must have a time");
+                scopedClaim.VerifiedUtc = DateTime.UtcNow;
+                scopedClaim.Text = " ";
+                AssertRetirementBlocked("retirement must state its reason");
+                scopedClaim.Text = retirement.Text;
+                scopedClaim.EvidenceLinks.Clear();
+                AssertRetirementBlocked("a retirement needs direct evidence");
+                scopedClaim.EvidenceLinks.Add("https://example.test/owner-retirement");
+                scopedClaim.DependsOn = ObjectivePreparationDependencyEnum.Source;
+                AssertRetirementBlocked("source-dependent claims cannot record scope retirement");
+                scopedClaim.DependsOn = ObjectivePreparationDependencyEnum.None;
+                scopedClaim.Id += "-other";
+                AssertRetirementBlocked("retirement must name the exact descendant");
+                scopedClaim.Id = retirement.Id;
+                scopedRoot.Preparation!.Claims.Add(scopedClaim);
+                AssertRetirementBlocked("duplicate retirement decisions are ambiguous");
+                scopedRoot.Preparation.Claims.RemoveAt(1);
+                scopedLeaf.Status = ObjectiveStatusEnum.InProgress;
+                AssertRetirementBlocked("a retirement claim cannot waive active work");
+                scopedLeaf.Status = ObjectiveStatusEnum.Cancelled;
+                Objective activeChild = new Objective { Title = "Live scope", ParentObjectiveId = leaf.Id, Status = ObjectiveStatusEnum.InProgress };
+                scope.Add(activeChild);
+                report = CampaignCloseoutEvaluator.Evaluate(root.Id, scope);
+                AssertTrue(report.Items.Any(item => item.ObjectiveId == activeChild.Id && item.Reason == "objective_not_completed"),
+                    "retiring a parent does not hide its live children");
+                scope.Remove(activeChild);
+                foreach (Objective group in scope.Where(row => row.Id != leaf.Id)) group.EvidenceLinks.Clear();
+                report = CampaignCloseoutEvaluator.Evaluate(root.Id, scope);
+                AssertTrue(report.Items.Any(item => item.ObjectiveId == root.Id && item.Reason == "completion_evidence_missing"),
+                    "retired scope cannot provide delivered-child evidence");
             }).ConfigureAwait(false);
 
             await RunTest("Ready labels require complete preflight and stale repair preserves queue intent", async () =>

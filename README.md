@@ -41,7 +41,7 @@ The fork is a divergent superset of upstream, so it syncs incrementally by cherr
 
 | Area | What the fork adds or changes | Detail |
 |---|---|---|
-| Scheduling | Objective backlog with an autonomous scheduler, dispatch readiness and campaign closeout guards, bounded repeat-review stops, start-from-ref dispatch, and a persistent dispatch hold. | [Backlog](docs/BACKLOG.md), [Scheduling](docs/SCHEDULING.md) |
+| Scheduling | Objective backlog with an autonomous scheduler, dispatch readiness and campaign closeout guards with explicit evidence-backed scope retirement, bounded repeat-review stops, start-from-ref dispatch, and a persistent dispatch hold. | [Backlog](docs/BACKLOG.md), [Scheduling](docs/SCHEDULING.md) |
 | Pipelines and personas | Reviewed pipelines with Judge acceptance evidence, blocked-stage questions routed to the dispatching operator, Linter and Recorder stages, structured Architect plans (v2 and v3) with an integration barrier. | [Pipelines](docs/PIPELINES.md), [Personas](docs/PERSONAS.md) |
 | Routing | Capability-tier routing, optional Smart Routing, and captain quarantine on repeated failure. | [Smart Routing](docs/USAGE_ROUTING.md) |
 | Typed decisions | Calibrated typed-decision gate, off until a provider key is present, with a kill switch and observation review. | [Typed decisions](docs/TYPED_DECISIONS.md) |
