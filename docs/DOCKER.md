@@ -579,7 +579,8 @@ path behind a symlink, and a candidate that changed between plan and delete.
 A scratch folder's age is the newest modification time of any file inside it;
 directory times do not count and symlinks are not followed. A scratch folder
 that holds an `.armada-keep` file anywhere inside it, or that holds an excluded
-path, is never removed. An unused image tag is removed with `docker rmi` (never
+path, is never removed. A build-output folder that contains an excluded path
+is also kept. An excluded sibling does not block other build outputs. An unused image tag is removed with `docker rmi` (never
 `-f`); a tag whose image is also named by a `protectedImageTags` entry, or that
 matches `protectedTagPatterns`, is never selected by ordinary unused-tag cleanup.
 Explicit dated-set retirement follows `retireOlderRetainedSets` and still keeps

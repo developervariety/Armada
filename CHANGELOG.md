@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Host build-output cleanup preserves folders that contain an excluded path while allowing disposable sibling outputs.
+
 - Review and rescue rework instructions now preserve the mission's assigned role, edit scope and check authority. Read/report-only corrections retain saved work and valid unchanged-code proof without token edits or test replays; the completion marker must appear literally in the final response. Shared rework limits are stated once to avoid repeated demands.
 
 - Implementation context guidance honors explicitly required complete evidence and read budgets instead of ending a mission at an arbitrary file or line count. Seeded and fallback guidance share one definition; only known old built-in template content upgrades automatically. The shared guidance keeps the full-read and completion duties within the combined rescue-brief budget.

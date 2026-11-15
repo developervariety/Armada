@@ -405,7 +405,7 @@ def main():
                                 dirs.remove(name)
                             continue
                         dirs.remove(name)
-                        if str(p) in seen or excluded(p):
+                        if str(p) in seen or excluded(p) or any(within(entry, str(p)) for entry in excludes):
                             skip('excluded_or_duplicate')
                             continue
                         seen.add(str(p))

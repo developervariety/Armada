@@ -324,6 +324,44 @@ class ScratchExpiryTests(unittest.TestCase):
         self.assertTrue((self.root / 'holder' / 'evidence' / 'a.bin').is_file())
         self.assertEqual(self.names(report['removed']), ['old'])
 
+    def test_build_output_preserves_descendant_exclusions_without_blocking_siblings(self):
+        for excluded_relative, removes_output in [('bin/retained', False),
+                                                   ('bin/retained/proof.log', False),
+                                                   ('retained', True)]:
+            with self.subTest(excluded_relative=excluded_relative), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                repo = root / 'repo'
+                repo.mkdir()
+                (repo / 'Demo.csproj').write_text('<Project/>')
+                (repo / '.gitignore').write_text('bin/\n')
+                output = repo / 'bin'
+                write_file(output / 'derived.dll', 3)
+                protected = repo / ('bin/retained/proof.log' if excluded_relative.startswith('bin/')
+                                    else 'retained/proof.log')
+                write_file(protected, 3, size=64)
+                for path in sorted(output.rglob('*'), reverse=True):
+                    if path.is_dir():
+                        set_dir_age(path, 3)
+                set_dir_age(output, 3)
+                subprocess.run(['git', 'init', '-q', str(repo)], check=True, capture_output=True)
+                subprocess.run(['git', '-C', str(repo), 'add', 'Demo.csproj', '.gitignore'],
+                               check=True, capture_output=True)
+                config = root / 'config.json'
+                config.write_text(json.dumps({'receiptDirectory': str(root / 'receipts'),
+                    'buildOutputs': {'roots': [str(repo)], 'scratchRoots': [],
+                        'nugetCachePatterns': [], 'exclusions': [str(repo / excluded_relative)],
+                        'lockPath': str(root / 'cleanup.lock'), 'diskUsagePath': str(root)}}))
+                with mock.patch.object(build, 'process_paths', return_value=[]), \
+                     mock.patch.object(sys, 'argv', ['prune-build-outputs.py', '--config', str(config), '--apply']), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(build.main(), 0)
+                self.assertTrue(protected.is_file(), 'Excluded content must survive output cleanup')
+                self.assertEqual(protected.read_bytes(), b'x' * 64)
+                self.assertEqual(output.exists(), not removes_output)
+                receipt = json.loads(next((root / 'receipts').glob('build-cleanup-*.json')).read_text())
+                self.assertEqual(receipt['failures'], [])
+                self.assertEqual(len(receipt['removed']), int(removes_output))
+
     def test_process_reference_inside_the_folder_blocks_removal(self):
         report, _ = self.run_pass(apply=True, process_paths=[str(self.root / 'old' / 'clone' / 'a.bin')])
         self.assertTrue((self.root / 'old').is_dir())
