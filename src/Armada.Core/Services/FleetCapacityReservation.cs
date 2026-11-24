@@ -23,6 +23,11 @@ namespace Armada.Core.Services
             _Renewal = RenewUntilReleasedAsync();
         }
 
+        // The atomic administrative restart verifies this live lease inside its own transaction.
+        internal string LeaseName => _LeaseName;
+        internal string LeaseHolder => _Holder;
+        internal bool OwnershipLost => Volatile.Read(ref _OwnershipLost) != 0;
+
         /// <summary>
         /// Renew the lease at the commit boundary and throw if ownership was lost before the
         /// durable work graph was created.

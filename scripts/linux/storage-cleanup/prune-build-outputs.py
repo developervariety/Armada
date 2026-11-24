@@ -24,6 +24,7 @@ DEFAULTS = {
     'diskUsagePath': '/',
     'scratchRoots': [],
     'nugetCachePatterns': [],
+    'nativeLibraryCachePatterns': [],
     'lowSpaceThresholdGb': 0,
     'lowSpaceCacheRetentionHours': 48,
     'wholeFolderRetentionDays': 3,
@@ -64,6 +65,8 @@ def inventory(path, internal_symlinks=False):
                 raise ValueError('Special file in candidate: ' + str(entry))
             newest = max(newest, st.st_mtime)
             if stat.S_ISREG(st.st_mode):
+                if st.st_nlink != 1:
+                    raise ValueError('Hard-linked file in candidate: ' + str(entry))
                 total += st.st_blocks * 512
     return {'bytes': total, 'newest_mtime': newest,
             'device': initial.st_dev, 'inode': initial.st_ino}
@@ -94,6 +97,8 @@ def folder_inventory(path):
             if not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)):
                 raise ValueError('Special file in candidate: ' + str(entry))
             if stat.S_ISREG(st.st_mode):
+                if st.st_nlink != 1:
+                    raise ValueError('Hard-linked file in candidate: ' + str(entry))
                 keep = keep or name == KEEP_MARKER
                 newest = st.st_mtime if newest is None else max(newest, st.st_mtime)
                 total += st.st_blocks * 512
@@ -183,6 +188,62 @@ def prune_nuget_caches(patterns, roots, excludes, hours, apply, report, skip, re
                     report['failures'].append({'path': p, 'error': str(error)})
             except Exception as error:
                 report['failures'].append({'path': p, 'error': str(error)})
+
+
+def prune_native_library_caches(patterns, roots, excludes, hours, apply, report, skip, read_process_paths):
+    """Retire only explicitly selected, inactive, single-link ELF cache files."""
+    if not patterns:
+        return
+    seen = set()
+
+    def signature(value):
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+                value.st_uid, value.st_gid, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+    for pattern in patterns:
+        for value in sorted(glob.glob(pattern)):
+            path = Path(os.path.normpath(os.path.abspath(value)))
+            if str(path) in seen or path.name.startswith('._'):
+                continue
+            seen.add(str(path))
+            if not any(within(str(path), root) and str(path) != root for root in roots):
+                skip('native_cache_outside_roots')
+                continue
+            if any(within(str(path), entry) or within(entry, str(path)) for entry in excludes):
+                skip('excluded')
+                continue
+            try:
+                plain_path(path)
+                before = path.lstat()
+                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or kept(path):
+                    skip('protected_native_cache')
+                    continue
+                if before.st_mtime > time.time() - hours * 3600:
+                    skip('recent_native_cache')
+                    continue
+                descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    header = os.read(descriptor, 4)
+                    if signature(os.fstat(descriptor)) != signature(before) or header != b'\x7fELF':
+                        skip('unknown_or_changed_native_cache')
+                        continue
+                finally:
+                    os.close(descriptor)
+                if active(str(path), read_process_paths()):
+                    skip('active')
+                    continue
+                candidate = dict(path=str(path), kind='native_library_cache', bytes=before.st_blocks * 512,
+                                 device=before.st_dev, inode=before.st_ino)
+                report['candidates'].append(candidate)
+                if apply:
+                    if (kept(path) or active(str(path), read_process_paths()) or
+                            signature(path.lstat()) != signature(before)):
+                        skip('changed_or_active_native_cache')
+                        continue
+                    path.unlink()
+                    report['removed'].append(candidate)
+            except Exception as error:
+                report['failures'].append({'path': str(path), 'error': str(error)})
 
 
 def prune_scratch(scratch_roots, retention_days, excludes, apply, report, skip, read_process_paths):
@@ -373,6 +434,8 @@ def main():
                                     report, skip, process_paths)
             prune_nuget_caches(settings['nugetCachePatterns'], roots, excludes, cache_hours,
                                args.apply, report, skip, process_paths)
+            prune_native_library_caches(settings['nativeLibraryCachePatterns'], roots, excludes,
+                                        max(48, cache_hours), args.apply, report, skip, process_paths)
             paths = process_paths()
             for root in roots:
                 if not Path(root).exists():
@@ -425,6 +488,9 @@ def main():
                             if kept(scope) or any(Path(scope).rglob(KEEP_MARKER)):
                                 skip('keep_marker')
                                 continue
+                            if kind == 'nuget_cache' and name == 'packages' and not nuget_cache(p):
+                                skip('not_complete_nuget_cache')
+                                continue
                             info = inventory(p, internal_symlinks=name == 'node_modules')
                             hours = cache_hours if kind == 'nuget_cache' else output_hours
                             if info['newest_mtime'] > time.time() - hours * 3600:
@@ -451,6 +517,9 @@ def main():
                                         raise RuntimeError('Git protection changed: ' + str(reason))
                                 if active(scope, process_paths()):
                                     skip('became_active')
+                                    continue
+                                if kind == 'nuget_cache' and name == 'packages' and not nuget_cache(p):
+                                    skip('became_incomplete_cache')
                                     continue
                                 # rmtree uses fd-relative operations when supported by Python.
                                 if not shutil.rmtree.avoids_symlink_attacks:

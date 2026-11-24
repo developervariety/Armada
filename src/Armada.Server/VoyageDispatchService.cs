@@ -281,8 +281,7 @@ namespace Armada.Server
                 return StageSkipRefusedResult(refused);
             }
             Pipeline? pipeline = skipped.Pipeline;
-            bool isMultiStage = pipeline != null
-                && !(pipeline.Stages.Count == 1 && String.Equals(pipeline.Stages[0].PersonaName, "Worker", StringComparison.Ordinal));
+            bool isMultiStage = AdmiralService.UsesPipelineStages(pipeline);
             ArmadaSettings settings = request.Settings ?? _Settings ?? new ArmadaSettings();
             IReadOnlyList<MissionDescription> missions;
             try
@@ -1388,8 +1387,7 @@ namespace Armada.Server
             Pipeline? resolvedPipeline = await _Admiral.ResolvePipelineAsync(pipelineId, vessel).ConfigureAwait(false);
             PipelineStageSkipResult skipResult = PipelineStageSkip.Apply(resolvedPipeline, stageSkip);
             Pipeline? pipeline = skipResult.Pipeline;
-            bool isMultiStage = pipeline != null
-                && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
+            bool isMultiStage = AdmiralService.UsesPipelineStages(pipeline);
 
             Voyage voyage = AdmiralService.NewDispatchVoyage(title, description, vessel, captainOverrides);
             voyage.IsEvaluation = isEvaluation;

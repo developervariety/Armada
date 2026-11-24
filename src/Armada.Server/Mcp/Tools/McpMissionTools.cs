@@ -446,7 +446,8 @@ namespace Armada.Server.Mcp.Tools
                     {
                         missionId = new { type = "string", description = "Mission ID (msn_ prefix)" },
                         title = new { type = "string", description = "Optional new title. Omit to keep original." },
-                        description = new { type = "string", description = "Optional new description/instructions. Omit to keep original." }
+                        description = new { type = "string", description = "Optional new description/instructions. Omit to keep original." },
+                        administrativeRestartPermitId = new { type = "string", description = "Explicit exact-owner one-use administrative recovery permit. Omit for ordinary restart." }
                     },
                     required = new[] { "missionId" }
                 },
@@ -463,7 +464,10 @@ namespace Armada.Server.Mcp.Tools
                     MissionRestartResult restart;
                     try
                     {
-                        restart = await missionOperations.RestartMissionAsync(mission, request.Title, request.Description).ConfigureAwait(false);
+                        restart = String.IsNullOrWhiteSpace(request.AdministrativeRestartPermitId)
+                            ? await missionOperations.RestartMissionAsync(mission, request.Title, request.Description).ConfigureAwait(false)
+                            : await missionOperations.ConsumeAdministrativeRestartAsync(McpCallerContext.Require(), admiral, git,
+                                mission, request.AdministrativeRestartPermitId, request.Title, request.Description).ConfigureAwait(false);
                     }
                     catch (FleetCapacityAdmissionException capacity)
                     {

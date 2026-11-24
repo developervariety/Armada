@@ -9,27 +9,29 @@ namespace Armada.Test.Unit.TestHelpers
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Models;
 
-    /// <summary>Holds one real mission read until a test advances the launch generation.</summary>
+    /// <summary>Holds one real mission read across a controlled concurrent operation.</summary>
     public class DelayedMissionRead : DispatchProxy
     {
         private IMissionMethods _Inner = null!;
         private string _MissionId = String.Empty;
         private int _Remaining;
+        private bool _CaptureBeforeRelease;
         private readonly TaskCompletionSource<bool> _Started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<bool> _Release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>Completes when the selected read reaches the controlled boundary.</summary>
         public Task Started => _Started.Task;
 
-        /// <summary>Allow the selected read to observe the current durable mission.</summary>
+        /// <summary>Release the selected read, using its captured snapshot when requested.</summary>
         public void Release() => _Release.TrySetResult(true);
 
         /// <summary>Install the one-read delay without changing other database operations.</summary>
         /// <param name="database">Real test provider.</param>
         /// <param name="missionId">Mission whose selected full or summary read is delayed.</param>
         /// <param name="readNumber">One-based matching read to delay.</param>
+        /// <param name="captureBeforeRelease">Read the real row before pausing, to retain a stale caller snapshot.</param>
         /// <returns>The installed delay control.</returns>
-        public static DelayedMissionRead Install(DatabaseDriver database, string missionId, int readNumber = 1)
+        public static DelayedMissionRead Install(DatabaseDriver database, string missionId, int readNumber = 1, bool captureBeforeRelease = false)
         {
             if (readNumber < 1) throw new ArgumentOutOfRangeException(nameof(readNumber));
             IMissionMethods methods = Create<IMissionMethods, DelayedMissionRead>();
@@ -37,6 +39,7 @@ namespace Armada.Test.Unit.TestHelpers
             control._Inner = database.Missions;
             control._MissionId = missionId;
             control._Remaining = readNumber;
+            control._CaptureBeforeRelease = captureBeforeRelease;
             typeof(DatabaseDriver).GetProperty(nameof(DatabaseDriver.Missions))!.SetValue(database, methods);
             return control;
         }
@@ -54,9 +57,12 @@ namespace Armada.Test.Unit.TestHelpers
 
         private async Task<Mission?> ReadDelayedAsync(MethodInfo method, object?[] args)
         {
+            Mission? captured = _CaptureBeforeRelease
+                ? await ((Task<Mission?>)Forward(method, args)!).ConfigureAwait(false)
+                : null;
             _Started.TrySetResult(true);
             await _Release.Task.ConfigureAwait(false);
-            return await ((Task<Mission?>)Forward(method, args)!).ConfigureAwait(false);
+            return _CaptureBeforeRelease ? captured : await ((Task<Mission?>)Forward(method, args)!).ConfigureAwait(false);
         }
 
         private object? Forward(MethodInfo method, object?[]? args)

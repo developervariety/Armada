@@ -14,6 +14,12 @@ namespace Armada.Core.Models
         /// <summary>Last recorded admission decision; absent when unavailable, never a current eligibility claim.</summary>
         public MissionAdmissionObservation? LastAdmissionObservation { get; internal set; }
 
+        /// <summary>Optional server-owned automatic-work permission barrier.</summary>
+        public MissionAutomaticWorkPermission? AutomaticWorkPermission { get; internal set; }
+
+        /// <summary>Stored permission exists but cannot safely authorize work.</summary>
+        public bool AutomaticWorkPermissionInvalid { get; internal set; }
+
 
         /// <summary>
         /// Unique identifier.

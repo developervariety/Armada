@@ -256,6 +256,7 @@ namespace Armada.Server.Mcp
             if (terminalVoyageMissions != null) McpTerminalVoyageMissionTools.Register(register, terminalVoyageMissions, longRunningJobs);
             McpHarborJobTools.Register(register, harborJobs);
             if (missionService != null) McpReviewHoldTools.Register(register, missionService);
+            if (missionService != null) McpMissionAutomaticWorkPermissionTools.Register(register, database, missionService);
             if (missionService != null) McpHandoffHoldTools.Register(register, missionService);
             if (missionService != null) McpTerminalLandingContinuationTools.Register(register, missionService);
         }

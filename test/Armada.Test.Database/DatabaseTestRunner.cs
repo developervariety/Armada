@@ -68,6 +68,10 @@ namespace Armada.Test.Database
         {
             _Results = new List<TestResult>();
 
+            // Completion may dispatch Pending work; run this isolated owner control before other fixtures.
+            await RunTest("Mission_Completion_NativeTimestamp_ReviewTail_And_CaptainRelease", "Operational",
+                () => new MissionCompletionTimestampServiceDatabaseTests(_Driver, _NoCleanup).VerifyReviewTailAsync(token), token);
+
             Console.WriteLine("--- Schema Verification ---");
             await RunTest("Schema_Verify_Core_Columns_And_Indexes", "Schema", () => new SchemaVerificationTests(_Settings).VerifyAsync(token), token);
 
@@ -159,6 +163,11 @@ namespace Armada.Test.Database
             await RunTest("Voyage_Summary_All_Pages_And_Scopes", "Operational", () => TestVoyageSummaryAsync(token), token);
             await RunTest("Mission_Admission_Long_Unicode_Ids_And_Reasons", "Operational", () => TestMissionAdmissionUnicodeAsync(token), token);
             await RunTest("Mission_Admission_Observation_Reopen_And_Stale_Write", "Operational", () => TestMissionAdmissionAsync(token), token);
+            MissionAutomaticWorkPermissionDatabaseTests permissions = new MissionAutomaticWorkPermissionDatabaseTests(_Driver, _Settings, _NoCleanup);
+            await RunTest("Mission_AutomaticPermission_Grant_Revoke_AtomicAudit_StaleWrite_Reopen", "Operational",
+                () => permissions.VerifyPermissionTransactionsAsync(token), token);
+            await RunTest("Mission_CompletionCAS_PermissionRefresh_SourceLaunchCancel_Reopen", "Operational",
+                () => permissions.VerifyCompletionSnapshotAsync(token), token);
             await RunTest("Mission_Admission_CompareAndSet_Matches_After_Every_Write", "Operational", () => new CompareAndSetDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyMissionAdmissionAfterEveryWriteAsync(token), token);
             await RunTest("ModelEndpoint_Health_CompareAndSet_Matches_After_Every_Write", "Operational", () => new CompareAndSetDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyModelEndpointHealthAfterEveryWriteAsync(token), token);
             await RunTest("Startup_Refuses_A_Timestamp_Column_Stored_In_Another_Form", "Schema", () => new StoredColumnGuardTests(_Settings).VerifyAsync(token), token);

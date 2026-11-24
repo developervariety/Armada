@@ -1711,6 +1711,24 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<IReadOnlyList<string>> FindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
         {
+            return await TryFindCommitsByTrailerAsync(repoPath, revision, trailerKey, trailerValue, sinceUtc, maxCount, token).ConfigureAwait(false)
+                ?? new List<string>();
+        }
+
+        /// <inheritdoc />
+        public async Task RefreshRemoteTrackingBranchAsync(string repoPath, string branch, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(repoPath)) throw new ArgumentException("Repository is required.", nameof(repoPath));
+            if (String.IsNullOrWhiteSpace(branch) || branch.Contains(':') || branch.Any(Char.IsWhiteSpace))
+                throw new ArgumentException("One branch name is required.", nameof(branch));
+            await RunGitAsync(repoPath, token, "check-ref-format", "refs/heads/" + branch).ConfigureAwait(false);
+            await RunGitAsync(repoPath, token, "fetch", "--no-tags", "origin",
+                "refs/heads/" + branch + ":refs/remotes/origin/" + branch).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<string>?> TryFindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey, string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
+        {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrEmpty(revision)) throw new ArgumentNullException(nameof(revision));
             if (String.IsNullOrEmpty(trailerKey)) throw new ArgumentNullException(nameof(trailerKey));
@@ -1718,7 +1736,7 @@ namespace Armada.Core.Services
 
             List<string> found = new List<string>();
             int limit = Math.Max(1, maxCount);
-            if (String.IsNullOrWhiteSpace(await GetRevisionCommitShaAsync(repoPath, revision, token).ConfigureAwait(false))) return found;
+            if (String.IsNullOrWhiteSpace(await GetRevisionCommitShaAsync(repoPath, revision, token).ConfigureAwait(false))) return null;
 
             // The grep narrows the walk to messages that mention the value; the parsed trailers then decide, so a
             // message that only quotes the value in prose is not a match. The candidate window is wider than the
@@ -1747,13 +1765,16 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Debug(_Header + "trailer search failed in " + repoPath + ": " + ex.Message);
-                return found;
+                return null;
             }
 
+            int candidates = 0;
             foreach (string rawLine in output.Replace("\r", String.Empty).Split('\n'))
             {
+                if (String.IsNullOrWhiteSpace(rawLine)) continue;
+                candidates++;
                 string[] fields = rawLine.Split('\t');
-                if (fields.Length < 2 || String.IsNullOrWhiteSpace(fields[0])) continue;
+                if (fields.Length < 2 || String.IsNullOrWhiteSpace(fields[0])) return null;
                 bool matches = false;
                 for (int i = 1; i < fields.Length; i++)
                 {
@@ -1764,7 +1785,9 @@ namespace Armada.Core.Services
                 if (found.Count >= limit) break;
             }
 
-            return found;
+            // A full candidate window may hide an older exact trailer behind prose-only mentions.
+            // In that case an empty match set is incomplete evidence, not a proved absence.
+            return found.Count == 0 && candidates >= limit * 4 ? null : found;
         }
 
         /// <inheritdoc />

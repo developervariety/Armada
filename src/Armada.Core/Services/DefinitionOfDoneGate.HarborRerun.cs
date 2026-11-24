@@ -80,6 +80,7 @@ namespace Armada.Core.Services
             {
                 using (HarborCheckoutOperationScope scope = new HarborCheckoutOperationScope(checkId, source.HarborExpectedHead))
                 {
+                    await RequireAutomaticVerificationPermissionAsync(token).ConfigureAwait(false);
                     completed = await HarborCheckouts!.ExecuteAsync(dock, request, token).ConfigureAwait(false);
                     budget?.RecordRemoteExecution(completed);
                     output = await HarborVerificationOutputReader.ReadAsync(HarborCheckouts, dock, completed, checkId,
@@ -90,7 +91,7 @@ namespace Armada.Core.Services
             {
                 throw;
             }
-            catch (Exception exception)
+            catch (Exception exception) when (exception is not MissionAutomaticWorkPermissionRequiredException)
             {
                 DefinitionOfDoneResult failure = DefinitionOfDoneResult.Fail(label, -1,
                     BuildDiagnosticText("Harbor isolated rerun did not complete: " + exception.Message), DefinitionOfDoneFailureClassEnum.Infra);

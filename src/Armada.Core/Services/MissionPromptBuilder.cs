@@ -635,7 +635,7 @@ namespace Armada.Core.Services
         /// per-vessel and host-wide full-suite limits.
         /// </summary>
         internal const string SuiteLeaseInstruction =
-            "Before a full-suite run, acquire `armada_suite_lease`, then release it. A wait is not a stall.";
+            "Before a full-suite run, acquire `armada_suite_lease`. Only `granted` or `held` with `MayRunFullSuite=true` permits the run. While `queued`, keep waiting with acquire or release to withdraw; never run the full suite without a grant. Use the queue reason and host occupancy to explain the wait, which is not a stall. Release after the suite ends.";
 
         /// <summary>
         /// Keep an unchanged Linter review bounded without waiving explicit checks or the automatic gates.

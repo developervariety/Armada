@@ -25,6 +25,80 @@ objective-to-closeout workflow and MCP catalog.
 
 Do not put this state only in a mission report or release note.
 
+### Per-mission automatic-work permissions
+
+An operator can opt a mission in to a durable barrier with
+`armada_mission_action_permissions` or
+`GET`/`POST /api/v1/missions/{id}/action-permissions`. Captain and saved Ask
+credentials cannot change this control. Reads and writes use the caller's record
+scope; permission writes also require the ordinary mission-write role.
+The combined MCP tool is listed only to global administrators. The REST routes
+retain their normal scoped read and tenant-administrator write roles.
+
+- `status` reads the current launch, captured commit and independent grants.
+- `Enable` creates the barrier with both grants absent. It accepts only a reason,
+  and can be used before a mission starts. Repeating it preserves existing grants.
+- `Grant` selects `Verification` or `DependentAdmission` and supplies the exact
+  current `expectedStartedUtc` and `expectedCommitHash`, a future UTC `expiresUtc`
+  no more than one hour from server time, and a reason. The issuer comes from the
+  authenticated caller. Verification requires produced work or a held Review.
+  Dependent admission can also be granted or renewed when the producer is Complete
+  or PullRequestOpen, if its launch and source still match.
+- `Revoke` removes the selected grant at the exact current launch and source. It
+  requires a reason and accepts no expiry. It leaves the other grant unchanged.
+
+The action-permissions GET and POST responses preserve every timestamp tick,
+including launch identity and nested grant dates. Read this endpoint's current
+`StartedUtc` and `CommitHash` before a grant or revoke; a lower-precision date
+from another listing cannot substitute for that exact launch.
+
+Permission changes and the scoped audit event commit in one transaction. Repeating
+an identical grant does not renew its issue time or expiry. A stale request cannot
+authorize a new launch or source, and a stale ordinary mission save cannot restore
+a revoked grant. Malformed or unsupported stored permission holds work; it never
+falls back to legacy behavior. Missions with no explicit barrier retain their
+existing behavior. Generic metadata updates cannot remove the barrier.
+
+When verification permission is missing, completion retains the raw exit output
+and captured source in WorkProduced before refusal, failure or verification
+policy can continue. This status does not accept the output as successful work.
+Completion returns to its caller. It does not block the health loop or an operator
+request. The normal recovery loop resumes completion after a grant. Commands
+check the current grant after any host-slot wait and before starting. Expiry and
+revocation prevent new commands; they do not claim to cancel an already running
+command. Completion recovery keeps the same launch and source, uses valid
+recorded verification instead of repeating it, and does not restart the captain
+or reset counters. A reusable result must match the current owner, commit,
+branch and recovery attempt, and its evaluation must belong to the current
+launch. A result for another commit cannot release the verification wait. A
+Passed result must include the measured current commit. Completion saves retain
+permission changes made during a command, but cannot overwrite cancellation, a
+later launch, or another source. On PostgreSQL and MySQL, the completion write
+uses the native microsecond form for newly assigned completion and review-
+request times. The expected snapshot, launch identity and timestamps inside JSON
+stay exact. A permission change does not discard an already completed command's
+verdict. Independent dependent permission is checked before preparation,
+provisioning and launch, including retained prepared branches and parallel
+dependencies. It never approves a required manual Review.
+
+An opted-in runtime exit with a nonzero or unknown code, a failed log capture,
+or a missing-process failure enters Review with a named unexpected-exit hold.
+It preserves the actual launch, source, output and retained dock. It does not
+claim that work was produced or accepted. Automatic interruption, resource,
+provider and failure recovery cannot retry the launch, cancel its pending
+stages or open a rescue from that hold. The captain is released. Duplicate
+completion callbacks and permission grants cannot clear the hold or start
+verification. This hold is not a Judge PASS: ordinary approval and hold-clear
+cannot release it. An operator must reject the review or fail the hold, then
+use the supported explicit recovery path if another attempt is required.
+Operator stops, cancellation and superseded-process callbacks keep their
+existing handling; the barrier does not turn them into runtime failures.
+
+A grant records authority only. Normal completion and recovery own execution; a
+grant is not a host reservation, resource waiver, model override, Check result,
+product acceptance or deployment approval. Keep the normal host coordination,
+pressure controls, review duties and required Checks.
+
 ### Add-only Markdown landing conflicts
 
 A vessel's `AutoResolveAddOnlyMarkdown` setting defaults to `true`. A landing can

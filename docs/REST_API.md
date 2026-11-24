@@ -1767,6 +1767,40 @@ for the landed commit.
 
 A voyage is a batch of related missions tracked together.
 
+#### POST /api/v1/voyages/{id}/administrative-completion-correction
+
+An exact-owner global administrator previews or corrects a planning-only
+administrative `Complete` outcome. Captain and Ask callers are refused.
+
+| Field | Type | Description |
+|---|---|---|
+| `dryRun` | boolean | Defaults true. Preview does not change state. |
+| `sourceCommit` | string | Exact Git object for the unchanged planning stage. |
+| `expectedFingerprint` | string | Current preview fingerprint, required when `dryRun` is false. |
+| `historicalWork` | object | Explicit exact-owner saved-work disposition. Required for executed historical stages. |
+| `restartDescription` | string | Optional instructions fixed when the permit is previewed and issued. |
+| `restartTitle` | string | Optional title fixed when the permit is previewed and issued. |
+
+The response includes `Fingerprint`, `Blockers`, `SourceEvidence`, `Applied`,
+`AuditEventId` and, for saved historical work, `RestartPermitId`.
+`historicalWork` contains `kind` (`Unaccepted`), `graphFingerprint`, `missionId`,
+`preservedSourceRef`, `preservedSourceCommit`, `cancellationEventId`,
+`nativeEvidenceSHA256`, `countsEvidenceSHA256` and a bounded truthful `reason`.
+Preview first with the full evidence and no fingerprint, then bind the returned
+fingerprint in the explicit owner disposition. Apply issues the permit but
+starts no actor. Consume it later through the existing mission restart endpoint
+with `{ "administrativeRestartPermitId": "<issued-permit-id>" }`. REST, MCP
+and WebSocket require the same exact-owner global operator and fresh guards.
+The permit is one-use, and changed graph, source, cancellation or instructions
+refuse it. Other required stages stay stopped; this is no blanket pipeline release. Apply refuses a stale fingerprint or any remaining blocker
+with `409`. It atomically archives the prior outcome and changes only the
+voyage to `Failed`; all mission rows, original completion time and budgets stay
+unchanged. It starts no mission. See
+[Administrative completion correction](PIPELINES.md#administrative-completion-correction)
+for source proof limits and the separate restart boundary.
+
+---
+
 #### GET /api/v1/voyages
 
 List all voyages with pagination.
@@ -2042,6 +2076,37 @@ Get a single mission by ID.
 
 ---
 
+#### GET /api/v1/missions/{id}/action-permissions
+
+Returns the caller-scoped mission `Id`, exact `StartedUtc`, captured `CommitHash`,
+`AutomaticWorkPermission` and `AutomaticWorkPermissionInvalid`. Captain-scoped
+credentials cannot use this operator control. Normal read authorization applies;
+a missing or invisible mission returns `404`.
+
+#### POST /api/v1/missions/{id}/action-permissions
+
+Requires normal mission-write authorization and an authenticated operator context.
+Permission writes and their audit commit atomically. It starts no actor or Check.
+
+| Field | Type | Description |
+|---|---|---|
+| `operation` | string | `Enable`, `Grant` or `Revoke`. |
+| `reason` | string | Required bounded reason for the audit. |
+| `action` | string | `Verification` or `DependentAdmission`; required for Grant and Revoke, absent for Enable. |
+| `expectedStartedUtc` | UTC timestamp | Exact current launch from action-permissions GET; required for Grant and Revoke. |
+| `expectedCommitHash` | string | Exact current captured commit; required for Grant and Revoke. |
+| `expiresUtc` | UTC timestamp | Grant only; future expiry no more than one hour from server time. |
+
+GET and successful POST retain full timestamp precision, including nested grants.
+Copy the returned timestamp text exactly; do not round it through a lower-
+precision date type. POST returns the updated mission, `400` for invalid arguments,
+`403` for forbidden callers, `404` for an invisible mission, or `409` for a stale
+binding or incompatible state. A grant never substitutes for manual Review or
+runtime admission. See [Per-mission automatic-work permissions](DELIVERY_OPERATIONS.md#per-mission-automatic-work-permissions)
+for completion, unexpected-exit holds and independent dependent admission.
+
+---
+
 #### GET /api/v1/missions/{id}/output
 
 Returns one page of the mission's authoritative safe output artifact. The
@@ -2289,6 +2354,7 @@ A restarted Judge whose earlier run ended `FAIL` or `NEEDS_REVISION` receives a 
 |---|---|---|---|
 | `Title` | string | No | New mission title. Omit to keep the original. |
 | `Description` | string | No | New mission description/instructions. Omit to keep the original. |
+| `AdministrativeRestartPermitId` | string | No | Exact-owner global operator only. Consume an issued one-use saved-work permit under the [administrative recovery contract](PIPELINES.md#administrative-completion-correction). Omit for ordinary restart. |
 
 **Response:** `200 OK` - [Mission](#mission) (with `Status: "Pending"`)
 

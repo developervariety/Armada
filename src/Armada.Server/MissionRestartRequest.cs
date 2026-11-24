@@ -34,5 +34,8 @@ namespace Armada.Server
         /// Optional new description/instructions. If null or empty, the original description is preserved.
         /// </summary>
         public string? Description { get; set; }
+
+        /// <summary>Explicit one-use exact-owner administrative recovery permit. Omit for ordinary restart.</summary>
+        public string? AdministrativeRestartPermitId { get; set; }
     }
 }

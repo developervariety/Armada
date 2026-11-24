@@ -221,6 +221,16 @@ not registered and will never run, never fail, and never appear.
 - **Output.** After the summary the runner prints `Skipped Tests: N`, each skipped case id with its reason, and the counts by disposition. A run with no source checkout above it says that legacy owners were not verified.
 - **Exit codes.** 0 when nothing failed. 1 when a case failed. 2 when discovery fails (a stale disposition record), when the suite filter matches no suite, or when the selection would execute nothing.
 
+The `Database.MissionDatabase` suite includes one saved-work recovery case for
+all configured database providers. It uses real local Git refs and the recovery
+service to issue permits, then checks reopen, stored timestamp precision,
+one-use consumption on two connections and rollback after an injected late
+write failure. The rollback trigger is limited to one test voyage and is removed
+in `finally`. The case needs trigger/function DDL permission on its dedicated
+synthetic test database. Use `--suites Database.MissionDatabase` with the existing
+`--db-*` options; run each provider in a separate process. This selects the whole
+suite. It does not prove a production deployment or start a captain.
+
 ### Ownership
 
 The legacy executables remain the owners of the fork cases they execute. The shared runner owns every shared case it executes. Each behaviour has one executed implementation: a shared case that only repeats an executed legacy case is deleted, and a legacy case that only repeats an executed shared case is deleted, so neither survives as a skip. When a shared case cannot execute correctly, it is recorded once in `src/Test.Shared/Infrastructure/SharedCaseDispositions.cs` and reported by every runner as a named, counted skip:

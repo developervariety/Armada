@@ -173,6 +173,7 @@ namespace Armada.Core.Services
             // The run is registered under the mission so a mission cancel can stop it: the gate observes the
             // run's token, which the cancel trips, and every wait and command below honors that token.
             using IDisposable executionBudgetScope = EnterExecutionBudgetLedger();
+            using (IDisposable permissionScope = EnterAutomaticPermissionScope(mission))
             using (DefinitionOfDoneGateRun run = DefinitionOfDoneGateRuns.Start(mission.Id, token))
             {
                 DefinitionOfDoneResult result;
@@ -194,6 +195,8 @@ namespace Armada.Core.Services
                         run.CancelForMission();
                         run.Token.ThrowIfCancellationRequested();
                     }
+
+                    await RequireAutomaticVerificationPermissionAsync(run.Token).ConfigureAwait(false);
 
                     // A gate that starts on an overloaded host spends its command time limits on the host's
                     // queue, not on the change, so it waits for the host first. A gate that will not run
@@ -1144,7 +1147,7 @@ namespace Armada.Core.Services
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not MissionAutomaticWorkPermissionRequiredException)
             {
                 return ConsumerVerificationError(
                     label,
@@ -2135,6 +2138,7 @@ namespace Armada.Core.Services
             BoundedProcessResult result;
             using (commandLease)
             {
+                await RequireAutomaticVerificationPermissionAsync(token).ConfigureAwait(false);
                 if (budget != null)
                 {
                     if (!budget.TryGetRemaining(out commandTimeout)) return budget.Failure(label);

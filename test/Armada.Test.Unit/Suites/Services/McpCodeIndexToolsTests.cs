@@ -1099,8 +1099,11 @@ namespace Armada.Test.Unit.Suites.Services
                         captain.MissionId = mission.Id;
                         using (McpCallerContext.Begin(captain))
                         {
-                            response = (ContextSearchResponse)await handlers[McpContextSearchTools.ToolName](
+                            string page = (string)await handlers[McpContextSearchTools.ToolName](
                                 JsonSerializer.SerializeToElement(new { query = "Needle" })).ConfigureAwait(false);
+                            AssertContains("Complete: true", page, "This small unavailable-source response fits one page");
+                            int body = page.IndexOf("\nContent:\n", StringComparison.Ordinal) + "\nContent:\n".Length;
+                            response = JsonSerializer.Deserialize<ContextSearchResponse>(page.Substring(body))!;
                         }
 
                         AssertFalse(System.IO.Directory.Exists(System.IO.Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id)), "recall must not index a never-indexed vessel");

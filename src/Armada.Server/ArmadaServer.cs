@@ -657,6 +657,7 @@ using WatsonWebserver.Core.Routing;
             _Admiral.OnLaunchAgent = _AgentLifecycle.HandleLaunchAgentAsync;
             _Admiral.OnStopAgent = _AgentLifecycle.HandleStopAgentAsync;
             _Admiral.OnCaptureDiff = _MissionLanding.HandleCaptureDiffAsync;
+            missionService.OnPrepareCompletionDiff = _MissionLanding.PrepareCompletionDiffAsync;
             _Admiral.OnIsProcessExitHandled = _AgentLifecycle.IsProcessExitHandled;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
             {

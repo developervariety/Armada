@@ -50,12 +50,73 @@ namespace Armada.Test.Unit.Suites.Services
                     using (McpCallerContext.Begin(caller))
                     {
                         JsonElement args = JsonSerializer.SerializeToElement(new { query = "checksum", includeCode = false });
-                        AssertTrue(await handlers[McpContextSearchTools.ToolName](args).ConfigureAwait(false) is ContextSearchResponse, "Canonical recall spends the first call");
+                        AssertTrue(await handlers[McpContextSearchTools.ToolName](args).ConfigureAwait(false) is string, "Canonical recall spends the first call and returns a bounded text page");
                         JsonElement listing = JsonSerializer.SerializeToElement(new { search = "checksum" });
                         AssertContains(fact.Id, JsonSerializer.Serialize(await handlers["search_memory"](listing).ConfigureAwait(false)), "Native listing spends the second call");
                         McpContextSearchTools.Register(register, search, settings.ContextRetrieval, db.Driver, new ContextRecallBudget(db.Driver, settings));
                         AssertContains("budget", JsonSerializer.Serialize(await handlers[McpContextSearchTools.ToolName](args).ConfigureAwait(false)), "A new service registration cannot reset usage");
                         AssertContains("budget", JsonSerializer.Serialize(await handlers["search_memory"](listing).ConfigureAwait(false)), "Native listing cannot bypass the common counter");
+                    }
+                }
+            });
+
+            await RunTest("MCP context pages bound complete UTF8 text and reconstruct required guidance without stale continuation", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(db).ConfigureAwait(false);
+                    string required = String.Concat(Enumerable.Repeat("checksum 安全 🚀\n", 700));
+                    ContextSearchService search = new ContextSearchService(db.Driver, new ContextRetrievalService(new[]
+                    {
+                        new ContextChunk { Topic = "core", Path = "AI-Memory/shared/rules.md", Tier = ContextTierEnum.Core, Text = required }
+                    }));
+                    ArmadaSettings settings = new ArmadaSettings();
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                    McpContextSearchTools.Register((name, description, schema, handler) => handlers[name] = handler,
+                        search, settings.ContextRetrieval, db.Driver, new ContextRecallBudget(db.Driver, settings));
+                    using (McpCallerContext.Begin(Caller()))
+                    {
+                        StringBuilder joined = new StringBuilder();
+                        string? token = null;
+                        string? firstToken = null;
+                        int pageCount = 0;
+                        do
+                        {
+                            object result = await handlers[McpContextSearchTools.ToolName](JsonSerializer.SerializeToElement(new
+                            {
+                                query = "checksum", vesselId = vessel.Id, includeCode = false, maxBytes = 700, continuationToken = token
+                            })).ConfigureAwait(false);
+                            string page = result is string text ? text : JsonSerializer.Serialize(result);
+                            AssertTrue(Encoding.UTF8.GetByteCount(page) <= 700, "Entire page including metadata fits the caller's byte cap");
+                            AssertTrue(result is string, "Successful pages are raw multiline MCP text");
+                            AssertFalse(page.Contains("\uFFFD", StringComparison.Ordinal), "A UTF8 character is not split");
+                            int body = page.IndexOf("\nContent:\n", StringComparison.Ordinal);
+                            AssertTrue(body >= 0, "Page has an explicit content boundary");
+                            joined.Append(page.Substring(body + "\nContent:\n".Length));
+                            token = page.Split('\n').Single(line => line.StartsWith("ContinuationToken: ", StringComparison.Ordinal)).Substring("ContinuationToken: ".Length);
+                            firstToken ??= token;
+                            pageCount++;
+                            AssertTrue(pageCount < 200, "Pagination makes progress");
+                        } while (!String.IsNullOrEmpty(token));
+                        ContextSearchResponse? restored = JsonSerializer.Deserialize<ContextSearchResponse>(joined.ToString());
+                        AssertEqual(required, restored!.Required.Single().Text, "All mandatory unicode guidance is retrievable, not truncated away");
+                        AssertTrue(pageCount > 1, "The large guidance actually crosses pages");
+                        object bad = await handlers[McpContextSearchTools.ToolName](JsonSerializer.SerializeToElement(new
+                        {
+                            query = "checksum", vesselId = vessel.Id, maxBytes = 700, includeCode = false, continuationToken = "wrong.1"
+                        })).ConfigureAwait(false);
+                        AssertContains("invalid_continuation", JsonSerializer.Serialize(bad), "Wrong tokens refuse");
+                        await new MemoryService(db.Driver).CreateAsync(Caller(), new Memory { Content = "checksum new fact", VesselId = vessel.Id }).ConfigureAwait(false);
+                        object stale = await handlers[McpContextSearchTools.ToolName](JsonSerializer.SerializeToElement(new
+                        {
+                            query = "checksum", vesselId = vessel.Id, maxBytes = 700, includeCode = false, continuationToken = firstToken
+                        })).ConfigureAwait(false);
+                        AssertContains("invalid_continuation", JsonSerializer.Serialize(stale), "Changed source refuses the old snapshot token");
+                        object tiny = await handlers[McpContextSearchTools.ToolName](JsonSerializer.SerializeToElement(new
+                        {
+                            query = "checksum", vesselId = vessel.Id, maxBytes = 511, includeCode = false
+                        })).ConfigureAwait(false);
+                        AssertContains("at least 512", JsonSerializer.Serialize(tiny), "Unsupported tiny page caps are explicit");
                     }
                 }
             });
@@ -202,7 +263,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await new MemoryService(db.Driver).CreateAsync(Caller(), new Memory { Content = "checksum", VesselId = vessel.Id }).ConfigureAwait(false);
                     Mission mission = await db.Driver.Missions.CreateAsync(new Mission("Recall", "Inspect") { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, VesselId = vessel.Id, Status = MissionStatusEnum.InProgress }).ConfigureAwait(false);
                     Dictionary<string, Func<JsonElement?, Task<object>>> tools = new Dictionary<string, Func<JsonElement?, Task<object>>>();
-                    ContextRetrievalSettings limits = new ContextRetrievalSettings { MaxCallsPerMission = 1, MaxLeafBytesPerCall = 0 };
+                    ContextRetrievalSettings limits = new ContextRetrievalSettings { MaxCallsPerMission = 1, MaxLeafBytesPerCall = 512 };
                     McpContextSearchTools.Register((name, description, schema, handler) => tools[name] = handler, new ContextSearchService(db.Driver, Guidance(vessel.Name)), limits, db.Driver, new ContextRecallBudget(db.Driver, new ArmadaSettings { ContextRetrieval = limits }));
                     AuthContext caller = Caller(); caller.MissionId = mission.Id;
                     AssertTrue(McpToolAccessPolicy.IsAllowed(caller, McpContextSearchTools.ToolName), "Mission catalog grants the scoped query");
@@ -210,10 +271,13 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         JsonElement args = JsonSerializer.SerializeToElement(new { query = "checksum", maxBytes = 1000000 });
                         object first = await tools[McpContextSearchTools.ToolName](args).ConfigureAwait(false);
-                        AssertTrue(first is ContextSearchResponse, "Real handler calls shared service");
-                        AssertEqual(0, ((ContextSearchResponse)first).Results.Count, "Client cannot raise server byte cap");
-                        AssertEqual(2, ((ContextSearchResponse)first).Required.Count, "Server cap does not trim core rules");
-                        string second = JsonSerializer.Serialize(await tools[McpContextSearchTools.ToolName](args).ConfigureAwait(false));
+                        AssertTrue(first is string, "Real handler returns a text page");
+                        string page = (string)first;
+                        AssertTrue(Encoding.UTF8.GetByteCount(page) <= 512, "Client cannot raise the server's complete page cap");
+                        AssertContains("Complete: false", page, "Partial mandatory guidance remains explicitly incomplete");
+                        string next = page.Split('\n').Single(line => line.StartsWith("ContinuationToken: ", StringComparison.Ordinal)).Substring("ContinuationToken: ".Length);
+                        JsonElement continuation = JsonSerializer.SerializeToElement(new { query = "checksum", maxBytes = 1000000, continuationToken = next });
+                        string second = JsonSerializer.Serialize(await tools[McpContextSearchTools.ToolName](continuation).ConfigureAwait(false));
                         AssertContains("budget", second, "Repeated mission calls hit the configured budget");
                         limits.FetchToolEnabled = false;
                         AssertContains("disabled", JsonSerializer.Serialize(await tools[McpContextSearchTools.ToolName](args).ConfigureAwait(false)), "Existing kill switch covers shared query");

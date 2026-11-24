@@ -138,7 +138,12 @@ namespace Armada.Server
         /// <summary>
         /// Capture diff and commit hash for a mission before worktree reclamation.
         /// </summary>
-        public async Task HandleCaptureDiffAsync(Mission mission, Dock dock)
+        public Task HandleCaptureDiffAsync(Mission mission, Dock dock) => CaptureDiffCoreAsync(mission, dock, true);
+
+        /// <summary>Prepare the completion model; its owner atomically saves the diff and advanced HEAD against its last persisted source.</summary>
+        public Task PrepareCompletionDiffAsync(Mission mission, Dock dock) => CaptureDiffCoreAsync(mission, dock, false);
+
+        private async Task CaptureDiffCoreAsync(Mission mission, Dock dock, bool persist)
         {
             if (String.IsNullOrEmpty(dock.WorktreePath) || String.IsNullOrEmpty(dock.BranchName))
                 return;
@@ -160,8 +165,8 @@ namespace Armada.Server
                 {
                     // Persist to database so it survives worktree reclamation
                     mission.DiffSnapshot = diff;
-                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    _Logging.Info(_Header + "persisted diff snapshot to database for mission " + mission.Id + " (" + diff.Length + " chars)");
+                    if (persist) await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    _Logging.Info(_Header + (persist ? "persisted diff snapshot to database for mission " : "prepared diff snapshot for mission ") + mission.Id + " (" + diff.Length + " chars)");
 
                     // Also save to file for backwards compatibility
                     string diffDir = Path.Combine(_Settings.LogDirectory, "diffs");
@@ -182,7 +187,7 @@ namespace Armada.Server
                 if (!String.IsNullOrEmpty(commitHash))
                 {
                     mission.CommitHash = commitHash;
-                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    if (persist) await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Info(_Header + "captured commit hash " + commitHash + " for mission " + mission.Id);
                     await RecordBranchVerificationAsync(mission, dock, commitHash!).ConfigureAwait(false);
                 }

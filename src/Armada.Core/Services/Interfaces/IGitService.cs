@@ -577,6 +577,29 @@ namespace Armada.Core.Services.Interfaces
             return Task.FromResult<IReadOnlyList<string>>(new List<string>());
         }
 
+        /// <summary>Refresh one remote tracking branch without changing worktrees or pruning registrations.</summary>
+        /// <param name="repoPath">Repository path.</param>
+        /// <param name="branch">Remote branch name.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The refresh task; unsupported implementations refuse it.</returns>
+        Task RefreshRemoteTrackingBranchAsync(string repoPath, string branch, CancellationToken token = default)
+            => throw new NotSupportedException("A bounded remote tracking refresh is unavailable.");
+
+        /// <summary>Search exact landing trailers while preserving an unavailable or failed search as unknown.</summary>
+        /// <param name="repoPath">Repository path.</param>
+        /// <param name="revision">Exact revision to search.</param>
+        /// <param name="trailerKey">Trailer key.</param>
+        /// <param name="trailerValue">Exact trailer value.</param>
+        /// <param name="sinceUtc">Optional commit-time lower bound.</param>
+        /// <param name="maxCount">Maximum matching commits.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Matching commits, an empty completed search, or null when the search is unknown.</returns>
+        Task<IReadOnlyList<string>?> TryFindCommitsByTrailerAsync(string repoPath, string revision, string trailerKey,
+            string trailerValue, DateTime? sinceUtc, int maxCount, CancellationToken token = default)
+        {
+            return Task.FromResult<IReadOnlyList<string>?>(null);
+        }
+
         /// <summary>
         /// List the most recent commits that touched a path, newest first.
         /// </summary>

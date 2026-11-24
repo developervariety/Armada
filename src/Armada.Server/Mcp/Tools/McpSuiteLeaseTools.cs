@@ -52,7 +52,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 ToolName,
-                "Acquire or release the Armada suite lease before a full-suite run (for example scripts/check.sh). The lease takes the per-vessel and host-wide full-suite slots. A captain credential acts only for its own mission. acquire waits at most waitSeconds (default " + DefaultWaitSeconds + ", at most " + MaxWaitSeconds + ") and then answers granted, held, or queued with your position. While queued, call acquire again: the queued request keeps its place between calls, and that wait is not a stall. Release when the suite ends; release while queued withdraws the request. The lease is released when the mission ends.",
+                "Acquire or release the Armada suite lease before a full-suite run (for example scripts/check.sh). The lease takes the per-vessel and host-wide full-suite slots. A captain credential acts only for its own mission. acquire waits at most waitSeconds (default " + DefaultWaitSeconds + ", at most " + MaxWaitSeconds + ") and then answers granted, held, or queued with your position and current host occupancy. Only granted or held with MayRunFullSuite=true permits a full-suite run. Queued is not permission: never run without a grant. No estimated grant time is promised. While queued, call acquire again: the queued request keeps its place between calls, and that wait is not a stall. Release when the suite ends; release while queued withdraws the request. The lease is released when the mission ends.",
                 new
                 {
                     type = "object",
@@ -81,7 +81,7 @@ namespace Armada.Server.Mcp.Tools
                         bool withdrawn = CaptainSuiteLeaseRegistry.CancelWait(missionId);
                         bool released = CaptainSuiteLeaseRegistry.Release(missionId);
                         string releaseStatus = released ? "released" : withdrawn ? "withdrawn" : "idle";
-                        return new { Status = releaseStatus, MissionId = missionId };
+                        return new { Status = releaseStatus, MissionId = missionId, MayRunFullSuite = false };
                     }
 
                     if (!String.Equals(action, "acquire", StringComparison.OrdinalIgnoreCase))
@@ -94,7 +94,7 @@ namespace Armada.Server.Mcp.Tools
 
                     if (CaptainSuiteLeaseRegistry.IsActive(missionId) && !CaptainSuiteLeaseRegistry.IsWaiting(missionId))
                     {
-                        return new { Status = "held", MissionId = missionId, Position = 0 };
+                        return new { Status = "held", MissionId = missionId, Position = 0, MayRunFullSuite = true, Message = "Your mission already holds the lease; it may run its full suite. Release when the suite ends." };
                     }
 
                     // The queued request must outlive this call: a transport timeout or a client that stops
@@ -122,13 +122,23 @@ namespace Armada.Server.Mcp.Tools
 
                     if (!acquire.IsCompleted)
                     {
-                        int position = CaptainSuiteLeaseRegistry.ReadWaitPosition(missionId);
+                        HostSlotSnapshot snapshot = HostWideCommandLock.Snapshot();
+                        HostVesselWaiter? vesselWait = snapshot.FindVesselWaiter(missionId);
+                        HostSlotWaiter? hostWait = snapshot.FindWaiter(missionId);
                         return new
                         {
                             Status = "queued",
                             MissionId = missionId,
-                            Position = position,
-                            Message = "Call acquire again to keep waiting at this place; call release to withdraw."
+                            Position = vesselWait?.Position ?? hostWait?.Position ?? 0,
+                            MayRunFullSuite = false,
+                            WaitReason = vesselWait != null ? "vessel_suite_slot" : snapshot.HeldForMemory ? "host_memory" : "host_command_slot",
+                            CurrentHolder = snapshot.Holders.Count > 0 ? "another host build or test operation" : null,
+                            HolderCount = snapshot.Holders.Count,
+                            OldestHolderSinceUtc = snapshot.HolderSinceUtc,
+                            HostHeldForMemory = snapshot.HeldForMemory,
+                            AvailableMemoryMb = snapshot.AvailableMemoryMb,
+                            MemoryFloorMb = snapshot.MemoryFloorMb,
+                            Message = "No permission to run. Call acquire again to keep your place, or release to withdraw; never start the full suite while queued. Holder identities remain private; ask an operator if the wait needs investigation."
                         };
                     }
 
@@ -145,7 +155,9 @@ namespace Armada.Server.Mcp.Tools
                     {
                         Status = "granted",
                         MissionId = missionId,
-                        Position = 0
+                        Position = 0,
+                        MayRunFullSuite = true,
+                        Message = "Your mission holds the lease and may run its full suite. Release when the suite ends."
                     };
                 });
         }
@@ -200,7 +212,7 @@ namespace Armada.Server.Mcp.Tools
 
         private static object Failure(string code, string message)
         {
-            return new { Error = message, Code = code };
+            return new { Error = message, Code = code, MayRunFullSuite = false };
         }
 
         private sealed class SuiteLeaseArgs

@@ -15,6 +15,7 @@
       "test-databases",
       "deploy-dumps"
     ],
+    "hostLockPath": null,
     "minimumFreeGb": 20
   },
   "buildOutputs": {
@@ -36,6 +37,7 @@
       "/path/to/agent-home/gate-scratch"
     ],
     "wholeFolderRetentionDays": 3,
+    "nativeLibraryCachePatterns": [],
     "nugetCachePatterns": [],
     "lowSpaceThresholdGb": 20,
     "lowSpaceCacheRetentionHours": 12

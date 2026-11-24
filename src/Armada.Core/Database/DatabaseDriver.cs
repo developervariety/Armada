@@ -162,6 +162,9 @@ namespace Armada.Core.Database
         /// <summary>Atomic full Research replay and immutable prior-attempt history.</summary>
         public IResearchReplayMethods ResearchReplays { get; protected set; } = null!;
 
+        /// <summary>Explicit administrative voyage completion correction.</summary>
+        public IAdministrativeVoyageRecoveryMethods AdministrativeVoyageRecovery { get; protected set; } = null!;
+
         /// <summary>
         /// Append-only preparation claim observations used by production metrics.
         /// </summary>

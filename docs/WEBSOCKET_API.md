@@ -2131,6 +2131,12 @@ removed and a `mission.deleted` event is written.
 
 #### restart_mission
 
+With `data.administrativeRestartPermitId`, the command uses the explicit
+[administrative recovery contract](PIPELINES.md#administrative-completion-correction)
+instead of broadening ordinary restart. The permit is source/graph/owner-bound
+and one-use; all old outcome and charge history remains. The normal rules below
+apply when that field is omitted.
+
 Restart a failed or cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description before restarting.
 It runs the same shared restart as `POST /api/v1/missions/{id}/restart` and `armada_restart_mission`: a `LandingFailed`
 mission is refused with `code: "use_retry_landing"` and a reason that names retry-landing, and any other status except
@@ -2160,6 +2166,7 @@ stages cancelled behind it run again.
 | `id` | string | Yes | Mission ID (prefix `msn_`) |
 | `data.title` | string | No | New title. Omit to keep original. |
 | `data.description` | string | No | New description. Omit to keep original. |
+| `data.administrativeRestartPermitId` | string | No | Exact-owner global operator only. Explicitly consume an issued one-use administrative restart permit; issued instructions and source remain fixed. |
 
 **Response:**
 

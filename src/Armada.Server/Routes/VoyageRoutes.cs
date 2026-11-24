@@ -164,6 +164,7 @@ namespace Armada.Server.Routes
             string _Header = "[ArmadaServer] ";
 
             RegisterResearchReplay(app, authenticate, authz);
+            RegisterAdministrativeRecovery(app, authenticate, authz);
 
             // Voyages
             app.Get("/api/v1/voyages", async (ApiRequest req) =>

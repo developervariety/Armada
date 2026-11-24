@@ -115,8 +115,17 @@ that does not apply a brief mid-mission, the result includes `Delivery` `stored_
 `DeliveryReason` that names the runtime. REST `PUT /api/v1/missions/{id}` and WebSocket `update_mission` return
 the same notice. The stored description is used at the next launch.
 | Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_continue_terminal_landing` (global administrator; see docs/MERGING.md), `armada_review_hold` (`action=clear` lands or hands off the held PASS), `armada_handoff_hold` (`action=release` or `mail_release` hands off the held stage) |
+| Write | `armada_mission_action_permissions` (`operation=status` reads; `Enable`, `Grant` and `Revoke` change one mission's automatic-work barrier) |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
+
+`armada_mission_action_permissions` is an authenticated operator control, not a
+captain or saved Ask tool. Its catalog entry is visible to global administrators;
+its handler retains caller scope and normal mission-write authorization. Grants
+bind the exact current launch and captured source and expire within one hour.
+They do not start work, approve Review or reserve the host. See
+[Per-mission automatic-work permissions](DELIVERY_OPERATIONS.md#per-mission-automatic-work-permissions)
+for the request fields and independent verification and dependent-admission gates.
 
 `armada_transition_mission_status`, the WebSocket `transition_mission_status`
 command, and `PUT /api/v1/missions/{id}/status` share one operator transition
@@ -202,6 +211,13 @@ is `Complete`, `Failed` or `Cancelled` is refused with `code: "voyage_ended"`
 and a reason that names the voyage and its status, and nothing changes.
 Assignment cancels a `Pending` mission of an ended voyage, so a restart there
 cannot run. Dispatch a new voyage, or a rescue, for that work instead.
+
+An explicit `administrativeRestartPermitId` uses the separate exact-owner
+[administrative completion correction](PIPELINES.md#administrative-completion-correction)
+contract. It consumes an already issued one-use permit for saved unaccepted work;
+it does not make ordinary Complete voyages restartable. The source, graph,
+owner and issued instructions must remain unchanged. Correction itself starts
+no mission, and permit consumption releases only its named original Worker.
 
 A restarted Judge whose earlier run ended `FAIL` or `NEEDS_REVISION` carries a
 bounded, historical excerpt of that run in its description (at most 6000

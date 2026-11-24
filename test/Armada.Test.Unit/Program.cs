@@ -78,6 +78,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MissionAssignmentStatePersistenceTests());
             runner.AddSuite(new MissionIntegrationBarrierPersistenceTests());
             runner.AddSuite(new GeneratedArtifactReviewPersistenceTests());
+            runner.AddSuite(new MissionAutomaticWorkPermissionPersistenceTests());
             runner.AddSuite(new DockHostCheckoutPersistenceTests());
             runner.AddSuite(new SchemaMigrationTests());
             runner.AddSuite(new PostgresBooleanColumnTypeTests());
@@ -363,6 +364,11 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TypedStageNecessityAdapterTests());
             runner.AddSuite(new TypedHandoffOutcomeAdapterTests());
             runner.AddSuite(new HandoffOutcomeHoldTests());
+            runner.AddSuite(new MissionAutomaticWorkPermissionTests());
+            runner.AddSuite(new MissionAutomaticWorkPermissionOperatorTests());
+            runner.AddSuite(new MissionAutomaticWorkPermissionBoundaryTests());
+            runner.AddSuite(new MissionAutomaticWorkPermissionCompletionWriteTests());
+            runner.AddSuite(new MissionAutomaticWorkPermissionRoutesTests());
             runner.AddSuite(new TypedOwnerDigestAdapterTests());
             runner.AddSuite(new PapercutMergeAdapterTests());
             runner.AddSuite(new MemoryCandidateAdapterTests());
@@ -425,6 +431,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpVoyageToolsTests());
             runner.AddSuite(new VoyageStatusAssignmentSurfaceTests());
             runner.AddSuite(new McpMissionToolsTests());
+            runner.AddSuite(new McpMissionAutomaticWorkPermissionTests());
             runner.AddSuite(new MissionOutputArtifactTests());
             runner.AddSuite(new MissionLogCaptureArtifactTests());
             runner.AddSuite(new PromptBudgetSummaryTests());

@@ -723,6 +723,7 @@ namespace Test.Shared.Suites.Database
             }));
 
             cases.AddRange(ResearchReplayCases());
+            cases.AddRange(AdministrativeRecoveryCases());
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Mission Database",
@@ -733,18 +734,18 @@ namespace Test.Shared.Suites.Database
 
         #region Private-Methods
 
-        private static async Task<MissionTestPrerequisites> CreatePrerequisitesAsync(DatabaseDriver db)
+        private static async Task<MissionTestPrerequisites> CreatePrerequisitesAsync(DatabaseDriver db, string nameSuffix = "")
         {
-            Fleet fleet = new Fleet("Test Fleet");
+            Fleet fleet = new Fleet("Test Fleet" + nameSuffix);
             fleet.CreatedUtc = _BaseTime;
             await db.Fleets.CreateAsync(fleet).ConfigureAwait(false);
 
-            Vessel vessel = new Vessel("Test Vessel", "https://github.com/test/repo");
+            Vessel vessel = new Vessel("Test Vessel" + nameSuffix, "https://github.com/test/repo");
             vessel.FleetId = fleet.Id;
             vessel.CreatedUtc = _BaseTime;
             await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
-            Voyage voyage = new Voyage("Test Voyage", "Test voyage description");
+            Voyage voyage = new Voyage("Test Voyage" + nameSuffix, "Test voyage description");
             voyage.CreatedUtc = _BaseTime;
             await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
 

@@ -149,6 +149,147 @@ class ConfigLoadingTests(unittest.TestCase):
 
 
 class AgentHistoryTests(unittest.TestCase):
+    def test_host_lock_acquisition_failures_roll_back_owned_entries_and_allow_reacquisition(self):
+        for failure in ('open', 'write', 'flush', 'fsync'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                lock = root / 'host.lock'
+                sibling = root / 'retained-source'
+                sibling.write_bytes(b'retained source')
+                original_open = Path.open
+                entered = []
+
+                class FailingWriter:
+                    def __init__(self, handle):
+                        self.handle = handle
+                    def __enter__(self):
+                        return self
+                    def __exit__(self, *args):
+                        self.handle.close()
+                    def fileno(self):
+                        return self.handle.fileno()
+                    def write(self, payload):
+                        if failure == 'write':
+                            self.handle.write(payload[:8])
+                            self.handle.flush()
+                            raise OSError('injected owner write failure')
+                        return self.handle.write(payload)
+                    def flush(self):
+                        self.handle.flush()
+                        if failure == 'flush':
+                            raise OSError('injected owner flush failure')
+
+                def open_owner(path, mode='r', *args, **kwargs):
+                    if path == lock / 'owner' and mode == 'x':
+                        if failure == 'open':
+                            raise OSError('injected owner open failure')
+                        return FailingWriter(original_open(path, mode, *args, **kwargs))
+                    return original_open(path, mode, *args, **kwargs)
+
+                fsync = (mock.patch.object(daily.os, 'fsync', side_effect=OSError('injected owner fsync failure'))
+                         if failure == 'fsync' else contextlib.nullcontext())
+                with mock.patch.object(Path, 'open', open_owner), fsync:
+                    with self.assertRaisesRegex(OSError, 'injected owner'):
+                        with daily.host_lock(str(lock)):
+                            entered.append(True)
+                self.assertEqual(entered, [])
+                self.assertFalse(lock.exists(), 'Failed acquisition must not block later host commands')
+                self.assertEqual(sibling.read_bytes(), b'retained source')
+                with daily.host_lock(str(lock)):
+                    self.assertTrue((lock / 'owner').is_file())
+                self.assertFalse(lock.exists())
+
+    def test_failed_acquisition_preserves_foreign_directory_or_owner_replacements(self):
+        for replacement in ('directory', 'owner', 'owner_before_open'):
+            with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                lock = root / 'host.lock'
+                original_fsync = daily.os.fsync
+                original_open = Path.open
+                foreign_identity = []
+
+                def replace_then_fail(descriptor):
+                    original_fsync(descriptor)
+                    if replacement == 'directory':
+                        lock.rename(root / 'retained-original-lock')
+                        lock.mkdir()
+                    else:
+                        (lock / 'owner').rename(root / 'retained-original-owner')
+                    (lock / 'owner').write_bytes(b'foreign owner')
+                    foreign_identity.append((lock / 'owner').stat().st_ino)
+                    raise OSError('injected fsync failure after replacement')
+
+                def fail_owner_open(path, mode='r', *args, **kwargs):
+                    if path == lock / 'owner' and mode == 'x':
+                        with original_open(path, 'wb') as handle:
+                            handle.write(b'foreign owner')
+                        foreign_identity.append(path.stat().st_ino)
+                        raise FileExistsError('injected competing owner creation')
+                    return original_open(path, mode, *args, **kwargs)
+
+                injection = (mock.patch.object(Path, 'open', fail_owner_open)
+                             if replacement == 'owner_before_open'
+                             else mock.patch.object(daily.os, 'fsync', replace_then_fail))
+                with injection, self.assertRaises((RuntimeError, OSError)):
+                    with daily.host_lock(str(lock)):
+                        self.fail('An incomplete acquisition must not enter its body')
+                self.assertTrue(lock.is_dir())
+                self.assertEqual((lock / 'owner').read_bytes(), b'foreign owner')
+                self.assertEqual((lock / 'owner').stat().st_ino, foreign_identity[0])
+
+    def test_shared_host_lock_blocks_stage_and_preserves_existing_owner(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            host_lock = root / 'host.lock'
+            host_lock.mkdir()
+            owner = host_lock / 'owner'
+            owner.write_text('pid=other-owner\n')
+            before = owner.stat()
+            config = root / 'config.json'
+            config.write_text(json.dumps({'orchestrator': {'receiptDirectory': str(root / 'receipts'),
+                'stages': ['build'], 'hostLockPath': str(host_lock), 'lockPath': str(root / 'daily.lock')}}))
+            with mock.patch.object(sys, 'argv', ['daily', '--config', str(config)]), \
+                 mock.patch.object(daily.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run, \
+                 contextlib.redirect_stdout(io.StringIO()), self.assertRaises(FileExistsError):
+                daily.main()
+            run.assert_not_called()
+            self.assertEqual(owner.read_text(), 'pid=other-owner\n')
+            self.assertEqual(owner.stat().st_ino, before.st_ino)
+
+    def test_changed_host_lock_is_retained_without_removing_replacement(self):
+        for change in ('owner', 'directory'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                lock = root / 'host.lock'
+                with self.assertRaisesRegex(RuntimeError, 'identity changed'):
+                    with daily.host_lock(str(lock)):
+                        if change == 'directory':
+                            lock.rename(root / 'original.lock')
+                            lock.mkdir()
+                        (lock / 'owner').write_text('pid=replacement-owner\n')
+                self.assertTrue(lock.is_dir())
+                self.assertEqual((lock / 'owner').read_text(), 'pid=replacement-owner\n')
+
+    def test_stage_holds_shared_lock_and_releases_only_its_unchanged_identity(self):
+        for exit_code in (0, 1):
+            with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                host_lock = root / 'host.lock'
+                config = root / 'config.json'
+                config.write_text(json.dumps({'orchestrator': {'receiptDirectory': str(root / 'receipts'),
+                    'stages': ['build'], 'hostLockPath': str(host_lock), 'lockPath': str(root / 'daily.lock')}}))
+                observations = []
+                def stage(command, **kwargs):
+                    observations.append(host_lock.is_dir() and
+                        'pid=' + str(os.getpid()) + '\n' in (host_lock / 'owner').read_text())
+                    return subprocess.CompletedProcess(command, exit_code)
+                with mock.patch.object(sys, 'argv', ['daily', '--config', str(config)]), \
+                     mock.patch.object(daily.subprocess, 'run', side_effect=stage), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(daily.main(), exit_code)
+                self.assertEqual(observations, [True])
+                self.assertFalse(host_lock.exists())
+
     @unittest.skipIf(os.path.isdir('/proc/self') and os.geteuid() != 0,
                      'the build-stage CLI process scan reads every /proc entry and needs root on Linux')
     def test_daily_dry_run_and_apply_retain_old_receipts_for_archive(self):
@@ -445,6 +586,86 @@ class IsolatedNugetCacheTests(unittest.TestCase):
                 self.assertTrue((root / name / 'packages').exists(), name)
             self.assertTrue((root / 'idle/proof.log').exists())
             self.assertEqual(report['failures'], [])
+
+    def test_walked_package_cache_requires_completion_before_and_at_removal(self):
+        for complete in (False, True):
+            with self.subTest(complete=complete), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                cache = root / 'work/dotnet-cli-home/.nuget/packages'
+                version = cache / 'example.package/1.0.0'
+                write_file(version / 'example.package.1.0.0.nupkg.sha512', 3)
+                if complete:
+                    write_file(version / '.nupkg.metadata', 3)
+                for directory in sorted(cache.rglob('*'), reverse=True):
+                    if directory.is_dir():
+                        set_dir_age(directory, 3)
+                set_dir_age(cache, 3)
+                write_file(root / 'work/proof.log', 3)
+                config = root / 'config.json'
+                config.write_text(json.dumps({'receiptDirectory': str(root / 'receipts'),
+                    'buildOutputs': {'roots': [str(root / 'work')], 'scratchRoots': [],
+                        'lockPath': str(root / 'cleanup.lock'), 'diskUsagePath': str(root)}}))
+                with mock.patch.object(build, 'process_paths', return_value=[]), \
+                     mock.patch.object(sys, 'argv', ['cleanup', '--config', str(config), '--apply']), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(build.main(), 0)
+                self.assertEqual(cache.exists(), not complete)
+                self.assertTrue((root / 'work/proof.log').is_file())
+
+    def test_hardlinked_output_preserves_retained_source_alias(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repo = root / 'repo'
+            repo.mkdir()
+            (repo / 'Demo.csproj').write_text('<Project/>')
+            (repo / '.gitignore').write_text('bin/\n')
+            write_file(repo / 'source.txt', 3)
+            (repo / 'bin').mkdir()
+            os.link(repo / 'source.txt', repo / 'bin/derived.dll')
+            set_dir_age(repo / 'bin', 3)
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True, capture_output=True)
+            subprocess.run(['git', '-C', str(repo), 'add', 'Demo.csproj', '.gitignore', 'source.txt'],
+                           check=True, capture_output=True)
+            original = (repo / 'source.txt').stat()
+            config = root / 'config.json'
+            config.write_text(json.dumps({'receiptDirectory': str(root / 'receipts'),
+                'buildOutputs': {'roots': [str(repo)], 'scratchRoots': [],
+                    'lockPath': str(root / 'cleanup.lock'), 'diskUsagePath': str(root)}}))
+            with mock.patch.object(build, 'process_paths', return_value=[]), \
+                 mock.patch.object(sys, 'argv', ['cleanup', '--config', str(config), '--apply']), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                result = build.main()
+            self.assertTrue((repo / 'bin/derived.dll').is_file())
+            after = (repo / 'source.txt').stat()
+            self.assertEqual((after.st_nlink, after.st_ctime_ns),
+                             (original.st_nlink, original.st_ctime_ns))
+            self.assertEqual(result, 1)
+
+    def test_native_library_cache_cleanup_keeps_active_marked_linked_and_unknown_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            for name in ('idle', 'active', 'kept', 'linked', 'unknown', 'recent'):
+                path = root / name / 'library.so'
+                write_file(path, 3)
+                path.write_bytes((b'NOPE' if name == 'unknown' else b'\x7fELF') + b'cache-data')
+                os.utime(path, (time.time() - 3 * DAY,) * 2)
+            write_file(root / 'kept/.armada-keep', 3)
+            os.link(root / 'linked/library.so', root / 'retained-source')
+            os.utime(root / 'recent/library.so', (time.time() - DAY,) * 2)
+            config = root / 'config.json'
+            config.write_text(json.dumps({'receiptDirectory': str(root / 'receipts'),
+                'buildOutputs': {'roots': [str(root)], 'scratchRoots': [],
+                    'nativeLibraryCachePatterns': [str(root / '*/library.so')],
+                    'lowSpaceThresholdGb': 1000000000, 'lowSpaceCacheRetentionHours': 12,
+                    'lockPath': str(root / 'cleanup.lock'), 'diskUsagePath': str(root)}}))
+            with mock.patch.object(build, 'process_paths', return_value=[str(root / 'active/library.so')]), \
+                 mock.patch.object(sys, 'argv', ['cleanup', '--config', str(config), '--apply']), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(build.main(), 0)
+            self.assertFalse((root / 'idle/library.so').exists())
+            for name in ('active', 'kept', 'linked', 'unknown', 'recent'):
+                self.assertTrue((root / name / 'library.so').exists(), name)
+            self.assertEqual((root / 'retained-source').stat().st_nlink, 2)
 
     def test_cache_is_kept_when_a_process_starts_after_the_plan(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -372,10 +372,15 @@ namespace Test.Shared.Suites.Services
                     captain.State = CaptainStateEnum.Idle;
                     await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
 
-                    // Upstream mission has finished but downstream handoff has not yet marked the
-                    // worker mission as architect-prepared.
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Saved handoff voyage")
+                    { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                    // Upstream work is saved, but the first assignment must defer while the real
+                    // recovery owner creates the graph; a slice marker is not fabricated here.
                     Mission architectMission = new Mission("[Architect] Plan work");
                     architectMission.VesselId = vessel.Id;
+                    architectMission.VoyageId = voyage.Id;
+                    architectMission.AgentOutput = "[ARMADA:MISSION]\ntitle: Implement work\ndescription: Prepared handoff description.\n[/ARMADA:MISSION]";
                     architectMission.Persona = "Architect";
                     architectMission.Status = MissionStatusEnum.WorkProduced;
                     architectMission.BranchName = "armada/handoff-captain/msn_architect";
@@ -383,6 +388,7 @@ namespace Test.Shared.Suites.Services
 
                     Mission workerMission = new Mission("[Worker] Implement work", "Original dispatch description");
                     workerMission.VesselId = vessel.Id;
+                    workerMission.VoyageId = voyage.Id;
                     workerMission.Persona = "Worker";
                     workerMission.Status = MissionStatusEnum.Pending;
                     workerMission.DependsOnMissionId = architectMission.Id;
@@ -393,8 +399,13 @@ namespace Test.Shared.Suites.Services
                         bool assignedBeforeHandoff = await missionService.TryAssignAsync(workerMission, vessel).ConfigureAwait(false);
                         AssertFalse(assignedBeforeHandoff, "Worker mission should not be assigned before architect handoff marks it prepared");
 
-                        workerMission.Description = "<!-- ARMADA:ARCHITECT-HANDOFF -->\nPrepared handoff description";
-                        await testDb.Driver.Missions.UpdateAsync(workerMission).ConfigureAwait(false);
+                        workerMission = (await testDb.Driver.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false))!;
+                        AssertEqual("Implement work [Worker]", workerMission.Title,
+                            "The production recovery owner has materialized the saved slice.");
+                        AssertTrue(workerMission.Description!.Contains("Prepared handoff description.", StringComparison.Ordinal),
+                            "The real handoff preserves the parsed description.");
+                        AssertEqual(0, await missionService.RecoverDanglingHandoffsAsync().ConfigureAwait(false),
+                            "The completed graph is idempotent on the next recovery sweep.");
 
                         bool assignedAfterHandoff = await missionService.TryAssignAsync(workerMission, vessel).ConfigureAwait(false);
                         AssertTrue(assignedAfterHandoff, "Worker mission should assign after architect handoff marks it prepared");

@@ -80,11 +80,30 @@ namespace Armada.Core.Database.Interfaces
         /// <returns>True when the row was written; false when the stored status had changed and nothing was written.</returns>
         Task<bool> TryUpdateIfStatusAsync(Mission mission, MissionStatusEnum expectedStatus, CancellationToken token = default);
 
+        /// <summary>Save completion fields only while the loaded owner, launch, source, status, permission and update stamp remain exact.</summary>
+        /// <param name="mission">Completion fields to save; captured source may advance from expected.</param>
+        /// <param name="expected">Last persisted snapshot, separate from the mutated working model.</param>
+        /// <param name="token">Cancellation.</param>
+        /// <returns>False without a write on any snapshot conflict.</returns>
+        Task<bool> TryUpdateCompletionAsync(Mission mission, Mission expected, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Completion snapshot persistence is not implemented by this database.");
+        }
+
         /// <summary>Conditionally accept or rewire one exact integration barrier from a loaded pending mission snapshot.</summary>
         Task<bool> TryUpdateIntegrationBarrierAsync(Mission expected, MissionIntegrationBarrier next,
             CancellationToken token = default)
         {
             throw new System.NotSupportedException("Integration barrier persistence is not implemented by this database.");
+        }
+
+        /// <summary>Atomically replace the server-owned automatic-work permission and insert its bound audit event.
+        /// The loaded permission revision, launch/source, owner and update stamp must still match.
+        /// A conflict writes neither record; an audit failure rolls back the permission.</summary>
+        Task<bool> TryWriteAutomaticWorkPermissionAsync(Mission expected, MissionAutomaticWorkPermission next,
+            ArmadaEvent audit, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Automatic-work permission persistence is not implemented by this database.");
         }
 
         /// <summary>Conditionally prepare a same-record Judge rerun or store its exact-candidate approval.

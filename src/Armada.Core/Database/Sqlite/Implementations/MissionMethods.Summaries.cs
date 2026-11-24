@@ -15,7 +15,7 @@ id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, status, mission
 parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash,
 persona, mission_mode, depends_on_mission_id, failure_reason, reconciled_utc, reconciled_reason, requires_review, is_evaluation, review_deny_action,
 review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc,
-created_utc, started_utc, completed_utc, total_runtime_ms, last_update_utc, last_admission_json, admission_revision,
+created_utc, started_utc, completed_utc, total_runtime_ms, last_update_utc, last_admission_json, admission_revision, automatic_work_permission_json, automatic_work_permission_revision,
 LENGTH(COALESCE(description, '')) AS description_length,
 LENGTH(COALESCE(diff_snapshot, '')) AS diff_snapshot_length,
 LENGTH(COALESCE(agent_output, '')) AS agent_output_length";

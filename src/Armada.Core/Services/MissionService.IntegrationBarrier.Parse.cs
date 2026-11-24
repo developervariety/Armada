@@ -33,9 +33,36 @@ namespace Armada.Core.Services
             }
 
             List<ParsedArchitectMission> legacy = ParseArchitectOutput(architectMission, out string? fallbackReason);
+            string? dependencyFailure = ValidateArchitectMissionDependencies(legacy);
+            if (dependencyFailure != null)
+            {
+                result.InvalidPlanReason = dependencyFailure;
+                return result;
+            }
             result.Missions = CarryReadContract(architectMission, legacy);
             result.FallbackReason = fallbackReason;
             return result;
+        }
+
+        private static string? ValidateArchitectMissionDependencies(List<ParsedArchitectMission> missions)
+        {
+            HashSet<string> earlierTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int index = 0; index < missions.Count; index++)
+            {
+                string? reference = missions[index].DependsOnReference;
+                if (!String.IsNullOrWhiteSpace(reference))
+                {
+                    string normalized = NormalizeArchitectDependencyReference(reference);
+                    bool resolved = TryReadArchitectDependencyIndex(normalized, out int dependencyIndex)
+                        ? dependencyIndex > 0 && dependencyIndex <= index
+                        : earlierTitles.Contains(normalized);
+                    if (!resolved)
+                        return "Architect mission '" + missions[index].Title + "' declares dependency '"
+                            + reference + "', which must name an earlier mission in the plan.";
+                }
+                earlierTitles.Add(missions[index].Title);
+            }
+            return null;
         }
 
         // Each plan block becomes its own mission brief, so the Architect brief's read contract reaches the

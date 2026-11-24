@@ -117,6 +117,26 @@ namespace Armada.Core.Services
 
         private async Task<bool> TryRecoverArchitectFanOutAsync(Mission architect, CancellationToken token, bool allowOwnCompletion = false)
         {
+            if (String.IsNullOrEmpty(architect.VoyageId)) return false;
+            string graphVoyageId = architect.VoyageId;
+            using (await _ArchitectGraphBoundaries.AcquireAsync(graphVoyageId, token).ConfigureAwait(false))
+            {
+                Mission? current = await _Database.Missions.ReadAsync(architect.Id, token).ConfigureAwait(false);
+                if (current == null || !String.Equals(current.VoyageId, graphVoyageId, StringComparison.Ordinal)) return false;
+                return await TryRecoverArchitectFanOutCoreAsync(current, token, allowOwnCompletion).ConfigureAwait(false);
+            }
+        }
+
+        // Called only while the Architect voyage boundary is held by recovery or normal handoff.
+        private async Task<bool> TryRecoverArchitectFanOutCoreAsync(Mission architect, CancellationToken token, bool allowOwnCompletion = false)
+        {
+            if (!await CanAdmitAutomaticWorkAsync(architect, MissionAutomaticActionEnum.DependentAdmission, token).ConfigureAwait(false)) return false;
+            string? missingGate = await DescribeMissingDefinitionOfDoneResultAsync(architect, token).ConfigureAwait(false);
+            if (missingGate != null)
+            {
+                await HoldForMissingDefinitionOfDoneResultAsync(architect, missingGate, token).ConfigureAwait(false);
+                return false;
+            }
             if (architect.HeldForOperatorReview || (!allowOwnCompletion && IsCompletionInFlight(architect.Id))
                 || IsArchitectFanOutComplete(architect)
                 || !_ArchitectRecoveries.TryAdd(architect.Id, 0)) return false;
@@ -132,7 +152,7 @@ namespace Armada.Core.Services
                 {
                     if (!CanRepairArchitectStage(templates[0]) || ArchitectChainHasStarted(rows, templates[0], new HashSet<string>(StringComparer.Ordinal))) throw new ArchitectRecoveryUnsafeException("the unprepared Worker has started");
                     // The normal path owns parsing, plan evidence, mailbox notes and planner-code policy.
-                    return await TryHandoffToNextStageAsync(architect, token).ConfigureAwait(false);
+                    return await TryHandoffToNextStageCoreAsync(architect, null, token).ConfigureAwait(false);
                 }
                 if (templates.Count > 0) throw new ArchitectRecoveryUnsafeException("the first Worker template is ambiguous");
                 ArchitectAsyncParseResult parseResult = await ParseArchitectOutputAsync(architect, token).ConfigureAwait(false);

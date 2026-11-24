@@ -107,6 +107,7 @@ namespace Armada.Core.Database.Mysql
             BatteryRuns = new BatteryRunMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             DispatchHolds = new DispatchHoldMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
+            AdministrativeVoyageRecovery = new Armada.Core.Database.AdministrativeVoyageRecoveryMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MemoryProposals = new MemoryProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
@@ -762,7 +763,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(139, "Persist the add-only Markdown landing policy",
                     @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown INTEGER NOT NULL DEFAULT 1;"),
                 new SchemaMigration(140, "Persist per-vessel Judge finding thresholds",
-                    @"ALTER TABLE vessels ADD COLUMN judge_finding_threshold INTEGER NOT NULL DEFAULT 5;")
+                    @"ALTER TABLE vessels ADD COLUMN judge_finding_threshold INTEGER NOT NULL DEFAULT 5;"),
+                new SchemaMigration(141, "Persist per-mission automatic-work permission", MissionAutomaticWorkPermissionSchema.MysqlStatements)
             };
         }
 

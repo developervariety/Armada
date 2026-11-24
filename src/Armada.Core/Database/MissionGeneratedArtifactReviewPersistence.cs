@@ -66,13 +66,15 @@ namespace Armada.Core.Database
                     + " AND " + EqualSql("commit_hash", "@source", provider)
                     + " AND " + EqualSql("branch_name", "@branch", provider)
                     + " AND " + EqualSql("tenant_id", "@tenant", provider)
-                    + " AND " + EqualSql("user_id", "@user", provider) + ";";
+                    + " AND " + EqualSql("user_id", "@user", provider)
+                    + " AND ((started_utc IS NULL AND @started IS NULL) OR started_utc=@started);";
                 StoredParameters parameters = StoredValueBinder.For(provider).For(command, "missions");
                 parameters.Text("@next", "generated_artifact_review_json", json)
                     .Text("@previous", "generated_artifact_review_json", previous)
                     .Text("@id", "id", expected.Id).Text("@status", "status", expected.Status.ToString())
                     .Text("@source", "commit_hash", expected.CommitHash).Text("@branch", "branch_name", expected.BranchName)
                     .Text("@tenant", "tenant_id", expected.TenantId).Text("@user", "user_id", expected.UserId)
+                    .Utc("@started", "started_utc", expected.StartedUtc)
                     .Int("@recovery", "recovery_attempts", expected.RecoveryAttempts)
                     .Int("@landing", "landing_retry_count", expected.LandingRetryCount)
                     .Bool("@not_held", "held_for_operator_review", false).Utc("@now", "last_update_utc", now);

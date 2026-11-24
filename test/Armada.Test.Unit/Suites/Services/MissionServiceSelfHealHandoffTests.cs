@@ -103,13 +103,18 @@ namespace Armada.Test.Unit.Suites.Services
         private MissionService CreateMissionService(
             SqliteDatabaseDriver db,
             ArmadaSettings settings,
-            IResourcePressureAdmission resourcePressureAdmission)
+            IResourcePressureAdmission resourcePressureAdmission,
+            Action? onLaunch = null)
         {
             LoggingModule logging = CreateLogging();
             StubGitService git = new StubGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-            captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64010);
+            captainService.OnLaunchAgent = (_, _, _) =>
+            {
+                onLaunch?.Invoke();
+                return Task.FromResult(64010);
+            };
             return new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: resourcePressureAdmission);
         }
 
@@ -932,6 +937,34 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(readBack.BranchName, "The Architect path must not stamp a branch.");
                     AssertFalse((readBack.Description ?? "").Contains("## Your Role: Worker", StringComparison.Ordinal),
                         "No persona preamble should be injected while deferring on the Architect handoff.");
+
+                    // This is the persisted state between writing a slice brief and binding all of
+                    // its dependency edges. A concurrent assignment must not treat the brief marker
+                    // as a completed Architect graph.
+                    readBack.Description = "<!-- ARMADA:ARCHITECT-HANDOFF -->\nOriginal worker brief.";
+                    readBack = await testDb.Driver.Missions.UpdateAsync(readBack).ConfigureAwait(false);
+                    missions.InFlightCompletionsForTests.TryAdd(architect.Id,
+                        new MissionService.CompletionGuardEntry(Task.CompletedTask, null));
+                    try
+                    {
+                        AssertFalse(await missions.TryAssignAsync(readBack, vessel).ConfigureAwait(false),
+                            "A marked slice cannot launch before the active Architect completes its graph.");
+                        Mission duringExpansion = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Pending, duringExpansion.Status);
+                        AssertEqual(MissionAssignmentHold.DependencyCompletionInFlight, duringExpansion.AssignmentHoldReason);
+                        AssertNull(duringExpansion.BranchName, "Interleaved assignment must not prepare a branch.");
+                        AssertNull(duringExpansion.DockId, "Interleaved assignment must not provision a dock.");
+                        AssertNull(duringExpansion.CaptainId, "Interleaved assignment must not claim a captain.");
+                    }
+                    finally
+                    {
+                        missions.InFlightCompletionsForTests.TryRemove(architect.Id, out _);
+                    }
+                    AssertFalse(await missions.TryAssignAsync(readBack, vessel).ConfigureAwait(false),
+                        "A stored incomplete graph remains closed after the in-memory guard disappears.");
+                    Mission afterInterruptedAttempt = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                    AssertNull(afterInterruptedAttempt.DockId, "An interrupted graph cannot provision a dock.");
+                    AssertNull(afterInterruptedAttempt.CaptainId, "An interrupted graph cannot claim a captain.");
                 }
             });
 
@@ -1498,7 +1531,10 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = CreateSettings();
-                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    int launches = 0;
+                    MissionService missions = CreateMissionService(testDb.Driver, settings,
+                        TestResourcePressure.Unconstrained(settings), () => launches++);
+                    Captain idleCaptain = await CreateIdleCaptainAsync(testDb.Driver, "serial-worker", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
                         new Voyage("Interrupted Architect fan-out") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
@@ -1548,6 +1584,34 @@ namespace Armada.Test.Unit.Suites.Services
                     await testDb.Driver.Missions.UpdateAsync(firstWorker).ConfigureAwait(false);
                     await testDb.Driver.Missions.UpdateAsync(secondWorker).ConfigureAwait(false);
 
+                    // B captures the real old second-slice row before A repairs the shared graph.
+                    // Different slice IDs deliberately bypass the per-mission duplicate-assignment guard.
+                    DelayedMissionRead staleRead = DelayedMissionRead.Install(testDb.Driver, secondWorker.Id,
+                        captureBeforeRelease: true);
+                    Task<bool> secondAssignment = missions.TryAssignAsync(secondWorker, vessel);
+                    try
+                    {
+                        await staleRead.Started.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        AssertFalse(await missions.TryAssignAsync(firstWorker, vessel).WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false),
+                            "A repairs the graph and defers its own assignment.");
+                        AssertEqual(firstJudge.Id, (await testDb.Driver.Missions.ReadAsync(secondWorker.Id).ConfigureAwait(false))!.DependsOnMissionId,
+                            "Precondition: A stores the serial terminal edge before B resumes.");
+                    }
+                    finally
+                    {
+                        staleRead.Release();
+                    }
+                    AssertFalse(await secondAssignment.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false),
+                        "B cannot admit its stale Architect predecessor after A completes graph repair.");
+                    AssertEqual(0, launches, "Neither overlapping slice assignment launches an agent.");
+                    AssertEqual(CaptainStateEnum.Idle, (await testDb.Driver.Captains.ReadAsync(idleCaptain.Id).ConfigureAwait(false))!.State,
+                        "The pending serial predecessor prevents a captain claim.");
+                    Mission guarded = (await testDb.Driver.Missions.ReadAsync(secondWorker.Id).ConfigureAwait(false))!;
+                    AssertNull(guarded.DockId, "Graph repair must precede dock creation.");
+                    AssertNull(guarded.CaptainId, "Graph repair must precede a captain claim.");
+                    AssertNull(guarded.ProcessId, "B has no launch process while its serial predecessor is Pending.");
+                    AssertEqual(firstJudge.Id, guarded.DependsOnMissionId,
+                        "B's assignment hold must not overwrite A's repaired serial edge.");
                     int firstRecovery = await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
                     List<Mission> afterFirstRecovery = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     Mission? repairedSecondJudge = afterFirstRecovery.SingleOrDefault(m =>
@@ -1556,7 +1620,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? readBackFirstJudge = await testDb.Driver.Missions.ReadAsync(firstJudge.Id).ConfigureAwait(false);
                     Mission? readBackSecondWorker = await testDb.Driver.Missions.ReadAsync(secondWorker.Id).ConfigureAwait(false);
 
-                    AssertTrue(firstRecovery > 0, "The interrupted fan-out is recovered.");
+                    AssertEqual(0, firstRecovery, "The production assignment owner already recovered the interrupted fan-out.");
                     AssertTrue((await testDb.Driver.Signals.ReadAsync(mail.Id).ConfigureAwait(false))!.Read,
                         "A note already delivered to every slice is marked read after recovery.");
                     AssertEqual(notes + "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + firstBrief,
@@ -1579,6 +1643,19 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(secondPassJudge, "The repaired stage keeps its id on a repeated recovery.");
                     AssertContains("<!-- armada:fanout-complete -->", secondPassArchitect!.Description,
                         "A fully repaired fan-out records its completion marker.");
+                    firstJudge = (await testDb.Driver.Missions.ReadAsync(firstJudge.Id).ConfigureAwait(false))!;
+                    firstJudge.Status = MissionStatusEnum.Complete;
+                    firstJudge.BranchName = "armada/accepted-first-slice";
+                    firstJudge.AgentOutput = "First slice accepted.";
+                    await testDb.Driver.Missions.UpdateAsync(firstJudge).ConfigureAwait(false);
+                    AssertTrue(await missions.TryAssignAsync(guarded, vessel).WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false),
+                        "B can assign normally after the actual serial terminal completes.");
+                    Mission admitted = (await testDb.Driver.Missions.ReadAsync(secondWorker.Id).ConfigureAwait(false))!;
+                    AssertEqual(firstJudge.Id, admitted.DependsOnMissionId, "Legitimate admission retains the serial edge.");
+                    AssertEqual(firstJudge.BranchName, admitted.BranchName, "B inherits the accepted predecessor branch.");
+                    AssertNotNull(admitted.DockId, "Normal admission provisions a dock.");
+                    AssertEqual(idleCaptain.Id, admitted.CaptainId, "Normal tier routing selects the available Worker captain.");
+                    AssertEqual(1, launches, "Only the post-completion assignment launches an agent.");
                     secondPassArchitect.AgentOutput = secondPassArchitect.AgentOutput!.Replace("Implement the second slice.", "A changed second slice.", StringComparison.Ordinal);
                     await testDb.Driver.Missions.UpdateAsync(secondPassArchitect).ConfigureAwait(false);
                     await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);

@@ -858,7 +858,10 @@ namespace Armada.Server.WebSocket
             MissionRestartResult restart;
             try
             {
-                restart = await Operations.RestartMissionAsync(rmMission, rmData?.Title, rmData?.Description).ConfigureAwait(false);
+                restart = String.IsNullOrWhiteSpace(rmData?.AdministrativeRestartPermitId)
+                    ? await Operations.RestartMissionAsync(rmMission, rmData?.Title, rmData?.Description).ConfigureAwait(false)
+                    : await Operations.ConsumeAdministrativeRestartAsync(caller, _Admiral, _Git, rmMission,
+                        rmData.AdministrativeRestartPermitId, rmData.Title, rmData.Description).ConfigureAwait(false);
             }
             catch (FleetCapacityAdmissionException capacity)
             {

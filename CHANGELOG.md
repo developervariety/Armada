@@ -7,7 +7,29 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Architect fan-out rejects invalid legacy dependency references before creating work and keeps marked slices waiting until the complete graph is recorded. Graph creation, saved-graph repair and assignment share a voyage boundary, so a concurrent stale assignment or hold cannot restore an old serial edge or launch before its actual predecessor finishes. An explicitly consumed, source-bound administrative restart retains its saved-work recovery path.
+
+- Suite leases state whether the caller may run its full suite and explain queued host, vessel or memory waits without exposing other missions or inventing a wait time.
+
+- Assignment preflight and normal or alias dispatch share one stage-expansion rule, so held single Workers retain their review gate and stage-level model requirements.
+
+- Unified context recall bounds the complete MCP text response and provides UTF-8-safe snapshot-bound pages without silently discarding required guidance.
+
+- Shared cleanup-lock acquisition failures release only the positively identified new directory and partial owner file, while retaining foreign replacements.
+
+- Explicit native-library cache patterns retire only old inactive ELF files while preserving active mappings, hard links, keep markers and unknown file types in the existing host/container cleanup.
+
+- Storage cleanup can acquire the shared host-command directory lock before running stages and retains changed or foreign lock identities. It retains incomplete package caches found during ordinary traversal and refuses hard-linked output files that could change a retained alias.
+
+- Preserve exact launch and grant timestamp precision in automatic-work permission HTTP responses.
+
+- Hold opted-in unexpected runtime exits before automatic retry or failure recovery; preserve their pending stages until an explicit operator decision.
+
+- Voyage completion refuses cancelled required pipeline stages even when a planning stage is Complete. Independent flat missions and explicit superseded stage history keep their existing outcomes; past terminal voyages remain unchanged. A separate exact-owner preview and fingerprinted administrative correction records the prior outcome and changes only an evidenced administrative voyage to Failed. Saved unaccepted work requires a typed owner disposition and verified source/cancellation facts; correction issues a one-use permit without dispatch. Explicit permit consumption resumes the same Worker/voyage on the preserved commit, retains all prior output, reason and charges, and leaves other stages stopped. Consumed permits remain visible in vessel-scoped event history. Unknown, accepted, landed or stale evidence refuses recovery.
+
 - Host build-output cleanup preserves folders that contain an excluded path while allowing disposable sibling outputs.
+
+- Missions can opt in to separate, expiring operator permissions for automatic verification and dependent admission. Missing permission holds durable work without blocking the health loop. Grants bind the current launch and source; completion preserves concurrent permission changes and completed command verdicts without overwriting a later attempt. Permission changes and their audits commit together; PostgreSQL and MySQL completion writes preserve their native timestamp precision. Existing review, routing and verification requirements remain independent.
 
 - Review and rescue rework instructions now preserve the mission's assigned role, edit scope and check authority. Read/report-only corrections retain saved work and valid unchanged-code proof without token edits or test replays; the completion marker must appear literally in the final response. Shared rework limits are stated once to avoid repeated demands.
 
@@ -15,7 +37,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Continued local missions retain byte-identical prestaged inputs restored from their own saved dock work; changed inputs, links and ordinary first-launch collisions still refuse staging.
 
-- Alias-based dispatch preserves each pipeline stage's review checkpoint, denial action and role instructions.
+- Alias-based dispatch preserves review checkpoints, denial actions and role instructions for expanded stages, including a single Worker stage that requires review. An unheld single Worker keeps the legacy flat dispatch shape.
 
 - Campaign closeout recognizes explicit verified owner retirement decisions for cancelled descendants, preserves their history, and reports them separately from delivered work. Unrecorded cancellation and active scope still block completion.
 

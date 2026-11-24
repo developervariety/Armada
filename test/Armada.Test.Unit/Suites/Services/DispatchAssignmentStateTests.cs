@@ -51,13 +51,14 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
 
                     IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
-                    DelayingDockService delayingDock = new DelayingDockService(realDock, delayMs: 2000);
-                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, delayingDock);
-                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    GatedDockService gatedDock = new GatedDockService(realDock);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, gatedDock);
+                    int launches = 0;
+                    captainService.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(12345); };
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, gatedDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
-                    IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, delayingDock);
-                    admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, gatedDock);
+                    admiral.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(12345); };
 
                     Vessel vessel = new Vessel("timing-vessel", "https://github.com/test/repo.git");
                     vessel.DefaultBranch = "main";
@@ -69,18 +70,43 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<MissionDescription> missions = new List<MissionDescription>
                     {
-                        new MissionDescription { Title = "Timing probe", Description = "Checks dispatch returns fast." }
+                        new MissionDescription { Title = "Timing probe", Description = "Checks dispatch returns before provisioning finishes." }
                     };
 
-                    Stopwatch sw = Stopwatch.StartNew();
-                    Voyage voyage = await admiral.DispatchVoyageAsync("Timing voyage", "Test", vessel.Id, missions).ConfigureAwait(false);
-                    sw.Stop();
-
-                    AssertTrue(sw.ElapsedMilliseconds < 500, "DispatchVoyageAsync must return in under 500ms even with 2s dock delay (actual: " + sw.ElapsedMilliseconds + "ms)");
-                    AssertNotNull(voyage, "Voyage must be returned");
-
-                    // Give the background task a moment then clean up
-                    await Task.Delay(100).ConfigureAwait(false);
+                    Task<Voyage> dispatch = admiral.DispatchVoyageAsync("Timing voyage", "Test", vessel.Id, missions);
+                    Voyage? voyage = null;
+                    string? missionId = null;
+                    try
+                    {
+                        // These timeouts only stop a hung test. The unreleased latch, rather than
+                        // elapsed wall time, proves dispatch does not wait for provisioning.
+                        await gatedDock.Entered.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        voyage = await dispatch.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        AssertNotNull(voyage, "Voyage must be returned while provisioning is still blocked");
+                        AssertFalse(admiral.WhenQueuedAssignmentsDrainedAsync().IsCompleted,
+                            "Queued assignment cannot finish before the provisioning latch is released");
+                        List<Mission> pending = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                        AssertEqual(1, pending.Count, "Dispatch persists its mission before returning");
+                        missionId = pending[0].Id;
+                        AssertEqual(MissionAssignmentStateEnum.Provisioning, pending[0].AssignmentState,
+                            "Provisioning remains observable after dispatch returns and before latch release");
+                        AssertNull(pending[0].ProcessId, "No process starts while provisioning is blocked");
+                        AssertEqual(0, launches, "The launch owner has not run before latch release");
+                    }
+                    finally
+                    {
+                        gatedDock.Release();
+                        await admiral.WhenQueuedAssignmentsDrainedAsync().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                    }
+                    Mission? assigned = await testDb.Driver.Missions.ReadAsync(missionId!).ConfigureAwait(false);
+                    AssertNotNull(assigned, "The drained mission remains stored");
+                    AssertEqual(MissionAssignmentStateEnum.Assigned, assigned!.AssignmentState,
+                        "Assignment finishes after provisioning is released");
+                    AssertEqual(MissionStatusEnum.InProgress, assigned.Status, "The mission launches after provisioning completes");
+                    AssertNotNull(assigned.DockId, "The completed assignment records its dock");
+                    AssertEqual(captain.Id, assigned.CaptainId, "The idle captain owns the completed assignment");
+                    AssertEqual(12345, assigned.ProcessId, "The completed assignment records the launch result");
+                    AssertEqual(1, launches, "The assignment launches exactly once after latch release");
                 }
             });
 
@@ -815,8 +841,13 @@ namespace Armada.Test.Unit.Suites.Services
                     captain.State = CaptainStateEnum.Idle;
                     captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
 
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Real one-slice fan-out")
+                    { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
                     Mission planner = new Mission("Architect plan", "Emits the plan.");
                     planner.VesselId = vessel.Id;
+                    planner.VoyageId = voyage.Id;
+                    planner.AgentOutput = "[ARMADA:MISSION]\ntitle: Block worker\ndescription: Implements one block of the plan.\n[/ARMADA:MISSION]";
                     planner.Persona = "Architect";
                     planner.Status = MissionStatusEnum.WorkProduced;
                     planner.BranchName = "armada/planner-captain/msn_planner";
@@ -827,15 +858,18 @@ namespace Armada.Test.Unit.Suites.Services
                     planner.CommitHash = "6df8bf4b9d68000000000000000000000000abcd";
                     await testDb.Driver.Missions.UpdateAsync(planner).ConfigureAwait(false);
 
-                    // The Architect handoff marks each spawned block as prepared; the fixture carries the same marker.
-                    Mission worker = new Mission("Block worker", "Implements one block of the plan." + Environment.NewLine + "<!-- ARMADA:ARCHITECT-HANDOFF -->");
+                    // Persist an unprepared template; the real handoff owner prepares its graph.
+                    Mission worker = new Mission("Block worker", "Original Worker template.");
                     worker.VesselId = vessel.Id;
+                    worker.VoyageId = voyage.Id;
                     worker.Persona = "Worker";
                     worker.Status = MissionStatusEnum.Pending;
                     worker.DependsOnMissionId = planner.Id;
-                    // The leftover of an aborted attempt: the previous captain's own branch name.
-                    worker.BranchName = "armada/previous-captain/" + "msn_stale_attempt";
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+                    AssertEqual(1, await missionService.RecoverDanglingHandoffsAsync().ConfigureAwait(false),
+                        "The production handoff owner creates the complete one-slice graph.");
+                    worker = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                    // Only after the real handoff, inject the leftover of an aborted assignment.
                     worker.BranchName = "armada/previous-captain/msn_stale_attempt";
                     worker.DependsOnMissionId = planner.Id;
                     await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
@@ -1452,8 +1486,13 @@ namespace Armada.Test.Unit.Suites.Services
                     captain.State = CaptainStateEnum.Idle;
                     captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
 
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Real one-slice fan-out")
+                    { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
                     Mission planner = new Mission("Architect plan from a recovery tip", "Emits the plan.");
                     planner.VesselId = vessel.Id;
+                    planner.VoyageId = voyage.Id;
+                    planner.AgentOutput = "[ARMADA:MISSION]\ntitle: Block worker\ndescription: Implements one block of the plan.\n[/ARMADA:MISSION]";
                     planner.Persona = "Architect";
                     planner.Status = MissionStatusEnum.WorkProduced;
                     planner.StartFromRef = recoveryTip;
@@ -1463,17 +1502,18 @@ namespace Armada.Test.Unit.Suites.Services
                     planner.CommitHash = recoveryTip;
                     await testDb.Driver.Missions.UpdateAsync(planner).ConfigureAwait(false);
 
-                    // The planner handoff passes the planner's start commit to each fan-out worker.
-                    Mission worker = new Mission("Block worker", "Implements one block of the plan." + Environment.NewLine + "<!-- ARMADA:ARCHITECT-HANDOFF -->");
+                    // The real planner handoff must pass its start commit to the fan-out worker.
+                    Mission worker = new Mission("Block worker", "Original Worker template.");
                     worker.VesselId = vessel.Id;
+                    worker.VoyageId = voyage.Id;
                     worker.Persona = "Worker";
                     worker.Status = MissionStatusEnum.Pending;
                     worker.DependsOnMissionId = planner.Id;
-                    worker.StartFromRef = recoveryTip;
                     worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
-                    worker.DependsOnMissionId = planner.Id;
-                    worker.StartFromRef = recoveryTip;
-                    await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    AssertEqual(1, await missionService.RecoverDanglingHandoffsAsync().ConfigureAwait(false),
+                        "The production handoff owner creates the complete one-slice graph.");
+                    worker = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                    AssertEqual(recoveryTip, worker.StartFromRef, "The handoff itself preserves the planner's recovery tip.");
 
                     bool assigned = await missionService.TryAssignAsync(worker, vessel).ConfigureAwait(false);
 

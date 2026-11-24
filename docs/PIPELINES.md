@@ -25,6 +25,73 @@ sibling waits for the first to finish, which makes the "parallel" stages run
 sequentially. Same-order stages also require enough idle captains to serve them
 concurrently.
 
+A voyage cannot complete while a required pipeline stage is cancelled, even
+when its Architect completed a plan or another branch landed. This applies to
+code and report pipelines. Current stage identities and older same-voyage
+dependency edges identify required stages. Explicitly superseded restart stages
+and durable terminal-reconciliation history do not count as missing work. A
+flat voyage with independent missions keeps its separate cancellation rule.
+An all-cancelled voyage ends Cancelled. Existing Complete and Cancelled voyages
+remain terminal; this rule does not reopen or rewrite past outcomes.
+
+## Administrative completion correction
+
+`POST /api/v1/voyages/{id}/administrative-completion-correction` is an explicit
+exact-owner global operator action. Preview with `dryRun: true` and the exact
+`sourceCommit`. Apply uses `dryRun: false` and the returned
+`expectedFingerprint`. The action corrects only a planning-only administrative
+Complete outcome to Failed. It preserves the original completion time and every
+mission row. The audit event `voyage.administrative_completion_corrected`
+retains the prior voyage, full stage rows and the verified source evidence in
+the same transaction as the status correction. It does not launch a stage,
+accept a report, reset a budget or broaden ordinary restart.
+
+The original linear stage graph and exact owner must remain intact. The only
+Complete stage must be an Implementation Architect whose retained planning
+branch still resolves to its exact starting commit. The server fetches the
+repository and checks source objects and stage landing trailers. Landing or
+checkout lineage, landed attempt facts, unresolved Checks, active captains,
+rescue descendants and completion or landing handling all refuse correction.
+The fingerprint binds current database rows and the source evidence; any change
+requires a new preview.
+
+Saved historical work uses an explicit `historicalWork` disposition. The exact
+owner states `kind: Unaccepted` and binds the current preview fingerprint,
+original Worker, retained recovery ref and commit, latest owned cancellation
+event, retained native-evidence digest, count-evidence digest and truthful
+reason. This is an owner decision about acceptance, not machine proof or a
+boolean override. The server independently verifies the retained ref and object,
+planner ancestry, both the actual local landing target and current remote target
+non-ancestry, completed trailer searches,
+latest native cancellation and all stored landing, runtime and Check facts.
+Accepted, unknown, conflicting or stale facts refuse apply. The owner's
+assertion never substitutes for those checks.
+
+Correction and disposition issue a durable one-use restart permit without
+changing any mission row or starting an actor. The original `Complete` outcome,
+full reports, old cancellation reason and all charge records remain in the
+immutable audit. An explicit subsequent REST, MCP or WebSocket restart supplies
+`administrativeRestartPermitId`. That request rechecks the exact owner, current
+graph, source and cancellation evidence under recovery, execution, publication,
+completion and capacity guards. Permit consumption and the same-ID mission
+reset commit atomically with an immutable prior-state receipt. Only that Worker
+returns Pending and its original voyage returns InProgress. Normal voyage Checks
+are armed again; the correction service launches no command. Other required
+stages remain stopped. No budget, recovery count, original creation time or
+source-history record is reset.
+
+The consumed epoch provisions the exact preserved commit instead of inheriting
+the planner's unchanged branch. It resumes that preserved work without
+rematerializing the Architect plan. Ordinary slice admission still requires the
+complete graph and current permissions. Dependency identity and review duties remain;
+there is no default-branch fallback. An ordinary later restart invalidates the
+old epoch binding. Titles or descriptions for this recovery are fixed in the
+issue preview; the consume request cannot substitute other instructions.
+Ordinary restart retains its existing rules, including refusal of a legacy
+cancellation reason without an explicit permit. Already accepted or landed work
+stays terminal. Actual consumption can become assignable immediately, so it
+requires its own current runtime admission, not merely a source review.
+
 ## Built-In Pipelines
 
 | Pipeline | Stages |
@@ -174,7 +241,16 @@ key-shaped values inside it are removed.
 A block's `Depends on: Mission N` line makes the first Worker of that block's
 chain wait on the last stage of block N's chain. The handoff applies the edge to
 the Worker it created for the block, so a chain whose later stage is a revising
-Worker with the same title never takes the edge in its place.
+Worker with the same title never takes the edge in its place. Legacy dependencies
+must identify an earlier block by ordinal or title. Undefined, self and forward
+references reject the plan before fan-out, rather than silently making work
+parallel. During active Architect completion or recovery, a slice description
+marker alone does not permit assignment: the complete fan-out record must be
+committed first. An incomplete stored graph remains closed after a failed
+attempt or restart. Assignment invokes safe graph recovery and rechecks the
+stored dependencies on a later pass; missing verification evidence retains
+the operator hold. Numeric references must match the complete ordinal syntax;
+a title such as `64-bit support` remains a title, not ordinal 64.
 
 ### Structured Architect plans
 
@@ -337,12 +413,16 @@ deliverable: a Judge checks that each finding was addressed, and the earlier
 stages section names the root report as the earlier version. Workers of other
 chains in the same voyage are never counted.
 
-A stage's own `Description` is appended to its mission description at dispatch
-as a `## Pipeline Stage` section ("Stage N of M (Persona): ..."), so two
+An expanded stage's own `Description` is appended to its mission description
+at dispatch as a `## Pipeline Stage` section ("Stage N of M (Persona): ..."), so two
 stages of one persona are told apart. A stage without a description leaves
 the mission description unchanged. Ordinary and alias-based dispatch preserve
 each stage's `requiresReview` checkpoint and `reviewDenyAction` as configured;
 using an alias does not remove the operator's review gate or its instructions.
+Assignment preflight and both dispatch paths use the same effective pipeline
+after stage skips. A held single Worker expands and keeps its stage-level model
+preference. An unheld single Worker keeps the legacy flat mission description
+and mission-level preference.
 
 A mission's dock outlives its captain while the mission still lands or is
 approved from it: a mission in `WorkProduced`, `PullRequestOpen` or `Review`
@@ -764,6 +844,13 @@ is lost, the next sweep reuses that row. Older rows are reused only when their
 lineage and stored shape give one safe match. Partial chains are completed before
 pending slice dependencies are applied. Other fan-out roots are boundaries, not
 stages to copy. Direct dependents wait while recovery is in progress.
+
+Within one admiral process, Architect graph creation and repair share a voyage
+boundary with assignment, including assignment-hold writes. Assignment reloads
+the slice after it acquires that boundary. A slice read before a repair cannot
+restore its old predecessor or launch before the repaired serial terminal.
+Different voyages do not share this boundary. An assignment that requests repair
+releases the boundary before entering recovery and defers to a later pass.
 
 Recovery does not rewrite a started slice. A missing stage behind started work,
 a conflicting brief, an ambiguous match or an unsafe dependency places the

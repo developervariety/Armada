@@ -2086,6 +2086,101 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Single-stage admission and persisted preferences agree for held and legacy dispatch", async () =>
+            {
+                foreach (string persona in new[] { "Worker", "Judge" })
+                foreach (bool held in new[] { true, false })
+                foreach (bool stagePreference in new[] { true, false })
+                foreach (bool useAlias in new[] { false, true })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
+                        harness.Competing.AllowedPersonas = "[\"Worker\",\"Judge\"]";
+                        harness.Competing.State = CaptainStateEnum.Quarantined;
+                        await testDb.Driver.Captains.UpdateAsync(harness.Competing).ConfigureAwait(false);
+                        PipelineStage stage = new PipelineStage(1, persona)
+                        {
+                            RequiresReview = held,
+                            ReviewDenyAction = ReviewDenyActionEnum.RetryStage,
+                            PreferredModel = stagePreference ? "high" : null,
+                            Description = "Keep the stage instructions."
+                        };
+                        bool skipLinter = persona == "Worker" && held && stagePreference && useAlias;
+                        Pipeline pipeline = new Pipeline("SingleStageAdmission")
+                        {
+                            Stages = new List<PipelineStage> { stage }
+                        };
+                        if (skipLinter) pipeline.Stages.Add(new PipelineStage(2, "Linter"));
+                        pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+                        SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                        {
+                            Title = "Single-stage preference admission",
+                            VesselId = harness.Vessel.Id,
+                            PipelineId = pipeline.Id,
+                            CodeContextMode = "off",
+                            ObjectiveAuthContext = McpTestCaller.Operator,
+                            SkipStages = skipLinter ? new List<string> { "Linter" } : null,
+                            SkipStagesReason = skipLinter ? "Exercise the effective single-stage dispatch shape." : null,
+                            Missions = new List<MissionDescription>
+                            {
+                                new MissionDescription("One stage", "Preserve the effective preference and review contract.")
+                                {
+                                    Mode = "Research",
+                                    PreferredModel = "mid",
+                                    Alias = useAlias ? "one" : null
+                                }
+                            }
+                        };
+                        bool expanded = persona != "Worker" || held;
+                        string expectedPreference = expanded && stagePreference ? "high" : "mid";
+                        if (expectedPreference == "high")
+                        {
+                            VoyageDispatchResult refused = await harness.Service.DispatchAsync(request).ConfigureAwait(false);
+                            AssertFalse(refused.Succeeded,
+                                "A single held Worker or Judge cannot ignore its high stage preference at admission.");
+                            AssertContains("mission_unassignable_by_construction", JsonSerializer.Serialize(refused.Value));
+                            AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                                "An impossible stage preference must be refused before creating its voyage.");
+                            AssertEqual(0, (await testDb.Driver.Missions.EnumerateByVesselAsync(harness.Vessel.Id).ConfigureAwait(false)).Count,
+                                "An impossible stage preference must be refused before creating any mission.");
+                            await testDb.Driver.Captains.CreateAsync(new Captain("single-stage-premium")
+                            {
+                                TenantId = harness.Vessel.TenantId,
+                                UserId = harness.Vessel.UserId,
+                                Tier = CaptainTierEnum.Premium,
+                                State = CaptainStateEnum.Quarantined,
+                                AllowedPersonas = "[\"Worker\",\"Judge\"]"
+                            }).ConfigureAwait(false);
+                        }
+
+                        VoyageDispatchResult accepted = await harness.Service.DispatchAsync(request).ConfigureAwait(false);
+                        AssertTrue(accepted.Succeeded, "An eligible configured roster should admit this stage: "
+                            + JsonSerializer.Serialize(accepted.Value));
+                        List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(accepted.Voyage!.Id).ConfigureAwait(false);
+                        AssertEqual(1, created.Count, "Only the effective single stage should be materialized.");
+                        Mission mission = created.Single();
+                        AssertEqual(expectedPreference, mission.PreferredModel,
+                            "The persisted mission must use the same stage preference that admission checked.");
+                        AssertEqual(persona, mission.Persona);
+                        AssertEqual(held, mission.RequiresReview, "Dispatch must retain the stage review checkpoint.");
+                        if (expanded)
+                        {
+                            AssertEqual(ReviewDenyActionEnum.RetryStage, mission.ReviewDenyAction);
+                            AssertEqual(1, mission.StageOrder!.Value);
+                            AssertFalse(String.IsNullOrEmpty(mission.StageChainId), "An expanded stage must keep its chain identity.");
+                            AssertContains("Stage 1 of 1 (" + persona + "): Keep the stage instructions.", mission.Description!);
+                        }
+                        else
+                        {
+                            AssertNull(mission.StageOrder, "A legacy unheld Worker retains its flat shape.");
+                            AssertEqual(request.Missions![0].Description, mission.Description,
+                                "The flat Worker keeps the legacy description without appended stage instructions.");
+                        }
+                    }
+                }
+            });
+
             await RunTest("Generic dispatch refuses an impossible high Worker before creating records", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

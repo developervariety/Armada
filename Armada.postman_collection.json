@@ -3575,6 +3575,36 @@
 					}
 				},
 				{
+					"name": "Preview Administrative Completion Correction",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"dryRun\": true,\n  \"sourceCommit\": \"{{sourceCommit}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/voyages/{{voyageId}}/administrative-completion-correction",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"voyages",
+								"{{voyageId}}",
+								"administrative-completion-correction"
+							]
+						},
+						"description": "Exact-owner global administrator only; captain and Ask credentials are refused. Preview is non-mutating. Apply requires dryRun=false, the current expectedFingerprint and every evidenced historicalWork disposition field. Correction issues a one-use restart permit but starts no actor. Use the documented administrative recovery contract; a subsequent restart needs separate current admission."
+					}
+				},
+				{
 					"name": "Preview or Apply Full Research Replay",
 					"request": {
 						"method": "POST",
@@ -4516,6 +4546,57 @@
 							]
 						},
 						"description": "Returns a single mission by ID."
+					}
+				},
+				{
+					"name": "Get Mission Automatic Work Permissions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/action-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"missions",
+								"{{missionId}}",
+								"action-permissions"
+							]
+						},
+						"description": "Operator-only caller-scoped launch, captured source, and independent automatic-work grants. Captain and Ask credentials are refused."
+					}
+				},
+				{
+					"name": "Set Mission Automatic Work Permission",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"Operation\": \"Enable\",\n  \"Reason\": \"Require explicit operator permission for automatic work\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/action-permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"missions",
+								"{{missionId}}",
+								"action-permissions"
+							]
+						},
+						"description": "Requires the ordinary mission-write role. Enable creates a durable barrier with neither action granted. To Grant, select Verification or DependentAdmission and supply the current ExpectedStartedUtc, ExpectedCommitHash, and a future UTC ExpiresUtc within one hour. Revoke selects the action and exact current launch/source without an expiry. Grants never approve Review, reserve the host, or accept product work."
 					}
 				},
 				{

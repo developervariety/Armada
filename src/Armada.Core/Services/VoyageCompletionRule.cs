@@ -52,8 +52,10 @@ namespace Armada.Core.Services
     /// entry is kept while that landing is in flight, so a voyage is never terminalized mid-landing. When
     /// every mission is done and no landing is in flight, the voyage is Failed if any mission failed
     /// (<see cref="IsMissionFailed"/>). A voyage whose every mission was cancelled is Cancelled. A voyage
-    /// with a cancelled stage and no Complete mission is Failed: its pipeline was cut short and nothing
-    /// landed. Otherwise it is a completion candidate.
+    /// with a cancelled required pipeline stage is Failed even when an earlier stage is Complete.
+    /// Superseded restart stages and reconciled unlanded history do not represent missing required work.
+    /// An independent cancelled mission retains the flat-voyage rule: with no Complete mission the
+    /// voyage is Failed; otherwise it is a completion candidate.
     /// </description></item>
     /// <item><description>
     /// Check gate. A completion candidate that is not fully report-only is decided by its Checks:
@@ -113,6 +115,9 @@ namespace Armada.Core.Services
         /// </summary>
         public const string ReasonNothingLanded = "nothing_landed";
 
+        /// <summary>Failed: a required pipeline stage was cancelled before its work completed.</summary>
+        public const string ReasonRequiredStageCancelled = "required_stage_cancelled";
+
         /// <summary>Cancelled: every mission on the voyage was cancelled.</summary>
         public const string ReasonAllCancelled = "all_cancelled";
 
@@ -134,6 +139,13 @@ namespace Armada.Core.Services
         public static readonly TimeSpan FailedVoyageSweepWindow = TimeSpan.FromHours(24);
 
         #endregion
+
+        /// <summary>Serialize an explicit correction with ordinary terminal completion writes.</summary>
+        /// <param name="voyageId">Voyage being corrected by the administrative owner.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Lease to dispose after the atomic correction.</returns>
+        public static Task<IDisposable> AcquireAdministrativeCorrectionAsync(string voyageId, CancellationToken token)
+            => _CompletionLocks.AcquireAsync(voyageId, token);
 
         #region Public-Methods
 
@@ -372,12 +384,13 @@ namespace Armada.Core.Services
             if (missions.Any(m => IsMissionFailed(m.Status)))
                 return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonMissionFailed);
 
-            // Cancelled counts as done so a voyage can finish, but it is not success. A voyage whose every mission was
-            // cancelled ends Cancelled; one with a cancelled stage and no Complete mission was cut short before
-            // anything landed and ends Failed. Work produced with no cancelled stage (a voyage that asked for no
-            // landing) still completes.
+            // A completed planner or an independent landed branch cannot replace a cancelled required stage.
+            // Explicit restart and reconciliation history stays visible without becoming an unfinished duty.
+            // Flat voyages retain their independent-mission cancellation rule.
             if (missions.All(m => m.Status == MissionStatusEnum.Cancelled))
                 return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Cancelled, ReasonAllCancelled);
+            if (missions.Any(m => IsRequiredStageCancelled(m, missions)))
+                return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonRequiredStageCancelled);
             if (!missions.Any(m => m.Status == MissionStatusEnum.Complete) && missions.Any(m => m.Status == MissionStatusEnum.Cancelled))
                 return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonNothingLanded);
 
@@ -391,6 +404,22 @@ namespace Armada.Core.Services
             }
 
             return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Complete, ReasonAllDone);
+        }
+
+        private static bool IsRequiredStageCancelled(Mission mission, IReadOnlyList<Mission> missions)
+        {
+            if (mission.Status != MissionStatusEnum.Cancelled) return false;
+            if (TerminalVoyageMissionRule.IsReconciledOutcome(mission)) return false;
+            if ((mission.FailureReason ?? String.Empty).StartsWith(
+                MissionRestartService.SupersededByRestartPrefix, StringComparison.Ordinal)) return false;
+
+            // Current pipelines carry a chain and order. Older stored pipelines retain only their
+            // dependency edges. A flat independent mission has neither and keeps its own outcome.
+            return !String.IsNullOrWhiteSpace(mission.StageChainId)
+                || mission.StageOrder.HasValue
+                || missions.Any(other => !String.Equals(other.Id, mission.Id, StringComparison.Ordinal)
+                    && (String.Equals(mission.DependsOnMissionId, other.Id, StringComparison.Ordinal)
+                        || String.Equals(other.DependsOnMissionId, mission.Id, StringComparison.Ordinal)));
         }
 
         private static bool IsHeldForOperatorReview(Mission mission)

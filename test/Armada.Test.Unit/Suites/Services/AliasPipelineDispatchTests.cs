@@ -34,7 +34,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("AliasDispatch_WithReviewedPipeline_ExpandsEachMdIntoStageChain", async () =>
+            await RunTest("AliasDispatch_PreservesReviewSettingsAndLegacyWorkerShape", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -143,6 +143,80 @@ namespace Armada.Test.Unit.Suites.Services
                             "Alias dispatch omitted the configured stage instructions for " + m.Title);
                         AssertTrue(m.Description!.StartsWith(m.Title.Contains("first feature") ? "d1" : "d2", StringComparison.Ordinal),
                             "The stage instructions must preserve the original mission description");
+                    }
+                }
+
+                foreach (string persona in new[] { "Worker", "Judge" })
+                {
+                    foreach (bool requiresReview in new[] { false, true })
+                    {
+                        using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                        {
+                            Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                                new Vessel("single-stage-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                            await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, persona).ConfigureAwait(false);
+                            Pipeline single = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("SingleStage")
+                            {
+                                Stages = new List<PipelineStage>
+                                {
+                                    new PipelineStage(1, persona)
+                                    {
+                                        RequiresReview = requiresReview,
+                                        ReviewDenyAction = ReviewDenyActionEnum.FailPipeline,
+                                        Description = "Publish the report for the configured checkpoint."
+                                    }
+                                }
+                            }).ConfigureAwait(false);
+                            PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, single);
+                            Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                            McpVoyageTools.Register(
+                                (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
+                                testDb.Driver, admiralDouble, LegacyContextSettings());
+                            AssertNotNull(dispatchHandler);
+                            JsonElement args = JsonSerializer.SerializeToElement(new
+                            {
+                                title = "single-stage reports",
+                                vesselId = vessel.Id,
+                                pipeline = "SingleStage",
+                                missions = new object[]
+                                {
+                                    new { title = "first report", description = "Report the first result.", alias = "first", mode = "Research" },
+                                    new { title = "second report", description = "Report the next result.", alias = "second", dependsOnMissionAlias = "first", mode = "Research" }
+                                }
+                            });
+                            object result = await dispatchHandler!(args).ConfigureAwait(false);
+                            AssertFalse(JsonSerializer.Serialize(result).Contains("\"Error\""), "Single-stage alias dispatch must succeed");
+                            Voyage voyage = (Voyage)result;
+                            List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                            AssertEqual(2, all.Count, "A single stage must produce one persisted mission per description");
+                            bool expanded = persona != "Worker" || requiresReview;
+                            foreach (Mission mission in all)
+                            {
+                                AssertEqual(requiresReview, mission.RequiresReview,
+                                    "Single-stage alias dispatch must preserve RequiresReview for " + persona);
+                                AssertEqual(expanded ? ReviewDenyActionEnum.FailPipeline : ReviewDenyActionEnum.RetryStage,
+                                    mission.ReviewDenyAction, "The review denial action must match the effective dispatch shape");
+                                AssertEqual(persona, mission.Persona);
+                                AssertEqual(MissionModeEnum.Research, mission.Mode);
+                                if (expanded)
+                                {
+                                    AssertEqual(1, mission.StageOrder!.Value);
+                                    AssertFalse(String.IsNullOrEmpty(mission.StageChainId), "A held or non-Worker stage must retain its pipeline identity");
+                                    AssertContains("Stage 1 of 1 (" + persona + "): Publish the report for the configured checkpoint.", mission.Description!);
+                                }
+                                else
+                                {
+                                    AssertNull(mission.StageOrder, "An unheld Worker keeps the flat dispatch shape");
+                                    AssertNull(mission.StageChainId, "An unheld Worker does not acquire a stage chain");
+                                    AssertFalse(mission.Description!.Contains("## Pipeline Stage"), "An unheld Worker keeps its original description");
+                                }
+                            }
+                            Mission first = all.Single(mission => mission.Title.Contains("first report"));
+                            Mission second = all.Single(mission => mission.Title.Contains("second report"));
+                            AssertTrue(String.IsNullOrEmpty(first.DependsOnMissionId));
+                            AssertEqual(first.Id, second.DependsOnMissionId, "The dependent alias must still resolve to the persisted predecessor");
+                            if (expanded) AssertTrue(first.StageChainId != second.StageChainId, "Each description owns a distinct stage chain");
+                        }
                     }
                 }
             });

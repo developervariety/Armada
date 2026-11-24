@@ -320,6 +320,25 @@ namespace Armada.Server
             return MissionRestartResult.Restarted(restarted);
         }
 
+        /// <summary>Explicitly consume an issued source-bound administrative permit through the shared restart surfaces.</summary>
+        public async Task<MissionRestartResult> ConsumeAdministrativeRestartAsync(AuthContext caller, IAdmiralService admiral,
+            IGitService? git, Mission mission, string permitId, string? title, string? description, CancellationToken token = default)
+        {
+            if (git == null) return MissionRestartResult.Refused(mission, "administrative_restart_unavailable", "A source verifier is required.");
+            try
+            {
+                AdministrativeVoyageRecoveryService service = new AdministrativeVoyageRecoveryService(_Database, admiral, git, _Settings, Notifier);
+                Mission restarted = await service.ConsumeRestartPermitAsync(caller, mission.Id, permitId, title, description, token).ConfigureAwait(false);
+                await Notifier.EmitAsync("mission.restarted", "Same mission restarted by one-use administrative permit",
+                    "mission", restarted.Id, null, restarted.Id, restarted.VesselId, restarted.VoyageId).ConfigureAwait(false);
+                return MissionRestartResult.Restarted(restarted);
+            }
+            catch (UnauthorizedAccessException)
+            { return MissionRestartResult.Refused(mission, "administrative_restart_forbidden", "Current exact-owner global operator authority is required."); }
+            catch (InvalidOperationException ex) when (ex is not FleetCapacityAdmissionException)
+            { return MissionRestartResult.Refused(mission, "administrative_restart_refused", ex.Message); }
+        }
+
         /// <summary>
         /// Update the metadata fields a request named, then broadcast the change. A changed dependency or parent must
         /// name a mission visible to the caller, and the vessel and voyage bindings cannot change; either refusal

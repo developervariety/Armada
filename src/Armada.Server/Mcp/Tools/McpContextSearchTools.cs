@@ -2,6 +2,10 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
+    using System.Security.Cryptography;
+    using System.Text;
+    using System.Text.Encodings.Web;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -32,7 +36,7 @@ namespace Armada.Server.Mcp.Tools
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (budget == null) throw new ArgumentNullException(nameof(budget));
             register(ToolName,
-                "Search applicable rules, native working facts and existing vessel code in one local query. Required core and safety guidance is returned in full, outside optional result limits. Results name their source and version; working facts never override rules. Your mission credential fixes your vessel. Operators supply vesselId. This read-only tool makes no embedding call and never creates an index. Check Sources for missing or failed sources; an unavailable source does not prove content is absent.",
+                "Search applicable rules, native working facts and existing vessel code in one local query. Required core and safety guidance is preserved across bounded text pages, outside optional result selection limits. Follow ContinuationToken until Complete is true; repeat the same query and options. A changed snapshot refuses continuation; restart without a token. Each page counts against the existing mission recall budget. Results name their source and version; working facts never override rules. Your mission credential fixes your vessel. Operators supply vesselId. This read-only tool makes no embedding call and never creates an index. Check Sources for missing or failed sources; an unavailable source does not prove content is absent.",
                 new
                 {
                     type = "object",
@@ -41,7 +45,8 @@ namespace Armada.Server.Mcp.Tools
                         query = new { type = "string", description = "Task text or identifier, up to 4096 characters" },
                         vesselId = new { type = "string", description = "Operator vessel scope; ignored for mission credentials" },
                         limit = new { type = "integer", description = "Maximum optional results, 1 through 40" },
-                        maxBytes = new { type = "integer", description = "Optional text byte budget, capped by the server setting" },
+                        maxBytes = new { type = "integer", description = "Maximum UTF-8 bytes in the complete returned text page, 512 or more, capped by the server setting" },
+                        continuationToken = new { type = "string", description = "Token from the preceding page; omit for the first page and preserve all other arguments" },
                         includeCode = new { type = "boolean", description = "Search the existing local code index; default true" }
                     },
                     required = new[] { "query" }
@@ -57,6 +62,9 @@ namespace Armada.Server.Mcp.Tools
                             : new ContextSearchRequest();
                         if (String.IsNullOrWhiteSpace(request.Query) || request.Query.Length > 4096)
                             return Failure("invalid", "query must contain 1 through 4096 characters.");
+                        int pageBytes = Math.Min(request.MaxBytes, settings.MaxLeafBytesPerCall);
+                        if (pageBytes < 512)
+                            return Failure("invalid", "maxBytes and the server limit must allow at least 512 UTF-8 bytes per page.");
                         if (!String.IsNullOrWhiteSpace(caller.MissionId))
                         {
                             ContextRecallScope scope = await ContextRecallScope.ResolveAsync(database, caller, request.VesselId, null, true, McpCallerContext.CallToken).ConfigureAwait(false);
@@ -64,7 +72,8 @@ namespace Armada.Server.Mcp.Tools
                                 return Failure("budget", "The mission has used its shared context recall budget.");
                         }
                         request.MaxBytes = Math.Clamp(request.MaxBytes, 0, settings.MaxLeafBytesPerCall);
-                        return (object)await search.SearchAsync(caller, request, McpCallerContext.CallToken).ConfigureAwait(false);
+                        ContextSearchResponse response = await search.SearchAsync(caller, request, McpCallerContext.CallToken).ConfigureAwait(false);
+                        return Page(response, request.ContinuationToken, pageBytes);
                     }
                     catch (KeyNotFoundException)
                     {
@@ -79,6 +88,39 @@ namespace Armada.Server.Mcp.Tools
                         return Failure("invalid", "The query arguments are invalid.");
                     }
                 });
+        }
+
+        private static object Page(ContextSearchResponse response, string? token, int maxBytes)
+        {
+            byte[] content = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(response, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            }));
+            string snapshot = Convert.ToHexString(SHA256.HashData(content));
+            int offset = 0;
+            if (!String.IsNullOrEmpty(token))
+            {
+                string[] parts = token.Split('.');
+                if (parts.Length != 2 || !String.Equals(parts[0], snapshot, StringComparison.Ordinal)
+                    || !Int32.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out offset)
+                    || offset < 0 || offset >= content.Length || (content[offset] & 0xC0) == 0x80)
+                    return Failure("invalid_continuation", "The continuation is invalid or its result snapshot changed. Restart without a token.");
+            }
+            int end = offset + Math.Min(content.Length - offset, maxBytes);
+            while (end > offset)
+            {
+                while (end < content.Length && (content[end] & 0xC0) == 0x80) end--;
+                string next = end < content.Length ? snapshot + "." + end.ToString(CultureInfo.InvariantCulture) : "";
+                string header = "SnapshotSHA256: " + snapshot + "\nOffset: " + offset.ToString(CultureInfo.InvariantCulture)
+                    + "\nTotalBytes: " + content.Length.ToString(CultureInfo.InvariantCulture)
+                    + "\nComplete: " + (end == content.Length ? "true" : "false")
+                    + "\nContinuationToken: " + next + "\nContent:\n";
+                string page = header + Encoding.UTF8.GetString(content, offset, end - offset);
+                if (Encoding.UTF8.GetByteCount(page) <= maxBytes) return page;
+                end--;
+            }
+            return Failure("invalid", "The page budget does not leave room for content.");
         }
 
         private static object Failure(string reason, string message)

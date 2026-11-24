@@ -95,6 +95,7 @@ namespace Armada.Core.Services
             {
                 using (HarborCheckoutOperationScope scope = new HarborCheckoutOperationScope(checkId, expectedHead))
                 {
+                    await RequireAutomaticVerificationPermissionAsync(token).ConfigureAwait(false);
                     completed = await HarborCheckouts.ExecuteAsync(dock, request, token).ConfigureAwait(false);
                     budget?.RecordRemoteExecution(completed);
                     output = await HarborVerificationOutputReader.ReadAsync(HarborCheckouts, dock, completed, checkId, expectedHead, token).ConfigureAwait(false);
@@ -104,7 +105,7 @@ namespace Armada.Core.Services
             {
                 throw;
             }
-            catch (Exception exception)
+            catch (Exception exception) when (exception is not MissionAutomaticWorkPermissionRequiredException)
             {
                 return DefinitionOfDoneResult.Fail(label, -1,
                     BuildDiagnosticText("Harbor verification did not complete: " + exception.Message), DefinitionOfDoneFailureClassEnum.Infra);

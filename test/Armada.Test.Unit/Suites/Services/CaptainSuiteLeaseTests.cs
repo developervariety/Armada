@@ -246,6 +246,13 @@ namespace Armada.Test.Unit.Suites.Services
                         JsonElement queuedFirst = await CallAsync(tool!, first, new { action = "acquire", waitSeconds = 1 }).ConfigureAwait(false);
                         AssertEqual("queued", queuedFirst.GetProperty("Status").GetString(), "an acquire behind a held vessel slot answers queued");
                         AssertEqual(1, queuedFirst.GetProperty("Position").GetInt32(), "the first queued request is at position 1");
+                        AssertFalse(queuedFirst.GetProperty("MayRunFullSuite").GetBoolean(), "A queued reply never grants permission to execute tests");
+                        AssertEqual("vessel_suite_slot", queuedFirst.GetProperty("WaitReason").GetString(), "The waiter knows its vessel suite slot is occupied");
+                        AssertEqual(1, queuedFirst.GetProperty("HolderCount").GetInt32(), "The actual current host occupancy is reported");
+                        AssertContains("build or test", queuedFirst.GetProperty("CurrentHolder").GetString() ?? "", "The current holder is described without private mission data");
+                        AssertFalse(queuedFirst.GetProperty("OldestHolderSinceUtc").ValueKind == JsonValueKind.Null, "The observed hold start is reported without inventing a grant deadline");
+                        AssertFalse(queuedFirst.ToString().Contains(holder.Id, StringComparison.Ordinal), "A captain must not receive another mission's private identifier");
+                        AssertContains("never start", queuedFirst.GetProperty("Message").GetString() ?? "", "The wait gives a safe next action");
 
                         // A transport timeout cancels the call; the queued request must survive it.
                         using (CancellationTokenSource timedOut = new CancellationTokenSource())
@@ -279,10 +286,25 @@ namespace Armada.Test.Unit.Suites.Services
                         JsonElement granted = await CallAsync(tool!, first, new { action = "acquire", waitSeconds = 5 }).ConfigureAwait(false);
                         string grantedStatus = granted.GetProperty("Status").GetString() ?? String.Empty;
                         AssertTrue(grantedStatus == "granted" || grantedStatus == "held", "the queued request is granted once the holder releases, got " + grantedStatus);
+                        AssertTrue(granted.GetProperty("MayRunFullSuite").GetBoolean(), "Both granted and held statuses permit the suite");
+                        JsonElement held = await CallAsync(tool!, first, new { action = "acquire", waitSeconds = 0 }).ConfigureAwait(false);
+                        AssertEqual("held", held.GetProperty("Status").GetString(), "Reacquiring a granted lease returns held");
+                        AssertTrue(held.GetProperty("MayRunFullSuite").GetBoolean(), "Held means the mission already has permission, not that it must wait");
                         AssertFalse(CaptainSuiteLeaseRegistry.IsActive(second.Id), "the withdrawn mission is never granted the slot");
 
                         JsonElement released = await CallAsync(tool!, first, new { action = "release" }).ConfigureAwait(false);
                         AssertEqual("released", released.GetProperty("Status").GetString(), "release frees the granted lease");
+                        AssertFalse(released.GetProperty("MayRunFullSuite").GetBoolean(), "Release removes permission to run another suite");
+
+                        HostWideCommandLock.SetMemoryReader(() => 0);
+                        HostWideCommandLock.SetMemoryFloorMb(2048);
+                        JsonElement memoryWait = await CallAsync(tool!, first, new { action = "acquire", waitSeconds = 0 }).ConfigureAwait(false);
+                        AssertEqual("queued", memoryWait.GetProperty("Status").GetString(), "Low memory leaves the request queued with no holder");
+                        AssertEqual("host_memory", memoryWait.GetProperty("WaitReason").GetString(), "The response distinguishes a memory wait from an occupied slot");
+                        AssertEqual(0, memoryWait.GetProperty("HolderCount").GetInt32(), "No holder is invented when memory prevents admission");
+                        AssertTrue(memoryWait.GetProperty("HostHeldForMemory").GetBoolean(), "The current host memory hold is visible");
+                        AssertFalse(memoryWait.GetProperty("MayRunFullSuite").GetBoolean(), "A memory wait is not permission");
+                        await CallAsync(tool!, first, new { action = "release" }).ConfigureAwait(false);
                     }
                     finally
                     {

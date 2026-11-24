@@ -166,6 +166,7 @@ namespace Armada.Core.Database.SqlServer
             BatteryRuns = new BatteryRunMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             DispatchHolds = new DispatchHoldMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
+            AdministrativeVoyageRecovery = new Armada.Core.Database.AdministrativeVoyageRecoveryMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);

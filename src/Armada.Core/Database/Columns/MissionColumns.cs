@@ -89,6 +89,7 @@ namespace Armada.Core.Database
             mission.ResearchReplayId = row.NullableText("research_replay_id");
             mission.LastRecoveryActionUtc = row.NullableUtc("last_recovery_action_utc");
             MissionIntegrationBarrierPersistence.Read(record, mission);
+            MissionAutomaticWorkPermissionPersistence.Read(record, mission);
             return mission;
         }
 

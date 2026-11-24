@@ -523,7 +523,13 @@ order under one lock, and writes a `daily-<stamp>.json` receipt plus each
 stage's output to `receiptDirectory`. Without `stages` it runs the first four;
 `deploy-dumps` runs only when the list names it, because it needs its own
 `deployDumps` section. Receipts and stage output are retained for verified history
-archival, including on a dry run. The former `receiptRetentionDays` setting is
+archival, including on a dry run. Set `orchestrator.hostLockPath` to the shared
+host-command directory lock when cleanup must serialize with builds and other
+maintenance. Acquisition is atomic. An existing lock stops the pass before any
+stage runs. Cleanup releases only its own unchanged directory and owner record,
+including after a stage failure. If owner creation, writing, flushing or syncing
+fails, it rolls back only its positively identified directory and partial owner
+file. Unknown or replaced entries remain for inspection. The default is unset. The former `receiptRetentionDays` setting is
 ignored:
 
 | Stage | Removes |
@@ -543,7 +549,11 @@ refused in this stage. Full JSON receipts are exported to the host stage output.
 
 `buildOutputs.nugetCachePatterns` selects isolated NuGet package caches below
 `roots`. Every package version must have NuGet completion metadata and a SHA-512
-record. Incomplete caches, active parent scratch areas, symlinks that leave a
+record. Incomplete package caches are retained both in isolated cache patterns and in
+ordinary `dotnet-cli-home` traversal. Package completion is checked again before
+removal. Build outputs, caches and whole scratch folders containing hard-linked
+regular files are refused, so a retained alias keeps its link count and metadata.
+Active parent scratch areas, symlinks that leave a
 candidate, and keep markers are protected. Only the cache is removed; source,
 logs and proof files beside it remain. Cache age normally uses
 `cacheRetentionHours` with a 48-hour minimum. When free space falls below
@@ -551,6 +561,13 @@ logs and proof files beside it remain. Cache age normally uses
 of 12 hours. A keep marker on any ancestor also protects build outputs and whole
 scratch retirement. Server roots and cache patterns belong in the installed
 configuration, not in the scripts.
+
+`buildOutputs.nativeLibraryCachePatterns` opts in to individual ELF native-library
+cache files under the configured roots. The cache age has a 48-hour minimum.
+Active mappings and file handles, keep markers, exclusions, hard links, symlinks,
+unknown headers, and changed file identities block removal. Patterns default to
+an empty list. This uses the same host or container stage and receipts; it does
+not require another cleanup timer.
 
 `docker.retireOlderRetainedSets` opts in to removal of dated retention tags older
 than the newest `retainedSetsRequired` sets. Images used by any container or named

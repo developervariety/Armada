@@ -1614,8 +1614,9 @@ namespace Armada.Test.Unit.Suites.Services
 
         private sealed class VoyageCompletionCase
         {
-            public VoyageCompletionCase(string name, VoyageStatusEnum start, MissionStatusEnum[] missions, CheckRunStatusEnum? check, VoyageStatusEnum expected, bool lastHeldForOperatorReview = false, bool lastHasActiveMergeEntry = false)
+            public VoyageCompletionCase(string name, VoyageStatusEnum start, MissionStatusEnum[] missions, CheckRunStatusEnum? check, VoyageStatusEnum expected, bool lastHeldForOperatorReview = false, bool lastHasActiveMergeEntry = false, string? stageShape = null)
             {
+                StageShape = stageShape;
                 LastHeldForOperatorReview = lastHeldForOperatorReview;
                 LastHasActiveMergeEntry = lastHasActiveMergeEntry;
                 Name = name;
@@ -1625,6 +1626,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Expected = expected;
             }
 
+            public string? StageShape { get; }
             public string Name { get; }
             public VoyageStatusEnum Start { get; }
             public MissionStatusEnum[] Missions { get; }
@@ -1655,6 +1657,14 @@ namespace Armada.Test.Unit.Suites.Services
                 new VoyageCompletionCase("one landing failed", live, new[] { done, MissionStatusEnum.LandingFailed }, null, VoyageStatusEnum.Failed),
                 new VoyageCompletionCase("one failed, pending Check", live, new[] { done, MissionStatusEnum.Failed }, CheckRunStatusEnum.Pending, VoyageStatusEnum.Failed),
                 new VoyageCompletionCase("one cancelled", live, new[] { done, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Complete),
+                new VoyageCompletionCase("planning architect complete but required stages cancelled", live, new[] { done, MissionStatusEnum.Cancelled, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Failed, stageShape: "required"),
+                new VoyageCompletionCase("legacy dependency stage cancelled", live, new[] { done, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Failed, stageShape: "legacy"),
+                new VoyageCompletionCase("required report stage cancelled", live, new[] { done, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Failed, stageShape: "report"),
+                new VoyageCompletionCase("superseded restart stage with completed replacement", live, new[] { done, MissionStatusEnum.Cancelled, done }, null, VoyageStatusEnum.Complete, stageShape: "superseded"),
+                new VoyageCompletionCase("superseded unlanded history with landed stage", live, new[] { done, MissionStatusEnum.Cancelled, done }, null, VoyageStatusEnum.Complete, stageShape: "reconciled"),
+                new VoyageCompletionCase("all report stages complete", live, new[] { done, done }, null, VoyageStatusEnum.Complete, stageShape: "report"),
+                new VoyageCompletionCase("complete voyage retains historical required cancellation", VoyageStatusEnum.Complete, new[] { done, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Complete, stageShape: "required"),
+                new VoyageCompletionCase("failed voyage with planner complete and required cancellation", VoyageStatusEnum.Failed, new[] { done, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Failed, stageShape: "required"),
                 new VoyageCompletionCase("work produced, nothing to land", live, new[] { MissionStatusEnum.WorkProduced, MissionStatusEnum.WorkProduced }, null, VoyageStatusEnum.Complete),
                 new VoyageCompletionCase("work produced, last stage cancelled, nothing landed", live, new[] { MissionStatusEnum.WorkProduced, MissionStatusEnum.WorkProduced, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Failed),
                 new VoyageCompletionCase("every mission cancelled", live, new[] { MissionStatusEnum.Cancelled, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Cancelled),
@@ -1711,8 +1721,33 @@ namespace Armada.Test.Unit.Suites.Services
             }).ConfigureAwait(false);
 
             Mission? last = null;
+            string chain = Mission.NewStageChainId();
+            int order = 0;
             foreach (MissionStatusEnum status in row.Missions)
-                last = await CreateCompletionMissionAsync(testDb, vessel, voyage, status).ConfigureAwait(false);
+            {
+                Mission stage = await CreateCompletionMissionAsync(testDb, vessel, voyage, status).ConfigureAwait(false);
+                if (row.StageShape != null)
+                {
+                    stage.DependsOnMissionId = last?.Id;
+                    stage.StageChainId = row.StageShape == "legacy" ? null : chain;
+                    stage.StageOrder = row.StageShape == "legacy" ? null : ++order;
+                    stage.Persona = last == null ? "Architect" : "Worker";
+                    stage.StartFromRef = new string('a', 40);
+                    stage.CommitHash = status == MissionStatusEnum.Complete ? stage.StartFromRef : null;
+                    if (row.StageShape == "report") stage.Mode = MissionModeEnum.Research;
+                    if (status == MissionStatusEnum.Cancelled)
+                    {
+                        stage.FailureReason = "Mission cancelled by operator.";
+                        if (row.StageShape == "superseded")
+                            stage.FailureReason = MissionRestartService.SupersededByRestartPrefix + " of a later stage.";
+                        if (row.StageShape == "reconciled")
+                            TerminalVoyageMissionRule.RecordReconciledOutcome(stage, VoyageStatusEnum.Complete,
+                                TerminalVoyageMissionRule.ReasonWorkUnlanded, DateTime.UtcNow.AddHours(-1));
+                    }
+                    await testDb.Driver.Missions.UpdateAsync(stage).ConfigureAwait(false);
+                }
+                last = stage;
+            }
             if (row.LastHeldForOperatorReview && last != null)
             {
                 last.HeldForOperatorReview = true;

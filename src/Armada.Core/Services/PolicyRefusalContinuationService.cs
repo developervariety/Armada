@@ -183,13 +183,14 @@ namespace Armada.Core.Services
         /// <param name="refusal">The classified refusal.</param>
         /// <param name="policyPresent">Whether the brief carried an owner authorization policy.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="saveCompletion">Optional owned completion save; absent preserves ordinary callers.</param>
         /// <returns>The decision that was applied.</returns>
         public async Task<PolicyRefusalContinuationDecision> HandleAsync(
             Mission mission,
             Captain refusingCaptain,
             CaptainRefusal refusal,
             bool policyPresent,
-            CancellationToken token = default)
+            CancellationToken token = default, Func<Mission, CancellationToken, Task>? saveCompletion = null)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (refusingCaptain == null) throw new ArgumentNullException(nameof(refusingCaptain));
@@ -224,7 +225,8 @@ namespace Armada.Core.Services
                 mission.FailureReason = ContinuationReasonPrefix + refusal.Kind + " on " + refusingCaptain.Runtime + ": " +
                     (String.IsNullOrEmpty(refusal.Reason) ? "no reason given" : refusal.Reason) + ". " + decision.Reason;
                 mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                if (saveCompletion == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                else await saveCompletion(mission, token).ConfigureAwait(false);
 
                 await RecordEventAsync(ContinuedEventType,
                     "Mission continued on an alternate runtime after a policy refusal",
@@ -239,7 +241,8 @@ namespace Armada.Core.Services
                 mission.FailureReason = StoppedReasonPrefix + refusal.Kind + " on " + refusingCaptain.Runtime + ": " +
                     (String.IsNullOrEmpty(refusal.Reason) ? "no reason given" : refusal.Reason) + ". " + decision.Reason;
                 mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                if (saveCompletion == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                else await saveCompletion(mission, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + mission.Id + " stopped after a policy refusal: " + decision.Reason);
             }
 

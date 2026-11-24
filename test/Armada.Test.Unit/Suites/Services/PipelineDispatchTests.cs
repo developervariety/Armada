@@ -706,7 +706,7 @@ namespace Armada.Test.Unit.Suites.Services
                     vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
                     Captain architectCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("revising-architect") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
-                    for (int i = 0; i < 3; i++)
+                    for (int i = 0; i < 5; i++)
                         await testDb.Driver.Captains.CreateAsync(new Captain("revising-worker-" + i) { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
 
                     Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("revising-fanout-voyage")).ConfigureAwait(false);
@@ -754,17 +754,23 @@ namespace Armada.Test.Unit.Suites.Services
                         "Use the new model in the service.\n" +
                         "[ARMADA:MISSION] Add the client panel\n" +
                         "Depends on: Mission 2\n" +
-                        "Show the service data in the panel.";
+                        "Show the service data in the panel.\n" +
+                        "[ARMADA:MISSION] Add the client routes\n" +
+                        "Depends on: Mission 3\n" +
+                        "Expose the panel routes.\n" +
+                        "[ARMADA:MISSION] Connect the interface\n" +
+                        "Depends on: Mission 4\n" +
+                        "Connect the completed route and panel contracts.";
 
                     await missionService.HandleCompletionAsync(architectCaptain, architect.Id).ConfigureAwait(false);
 
                     List<Mission> rows = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     static Mission testStageOf(List<Mission> all, string title) => all.Single(m => m.Title == title + " [Test Engineer]");
-                    string[] titles = { "Add the core model", "Add the service layer", "Add the client panel" };
-                    Mission[] roots = new Mission[3];
-                    Mission[] revising = new Mission[3];
-                    Mission[] judges = new Mission[3];
-                    for (int i = 0; i < 3; i++)
+                    string[] titles = { "Add the core model", "Add the service layer", "Add the client panel", "Add the client routes", "Connect the interface" };
+                    Mission[] roots = new Mission[5];
+                    Mission[] revising = new Mission[5];
+                    Mission[] judges = new Mission[5];
+                    for (int i = 0; i < 5; i++)
                     {
                         List<Mission> workers = rows.Where(m => m.Title == titles[i] + " [Worker]").ToList();
                         AssertEqual(2, workers.Count, titles[i] + " has an initial and a revising Worker with the same title");
@@ -784,6 +790,57 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(testStageOf(rows, titles[2]).Id, revising[2].DependsOnMissionId, "The panel slice's revising Worker keeps its own chain edge");
                     AssertEqual(MissionStatusEnum.Pending, roots[1].Status, "The service slice does not start before the core model slice ends");
                     AssertEqual(MissionStatusEnum.Pending, roots[2].Status, "The panel slice does not start before the service slice ends");
+                    for (int i = 1; i < titles.Length; i++)
+                    {
+                        AssertEqual(judges[i - 1].Id, roots[i].DependsOnMissionId,
+                            "Every serial initial Worker waits for the preceding slice's terminal Judge.");
+                        AssertEqual(MissionStatusEnum.Pending, roots[i].Status,
+                            "A downstream slice cannot start while its accepted predecessor has not finished.");
+                    }
+                }
+            });
+
+            await RunTest("Architect handoff refuses undefined cyclic self and forward dependencies before fan-out", async () =>
+            {
+                foreach (string dependency in new[] { "M99", "M1", "M2", "Second task", "Unknown task", "Mission 1 and Mission 3", "Mission 1 typo" })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        bool malformedNumeric = dependency == "Mission 1 and Mission 3" || dependency == "Mission 1 typo";
+                        string plan = malformedNumeric
+                            ? "[ARMADA:MISSION] First task\nImplement the first contract.\n"
+                                + "[ARMADA:MISSION] Second task\nDepends on: " + dependency
+                                + "\nImplement the dependent contract.\n[ARMADA:MISSION] Third task\nDepends on: M2\nUse the dependent contract."
+                            : "[ARMADA:MISSION] First task\nDepends on: " + dependency
+                                + "\nImplement the first contract.\n[ARMADA:MISSION] Second task\nDepends on: M1\nImplement the dependent contract.";
+                        PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                            startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false,
+                            headCommit: RecoveryTipCommit, diff: "", output: plan).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Failed, outcome.Architect.Status,
+                            "An invalid dependency must fail the Architect instead of creating independent work: " + dependency);
+                        AssertContains("must name an earlier mission", outcome.Architect.FailureReason ?? String.Empty);
+                        AssertEqual(2, outcome.VoyageMissions.Count,
+                            "Validation must precede both template rewriting and additional slice creation.");
+                        AssertEqual("[Worker] Placeholder", outcome.Worker.Title,
+                            "The invalid plan must not replace the original Worker template.");
+                        AssertNull(outcome.Worker.BranchName, "An invalid plan must not prepare a downstream branch.");
+                    }
+                }
+            });
+
+            await RunTest("Architect handoff preserves an earlier title that starts with a number", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string plan = "[ARMADA:MISSION] 64-bit support\nImplement the platform contract.\n"
+                        + "[ARMADA:MISSION] Use the platform contract\nDepends on: 64-bit support\nUse the completed contract.";
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false,
+                        headCommit: RecoveryTipCommit, diff: "", output: plan).ConfigureAwait(false);
+                    Mission first = outcome.VoyageMissions.Single(m => m.Title == "64-bit support [Worker]");
+                    Mission second = outcome.VoyageMissions.Single(m => m.Title == "Use the platform contract [Worker]");
+                    AssertEqual(first.Id, second.DependsOnMissionId, "A numeric prefix does not replace the exact earlier title.");
+                    AssertEqual(MissionStatusEnum.Pending, second.Status, "The dependency remains ordered.");
                 }
             });
 

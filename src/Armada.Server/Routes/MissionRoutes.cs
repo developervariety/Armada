@@ -27,7 +27,7 @@ namespace Armada.Server.Routes
     /// <summary>
     /// REST API routes for mission management.
     /// </summary>
-    public class MissionRoutes
+    public partial class MissionRoutes
     {
         private readonly DatabaseDriver _database;
         private readonly IAdmiralService _admiral;
@@ -204,6 +204,8 @@ namespace Armada.Server.Routes
             IAuthorizationService authz)
         {
             string _Header = "[ArmadaServer] ";
+
+            RegisterAutomaticWorkPermissionRoutes(app, authenticate, authz);
 
             // Missions
             app.Get("/api/v1/missions", async (ApiRequest req) =>
@@ -1006,6 +1008,7 @@ namespace Armada.Server.Routes
 
                 string? title = null;
                 string? description = null;
+                string? administrativePermitId = null;
                 if (!String.IsNullOrWhiteSpace(req.Http.Request.DataAsString))
                 {
                     try
@@ -1013,6 +1016,7 @@ namespace Armada.Server.Routes
                         MissionRestartRequest? body = JsonSerializer.Deserialize<MissionRestartRequest>(req.Http.Request.DataAsString, _jsonOptions);
                         title = body?.Title;
                         description = body?.Description;
+                        administrativePermitId = body?.AdministrativeRestartPermitId;
                     }
                     catch (JsonException)
                     {
@@ -1027,7 +1031,10 @@ namespace Armada.Server.Routes
                 MissionRestartResult restart;
                 try
                 {
-                    restart = await _operations.RestartMissionAsync(mission, title, description).ConfigureAwait(false);
+                    restart = String.IsNullOrWhiteSpace(administrativePermitId)
+                        ? await _operations.RestartMissionAsync(mission, title, description).ConfigureAwait(false)
+                        : await _operations.ConsumeAdministrativeRestartAsync(ctx, _admiral,
+                            new GitService(_logging, database: _database), mission, administrativePermitId, title, description).ConfigureAwait(false);
                 }
                 catch (FleetCapacityAdmissionException capacity)
                 {

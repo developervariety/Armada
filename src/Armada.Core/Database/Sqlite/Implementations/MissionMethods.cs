@@ -132,6 +132,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 Mission? stored = await ReadAsync(mission.Id, token).ConfigureAwait(false);
                 if (stored != null && !String.Equals(stored.ResearchReplayId, mission.ResearchReplayId, StringComparison.Ordinal))
                     throw new InvalidOperationException("The mission attempt was replaced by a Research replay; the stale write was refused.");
+                if (stored != null && !MissionAutomaticWorkPermissionPersistence.SameBinding(stored, mission))
+                    throw new InvalidOperationException("automatic_work_permission_stale_mission_write: reload the current permission before saving the mission.");
                 if (stored != null && !MissionGeneratedArtifactReviewPersistence.SameBinding(stored, mission))
                     throw new InvalidOperationException("generated_candidate_stale_mission_write: reload the current candidate review before saving the mission.");
                 if (stored != null) mission.Status = stored.Status;
@@ -145,7 +147,22 @@ namespace Armada.Core.Database.Sqlite.Implementations
             return await UpdateCoreAsync(mission, expectedStatus, token).ConfigureAwait(false) > 0;
         }
 
-        private async Task<int> UpdateCoreAsync(Mission mission, MissionStatusEnum? expectedStatus, CancellationToken token)
+        /// <inheritdoc />
+        public async Task<bool> TryUpdateCompletionAsync(Mission mission, Mission expected, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (expected == null) throw new ArgumentNullException(nameof(expected));
+            if (!String.Equals(mission.Id, expected.Id, StringComparison.Ordinal)) throw new ArgumentException("Completion mission identity differs.");
+            if (expected.Status == MissionStatusEnum.Cancelled
+                || !String.Equals(mission.TenantId, expected.TenantId, StringComparison.Ordinal)
+                || !String.Equals(mission.UserId, expected.UserId, StringComparison.Ordinal)
+                || (mission.StartedUtc != expected.StartedUtc && !(mission.Status == MissionStatusEnum.Pending && mission.StartedUtc == null))
+                || !String.Equals(mission.ResearchReplayId, expected.ResearchReplayId, StringComparison.Ordinal)
+                || !MissionGeneratedArtifactReviewPersistence.SameBinding(mission, expected)) return false;
+            return await UpdateCoreAsync(mission, expected.Status, token, expected).ConfigureAwait(false) > 0;
+        }
+
+        private async Task<int> UpdateCoreAsync(Mission mission, MissionStatusEnum? expectedStatus, CancellationToken token, Mission? completionExpected = null)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             DateTime previousUpdateUtc = mission.LastUpdateUtc;
@@ -213,9 +230,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             started_utc = @started_utc,
                             completed_utc = @completed_utc,
                             last_update_utc = @last_update_utc
-                            WHERE id = @id AND ((research_replay_id IS NULL AND @expected_replay_id IS NULL) OR research_replay_id = @expected_replay_id) AND ((generated_artifact_review_json IS NULL AND @generated_artifact_review_json IS NULL) OR generated_artifact_review_json = @generated_artifact_review_json)" + (expectedStatus.HasValue ? " AND status = @expected_status" : " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending'))") + ";";
+                            WHERE id = @id AND ((research_replay_id IS NULL AND @expected_replay_id IS NULL) OR research_replay_id = @expected_replay_id) AND ((generated_artifact_review_json IS NULL AND @generated_artifact_review_json IS NULL) OR generated_artifact_review_json = @generated_artifact_review_json)" + " AND " + MissionAutomaticWorkPermissionPersistence.UnchangedSql(DatabaseTypeEnum.Sqlite) + (expectedStatus.HasValue ? " AND status = @expected_status" : " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending'))") + (completionExpected == null ? "" : " AND " + MissionCompletionWritePersistence.UnchangedSql(DatabaseTypeEnum.Sqlite)) + ";";
                     MissionColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
                     StoredValueBinder.Value(cmd, "@expected_replay_id", mission.ResearchReplayId);
+                    MissionAutomaticWorkPermissionPersistence.BindExpected(StoredValueBinder.For(DatabaseTypeEnum.Sqlite).For(cmd, "missions"), completionExpected ?? mission);
+                    if (completionExpected != null) MissionCompletionWritePersistence.Bind(cmd, DatabaseTypeEnum.Sqlite, completionExpected);
                     if (expectedStatus.HasValue) StoredValueBinder.Value(cmd, "@expected_status", expectedStatus.Value.ToString());
                     affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }

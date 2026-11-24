@@ -424,6 +424,7 @@ namespace Armada.Core.Database.Postgresql
             BatteryRuns = new BatteryRunMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             DispatchHolds = new DispatchHoldMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
+            AdministrativeVoyageRecovery = new Armada.Core.Database.AdministrativeVoyageRecoveryMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MemoryProposals = new MemoryProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);

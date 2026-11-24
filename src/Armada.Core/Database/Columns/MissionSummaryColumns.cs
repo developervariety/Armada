@@ -23,9 +23,12 @@ namespace Armada.Core.Database
             StoredRow row = new StoredRow(record, values, "MissionSummary");
             Mission admission = new Mission();
             MissionAdmissionPersistence.Read(record, admission);
+            MissionAutomaticWorkPermissionPersistence.Read(record, admission);
             return new MissionSummary
             {
                 LastAdmissionObservation = admission.LastAdmissionObservation,
+                AutomaticWorkPermission = admission.AutomaticWorkPermission,
+                AutomaticWorkPermissionInvalid = admission.AutomaticWorkPermissionInvalid,
                 Id = row.Text("id"),
                 TenantId = row.NullableText("tenant_id"),
                 UserId = row.NullableText("user_id"),

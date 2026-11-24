@@ -2,6 +2,10 @@
 """Run independent, guarded storage cleaners and retain their receipts."""
 import argparse
 import datetime
+from contextlib import contextmanager
+import os
+import stat
+import uuid
 import fcntl
 import json
 from pathlib import Path
@@ -29,7 +33,62 @@ DEFAULTS = {
     'scriptDirectory': None,
     'stages': DEFAULT_STAGES,
     'minimumFreeGb': 0,
+    'hostLockPath': None,
 }
+
+
+@contextmanager
+def host_lock(path):
+    """Serialize with host commands and release only this unchanged lease."""
+    if path is None:
+        yield
+        return
+    directory = Path(path)
+    if not directory.is_absolute() or any(part.is_symlink() for part in [directory, *directory.parents]):
+        raise ValueError('Host command lock must be an absolute path without symlinks')
+    directory.mkdir(mode=0o755)
+    identity = directory.lstat()
+    owner = directory / 'owner'
+    payload = 'pid=' + str(os.getpid()) + '\noperator=storage-cleanup\ntoken=' + uuid.uuid4().hex + '\n'
+    owner_identity = None
+    complete = False
+    try:
+        with owner.open('x') as handle:
+            owner_identity = os.fstat(handle.fileno())
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        complete = True
+        yield
+    finally:
+        current = directory.lstat()
+        if ((current.st_dev, current.st_ino, current.st_uid, current.st_gid) !=
+                (identity.st_dev, identity.st_ino, identity.st_uid, identity.st_gid) or
+                not stat.S_ISDIR(current.st_mode)):
+            raise RuntimeError('Host command lock identity changed; retained for inspection')
+        if owner_identity is None:
+            if os.path.lexists(owner):
+                raise RuntimeError('Host command lock owner identity changed; retained for inspection')
+        else:
+            def same_owner(value):
+                return ((value.st_dev, value.st_ino, value.st_uid, value.st_gid) ==
+                        (owner_identity.st_dev, owner_identity.st_ino,
+                         owner_identity.st_uid, owner_identity.st_gid) and
+                        stat.S_ISREG(value.st_mode) and value.st_nlink == 1)
+
+            if not same_owner(owner.lstat()):
+                raise RuntimeError('Host command lock owner identity changed; retained for inspection')
+            descriptor = os.open(owner, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(descriptor, 'rb') as handle:
+                if not same_owner(os.fstat(handle.fileno())):
+                    raise RuntimeError('Host command lock owner identity changed; retained for inspection')
+                actual = handle.read(len(payload.encode()) + 1)
+            expected = payload.encode()
+            if ((actual != expected if complete else not expected.startswith(actual)) or
+                    not same_owner(owner.lstat())):
+                raise RuntimeError('Host command lock owner identity changed; retained for inspection')
+            owner.unlink()
+        directory.rmdir()
 
 
 def main():
@@ -50,7 +109,7 @@ def main():
         raise ValueError('Unknown storage cleanup stage(s): ' + ', '.join(unknown))
     stages = [(name, [settings['python'], str(scripts / script), '--config', config_path])
               for name, script in STAGES if name in settings['stages']]
-    with open(settings['lockPath'], 'a') as lock:
+    with host_lock(settings['hostLockPath']), open(settings['lockPath'], 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         for name, command in stages:
             if args.apply:

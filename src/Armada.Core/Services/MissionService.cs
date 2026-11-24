@@ -57,6 +57,9 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
 
+        /// <summary>Prepare diff and HEAD for an opted-in completion; its snapshot owner persists them atomically.</summary>
+        public Func<Mission, Dock, Task>? OnPrepareCompletionDiff { get; set; }
+
         /// <summary>
         /// Advisory probe for a named runner that is full for the authenticated mission owner. Null keeps
         /// existing assignment behavior. The Harbor coordinator still checks capacity atomically at launch.
@@ -320,6 +323,10 @@ namespace Armada.Core.Services
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _CaptainReservations =
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
+        // Graph repair and assignment writes must not use different snapshots of one Architect voyage.
+        // The boundary is process-local, like the Admiral assignment and completion owners.
+        private static readonly KeyedAsyncLock _ArchitectGraphBoundaries = new KeyedAsyncLock();
+
         private System.Collections.Concurrent.ConcurrentDictionary<string, byte> _InFlightAssignments =
             new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
@@ -543,6 +550,7 @@ namespace Armada.Core.Services
 
             Captain? reservedCaptain = null;
             FleetCapacityReservation? workloadReservation = null;
+            IDisposable? architectGraphBoundary = null;
             try
             {
                 Mission? latestMission = null;
@@ -557,6 +565,21 @@ namespace Armada.Core.Services
                 if (latestMission != null)
                 {
                     mission = latestMission;
+                }
+
+                if (!String.IsNullOrEmpty(mission.VoyageId))
+                {
+                    string graphVoyageId = mission.VoyageId;
+                    List<Mission> graphMembers = await _Database.Missions.EnumerateByVoyageAsync(graphVoyageId, token).ConfigureAwait(false);
+                    if (graphMembers.Any(member => String.Equals(member.Persona, "Architect", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        architectGraphBoundary = await _ArchitectGraphBoundaries.AcquireAsync(graphVoyageId, token).ConfigureAwait(false);
+                        // The discovery read can predate a completed repair. Only this snapshot may
+                        // supply a dependency or any later assignment/hold write under the boundary.
+                        Mission? graphMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                        if (graphMission == null || !String.Equals(graphMission.VoyageId, graphVoyageId, StringComparison.Ordinal)) return false;
+                        mission = graphMission;
+                    }
                 }
 
                 if (mission.Status != MissionStatusEnum.Pending)
@@ -695,10 +718,12 @@ namespace Armada.Core.Services
             bool dependencyIsCrossVessel = false;
             string? dependencyBranchName = null;
             bool dependencyHasSameOwner = false;
+            Mission? automaticPermissionDependency = null;
 
             // Captured for the stage-base check after provisioning: a stage must be cut from the
             // commit its predecessor actually produced, and proving that needs the hash here.
             string? upstreamCommitHash = null;
+            string? administrativeRestartSource = null;
             string? integrationTargetSha = null;
             if (HasIntegrationBarrierRecord(mission))
             {
@@ -738,8 +763,23 @@ namespace Armada.Core.Services
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
                 upstreamCommitHash = dependency.CommitHash;
                 dependencyBranchName = dependency.BranchName;
+                administrativeRestartSource = await AdministrativeRestartSource.ResolveAsync(_Database, mission, dependency, token).ConfigureAwait(false);
+                if (administrativeRestartSource != null)
+                {
+                    // This explicitly consumed epoch continues saved work, not the planner's unchanged branch.
+                    upstreamCommitHash = administrativeRestartSource;
+                    dependencyBranchName = null;
+                }
                 dependencyHasSameOwner = OwnershipPolicy.SameTenant(mission.TenantId, dependency.TenantId)
                     && String.Equals(OwnershipPolicy.UserOfRecord(mission.UserId), OwnershipPolicy.UserOfRecord(dependency.UserId), StringComparison.Ordinal);
+                automaticPermissionDependency = dependency;
+
+                if (!await CanAdmitAutomaticWorkAsync(dependency, MissionAutomaticActionEnum.DependentAdmission, token).ConfigureAwait(false))
+                {
+                    await HoldForAssignmentAsync(mission, "dependent_automatic_work_permission_required", dependency.Id,
+                        "The predecessor's current automatic-work permission or manual review does not permit dependent admission.", token).ConfigureAwait(false);
+                    return false;
+                }
 
                 if (GeneratedArtifactReviewRule.IsAwaitingApproval(dependency))
                 {
@@ -787,11 +827,37 @@ namespace Armada.Core.Services
                     return false;
                 }
 
+                // A slice brief is written before its serial dependency edges. Its marker alone does
+                // not make the graph ready while the Architect is still materializing that graph.
+                // A consumed administrative restart resumes exact preserved work, rather than
+                // creating a new Architect slice. ResolveAsync already verified its epoch, owner,
+                // predecessor and immutable source; ordinary assignments still require the graph.
+                if (administrativeRestartSource == null
+                    && String.Equals(dependency.Persona, "Architect", StringComparison.OrdinalIgnoreCase)
+                    && !IsArchitectFanOutComplete(dependency))
+                {
+                    if (!IsCompletionInFlight(dependency.Id) && !_ArchitectRecoveries.ContainsKey(dependency.Id)
+                        && !String.IsNullOrEmpty(dependency.VoyageId))
+                    {
+                        // Recovery owns the same graph boundary. Release before entering that
+                        // owner, then stop this assignment without writing its old slice snapshot.
+                        architectGraphBoundary?.Dispose();
+                        architectGraphBoundary = null;
+                        await TryRecoverArchitectFanOutAsync(dependency, token).ConfigureAwait(false);
+                        // Recovery may change this slice's predecessor. A later assignment must
+                        // read that stored graph anew before it chooses source or claims a captain.
+                        return false;
+                    }
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.DependencyCompletionInFlight, dependency.Id,
+                        "The Architect is still preparing the complete mission graph.", token).ConfigureAwait(false);
+                    return false;
+                }
+
                 // Same-vessel deps in a handoff-eligible status (WorkProduced/Complete/PullRequestOpen,
                 // per the gate above) still require the explicit handoff (branch + prior-stage context)
                 // so the downstream stage doesn't launch with the original dispatch prompt before
                 // architect/test/judge prep runs.
-                if (mission.GeneratedArtifactReview == null && !dependencyIsCrossVessel && !IsPipelineHandoffPrepared(mission, dependency))
+                if (administrativeRestartSource == null && mission.GeneratedArtifactReview == null && !dependencyIsCrossVessel && !IsPipelineHandoffPrepared(mission, dependency))
                 {
                     if (String.Equals(dependency.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
                     {
@@ -1273,6 +1339,11 @@ namespace Armada.Core.Services
             await RecordJudgeAssignmentAsync(mission, captain, token).ConfigureAwait(false);
 
             // Provision dock (worktree) and launch agent
+            if (!await CanAdmitAssignmentDependenciesAsync(mission, automaticPermissionDependency, token).ConfigureAwait(false))
+            {
+                await RollBackPermissionBlockedAssignmentAsync(mission, captain, null, preserveSavedBranch).ConfigureAwait(false);
+                return false;
+            }
             Dock? dock;
             try
             {
@@ -1418,6 +1489,12 @@ namespace Armada.Core.Services
                     await GenerateClaudeMdAsync(dock.WorktreePath!, mission, vessel, captain, token).ConfigureAwait(false);
                     await EnsureMissionInstructionsPresentAsync(dock.WorktreePath!, mission, captain, token).ConfigureAwait(false);
 
+                    if (!await CanAdmitAssignmentDependenciesAsync(mission, automaticPermissionDependency, token).ConfigureAwait(false))
+                    {
+                        await RollBackPermissionBlockedAssignmentAsync(mission, captain, dock, preserveSavedBranch).ConfigureAwait(false);
+                        return false;
+                    }
+
                     int processId = await _Captains.OnLaunchAgent.Invoke(captain, mission, dock).ConfigureAwait(false);
                     captain.ProcessId = processId;
                     captain.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
@@ -1536,6 +1613,7 @@ namespace Armada.Core.Services
             }
             finally
             {
+                architectGraphBoundary?.Dispose();
                 if (workloadReservation != null)
                     await workloadReservation.DisposeAsync().ConfigureAwait(false);
                 if (reservedCaptain != null)
@@ -1689,6 +1767,7 @@ namespace Armada.Core.Services
             foreach (Mission produced in workProduced)
             {
                 if (String.IsNullOrEmpty(produced.VoyageId)) continue;
+                if (!await CanAdmitAutomaticWorkAsync(produced, MissionAutomaticActionEnum.DependentAdmission, token).ConfigureAwait(false)) continue;
                 if (String.Equals(produced.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
                 {
                     if (await TryRecoverArchitectFanOutAsync(produced, token).ConfigureAwait(false)) redriven++;
@@ -1812,6 +1891,8 @@ namespace Armada.Core.Services
         public async Task<Mission> ClearOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default)
         {
             Mission mission = await RequireHeldMissionAsync(missionId, operatorName, reason, token).ConfigureAwait(false);
+            if (MissionAutomaticWorkPermissionPolicy.IsUnexpectedExitHeld(mission))
+                throw new InvalidOperationException("An unexpected runtime exit is not a passing review. Reject the review or fail the hold before an explicit retry.");
             if ((mission.HeldForOperatorReviewReason ?? String.Empty).StartsWith("architect_fanout_recovery:", StringComparison.Ordinal))
                 return await ClearArchitectRecoveryHoldAsync(mission, operatorName, reason, token).ConfigureAwait(false);
 
@@ -2105,7 +2186,7 @@ namespace Armada.Core.Services
         /// with their result instead of spending a rescue on work that may be correct. Once per mission.
         /// </summary>
         /// <returns>True when the verdict is held; false when it is recorded as usual.</returns>
-        private async Task<bool> TryHoldRevisionForChecksAsync(Mission mission, CancellationToken token)
+        private async Task<bool> TryHoldRevisionForChecksAsync(Mission mission, CancellationToken token, CompletionWriteState? completionWrites = null)
         {
             JudgeCheckGate gate = await EvaluateJudgeCheckGateAsync(mission, token).ConfigureAwait(false);
             if (gate != JudgeCheckGate.HasPending) return false;
@@ -2128,7 +2209,8 @@ namespace Armada.Core.Services
             mission.HeldForOperatorReview = true;
             mission.HeldForOperatorReviewReason = JudgeRevisionCheckWaitHold.BuildReason(_UtcNow(), mission.CommitHash, holding);
             mission.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            else await completionWrites.SaveOrAbandonAsync(mission, token).ConfigureAwait(false);
             await AppendMissionActivityAsync(mission.Id,
                 "Judge NEEDS_REVISION held until the independent Checks resolve at " + mission.CommitHash
                 + (String.IsNullOrEmpty(holding) ? String.Empty : "; waiting on: " + holding), token).ConfigureAwait(false);
@@ -3124,7 +3206,21 @@ namespace Armada.Core.Services
         /// <summary>
         /// Core completion logic, called under in-flight deduplication guard.
         /// </summary>
-        private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token)
+        private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token,
+            bool resumeAutomaticCompletion = false)
+        {
+            try
+            {
+                await HandleCompletionWithPermissionWritesAsync(captain, missionId, token, resumeAutomaticCompletion).ConfigureAwait(false);
+            }
+            catch (CompletionWriteAbandonedException)
+            {
+                _Logging.Info(_Header + "completion stopped after its owned snapshot changed; an earlier completion write may already have committed: " + missionId);
+            }
+        }
+
+        private async Task HandleCompletionWithPermissionWritesAsync(Captain captain, string missionId, CancellationToken token,
+            bool resumeAutomaticCompletion = false)
         {
             Mission? mission = null;
             if (!String.IsNullOrEmpty(captain.TenantId))
@@ -3136,6 +3232,21 @@ namespace Armada.Core.Services
                 mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             }
             if (mission == null) return;
+            CompletionWriteState? completionWrites = mission.AutomaticWorkPermission != null || mission.AutomaticWorkPermissionInvalid
+                ? new CompletionWriteState(_Database, await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false)) : null;
+            if (completionWrites != null && !completionWrites.MatchesInitial(mission)) return;
+
+
+            // A late health or exit callback cannot convert a failed runtime hold into produced work.
+            if (MissionAutomaticWorkPermissionPolicy.IsUnexpectedExitHeld(mission)) return;
+
+            bool continuingAutomaticWork = resumeAutomaticCompletion && mission.Status == MissionStatusEnum.WorkProduced
+                && mission.AutomaticWorkPermission != null && !mission.AutomaticWorkPermissionInvalid
+                && !mission.HeldForOperatorReview && !mission.ProcessId.HasValue && mission.StartedUtc.HasValue
+                && !String.IsNullOrWhiteSpace(mission.CommitHash);
+            if (resumeAutomaticCompletion && !continuingAutomaticWork) return;
+            bool reuseAutomaticVerification = continuingAutomaticWork
+                && await HasCurrentAutomaticVerificationAsync(mission, token).ConfigureAwait(false);
 
             // The captain's work is finished, so a suite lease it still holds is released before the
             // definition-of-done gate queues for the same vessel slot.
@@ -3143,7 +3254,7 @@ namespace Armada.Core.Services
 
             // Idempotency guard: if the mission has already been processed (e.g. by a concurrent
             // health check or process exit handler), skip to avoid double-processing.
-            if (mission.Status == MissionStatusEnum.WorkProduced ||
+            if ((mission.Status == MissionStatusEnum.WorkProduced && !continuingAutomaticWork) ||
                 mission.Status == MissionStatusEnum.Complete ||
                 mission.Status == MissionStatusEnum.Failed ||
                 mission.Status == MissionStatusEnum.Cancelled ||
@@ -3182,7 +3293,8 @@ namespace Armada.Core.Services
             // is judged afresh, and the Judge block below sets the hold again if this PASS is held too.
             ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
             if (mission.Status != MissionStatusEnum.WorkProduced)
             {
                 _Logging.Info(_Header + "completion stopped for mission " + mission.Id + ": stored status is " + mission.Status);
@@ -3204,11 +3316,27 @@ namespace Armada.Core.Services
             {
                 mission.BranchName = dock.BranchName;
                 mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                 _Logging.Info(_Header + "backfilled branch " + dock.BranchName + " onto mission " + mission.Id +
                     " from dock " + dock.Id + " before pipeline handoff");
             }
 
+            if (completionWrites != null)
+            {
+                if (OnPrepareCompletionDiff != null && dock != null)
+                {
+                    await OnPrepareCompletionDiff(mission, dock).ConfigureAwait(false);
+                    if (!await completionWrites.SaveAsync(mission, token, allowCapturedSourceAdvance: true).ConfigureAwait(false)) return;
+                }
+                else if (OnCaptureDiff != null && dock != null)
+                {
+                    _Logging.Warn(_Header + "opted-in completion has no prepare-only capture owner; captured source was not saved");
+                    return;
+                }
+            }
+            else
+            {
             // Capture diff BEFORE pipeline handoff so the next stage gets the actual diff
             if (dock != null && OnCaptureDiff != null)
             {
@@ -3227,13 +3355,6 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "error capturing diff for mission " + mission.Id + ": " + ex.Message);
                 }
             }
-
-            bool failedForScopeViolation = false;
-            if (dock != null)
-            {
-                failedForScopeViolation = await TryFailMissionForScopeViolationAsync(mission, dock, token).ConfigureAwait(false);
-                if (failedForScopeViolation)
-                    await ClearHarborProvisionAttemptAfterConfirmedReclaimAsync(mission, dock, token).ConfigureAwait(false);
             }
 
             // Capture accumulated agent stdout output before pipeline handoff.
@@ -3248,8 +3369,26 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrEmpty(agentOutput))
                 {
                     mission.AgentOutput = RuntimeLogFormatter.RedactSecrets(agentOutput);
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                 }
+            }
+
+            // Permission precedes failure/refusal policy too: those paths can launch another captain
+            // or cancel pending stages even when no verification command has started yet.
+            if (!reuseAutomaticVerification && (mission.AutomaticWorkPermission != null || mission.AutomaticWorkPermissionInvalid))
+            {
+                Mission? permitted = await TryGetAutomaticVerificationPermissionAsync(mission, captain, token).ConfigureAwait(false);
+                if (permitted == null) return;
+                mission = permitted;
+            }
+
+            bool failedForScopeViolation = false;
+            if (dock != null)
+            {
+                failedForScopeViolation = await TryFailMissionForScopeViolationAsync(mission, dock, token, completionWrites).ConfigureAwait(false);
+                if (failedForScopeViolation)
+                    await ClearHarborProvisionAttemptAfterConfirmedReclaimAsync(mission, dock, token).ConfigureAwait(false);
             }
 
             // A stage whose final outcome is [ARMADA:RESULT] BLOCKED did not finish: its captain asks a
@@ -3267,7 +3406,8 @@ namespace Armada.Core.Services
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 mission.FailureReason = CaptainBlockedResult.BuildFailureReason(mission.Persona, blockedQuestion);
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                 await AppendMissionActivityAsync(mission.Id, "captain blocked: stage ended with [ARMADA:RESULT] BLOCKED; held for operator triage", token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + mission.Id + " (" + (mission.Persona ?? "Worker") + ", " + mission.Mode
                     + ") ended with [ARMADA:RESULT] BLOCKED; failed as captain_blocked with no handoff and no rescue");
@@ -3295,7 +3435,8 @@ namespace Armada.Core.Services
                 mission.FailureReason = incompleteStatement != null
                     ? ReportIncompleteResult.BuildFailureReason(mission.Persona, incompleteStatement)
                     : ReportIncompleteResult.BuildTruncatedFailureReason(mission.Persona, truncationReason!, mission.AgentOutput);
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                 await AppendMissionActivityAsync(mission.Id, incompleteStatement != null
                     ? "report incomplete: the report states its acceptance criteria are not met; reviewer stages not run"
                     : "report incomplete: the report output is truncated (" + truncationReason + "); reviewer stages not run", token).ConfigureAwait(false);
@@ -3337,7 +3478,8 @@ namespace Armada.Core.Services
                         && await ResolveAuthorizationPolicyAsync(refusalVessel, token).ConfigureAwait(false) != null;
 
                     PolicyRefusalContinuationDecision refusalDecision = await new PolicyRefusalContinuationService(_Database, _Settings, _Logging)
-                        .HandleAsync(mission, captain, refusal, policyPresent, token).ConfigureAwait(false);
+                        .HandleAsync(mission, captain, refusal, policyPresent, token,
+                            completionWrites == null ? null : completionWrites.SaveOrAbandonAsync).ConfigureAwait(false);
                     await AppendMissionActivityAsync(mission.Id, "captain refusal (" + refusal.Kind + "): " + refusalDecision.Outcome +
                         " -- " + refusalDecision.Reason, token).ConfigureAwait(false);
 
@@ -3398,7 +3540,8 @@ namespace Armada.Core.Services
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     mission.FailureReason = BuildNoOpCompletionFailureReason(mission, runtime, agentOutputLength);
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                     await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " failed no-op-completion check runtime="
                         + Math.Round(runtime.TotalSeconds, 1) + "s diffLines=" + diffLineCount + " agentOutputLen=" + agentOutputLength);
@@ -3454,7 +3597,8 @@ namespace Armada.Core.Services
                     mission.FailureReason = "ineffective_rescue: " + assessment.Reason
                         + " Change set: " + DescribeChangedPaths(changedPaths)
                         + " Dispatch a replacement with a brief that quotes the defect, rather than retrying this one.";
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                     await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " failed ineffective-rescue check substance="
                         + assessment.Substance + " changedPaths=" + changedPaths.Count);
@@ -3470,6 +3614,14 @@ namespace Armada.Core.Services
             // intended outcome, and their own report gate judges them.
             bool dodGateHasWorkToVerify = !(dockProducedChanges == false && !mission.IsReadOnlyMode);
 
+            if (!reuseAutomaticVerification && !failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal
+                && !failedForIneffectiveRescue && dock != null && _DefinitionOfDoneGate != null)
+            {
+                Mission? permitted = await TryGetAutomaticVerificationPermissionAsync(mission, captain, token).ConfigureAwait(false);
+                if (permitted == null) return;
+                mission = permitted;
+            }
+
             // A read-only (Audit or Research) mission whose dock head still equals its dock start commit
             // produced no commit. The gate's build and unit-test commands would then measure only the
             // base branch, so a base branch that is already red would fail a mission that changed
@@ -3477,7 +3629,7 @@ namespace Armada.Core.Services
             // Implementation mission, keeps the gate unchanged. When either commit cannot be read the
             // gate runs, because a skip must rest on proof that nothing was committed.
             bool dodSkippedForReadOnlyNoCommit = false;
-            if (!failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
+            if (!reuseAutomaticVerification && !failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && mission.IsReadOnlyMode)
             {
                 string? readOnlyNoCommitDetail = await DescribeReadOnlyNoCommitAsync(dock, token).ConfigureAwait(false);
@@ -3494,7 +3646,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (!failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
+            if (!reuseAutomaticVerification && !failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && !dodGateHasWorkToVerify)
             {
                 await AppendMissionActivityAsync(
@@ -3515,86 +3667,102 @@ namespace Armada.Core.Services
             bool failedForDodGate = false;
             bool dodGateCancelled = false;
             string? terminalFailureReasonCode = null;
-            if (!failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
+            if (!reuseAutomaticVerification && !failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify && !dodSkippedForReadOnlyNoCommit)
             {
-                DateTime dodStartedUtc = DateTime.UtcNow;
-                try
+                while (true)
                 {
-                    await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate", token).ConfigureAwait(false);
-                    DefinitionOfDoneResult dodResult = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token, TryReadDockStartCommit(dock.Id)).ConfigureAwait(false);
-                    DefinitionOfDoneEvaluationRecord dodRecord = DefinitionOfDoneEvaluationRecord.FromResult(dodResult, dodStartedUtc);
-                    await PersistDefinitionOfDoneOutputCaptureAsync(mission, dodResult, dodRecord, token).ConfigureAwait(false);
-                    // A skipped result carries Passed=true so completion accepts it. Report it as
-                    // skipped before the passed branch: "validation passed" would claim a build
-                    // and test run that never happened.
-                    if (!String.IsNullOrEmpty(dodResult.SkippedReason))
+                    Mission? permitted = await TryGetAutomaticVerificationPermissionAsync(mission, captain, token).ConfigureAwait(false);
+                    if (permitted == null) return;
+                    mission = permitted;
+                    DateTime dodStartedUtc = DateTime.UtcNow;
+                    try
                     {
-                        await AppendMissionActivityAsync(mission.Id, "validation skipped: " + dodResult.SkippedReason, token).ConfigureAwait(false);
-                    }
-                    else if (!dodResult.Passed)
-                    {
-                        if (IsFirstHostFaultEligibleForGateRerun(dodResult))
+                        await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate", token).ConfigureAwait(false);
+                        DefinitionOfDoneResult dodResult = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token, TryReadDockStartCommit(dock.Id)).ConfigureAwait(false);
+                        DefinitionOfDoneEvaluationRecord dodRecord = DefinitionOfDoneEvaluationRecord.FromResult(dodResult, dodStartedUtc);
+                        await PersistDefinitionOfDoneOutputCaptureAsync(mission, dodResult, dodRecord, token).ConfigureAwait(false);
+                        // A skipped result carries Passed=true so completion accepts it. Report it as
+                        // skipped before the passed branch: "validation passed" would claim a build
+                        // and test run that never happened.
+                        if (!String.IsNullOrEmpty(dodResult.SkippedReason))
                         {
-                            await AppendMissionActivityAsync(mission.Id, "validation failed: " + BuildDodFailureReason(dodResult), token).ConfigureAwait(false);
-                            await HoldForHostFaultDefinitionOfDoneAsync(mission, dodResult, token).ConfigureAwait(false);
+                            await AppendMissionActivityAsync(mission.Id, "validation skipped: " + dodResult.SkippedReason, token).ConfigureAwait(false);
+                        }
+                        else if (!dodResult.Passed)
+                        {
+                            if (IsFirstHostFaultEligibleForGateRerun(dodResult))
+                            {
+                                await AppendMissionActivityAsync(mission.Id, "validation failed: " + BuildDodFailureReason(dodResult), token).ConfigureAwait(false);
+                                await HoldForHostFaultDefinitionOfDoneAsync(mission, dodResult, token, completionWrites).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                failedForDodGate = true;
+                                terminalFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(dodResult.FailureClass);
+                                mission.Status = MissionStatusEnum.Failed;
+                                mission.CompletedUtc = DateTime.UtcNow;
+                                mission.LastUpdateUtc = DateTime.UtcNow;
+                                mission.FailureReason = BuildDodFailureReason(dodResult);
+                                if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
+                                await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
+                                _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate classification=" +
+                                    dodResult.FailureClass);
+                            }
                         }
                         else
                         {
-                            failedForDodGate = true;
-                            terminalFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(dodResult.FailureClass);
-                            mission.Status = MissionStatusEnum.Failed;
-                            mission.CompletedUtc = DateTime.UtcNow;
-                            mission.LastUpdateUtc = DateTime.UtcNow;
-                            mission.FailureReason = BuildDodFailureReason(dodResult);
-                            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                            await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
-                            _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate classification=" +
-                                dodResult.FailureClass);
+                            await AppendMissionActivityAsync(mission.Id, "validation passed: definition-of-done gate", token).ConfigureAwait(false);
                         }
-                    }
-                    else
-                    {
-                        await AppendMissionActivityAsync(mission.Id, "validation passed: definition-of-done gate", token).ConfigureAwait(false);
-                    }
 
-                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock, dodRecord, token).ConfigureAwait(false);
-                }
-                catch (DefinitionOfDoneGateCancelledException)
-                {
-                    // The mission was cancelled while its gate ran. The cancel already wrote the mission's status, so
-                    // this handler must not write the in-memory WorkProduced copy back over it: read the stored row
-                    // and let the terminal path below clean up. Nothing is handed off or landed.
-                    dodGateCancelled = true;
-                    await AppendMissionActivityAsync(mission.Id,
-                        "validation cancelled: definition-of-done gate stopped because the mission was cancelled", token).ConfigureAwait(false);
-                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
-                        DefinitionOfDoneEvaluationRecord.Cancelled(dodStartedUtc, "mission cancelled while the gate ran"), token).ConfigureAwait(false);
-                    Mission? cancelledMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
-                    if (cancelledMission != null) mission = cancelledMission;
-                    _Logging.Info(_Header + "mission " + mission.Id + " definition-of-done gate cancelled with the mission (status "
-                        + mission.Status + ")");
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception dodEx)
-                {
-                    failedForDodGate = true;
-                    terminalFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(DefinitionOfDoneFailureClassEnum.Infra);
-                    mission.Status = MissionStatusEnum.Failed;
-                    mission.CompletedUtc = DateTime.UtcNow;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    mission.FailureReason =
-                        "DoD gate failed: classification=Infra; gate-evaluation command exited -1\n" +
-                        "Gate evaluation could not be completed due to an infrastructure error.";
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                    await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
-                    _Logging.Warn(_Header + "infrastructure error in DoD gate for mission " + mission.Id +
-                        " exceptionType=" + dodEx.GetType().Name);
-                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
-                        DefinitionOfDoneEvaluationRecord.EvaluationError(dodStartedUtc, dodEx.GetType().Name), token).ConfigureAwait(false);
+                        await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock, dodRecord, token).ConfigureAwait(false);
+                    }
+                    catch (MissionAutomaticWorkPermissionRequiredException)
+                    {
+                        // No result is invented. EvaluateAsync disposed its slot before this wait.
+                        // A new current grant is required; the captain and counters are not restarted.
+                        continue;
+                    }
+                    catch (DefinitionOfDoneGateCancelledException)
+                    {
+                        // The mission was cancelled while its gate ran. The cancel already wrote the mission's status, so
+                        // this handler must not write the in-memory WorkProduced copy back over it: read the stored row
+                        // and let the terminal path below clean up. Nothing is handed off or landed.
+                        dodGateCancelled = true;
+                        await AppendMissionActivityAsync(mission.Id,
+                            "validation cancelled: definition-of-done gate stopped because the mission was cancelled", token).ConfigureAwait(false);
+                        await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
+                            DefinitionOfDoneEvaluationRecord.Cancelled(dodStartedUtc, "mission cancelled while the gate ran"), token).ConfigureAwait(false);
+                        Mission? cancelledMission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                        if (cancelledMission != null) mission = cancelledMission;
+                        _Logging.Info(_Header + "mission " + mission.Id + " definition-of-done gate cancelled with the mission (status "
+                            + mission.Status + ")");
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (CompletionWriteAbandonedException) { return; }
+                    catch (Exception dodEx)
+                    {
+                        failedForDodGate = true;
+                        terminalFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(DefinitionOfDoneFailureClassEnum.Infra);
+                        mission.Status = MissionStatusEnum.Failed;
+                        mission.CompletedUtc = DateTime.UtcNow;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        mission.FailureReason =
+                            "DoD gate failed: classification=Infra; gate-evaluation command exited -1\n" +
+                            "Gate evaluation could not be completed due to an infrastructure error.";
+                        if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
+                        await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
+                        _Logging.Warn(_Header + "infrastructure error in DoD gate for mission " + mission.Id +
+                            " exceptionType=" + dodEx.GetType().Name);
+                        await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
+                            DefinitionOfDoneEvaluationRecord.EvaluationError(dodStartedUtc, dodEx.GetType().Name), token).ConfigureAwait(false);
+                    }
+                    break;
                 }
             }
 
@@ -3658,7 +3826,8 @@ namespace Armada.Core.Services
                             mission.HeldForOperatorReview = true;
                             mission.HeldForOperatorReviewReason = holdReason;
                             mission.LastUpdateUtc = DateTime.UtcNow;
-                            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                            if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                            else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                             await AppendMissionActivityAsync(mission.Id,
                                 "review substance held for operator review: " + (substanceVerdict.HoldReason ?? "thin PASS"), token).ConfigureAwait(false);
                             _Logging.Info(_Header + "judge mission " + mission.Id + " PASS held for operator review by review_substance (not failed): " +
@@ -3694,7 +3863,8 @@ namespace Armada.Core.Services
                                 terminalFailureReasonCode = "judge_failed_checks";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 ClearOperatorReviewHold(mission);
-                                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                                 verdict = JudgeVerdict.Fail;
                                 judgeGateRejected = true;
                                 _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected by a failed independent Check (real-signal gate)");
@@ -3712,7 +3882,8 @@ namespace Armada.Core.Services
                                     mission.HeldForOperatorReviewReason = JudgeCheckWaitHold.BuildReason(
                                         _UtcNow(), mission.CommitHash, holding, operatorReview);
                                     mission.LastUpdateUtc = DateTime.UtcNow;
-                                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                    if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                    else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                                     await AppendMissionActivityAsync(mission.Id,
                                         "Judge PASS held until the independent Checks pass at " + mission.CommitHash
                                         + (String.IsNullOrEmpty(holding) ? String.Empty : "; waiting on: " + holding), token).ConfigureAwait(false);
@@ -3731,18 +3902,19 @@ namespace Armada.Core.Services
                                 terminalFailureReasonCode = "judge_missing_checks";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 ClearOperatorReviewHold(mission);
-                                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                                 verdict = JudgeVerdict.Fail;
                                 judgeGateRejected = true;
                                 _Logging.Warn(_Header + "judge mission " + mission.Id + " PASS rejected: no independent Checks (real-signal gate)");
                                 break;
 
                             case JudgeCheckGate.GreenChecks:
-                                await ApproveGeneratedCandidateAsync(mission, true, token).ConfigureAwait(false);
+                                await ApproveGeneratedCandidateAsync(mission, true, token, completionWrites).ConfigureAwait(false);
                                 break;
                             case JudgeCheckGate.NoChecksWithExclusion:
                                 if (mission.GeneratedArtifactReview != null)
-                                    await HoldGeneratedCandidateApprovalAsync(mission, "generated_candidate_required_checks_missing", token).ConfigureAwait(false);
+                                    await HoldGeneratedCandidateApprovalAsync(mission, "generated_candidate_required_checks_missing", token, completionWrites).ConfigureAwait(false);
                                 break;
                             default:
                                 break;
@@ -3769,7 +3941,7 @@ namespace Armada.Core.Services
                     mission.Description = AppendFindingFormatCorrection(mission, verdictFailureReason);
                     await AppendMissionActivityAsync(mission.Id, "Judge finding format refused; one correction requested: "
                         + verdictFailureReason, token).ConfigureAwait(false);
-                    await ResetMissionForReRunAsync(mission, "judge_finding_format", token, countRecoveryBudget: false).ConfigureAwait(false);
+                    await ResetMissionForReRunAsync(mission, "judge_finding_format", token, countRecoveryBudget: false, completionWrites: completionWrites).ConfigureAwait(false);
                     retryingMissingVerdict = true;
                     retryingAcceptanceFormat = true;
                 }
@@ -3781,7 +3953,7 @@ namespace Armada.Core.Services
                     await AppendMissionActivityAsync(mission.Id,
                         "Judge PASS acceptance criteria rejected on format (" + (verdictFailureReason ?? String.Empty) +
                         "); re-running the Judge once with the accepted line form", token).ConfigureAwait(false);
-                    await ResetMissionForReRunAsync(mission, "judge_acceptance_format", token, countRecoveryBudget: false).ConfigureAwait(false);
+                    await ResetMissionForReRunAsync(mission, "judge_acceptance_format", token, countRecoveryBudget: false, completionWrites: completionWrites).ConfigureAwait(false);
                     retryingMissingVerdict = true;
                     retryingAcceptanceFormat = true;
                     _Logging.Warn(_Header + "judge mission " + mission.Id +
@@ -3796,7 +3968,7 @@ namespace Armada.Core.Services
                     // persisted list so it does NOT consume the autonomous-rescue budget
                     // (RecoveryAttempts). An intermittent Judge provider must never block the rescue.
                     AppendRetrySkipCaptain(mission, captain != null ? captain.Id : mission.CaptainId);
-                    await ResetMissionForReRunAsync(mission, "missing_judge_verdict", token, countRecoveryBudget: false).ConfigureAwait(false);
+                    await ResetMissionForReRunAsync(mission, "missing_judge_verdict", token, countRecoveryBudget: false, completionWrites: completionWrites).ConfigureAwait(false);
                     retryingMissingVerdict = true;
                     _Logging.Warn(_Header + "judge mission " + mission.Id +
                         " produced no verdict line; re-running in place on a different captain (re-run " +
@@ -3804,14 +3976,14 @@ namespace Armada.Core.Services
                         (captain != null ? captain.Id : mission.CaptainId) + ")");
                 }
                 else if (verdict == JudgeVerdict.NeedsRevision && !judgeGateRejected
-                    && await TryHoldRevisionForChecksAsync(mission, token).ConfigureAwait(false))
+                    && await TryHoldRevisionForChecksAsync(mission, token, completionWrites).ConfigureAwait(false))
                 {
                     // The Judge asked for a revision while its Checks were unresolved. Nothing is recorded
                     // yet: the Judge runs again once the Checks resolve (ReleaseJudgeCheckWaitHoldsAsync).
                     heldRevisionForChecks = true;
                 }
                 else if ((verdict == JudgeVerdict.NeedsRevision || verdict == JudgeVerdict.Fail) && !judgeGateRejected
-                    && await TryHoldForCriterionConflictAsync(mission, verdict, verdictFailureReason, token).ConfigureAwait(false))
+                    && await TryHoldForCriterionConflictAsync(mission, verdict, verdictFailureReason, token, completionWrites).ConfigureAwait(false))
                 {
                     // A required fix that necessarily breaks a stated acceptance criterion cannot be rescued: the rescue
                     // builds the fix and the next Judge fails it against the unchanged criterion. The verdict is held for
@@ -3835,7 +4007,8 @@ namespace Armada.Core.Services
                     // rescue worker would revise with an empty feedback block and risk reproducing
                     // the rejected work (rescue_produced_no_commits).
                     mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                     _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing with verdict " + verdict);
 
                     // D21 revision_kind. A NEEDS_REVISION whose every item is comment, doc, or boundary
@@ -3906,7 +4079,8 @@ namespace Armada.Core.Services
                 mission.ReviewedByUserId = null;
                 mission.ReviewedUtc = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                else if (!await completionWrites.SaveAsync(mission, token).ConfigureAwait(false)) return;
                 OnReviewRequested?.Invoke(mission);
                 awaitingManualReview = true;
             }
@@ -4095,6 +4269,8 @@ namespace Armada.Core.Services
             }
 
             await ResumeProducedGeneratedLandingAsync(mission, token).ConfigureAwait(false);
+
+            await RecordAutomaticCompletionSettledAsync(mission, token).ConfigureAwait(false);
 
             // Try to pick up next pending mission
             List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
@@ -6396,6 +6572,9 @@ namespace Armada.Core.Services
                 if (String.Equals(sibling.Id, mission.Id, StringComparison.Ordinal)) continue;
                 if (!IsBarrierSibling(sibling, dependency)) continue;
 
+                if (!await CanAdmitAutomaticWorkAsync(sibling, MissionAutomaticActionEnum.DependentAdmission, token).ConfigureAwait(false))
+                    return false;
+
                 if (!IsDependencySatisfyingStatus(sibling.Status) || GeneratedArtifactReviewRule.IsAwaitingApproval(sibling))
                 {
                     _Logging.Debug(_Header + "mission " + mission.Id + " waiting on parallel sibling " +
@@ -7494,7 +7673,25 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<bool> TryHandoffToNextStageAsync(Mission completedMission, HandoffHoldRelease? heldRelease, CancellationToken token)
         {
+            if (!String.IsNullOrEmpty(completedMission.VoyageId)
+                && String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            {
+                string graphVoyageId = completedMission.VoyageId;
+                using (await _ArchitectGraphBoundaries.AcquireAsync(graphVoyageId, token).ConfigureAwait(false))
+                {
+                    Mission? current = await _Database.Missions.ReadAsync(completedMission.Id, token).ConfigureAwait(false);
+                    if (current == null || !String.Equals(current.VoyageId, graphVoyageId, StringComparison.Ordinal)) return false;
+                    return await TryHandoffToNextStageCoreAsync(current, heldRelease, token).ConfigureAwait(false);
+                }
+            }
+            return await TryHandoffToNextStageCoreAsync(completedMission, heldRelease, token).ConfigureAwait(false);
+        }
+
+        // Architect callers already own the graph boundary, including recovery's normal-path fallback.
+        private async Task<bool> TryHandoffToNextStageCoreAsync(Mission completedMission, HandoffHoldRelease? heldRelease, CancellationToken token)
+        {
             if (String.IsNullOrEmpty(completedMission.VoyageId) || completedMission.Status == MissionStatusEnum.Cancelled) return false;
+            if (!await CanAdmitAutomaticWorkAsync(completedMission, MissionAutomaticActionEnum.DependentAdmission, token).ConfigureAwait(false)) return false;
             if (!await EnsureGeneratedReviewBeforeHandoffAsync(completedMission, token).ConfigureAwait(false)) return false;
 
             // Find missions that depend on this completed mission
@@ -7516,7 +7713,7 @@ namespace Armada.Core.Services
             {
                 if (IsArchitectFanOutComplete(completedMission)) return true;
                 if (voyageMissions.Any(m => IsArchitectSliceRoot(m) && BelongsToArchitect(voyageMissions, m, completedMission.Id)))
-                    return await TryRecoverArchitectFanOutAsync(completedMission, token, allowOwnCompletion: true).ConfigureAwait(false);
+                    return await TryRecoverArchitectFanOutCoreAsync(completedMission, token, allowOwnCompletion: true).ConfigureAwait(false);
             }
             if (dependentMissions.Count == 0) return false;
 
@@ -7549,7 +7746,7 @@ namespace Armada.Core.Services
                 if (parseResult.FallbackReason != null && parsed.Count > 0)
                     await RecordArchitectPlanFallbackAsync(completedMission, parsed.Count, parseResult.FallbackReason, token).ConfigureAwait(false);
                 if (parseResult.InvalidPlanReason != null)
-                    _Logging.Warn(_Header + "architect " + completedMission.Id + " versioned plan rejected: " + parseResult.InvalidPlanReason);
+                    _Logging.Warn(_Header + "architect " + completedMission.Id + " plan rejected: " + parseResult.InvalidPlanReason);
                 if (parsed.Count > 0)
                 {
                     await ProjectArchitectMissionsToLogAsync(completedMission, parsed, token).ConfigureAwait(false);
@@ -7637,7 +7834,7 @@ namespace Armada.Core.Services
                 bool hadArchitectMarkers = ArchitectMissionBlocks.ContainsAnyMarker(completedMission.AgentOutput);
 
                 string failureReason = parseResult.InvalidPlanReason != null
-                    ? "Architect versioned plan was rejected: " + parseResult.InvalidPlanReason
+                    ? "Architect plan was rejected: " + parseResult.InvalidPlanReason
                     : hadArchitectMarkers
                     ? "Architect produced no valid [ARMADA:MISSION] definitions in output: it carries a mission marker but no block that opens with [ARMADA:MISSION] at the start of a line and holds a title"
                     : "Architect produced no [ARMADA:MISSION] markers in output";
@@ -8151,8 +8348,9 @@ namespace Armada.Core.Services
         /// <param name="verdict">The Judge verdict, NEEDS_REVISION or FAIL.</param>
         /// <param name="verdictFailureReason">The verdict's failure reason, if the verdict check wrote one.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="completionWrites">Opted-in completion snapshot owner; null preserves other callers.</param>
         /// <returns>True when the verdict was held for criterion review.</returns>
-        private async Task<bool> TryHoldForCriterionConflictAsync(Mission mission, JudgeVerdict verdict, string? verdictFailureReason, CancellationToken token)
+        private async Task<bool> TryHoldForCriterionConflictAsync(Mission mission, JudgeVerdict verdict, string? verdictFailureReason, CancellationToken token, CompletionWriteState? completionWrites = null)
         {
             List<string> conflicts = JudgeCriterionConflicts.Extract(mission.AgentOutput);
             if (conflicts.Count == 0) return false;
@@ -8181,7 +8379,8 @@ namespace Armada.Core.Services
             mission.HeldForOperatorReviewReason = JudgeCriterionConflicts.BuildHoldReason(incidentId, conflicts.Count);
             mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, verdictText);
             mission.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            else await completionWrites.SaveOrAbandonAsync(mission, token).ConfigureAwait(false);
 
             string summary = JudgeCriterionConflicts.ReasonCode + ": the Judge's required fix conflicts with "
                 + conflicts.Count + " acceptance criteri" + (conflicts.Count == 1 ? "on" : "a")
@@ -9108,6 +9307,7 @@ namespace Armada.Core.Services
             bool generatedReviewPrepared,
             CancellationToken token = default)
         {
+            if (!await CanAdmitAutomaticWorkAsync(completedMission, MissionAutomaticActionEnum.DependentAdmission, token).ConfigureAwait(false)) return;
             if (!generatedReviewPrepared && !await EnsureGeneratedReviewBeforeHandoffAsync(completedMission, token).ConfigureAwait(false)) return;
             Mission? currentUpstream = await _Database.Missions.ReadAsync(completedMission.Id, token).ConfigureAwait(false);
             if (GeneratedArtifactReviewRule.IsAwaitingApproval(currentUpstream ?? completedMission))
@@ -10747,6 +10947,7 @@ namespace Armada.Core.Services
         private async Task<int> StartInterruptedDefinitionOfDoneGateRerunsCoreAsync(CancellationToken token)
         {
             if (_DefinitionOfDoneGate == null) return 0;
+            int automaticContinuations = await StartAutomaticCompletionContinuationsAsync(token).ConfigureAwait(false);
 
             List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
             List<string> rerun = new List<string>();
@@ -10759,7 +10960,7 @@ namespace Armada.Core.Services
                 rerun.Add(mission.Id);
             }
 
-            if (rerun.Count == 0) return 0;
+            if (rerun.Count == 0) return automaticContinuations;
 
             // Each rerun waits for the host-wide command slot like any gate, so the reruns run one after another in
             // the background and never block the health loop that started them.
@@ -10780,7 +10981,7 @@ namespace Armada.Core.Services
 
             _Logging.Info(_Header + "re-running the definition-of-done gate for " + rerun.Count + " produced mission(s) whose gate was interrupted: "
                 + String.Join(", ", rerun));
-            return rerun.Count;
+            return rerun.Count + automaticContinuations;
         }
 
         /// <summary>
@@ -10853,6 +11054,9 @@ namespace Armada.Core.Services
             {
                 Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
                 if (mission == null || !IsDefinitionOfDoneGateRerunHold(mission)) return null;
+                if ((mission.AutomaticWorkPermission != null || mission.AutomaticWorkPermissionInvalid)
+                    && !await CanAdmitAutomaticWorkAsync(mission, MissionAutomaticActionEnum.Verification, token).ConfigureAwait(false))
+                    return null;
 
                 Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
                 if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || (dock.HostCheckout == null && !Directory.Exists(dock.WorktreePath)))
@@ -10924,6 +11128,13 @@ namespace Armada.Core.Services
                 }
                 return record.Outcome;
             }
+            catch (MissionAutomaticWorkPermissionRequiredException)
+            {
+                Mission? current = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+                if (current != null)
+                    await CanAdmitAutomaticWorkAsync(current, MissionAutomaticActionEnum.Verification, token).ConfigureAwait(false);
+                return null;
+            }
             catch (DefinitionOfDoneGateCancelledException)
             {
                 _Logging.Info(_Header + "definition-of-done gate re-run for mission " + missionId + " stopped because the mission was cancelled");
@@ -10953,7 +11164,8 @@ namespace Armada.Core.Services
         /// <param name="produced">Mission to hold; mutated on success.</param>
         /// <param name="result">Failed host-fault gate result.</param>
         /// <param name="token">Cancellation token.</param>
-        private async Task HoldForHostFaultDefinitionOfDoneAsync(Mission produced, DefinitionOfDoneResult result, CancellationToken token)
+        /// <param name="completionWrites">Opted-in completion snapshot owner; null preserves other callers.</param>
+        private async Task HoldForHostFaultDefinitionOfDoneAsync(Mission produced, DefinitionOfDoneResult result, CancellationToken token, CompletionWriteState? completionWrites = null)
         {
             if (produced.HeldForOperatorReview) return;
 
@@ -10963,7 +11175,9 @@ namespace Armada.Core.Services
                 + ". The gate failed as a host fault with no failing test. The dock is kept and the next stage is held."
                 + " The gate will re-run once; a second host-fault fails the mission.";
             produced.LastUpdateUtc = DateTime.UtcNow;
-            bool written = await _Database.Missions.TryUpdateIfStatusAsync(produced, MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            bool written;
+            if (completionWrites == null) written = await _Database.Missions.TryUpdateIfStatusAsync(produced, MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            else { await completionWrites.SaveOrAbandonAsync(produced, token).ConfigureAwait(false); written = true; }
             if (!written)
             {
                 ClearOperatorReviewHold(produced);
@@ -11794,7 +12008,7 @@ namespace Armada.Core.Services
             return String.IsNullOrEmpty(existing) ? block : existing + Environment.NewLine + Environment.NewLine + block;
         }
 
-        private async Task ResetMissionForReRunAsync(Mission mission, string reasonCode, CancellationToken token, bool countRecoveryBudget = true)
+        private async Task ResetMissionForReRunAsync(Mission mission, string reasonCode, CancellationToken token, bool countRecoveryBudget = true, CompletionWriteState? completionWrites = null)
         {
             await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, reasonCode, _Logging, token).ConfigureAwait(false);
             if (countRecoveryBudget)
@@ -11817,7 +12031,8 @@ namespace Armada.Core.Services
             mission.TotalRuntimeMs = null;
             ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            else await completionWrites.SaveOrAbandonAsync(mission, token).ConfigureAwait(false);
         }
 
         private async Task CloneDependentChainAsync(
@@ -11945,7 +12160,8 @@ namespace Armada.Core.Services
                 Mission? workerRoot = null;
                 if (roots != null && roots.Count == parsed.Count) currentById.TryGetValue(roots[i].Id, out workerRoot);
                 workerRoot ??= FindArchitectSliceRoot(voyageMissions, architectMission.Id, parsed[i].Title + " [Worker]");
-                if (workerRoot == null) continue;
+                if (workerRoot == null)
+                    throw new InvalidDataException("Architect plan root is missing for '" + parsed[i].Title + "'.");
 
                 Mission terminalStage = FindTerminalPipelineStage(voyageMissions, workerRoot);
                 workerRootsByIndex[i + 1] = workerRoot;
@@ -11957,26 +12173,17 @@ namespace Armada.Core.Services
             {
                 string? dependencyReference = parsed[i].DependsOnReference;
                 if (String.IsNullOrWhiteSpace(dependencyReference)) continue;
-                if (!workerRootsByIndex.TryGetValue(i + 1, out Mission? workerRoot)) continue;
+                if (!workerRootsByIndex.TryGetValue(i + 1, out Mission? workerRoot))
+                    throw new InvalidDataException("Architect plan root is missing for '" + parsed[i].Title + "'.");
 
                 Mission? resolvedDependency = ResolveArchitectDependencyTerminalStage(
                     terminalStagesByIndex,
                     terminalStagesByTitle,
                     i + 1,
                     dependencyReference);
-                if (resolvedDependency == null)
-                {
-                    _Logging.Warn(_Header + "could not resolve architect dependency '" + dependencyReference +
-                        "' for mission '" + parsed[i].Title + "' -- leaving dependency on architect");
-                    continue;
-                }
-
-                if (resolvedDependency.Id == workerRoot.Id)
-                {
-                    _Logging.Warn(_Header + "ignoring self-referential architect dependency '" + dependencyReference +
-                        "' for mission '" + parsed[i].Title + "'");
-                    continue;
-                }
+                if (resolvedDependency == null || resolvedDependency.Id == workerRoot.Id)
+                    throw new InvalidDataException("Architect dependency '" + dependencyReference
+                        + "' cannot be resolved safely for '" + parsed[i].Title + "'.");
 
                 workerRoot.DependsOnMissionId = resolvedDependency.Id;
                 workerRoot.BranchName = null;
@@ -12541,38 +12748,34 @@ namespace Armada.Core.Services
             string normalizedReference = NormalizeArchitectDependencyReference(dependencyReference);
             if (String.IsNullOrWhiteSpace(normalizedReference)) return null;
 
-            // Architect blocks declare their ordering as `dependsOnMissionId: M2` (the M-alias of an earlier
-            // block). Map that alias to its block index so the numeric and by-title paths below can resolve it.
-            System.Text.RegularExpressions.Match aliasMatch =
-                System.Text.RegularExpressions.Regex.Match(
-                    normalizedReference,
-                    @"^[Mm]\d+$",
-                    System.Text.RegularExpressions.RegexOptions.None);
-            if (aliasMatch.Success)
+            if (TryReadArchitectDependencyIndex(normalizedReference, out int dependencyIndex))
             {
-                normalizedReference = normalizedReference.Substring(1);
+                return dependencyIndex > 0 && dependencyIndex < currentMissionIndex
+                    && terminalStagesByIndex.TryGetValue(dependencyIndex, out Mission? terminalStage)
+                    ? terminalStage : null;
             }
 
-            System.Text.RegularExpressions.Match numericMatch =
-                System.Text.RegularExpressions.Regex.Match(
-                    normalizedReference,
-                    @"^(?:mission\s+)?(?<index>\d+)\b",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (numericMatch.Success &&
-                Int32.TryParse(numericMatch.Groups["index"].Value, out int dependencyIndex) &&
-                dependencyIndex > 0 &&
-                dependencyIndex < currentMissionIndex &&
-                terminalStagesByIndex.TryGetValue(dependencyIndex, out Mission? terminalStage))
-            {
-                return terminalStage;
-            }
-
-            if (terminalStagesByTitle.TryGetValue(normalizedReference, out Mission? byTitle))
+            if (terminalStagesByTitle.TryGetValue(normalizedReference, out Mission? byTitle)
+                && terminalStagesByIndex.Any(entry => entry.Key < currentMissionIndex
+                    && String.Equals(entry.Value.Id, byTitle.Id, StringComparison.Ordinal)))
             {
                 return byTitle;
             }
 
             return null;
+        }
+
+        private static bool TryReadArchitectDependencyIndex(string reference, out int index)
+        {
+            string numeric = System.Text.RegularExpressions.Regex.IsMatch(reference, @"^[Mm]\d+$")
+                ? reference.Substring(1) : reference;
+            System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(
+                numeric, @"^(?:mission\s+)?(?<index>\d+)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            index = 0;
+            if (!match.Success) return false;
+            Int32.TryParse(match.Groups["index"].Value, out index);
+            return true;
         }
 
         private static bool TryParseArchitectSummaryLine(string line, out string? title, out string? description)
@@ -12764,7 +12967,7 @@ namespace Armada.Core.Services
                 line.Contains("...", StringComparison.Ordinal));
         }
 
-        private async Task<bool> TryFailMissionForScopeViolationAsync(Mission mission, Dock dock, CancellationToken token)
+        private async Task<bool> TryFailMissionForScopeViolationAsync(Mission mission, Dock dock, CancellationToken token, CompletionWriteState? completionWrites = null)
         {
             if (_Git == null ||
                 String.IsNullOrEmpty(mission.Description) ||
@@ -12824,7 +13027,8 @@ namespace Armada.Core.Services
             mission.CompletedUtc = DateTime.UtcNow;
             mission.LastUpdateUtc = DateTime.UtcNow;
             mission.FailureReason = "Mission modified files outside its scoped file list: " + String.Join(", ", outOfScopeFiles);
-            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (completionWrites == null) await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            else await completionWrites.SaveOrAbandonAsync(mission, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "mission " + mission.Id + " failed scope validation: " + mission.FailureReason);
             return true;
         }

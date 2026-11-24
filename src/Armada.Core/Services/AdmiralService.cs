@@ -444,8 +444,8 @@ namespace Armada.Core.Services
             PipelineStageSkipResult skipResult = PipelineStageSkip.Apply(resolvedPipeline, stageSkip);
             Pipeline? pipeline = skipResult.Pipeline;
 
-            // If pipeline is single-stage Worker (or null), use the standard dispatch path
-            if (pipeline == null || (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker" && !pipeline.Stages[0].RequiresReview))
+            // Only an absent pipeline or one unheld Worker uses the legacy flat dispatch path.
+            if (!UsesPipelineStages(pipeline))
             {
                 Voyage workerVoyage = await DispatchSingleStageVoyageAsync(
                     title, description, vesselId, missionDescriptions, selectedPlaybooks, SingleStagePersona(pipeline), token).ConfigureAwait(false);
@@ -641,8 +641,7 @@ namespace Armada.Core.Services
             Pipeline? resolvedPipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
             PipelineStageSkipResult skipResult = PipelineStageSkip.Apply(resolvedPipeline, stageSkip);
             Pipeline? pipeline = skipResult.Pipeline;
-            bool isMultiStage = pipeline != null
-                && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker" && !pipeline.Stages[0].RequiresReview);
+            bool isMultiStage = UsesPipelineStages(pipeline);
 
             Voyage? voyage = null;
             try
@@ -1760,6 +1759,10 @@ namespace Armada.Core.Services
 
             RuntimeProcessExitEvidence? exitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId, captain.ProcessStartedUtc);
             bool logCaptureFailed = exitEvidence != null && exitEvidence.TryGetOutcome(out _, out bool captureFailed) && captureFailed;
+            if ((exitCode != 0 || logCaptureFailed)
+                && await TryHoldUnexpectedAutomaticExitAsync(captain, mission, exitCode,
+                    logCaptureFailed ? "Runtime log persistence failed." : "The runtime did not exit successfully.", token).ConfigureAwait(false))
+                return;
             if (exitCode == 0 && !logCaptureFailed)
             {
                 // Clean exit — delegate to the normal completion flow
@@ -1923,6 +1926,21 @@ namespace Armada.Core.Services
                 && !String.IsNullOrWhiteSpace(pipeline.Stages[0].PersonaName))
                 return pipeline.Stages[0].PersonaName;
             return PersonaCatalog.Worker;
+        }
+
+        /// <summary>
+        /// Determines whether an effective pipeline needs stage missions rather than the legacy flat
+        /// Worker mission. Apply stage skips before calling this rule. A held Worker retains its stage
+        /// instructions, review checkpoint and stage-level model preference.
+        /// </summary>
+        /// <param name="pipeline">The pipeline after operator-confirmed stage skips.</param>
+        /// <returns>True unless the pipeline is absent or contains one unheld Worker.</returns>
+        public static bool UsesPipelineStages(Pipeline? pipeline)
+        {
+            return pipeline != null
+                && !(pipeline.Stages.Count == 1
+                    && String.Equals(pipeline.Stages[0].PersonaName, PersonaCatalog.Worker, StringComparison.Ordinal)
+                    && !pipeline.Stages[0].RequiresReview);
         }
 
         /// <summary>
@@ -3642,6 +3660,9 @@ namespace Armada.Core.Services
             CancellationToken token,
             RuntimeProviderError? providerError = null)
         {
+            if (mission != null && await TryHoldUnexpectedAutomaticExitAsync(captain, mission,
+                exitCode, failureReason, token).ConfigureAwait(false)) return;
+
             // A PROVIDER SAFEGUARD BLOCK (the provider's content/cyber safety gate refused the request) follows the
             // one refusal rule: it is recorded, and the mission gets at most one continuation on an approved captain
             // of a different runtime. It is never retried on the runtime that blocked. When the continuation is

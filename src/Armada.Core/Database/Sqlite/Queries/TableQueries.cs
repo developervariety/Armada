@@ -1706,7 +1706,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(146, "Persist the add-only Markdown landing policy",
                     @"ALTER TABLE vessels ADD COLUMN auto_resolve_add_only_markdown INTEGER NOT NULL DEFAULT 1;"),
                 new SchemaMigration(147, "Persist per-vessel Judge finding thresholds",
-                    @"ALTER TABLE vessels ADD COLUMN judge_finding_threshold INTEGER NOT NULL DEFAULT 5;")
+                    @"ALTER TABLE vessels ADD COLUMN judge_finding_threshold INTEGER NOT NULL DEFAULT 5;"),
+                new SchemaMigration(148, "Persist per-mission automatic-work permission", MissionAutomaticWorkPermissionSchema.SqliteStatements)
             };
         }
 

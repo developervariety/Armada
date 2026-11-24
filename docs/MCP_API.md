@@ -1081,11 +1081,20 @@ One read-only local query over applicable external guidance, native records and
 the existing vessel code index. Supply `query`; operators also supply
 `vesselId`. Mission credentials use their active, owned mission's vessel and
 ordinary owner visibility. Optional arguments are `limit` (default 20, maximum
-40), `maxBytes` (default 24000, capped by server settings), and `includeCode`
-(default true).
+40), `maxBytes` (default 24000, minimum 512, capped by server settings),
+`includeCode` (default true), and `continuationToken` for a later page.
 
-Returns `Required`, `Results`, `Sources`, `ResultBytes`, `Truncated` and
-`VesselId`. Required guidance is complete and outside optional text limits.
+Returns bounded multiline text. A page header gives `SnapshotSHA256`, `Offset`,
+`TotalBytes`, `Complete` and `ContinuationToken`, followed by a `Content:` line
+and a UTF-8-safe slice of the indented JSON response. `maxBytes` bounds the
+whole page, including its header. Repeat the same arguments with the returned
+continuation token until `Complete: true`; concatenate only the content slices.
+A changed result snapshot refuses the old token rather than mixing versions.
+The reconstructed response contains `Required`, `Results`, `Sources`,
+`ResultBytes`, `Truncated` and `VesselId`. Required guidance remains outside
+the optional-result selection limits, but is paged within the transport cap.
+Each page uses the existing recall-call budget. If that budget is exhausted,
+the result is incomplete; partial guidance does not satisfy the required read.
 Results retain source class, reference and version. Search never builds a code
 index. It calls an embedding endpoint only when `contextRetrieval.semanticEndpointId`
 pins a local one, and `Sources` then carries a `semantic` entry. A source can be unavailable; inspect `Sources`
@@ -1341,9 +1350,16 @@ the 60-second request timeout that common MCP clients apply:
 
 | `Status` | Meaning |
 | --- | --- |
-| `granted` | The lease is granted to this call. |
-| `held` | The mission already holds the lease. |
-| `queued` | The slots are held. `Position` is the request's place in the queue. |
+| `granted` | The lease is granted; `MayRunFullSuite` is true. |
+| `held` | The mission already holds the lease; `MayRunFullSuite` is true. |
+| `queued` | No execution permission; `MayRunFullSuite` is false. `Position` gives the request's place in line. |
+
+A queued reply also names `WaitReason` (`vessel_suite_slot`, `host_memory` or
+`host_command_slot`), the observed host-holder count and oldest hold time, and
+the memory reading and floor. Holder identities and private descriptions are
+not exposed, and no completion time is promised. Only `granted` or `held`
+permits the full suite. A queued caller must wait or withdraw; withdrawing
+does not grant execution permission.
 
 A queued request stays in the queue after the call returns, including when the
 client cancels or times out the call. The next `acquire` from the same mission

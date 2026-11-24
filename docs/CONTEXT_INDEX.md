@@ -166,9 +166,24 @@ another tenant are excluded. Working facts retain memory authority; they cannot
 become rules.
 
 The response separates `Required` guidance from optional `Results`. Required
-core and applicable mandatory leaves are returned in full. `limit` (default 20,
-maximum 40) and `maxBytes` (default 24000) limit optional text only. Byte counts
-use UTF-8. Oversized matches are skipped so smaller matches can still fit.
+core and applicable mandatory leaves remain complete in the result snapshot.
+The service uses `limit` (default 20, maximum 40) and `maxBytes` (default 24000)
+to select optional text. Required rules remain outside that selection budget.
+
+The MCP tool returns indented JSON as bounded text pages. `maxBytes` also caps
+the UTF-8 bytes of the entire text page, including its header. The minimum is
+512 bytes; the configured server byte cap still applies. Smaller budgets are
+refused. The header names `SnapshotSHA256`, byte `Offset`, `TotalBytes`,
+`Complete`, and `ContinuationToken`; the JSON text follows `Content:`. Rejoin
+only those content slices in order to recover the complete JSON response.
+Repeat the same query and options with the returned `continuationToken` until
+`Complete: true`. A changed result snapshot or malformed token refuses with
+`invalid_continuation`; start again without a token. Each page uses the existing
+mission recall budget. If that budget refuses before completion, the required
+guidance has not been fully read; do not treat partial guidance as sufficient.
+This changes the MCP text result shape, not the service response model.
+
+Optional selection byte counts use UTF-8. Oversized matches are skipped so smaller matches can still fit.
 `Truncated` names omissions. Each item has a source class, source reference and
 version. Code references include the source line and indexed commit, with index
 freshness. Guidance versions are hashes of the loaded snapshot text.
@@ -220,8 +235,8 @@ stays BM25: `not_configured`, `endpoint_unavailable`, `endpoint_not_local`,
 `TimeoutMs` bounds each call. Without the pin, search makes no embedding call.
 
 `ContextRetrieval.FetchToolEnabled` governs captain recall through the shared
-query and mission-token `search_memory`. `MaxLeafBytesPerCall` caps optional query text.
-Required guidance is outside the optional byte cap. `Sources` reports the
+query and mission-token `search_memory`. `MaxLeafBytesPerCall` caps optional query text and the complete MCP text page.
+Required guidance is outside optional selection limits but uses those same bounded pages. `Sources` reports the
 actual search mode and the code index freshness even when there are no hits.
 
 One durable counter on each mission bounds calls across `armada_search_context`

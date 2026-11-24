@@ -8,6 +8,13 @@ namespace Armada.Core.Services.Interfaces
     /// </summary>
     public interface IMissionService
     {
+        /// <summary>Change only the caller-owned mission's optional automatic-work permissions.</summary>
+        Task<Mission?> UpdateAutomaticWorkPermissionAsync(AuthContext caller, string missionId,
+            MissionAutomaticWorkPermissionRequest request, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Automatic-work permissions are not implemented by this mission service.");
+        }
+
         /// <summary>
         /// Delegate invoked synchronously at completion to capture the diff before the worktree can be reclaimed.
         /// </summary>
