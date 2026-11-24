@@ -19,10 +19,10 @@ namespace Armada.Core.Services.Archive
 
     /// <summary>
     /// <see cref="IArchiveSink"/> for any S3-compatible object store, signed with the S3 Signature
-    /// Version 4 scheme. It needs only PUT, HEAD, DELETE and ListObjectsV2, so it carries no SDK. Each upload
+    /// Version 4 scheme. It needs only PUT, HEAD, GET, DELETE and ListObjectsV2, so it carries no SDK. Each upload
     /// sends the content's MD5 and SHA-256, which the store checks against the bytes it receives, and
-    /// then reads the stored object back with HEAD; it is verified only when the stored size and the
-    /// SHA-256 recorded with it match the local content.
+    /// then checks the stored metadata and streams the complete object back with GET. It is verified
+    /// only when both metadata and downloaded bytes match the local size and SHA-256.
     /// </summary>
     public sealed class S3ArchiveSink : IArchiveSink
     {
@@ -103,6 +103,8 @@ namespace Armada.Core.Services.Archive
         {
             if (String.IsNullOrWhiteSpace(key)) throw new ArgumentNullException(nameof(key));
             if (String.IsNullOrWhiteSpace(sha256)) throw new ArgumentNullException(nameof(sha256));
+            if (bytes < 0 || bytes > MaxSinglePutBytes)
+                return ArchivePutResult.Failed(key, "too_large", "stored-object verification requires a size within the single-upload limit");
             Credentials credentials;
             try
             {
@@ -344,7 +346,18 @@ namespace Armada.Core.Services.Archive
                             string storedSha = response.Headers.TryGetValues(Sha256MetadataHeader, out IEnumerable<string>? values) ? values.FirstOrDefault() ?? String.Empty : String.Empty;
                             if (!String.Equals(storedSha, sha256, StringComparison.OrdinalIgnoreCase))
                                 return ArchivePutResult.Failed(key, "sha256_mismatch", "stored object '" + key + "' records SHA-256 '" + storedSha + "', local content is " + sha256);
-                            return new ArchivePutResult { Key = key, Verified = true, Bytes = bytes, Sha256 = sha256 };
+                            using (HttpRequestMessage get = BuildRequest(HttpMethod.Get, key, null, credentials, _EmptySha256, null))
+                            using (HttpResponseMessage readBack = await _Http.SendAsync(get, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false))
+                            {
+                                if (readBack.IsSuccessStatusCode)
+                                    return await ReadAndCompareAsync(key, bytes, sha256, readBack.Content, token).ConfigureAwait(false);
+                                string body = await readBack.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                                if (readBack.StatusCode == HttpStatusCode.Forbidden && IsCapExceeded(body))
+                                    return ArchivePutResult.Failed(key, ArchivePutResult.CapExceededCode, "stored object read-back reached the object store download or transaction cap");
+                                lastFailure = ArchivePutResult.Failed(key, "verify_failed", "stored object read-back failed: HTTP " + (int)readBack.StatusCode + " " + FailureDetails(readBack, body));
+                                transient = IsTransient(readBack.StatusCode);
+                                retryAfter = ReadRetryAfter(readBack);
+                            }
                         }
                     }
                 }
@@ -353,10 +366,42 @@ namespace Armada.Core.Services.Archive
                     lastFailure = ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: " + ex.Message);
                     transient = true;
                 }
+                catch (IOException)
+                {
+                    lastFailure = ArchivePutResult.Failed(key, "verify_failed", "stored object read-back stream failed before verification completed");
+                    transient = true;
+                }
                 if (!transient || attempt == _MaxAttempts) return lastFailure!;
                 if (!await DelayRetryAsync(attempt, retryAfter, token).ConfigureAwait(false)) return lastFailure!;
             }
             return lastFailure!;
+        }
+
+        private static async Task<ArchivePutResult> ReadAndCompareAsync(string key, long bytes, string sha256, HttpContent stored, CancellationToken token)
+        {
+            if (stored.Headers.ContentLength.HasValue && stored.Headers.ContentLength.Value != bytes)
+                return ArchivePutResult.Failed(key, "size_mismatch", "stored object read-back length does not match the local content");
+            using (Stream content = await stored.ReadAsStreamAsync(token).ConfigureAwait(false))
+            using (IncrementalHash digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                byte[] buffer = new byte[65536];
+                long received = 0;
+                while (true)
+                {
+                    int count = await content.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, Math.Max(1, bytes - received + 1))), token).ConfigureAwait(false);
+                    if (count == 0) break;
+                    received += count;
+                    if (received > bytes)
+                        return ArchivePutResult.Failed(key, "size_mismatch", "stored object read-back exceeded the local size");
+                    digest.AppendData(buffer, 0, count);
+                }
+                if (received != bytes)
+                    return ArchivePutResult.Failed(key, "size_mismatch", "stored object read-back ended before the local size");
+                string actual = Convert.ToHexString(digest.GetHashAndReset()).ToLowerInvariant();
+                if (!String.Equals(actual, sha256, StringComparison.Ordinal))
+                    return ArchivePutResult.Failed(key, "sha256_mismatch", "stored object read-back bytes do not match the local SHA-256");
+                return new ArchivePutResult { Key = key, Verified = true, Bytes = received, Sha256 = actual };
+            }
         }
 
         private CancellationTokenSource CreateOperationCancellation(CancellationToken token)

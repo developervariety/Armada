@@ -44,7 +44,11 @@ Every key starts with `archive.keyPrefix`.
 ## Contracts
 
 - `IArchiveSink` uploads a file or in-memory content and reports success only
-  when the stored object's size and SHA-256 match the local content
+  when HEAD metadata and a complete streamed GET both match the local size and
+  SHA-256. Metadata alone is not proof of stored bytes. The GET uses a 64 KiB
+  buffer and stops after the expected size plus one byte; a short, extra or
+  corrupt body keeps the local file. The full read counts against the object
+  store's existing download and transaction caps
   (`ArchivePutResult.Verified`). A failure carries a `FailureCode` such as
   `upload_failed`, `size_mismatch`, `sha256_mismatch` or `credentials_missing`.
   A caller frees its local copy only on a verified result. A read-back refused
@@ -90,15 +94,60 @@ operator-evidence folders idle past `diskLifecycle.operatorEvidenceRetentionDays
 and the files of each `archive.sessionRoots` entry older than its
 `retentionDays`. Docks, worktrees, temp artifacts, backups, extra retention
 roots and the `.git`, `bin`, `obj` and `node_modules` payload of operator
-evidence are not history: they are freed as before, with no upload.
+evidence are not history. They need their own cleanup qualification. Archive
+verification does not authorize recursive deletion of payload directories;
+they remain with an explicit retained-payload reason in archive retirement.
+
+Session retirement also requires a reliable native owner binding. The configured
+session root must lie inside exactly one managed Codex or Claude Code usage
+account home. Any active, planning, refining, stalled or stopping account captain,
+process or current mission protects the whole root, even when a transcript has no
+open descriptor. A bounded native header (first 64 KiB, at most 64 complete JSON
+lines) must identify the session named by the file and a cwd inside an exact
+managed mission dock. That mission must be terminal with no process, its dock
+closed, and its completion no earlier than the transcript's last write. The owner
+check repeats after remote verification. Unbound roots, other runtimes, missing
+owner records, ambiguous headers and unproved closed docks stay locally with a
+named `session owner unresolved` result. This retains unresolved history; it does
+not silently treat it as an ended session or disable known-ended retirement.
+
+A verified remote object alone does not authorize deleting a local pathname.
+The history pass binds each file's complete hash and source identity before
+upload, and checks it again after read-back. Known active mission owners stay
+local. Changed or replaced sources stay local and carry a named failure. For a
+bound mission or native session, the final fresh owner check and local retirement
+hold the same-admiral recovery-family boundary, then the mission execution
+boundary, in the existing administrative owner order. A supported restart or
+replay that wins first is observed before any rename. Upload and remote read-back
+never hold those boundaries. These process-local boundaries do not claim to fence
+out-of-band database writes or another independent admiral instance.
+
+On Linux, an aged closed source moves atomically into a private `0700` directory
+beside its original path. The held file and the moved pathname must name the
+same single-link regular inode and expected bytes. The retirement check reads
+relevant same-owner `/proc` process identities, writable file descriptors and
+writable memory maps. An unreadable relevant process or an open writer keeps
+the moved data. It rechecks the held inode and full hash before unlink. A new
+file at the original path is never removed. This is the lifecycle closed-owner
+contract, not protection against an arbitrary privileged or uncooperative
+writer. Mutable database files without a closed-owner fence stay local.
+Platforms without these identity and quiescence checks also keep the local copy.
+
+A failed or interrupted retirement can leave a same-directory
+`.armada-archive-free-*` recovery directory. Its keep marker and `recovery.json`
+name the original path, verified object, bytes, hash and inode. The lifecycle
+never sweeps it automatically or overwrites a replacement original. An operator
+must inspect and recover it. Archived folders retire only the bound files and
+empty directories; an unarchived new child remains. Bundles bind each packed
+entry's actual bytes to its source snapshot before any source can retire.
 
 An archived operator-evidence folder uploads every file outside its payload
-directories, and is removed only when every upload is verified. A brief-file
-folder uploads every file. Before a verified folder is removed, each directory
-inside it is given owner read, write and execute, because a read-only
-directory blocks removing its entries. The folder that holds the item is never
-changed, symlinks are neither followed nor changed, and the operating system
-refuses the change on a directory the admiral does not own. A session root
+directories, and retires only unchanged, writer-free archived files. Unarchived
+payload is neither recursively deleted nor given broader permissions by this
+archive path; its own cleanup owner must qualify it. A brief-file folder
+uploads every file. A failed file retirement keeps its recovery data; empty
+folders are removed without recursive deletion of new children. Symlinks are
+neither followed nor changed. A session root
 is an absolute folder; its files are uploaded under
 `raw/captainSessions-<name>/` with their path relative to the root, and are
 freed only after a verified upload, whatever the mode.
@@ -132,8 +181,8 @@ from the archive with `IArchiveSink.GetBytesAsync`.
 
 A file whose name matches the deny list is never uploaded and never freed by a
 history pass; the report records it `kept`. Inside an expired history folder a
-deny-listed file keeps only itself: the folder's other files are archived and
-freed, emptied folders are removed, and the deny-listed file stays in place. A
+deny-listed file keeps only itself: the folder's other archivable files are archived and
+freed, unqualified payload stays, emptied nonpayload folders are removed, and the deny-listed file stays in place. A
 folder that holds nothing but deny-listed files is reported `kept` and is not
 uploaded. The built-in list is `auth.json`,
 `*credential*`, `*secret*`, `settings.json`, `settings.json.*`,
@@ -145,7 +194,7 @@ ignores case.
 
 ## Failures
 
-The S3 sink makes at most three attempts for a PUT or HEAD after HTTP 429,
+The S3 sink makes at most three attempts for a PUT or read-back (HEAD plus GET) after HTTP 429,
 500, 502, 503 or 504, or a transport failure. Backoff is one second, then
 two seconds. A longer `Retry-After` is honored up to 30 seconds; a longer
 cooldown leaves the object for a later pass. The whole operation shares the
@@ -154,9 +203,9 @@ the operation. Authentication, cap, size and checksum failures are not retried.
 
 Each attempt has fresh content and a fresh signature. After a failed PUT,
 HEAD must show that the key is absent before another PUT is sent. Matching
-stored size and SHA-256 complete an ambiguous upload without another version.
-An unknown verification result keeps the local file. After a successful PUT,
-verification retries only HEAD. Exhaustion retains the bounded provider support
+stored metadata and full GET size and SHA-256 complete an ambiguous upload
+without another version. An unknown verification result keeps the local file.
+After a successful PUT, verification retries only HEAD plus GET. Exhaustion retains the bounded provider support
 receipt; response message bodies remain private.
 
 A history pass that fails to verify any upload records one
@@ -187,9 +236,9 @@ recorded with the disposition `deferred`, and left for the next pass. A folder
 already started is finished. An expired history folder that holds at least
 `diskLifecycle.archiveBundleMinFiles` archivable files (default 50) is packed
 into one gzip-compressed tar in the system temp directory and archived as one
-object, which counts as one file against the bound; each object costs an
-existence check, an upload and a read-back, so a folder of thousands of small
-files archives in one round trip. The temporary bundle is removed whether or not
+object, which counts as one file against the bound; the existence check,
+upload and HEAD-plus-GET read-back operate on that one bundle instead of
+separate objects for thousands of small files. The temporary bundle is removed whether or not
 the upload verifies, and a bundle left by a crash expires with the other Armada
 temp artifacts. Operator evidence is archived before the other
 history categories, so a backlog of small files cannot hold its few large

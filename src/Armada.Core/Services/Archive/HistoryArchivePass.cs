@@ -102,6 +102,7 @@ namespace Armada.Core.Services.Archive
         private readonly DateTime _StartedUtc;
         private readonly StringBuilder _Manifest = new StringBuilder();
         private int _ManifestLines = 0;
+        private readonly Dictionary<string, KeyValuePair<HistorySourceSnapshot, string>> _VerifiedSources = new Dictionary<string, KeyValuePair<HistorySourceSnapshot, string>>(StringComparer.Ordinal);
 
         #endregion
 
@@ -211,6 +212,18 @@ namespace Armada.Core.Services.Archive
 
         #endregion
 
+        internal void RememberVerifiedSource(HistorySourceSnapshot source, string key)
+        {
+            _VerifiedSources[source.Path] = new KeyValuePair<HistorySourceSnapshot, string>(source, key);
+        }
+
+        internal Task<string?> FreeVerifiedSourceAsync(string path, CancellationToken token)
+        {
+            if (!_VerifiedSources.TryGetValue(path, out KeyValuePair<HistorySourceSnapshot, string> source))
+                return Task.FromResult<string?>("no unchanged archived source snapshot is bound to this path");
+            return source.Key.FreeAsync(source.Value, token);
+        }
+
         #region Private-Methods
 
         private async Task<ArchivePutResult> ArchiveAsAsync(string category, string relative, string fullPath, DateTime lastWrite, string sourcePath, int bundledFiles, CancellationToken token)
@@ -221,8 +234,9 @@ namespace Armada.Core.Services.Archive
             bool reused = false;
             try
             {
-                string sha256 = await HashFileAsync(fullPath, token).ConfigureAwait(false);
-                long bytes = new FileInfo(fullPath).Length;
+                HistorySourceSnapshot source = await HistorySourceSnapshot.CaptureAsync(fullPath, token).ConfigureAwait(false);
+                string sha256 = source.Sha256;
+                long bytes = source.Bytes;
                 ArchivePutResult stored = await _Sink.VerifyStoredAsync(key, bytes, sha256, token).ConfigureAwait(false);
                 if (stored.Verified)
                 {
@@ -238,6 +252,13 @@ namespace Armada.Core.Services.Archive
                 else
                 {
                     result = await _Sink.PutFileAsync(key, fullPath, sha256, token).ConfigureAwait(false);
+                }
+                if (result.Verified)
+                {
+                    if (!await source.StillMatchesAsync(token).ConfigureAwait(false))
+                        result = ArchivePutResult.Failed(key, "local_changed", "local source changed during archive verification; kept locally");
+                    else
+                        RememberVerifiedSource(source, key);
                 }
             }
             catch (IOException ex)

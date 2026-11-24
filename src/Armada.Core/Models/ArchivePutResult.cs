@@ -4,8 +4,8 @@ namespace Armada.Core.Models
 
     /// <summary>
     /// Outcome of one archive upload. <see cref="Verified"/> is true only when the bucket holds an
-    /// object whose size and SHA-256 match the local content; a caller may free the local copy only
-    /// then. A failed upload names its cause in <see cref="FailureCode"/> and <see cref="FailureMessage"/>.
+    /// object whose downloaded size and SHA-256 match the expected content. Local retirement also
+    /// requires an unchanged, quiescent source binding; verification alone never authorizes path deletion. A failed upload names its cause in <see cref="FailureCode"/> and <see cref="FailureMessage"/>.
     /// </summary>
     public class ArchivePutResult
     {

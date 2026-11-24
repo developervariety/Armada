@@ -40,11 +40,16 @@ namespace Armada.Test.Unit.TestHelpers
         /// hitting the store after the first cap refusal.</summary>
         public int VerifyCalls { get; private set; } = 0;
 
+        /// <summary>Optional owner-state race at the actual verified-file boundary.</summary>
+        public Func<string, Task>? AfterFileVerifiedAsync { get; set; }
+
         /// <inheritdoc />
         public async Task<ArchivePutResult> PutFileAsync(string key, string localPath, string sha256, CancellationToken token = default)
         {
             byte[] content = await File.ReadAllBytesAsync(localPath, token).ConfigureAwait(false);
-            return Store(key, content, sha256);
+            ArchivePutResult result = Store(key, content, sha256);
+            if (result.Verified && AfterFileVerifiedAsync != null) await AfterFileVerifiedAsync(key).ConfigureAwait(false);
+            return result;
         }
 
         /// <inheritdoc />

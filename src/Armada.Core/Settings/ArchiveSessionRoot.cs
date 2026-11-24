@@ -4,8 +4,10 @@ namespace Armada.Core.Settings
 
     /// <summary>
     /// One folder of captain session transcripts the archive keeps bounded. Every file under it that
-    /// matches <see cref="Pattern"/> and was not written for <see cref="RetentionDays"/> is uploaded,
-    /// verified, and then removed locally. Files on the deny list are never uploaded or removed.
+    /// matches <see cref="Pattern"/> and was not written for <see cref="RetentionDays"/> is considered
+    /// for archive retirement. Its managed runtime account and native session header must bind a
+    /// terminal mission and closed dock; active or unresolved owners stay local. Files on the deny
+    /// list are never uploaded or removed.
     /// </summary>
     public class ArchiveSessionRoot
     {
@@ -40,7 +42,8 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Days a file must sit unwritten before it is archived and freed. Clamped to 1-3650.
+        /// Days a file must sit unwritten before it is considered for archive retirement. Age alone
+        /// does not prove that its session ended. Clamped to 1-3650.
         /// Defaults to 30.
         /// </summary>
         public int RetentionDays

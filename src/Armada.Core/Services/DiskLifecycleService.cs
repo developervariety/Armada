@@ -676,7 +676,7 @@ namespace Armada.Core.Services
                     category.TotalBytes += bytes;
                     category.TotalItems++;
                     await DisposeHistoryFileAsync(category, root, full, bytes, delete, report, "captain session transcript idle past " + configured.RetentionDays + " days",
-                        neverDeleteWithoutArchive: true, token).ConfigureAwait(false);
+                        neverDeleteWithoutArchive: true, token, sessionRoot: root).ConfigureAwait(false);
                 }
                 report.Categories.Add(category);
             }
@@ -1259,11 +1259,19 @@ namespace Armada.Core.Services
 
         internal bool IsPathAllowed(string fullPath)
         {
-            if (IsSymlink(fullPath))
+            if (HistorySourceSnapshot.IsRecoveryPath(fullPath) || IsSymlink(fullPath))
             {
                 return false;
             }
 
+            if (Directory.Exists(fullPath))
+            {
+                try
+                {
+                    if (Directory.EnumerateDirectories(fullPath, HistorySourceSnapshot.QuarantinePrefix + "*", RecursiveEnumeration()).Any()) return false;
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { return false; }
+            }
             foreach (string root in ResolveAllowedRoots())
             {
                 if (PathContainment.IsWithin(root, fullPath)) return true;
@@ -1547,7 +1555,7 @@ namespace Armada.Core.Services
 
         // Frees one expired history file only once a verified copy exists. Without an archive the file
         // is kept, unless KeepHistoryWithoutArchive is off and the category allows a plain delete.
-        private async Task DisposeHistoryFileAsync(DiskLifecycleCategory category, string root, string full, long bytes, bool delete, DiskLifecycleReport report, string reason, bool neverDeleteWithoutArchive, CancellationToken token)
+        private async Task DisposeHistoryFileAsync(DiskLifecycleCategory category, string root, string full, long bytes, bool delete, DiskLifecycleReport report, string reason, bool neverDeleteWithoutArchive, CancellationToken token, string? sessionRoot = null)
         {
             if (ArchiveDenyList.IsDenied(Path.GetRelativePath(root, full), _Settings.Archive.DenyPatterns))
             {
@@ -1563,6 +1571,14 @@ namespace Armada.Core.Services
                 return;
             }
 
+            HistoryOwnerResolution owner = _HistoryMode == HistoryRetentionModeEnum.Archive
+                ? await ResolveHistoryOwnerAsync(full, sessionRoot, token).ConfigureAwait(false) : new HistoryOwnerResolution(null, null);
+            if (owner.Failure != null)
+            {
+                category.ProtectedItems++;
+                RecordAction(report, category, full, "kept", owner.Failure);
+                return;
+            }
             category.ReclaimableBytes += bytes;
             category.ReclaimableItems++;
             if (!delete)
@@ -1610,7 +1626,8 @@ namespace Armada.Core.Services
                 return;
             }
 
-            string? freeFailure = FreeHistoryFile(full);
+            string? freeFailure = await RetireWithOwnerBoundaryAsync(owner, full, sessionRoot,
+                () => pass.FreeVerifiedSourceAsync(full, token), token).ConfigureAwait(false);
             if (freeFailure != null)
             {
                 pass.RecordFreeFailure(full, freeFailure);
@@ -1618,6 +1635,103 @@ namespace Armada.Core.Services
             }
             RecordAction(report, category, full, freeFailure == null ? "reclaimed" : "skipped",
                 freeFailure == null ? reason + "; archived to " + put.Key + ", then freed" : "archived to " + put.Key + "; removal failed: " + freeFailure);
+        }
+
+        private async Task<HistoryOwnerResolution> ResolveHistoryOwnerAsync(string path, string? sessionRoot, CancellationToken token)
+        {
+            if (sessionRoot == null)
+            {
+                string name = Path.GetFileName(path).Split('.')[0];
+                string? missionId = name.StartsWith("msn_", StringComparison.Ordinal) ? name : null;
+                return new HistoryOwnerResolution(missionId, await IsClosedHistoryOwnerAsync(path, token).ConfigureAwait(false)
+                    ? null : "history owner is still active or its state could not be read");
+            }
+            try
+            {
+                List<UsageAccountSettings> accounts = _Settings.ModelTier.UsageRouting.Accounts.Where(candidate => candidate != null
+                    && candidate.Runtime is AgentRuntimeEnum.Codex or AgentRuntimeEnum.ClaudeCode
+                    && !String.IsNullOrWhiteSpace(candidate.HomeDirectory) && Path.IsPathRooted(candidate.HomeDirectory)
+                    && PathContainment.IsWithin(candidate.HomeDirectory, sessionRoot)).ToList();
+                if (accounts.Count != 1 || accounts[0].CaptainIds == null || accounts[0].CaptainIds.Count == 0)
+                    return new HistoryOwnerResolution(null, "session owner unresolved: root does not bind one managed runtime account; kept locally");
+                UsageAccountSettings account = accounts[0];
+                foreach (string captainId in account.CaptainIds)
+                {
+                    Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+                    if (captain == null || captain.Runtime != account.Runtime)
+                        return new HistoryOwnerResolution(null, "session owner unresolved: account captain binding is missing or changed; kept locally");
+                    if (captain.ProcessId != null || captain.CurrentMissionId != null || captain.State is CaptainStateEnum.Working
+                        or CaptainStateEnum.Planning or CaptainStateEnum.Refining or CaptainStateEnum.Stalled or CaptainStateEnum.Stopping)
+                        return new HistoryOwnerResolution(null, "session root protected while its runtime account has active work; kept at original path");
+                }
+                string? cwd = await HistorySessionHeader.ReadWorkingDirectoryAsync(path, account.Runtime!.Value, token).ConfigureAwait(false);
+                if (cwd == null || !PathContainment.IsWithin(_Settings.DocksDirectory, cwd))
+                    return new HistoryOwnerResolution(null, "session owner unresolved: native header has no managed dock binding; kept locally");
+                string[] identities = Path.GetRelativePath(_Settings.DocksDirectory, cwd)
+                    .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Where(part => part.StartsWith("msn_", StringComparison.Ordinal)).ToArray();
+                if (identities.Length != 1) return new HistoryOwnerResolution(null, "session owner unresolved: native dock does not identify one mission; kept locally");
+                Mission? mission = await _Database.Missions.ReadSummaryAsync(identities[0], token).ConfigureAwait(false);
+                if (mission == null || String.IsNullOrEmpty(mission.CaptainId) || !account.CaptainIds.Contains(mission.CaptainId, StringComparer.Ordinal)
+                    || String.IsNullOrEmpty(mission.DockId)) return new HistoryOwnerResolution(null, "session owner unresolved: mission/account/dock binding is absent; kept locally");
+                if (mission.ProcessId != null || mission.Status is not (MissionStatusEnum.Complete or MissionStatusEnum.Failed or MissionStatusEnum.Cancelled))
+                    return new HistoryOwnerResolution(null, "session mission owner is not terminal; kept at original path");
+                Dock? dock = await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+                if (dock == null || dock.HostCheckout != null || dock.Active || String.IsNullOrWhiteSpace(dock.WorktreePath)
+                    || !PathContainment.IsWithin(dock.WorktreePath, cwd) || !mission.CompletedUtc.HasValue
+                    || File.GetLastWriteTimeUtc(path) > mission.CompletedUtc.Value)
+                    return new HistoryOwnerResolution(null, "session owner unresolved: closed dock or terminal timestamp binding is unproved; kept locally");
+                return new HistoryOwnerResolution(mission.Id, null);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                return new HistoryOwnerResolution(null, "session owner unresolved: owner metadata could not be verified (" + ex.GetType().Name + "); kept locally");
+            }
+        }
+
+        // Only the local final check and retirement hold these existing boundaries. Upload and
+        // read-back stay outside them. Recovery-family then execution is the administrative owner order.
+        private async Task<string?> RetireWithOwnerBoundaryAsync(HistoryOwnerResolution expected, string path, string? sessionRoot,
+            Func<Task<string?>> retire, CancellationToken token)
+        {
+            if (expected.MissionId == null)
+                return await RetireAfterOwnerCheckAsync(expected, path, sessionRoot, retire, token).ConfigureAwait(false);
+            try
+            {
+                using (IDisposable family = await MissionRecoveryGuard.AcquireAsync(_Database, expected.MissionId, token).ConfigureAwait(false))
+                using (IDisposable execution = await MissionExecutionBoundary.Locks.AcquireAsync(expected.MissionId, token).ConfigureAwait(false))
+                    return await RetireAfterOwnerCheckAsync(expected, path, sessionRoot, retire, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                return "history owner boundary could not be verified (" + ex.GetType().Name + "); kept locally";
+            }
+        }
+
+        private async Task<string?> RetireAfterOwnerCheckAsync(HistoryOwnerResolution expected, string path, string? sessionRoot,
+            Func<Task<string?>> retire, CancellationToken token)
+        {
+            HistoryOwnerResolution current = await ResolveHistoryOwnerAsync(path, sessionRoot, token).ConfigureAwait(false);
+            if (current.Failure != null) return current.Failure;
+            if (current.MissionId != expected.MissionId) return "history owner binding changed during archive verification; kept locally";
+            if (!IsPathAllowed(path)) return "source no longer passes its allowed-root and link checks";
+            return await retire().ConfigureAwait(false);
+        }
+
+        private async Task<bool> IsClosedHistoryOwnerAsync(string path, CancellationToken token)
+        {
+            string name = Path.GetFileName(path).Split('.')[0];
+            if (!name.StartsWith("msn_", StringComparison.Ordinal)) return true;
+            try
+            {
+                Mission? owner = await _Database.Missions.ReadAsync(name, token).ConfigureAwait(false);
+                return owner == null || owner.ProcessId == null && (owner.Status == MissionStatusEnum.Complete
+                    || owner.Status == MissionStatusEnum.Failed || owner.Status == MissionStatusEnum.Cancelled);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                RecordError("cannot verify history owner state: " + ex.GetType().Name);
+                return false;
+            }
         }
 
         // A history folder (an idle operator-evidence folder, a mission's brief files) is archived file by
@@ -1634,11 +1748,17 @@ namespace Armada.Core.Services
                 return;
             }
 
+            HistoryOwnerResolution owner = await ResolveHistoryOwnerAsync(full, null, token).ConfigureAwait(false);
+            if (owner.Failure != null)
+            {
+                category.ProtectedItems++;
+                RecordAction(report, category, full, "kept", owner.Failure);
+                return;
+            }
             List<string> payloadDirectories = skipPayload ? FindPayloadDirectories(full) : new List<string>();
             HashSet<string> payload = new HashSet<string>(payloadDirectories.Select(d => Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar), StringComparer.Ordinal);
             List<string> files = new List<string>();
             List<string> denied = new List<string>();
-            long deniedBytes = 0;
             foreach (string file in SafeEnumerateFilesRecursive(full, "*"))
             {
                 string fileFull = Path.GetFullPath(file);
@@ -1649,7 +1769,6 @@ namespace Armada.Core.Services
                     // A deny-listed file is never uploaded and never freed, but it does not hold the
                     // rest of its folder: the other files are archived and freed around it.
                     denied.Add(fileFull);
-                    deniedBytes += SafeGetFileBytes(fileFull);
                     continue;
                 }
                 files.Add(fileFull);
@@ -1663,13 +1782,19 @@ namespace Armada.Core.Services
                 return;
             }
 
+            if (files.Count == 0 && payloadDirectories.Count != 0)
+            {
+                category.ProtectedItems++;
+                RecordAction(report, category, full, "kept", "only unqualified payload remains; its own cleanup owner must qualify retirement");
+                return;
+            }
             string deniedNote = denied.Count == 0 ? "" : "; " + denied.Count + " deny-listed files (" + Path.GetRelativePath(full, denied[0]) + (denied.Count > 1 ? ", ..." : "") + ") stay in place";
-            category.ReclaimableBytes += Math.Max(0, bytes - deniedBytes);
+            category.ReclaimableBytes += files.Sum(SafeGetFileBytes);
             category.ReclaimableItems++;
             bool bundle = files.Count >= _Settings.DiskLifecycle.ArchiveBundleMinFiles;
             if (!delete)
             {
-                RecordAction(report, category, full, "dry-run-reclaim", reason + "; would archive " + files.Count + " files" + (bundle ? " as one bundle" : "") + ", then free" + deniedNote);
+                RecordAction(report, category, full, "dry-run-reclaim", reason + "; would archive " + files.Count + " files" + (bundle ? " as one bundle" : "") + ", then free bound history; payload stays for separate qualification" + deniedNote);
                 return;
             }
 
@@ -1704,7 +1829,8 @@ namespace Armada.Core.Services
                 }
             }
 
-            string? freeFailure = denied.Count == 0 ? FreeHistoryDirectory(full) : FreeHistoryFolderAround(full, files, payloadDirectories, denied);
+            string? freeFailure = await RetireWithOwnerBoundaryAsync(owner, full, null,
+                () => FreeVerifiedHistoryFolderAsync(pass, full, files, payloadDirectories, denied, token), token).ConfigureAwait(false);
             if (freeFailure != null)
             {
                 pass.RecordFreeFailure(full, freeFailure);
@@ -1729,6 +1855,8 @@ namespace Armada.Core.Services
 
             if (!put.Verified)
             {
+                if (!pass.Failures.Any(failure => ReferenceEquals(failure.Value, put)))
+                    pass.Failures.Add(new KeyValuePair<string, ArchivePutResult>(full, put));
                 RecordAction(report, category, full, "skipped", "archive upload of " + what + " not verified (" + put.FailureCode + "); folder kept");
                 return false;
             }
@@ -1744,6 +1872,7 @@ namespace Armada.Core.Services
             string relative = Path.GetRelativePath(root, full).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + ".tar.gz";
             string bundlePath = Path.Combine(Path.GetTempPath(), _ArchiveBundlePrefix + Guid.NewGuid().ToString("N") + ".tar.gz");
             DateTime newest = DateTime.MinValue;
+            List<HistorySourceSnapshot> sources = new List<HistorySourceSnapshot>();
             try
             {
                 List<string> ordered = files.OrderBy(f => f, StringComparer.Ordinal).ToList();
@@ -1756,6 +1885,7 @@ namespace Armada.Core.Services
                             foreach (string file in ordered)
                             {
                                 token.ThrowIfCancellationRequested();
+                                sources.Add(await HistorySourceSnapshot.CaptureAsync(file, token).ConfigureAwait(false));
                                 DateTime written = File.GetLastWriteTimeUtc(file);
                                 if (written > newest) newest = written;
                                 string entryName = Path.GetRelativePath(full, file).Replace(Path.DirectorySeparatorChar, '/');
@@ -1779,7 +1909,31 @@ namespace Armada.Core.Services
 
             try
             {
+                // Bind the actual packed entry bytes, not only a hash of the generated bundle.
+                Dictionary<string, HistorySourceSnapshot> entries = sources.ToDictionary(source => Path.GetRelativePath(full, source.Path).Replace(Path.DirectorySeparatorChar, '/'), StringComparer.Ordinal);
+                using (FileStream packed = File.OpenRead(bundlePath))
+                using (System.IO.Compression.GZipStream gzip = new System.IO.Compression.GZipStream(packed, System.IO.Compression.CompressionMode.Decompress))
+                using (System.Formats.Tar.TarReader reader = new System.Formats.Tar.TarReader(gzip))
+                {
+                    System.Formats.Tar.TarEntry? entry;
+                    while ((entry = await reader.GetNextEntryAsync(false, token).ConfigureAwait(false)) != null)
+                    {
+                        if (!entries.Remove(entry.Name, out HistorySourceSnapshot? source) || entry.DataStream == null || entry.Length != source.Bytes
+                            || Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(entry.DataStream, token).ConfigureAwait(false)).ToLowerInvariant() != source.Sha256)
+                            return ArchivePutResult.Failed(relative, "local_changed", "bundle entry differs from its source snapshot; folder kept");
+                    }
+                }
+                if (entries.Count != 0) return ArchivePutResult.Failed(relative, "local_changed", "bundle omitted a source snapshot; folder kept");
                 ArchivePutResult put = await pass.ArchiveBundleAsync(category, relative, bundlePath, newest == DateTime.MinValue ? DateTime.UtcNow : newest, full, files.Count, token).ConfigureAwait(false);
+                if (put.Verified)
+                {
+                    foreach (HistorySourceSnapshot source in sources)
+                    {
+                        if (!await source.StillMatchesAsync(token).ConfigureAwait(false))
+                            return ArchivePutResult.Failed(put.Key, "local_changed", "bundled source changed during archive verification; folder kept");
+                    }
+                    foreach (HistorySourceSnapshot source in sources) pass.RememberVerifiedSource(source, put.Key);
+                }
                 NoteProgress();
                 return put;
             }
@@ -1801,67 +1955,38 @@ namespace Armada.Core.Services
             }
         }
 
-        // Frees an archived folder that also holds deny-listed files: every archived file and payload
-        // folder goes, emptied folders go, and each deny-listed file stays where it is with its parents.
-        private string? FreeHistoryFolderAround(string full, List<string> archived, List<string> payloadDirectories, List<string> denied)
+        // Never recursively delete an archived folder: a new or replaced child was not archived.
+        private async Task<string?> FreeVerifiedHistoryFolderAsync(HistoryArchivePass pass, string full, List<string> archived, List<string> payloadDirectories, List<string> denied, CancellationToken token)
         {
-            if (!IsPathAllowed(full)) return "refusing to remove a symlink or a path outside the allowed roots";
-            string? failure = OperatingSystem.IsWindows() ? null : MakeDirectoriesOwnerWritable(full);
-            foreach (string file in archived)
-            {
-                string? fileFailure = FreeHistoryFile(file);
-                if (fileFailure != null) return fileFailure;
-            }
-
-            foreach (string directory in payloadDirectories)
-            {
-                try
-                {
-                    if (Directory.Exists(directory)) Directory.Delete(directory, true);
-                }
-                catch (Exception ex)
-                {
-                    return ex.GetType().Name + ": " + ex.Message + (failure == null ? "" : "; could not make writable: " + failure);
-                }
-            }
-
-            List<string> directories;
+            if (!IsPathAllowed(full)) return "source no longer passes its allowed-root and link checks";
             try
             {
-                directories = Directory.EnumerateDirectories(full, "*", RecursiveEnumeration()).OrderByDescending(d => d.Length).ToList();
-            }
-            catch (Exception ex)
-            {
-                return ex.GetType().Name + ": " + ex.Message;
-            }
-
-            foreach (string directory in directories)
-            {
-                try
+                if (File.Exists(Path.Combine(full, _KeepMarkerFile)) || SafeEnumerateFilesRecursive(full, _KeepMarkerFile).Count != 0)
+                    return "history folder has a keep marker";
+                if (OperatingSystem.IsLinux())
                 {
+                    string? modeFailure = MakeDirectoriesOwnerWritable(full, payloadDirectories);
+                    if (modeFailure != null) return modeFailure;
+                }
+                foreach (string file in archived)
+                {
+                    if (!IsPathAllowed(file)) return "archived source no longer passes its allowed-root and link checks";
+                    string? failure = await pass.FreeVerifiedSourceAsync(file, token).ConfigureAwait(false);
+                    if (failure != null) return failure;
+                }
+                foreach (string directory in Directory.EnumerateDirectories(full, "*", RecursiveEnumeration()).OrderByDescending(path => path.Length))
+                {
+                    if (payloadDirectories.Any(payload => PathContainment.IsWithin(payload, directory))) continue;
                     if (!IsSymlink(directory) && !Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory, false);
                 }
-                catch (Exception ex)
-                {
-                    return ex.GetType().Name + ": " + ex.Message;
-                }
-            }
-
-            return null;
-        }
-
-        // Frees a history file whose verified copy is in the archive. Returns null when the file is gone,
-        // otherwise the failure.
-        private string? FreeHistoryFile(string path)
-        {
-            if (!IsPathAllowed(path)) return "refusing to remove a symlink or a path outside the allowed roots";
-            try
-            {
-                if (OperatingSystem.IsWindows()) File.SetAttributes(path, FileAttributes.Normal);
-                File.Delete(path);
+                if (payloadDirectories.Any(Directory.Exists))
+                    return "payload directories retained: archive verification does not qualify unarchived payload for retirement";
+                if (!Directory.EnumerateFileSystemEntries(full).Any()) Directory.Delete(full, false);
+                else if (SafeEnumerateFilesRecursive(full, "*").Any(file => !denied.Contains(file, StringComparer.Ordinal)))
+                    return "new unarchived content remains; folder kept";
                 return null;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
                 return ex.GetType().Name + ": " + ex.Message;
             }
@@ -1901,7 +2026,7 @@ namespace Armada.Core.Services
         }
 
         [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
-        private static string? MakeDirectoriesOwnerWritable(string root)
+        private static string? MakeDirectoriesOwnerWritable(string root, IReadOnlyCollection<string>? excluded = null)
         {
             const UnixFileMode needed = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
             string? firstFailure = null;
@@ -1911,6 +2036,7 @@ namespace Armada.Core.Services
             while (pending.Count > 0)
             {
                 string current = pending.Pop();
+                if (excluded != null && excluded.Any(path => PathContainment.IsWithin(path, current))) continue;
                 try
                 {
                     UnixFileMode mode = File.GetUnixFileMode(current);
@@ -2345,7 +2471,7 @@ namespace Armada.Core.Services
             {
                 foreach (string file in Directory.EnumerateFiles(root, pattern))
                 {
-                    result.Add(file);
+                    if (!HistorySourceSnapshot.IsRecoveryPath(file)) result.Add(file);
                 }
             }
             catch (DirectoryNotFoundException)
@@ -2366,7 +2492,7 @@ namespace Armada.Core.Services
             {
                 foreach (string file in Directory.EnumerateFiles(root, String.IsNullOrWhiteSpace(pattern) ? "*" : pattern, RecursiveEnumeration()))
                 {
-                    result.Add(file);
+                    if (!HistorySourceSnapshot.IsRecoveryPath(file)) result.Add(file);
                 }
             }
             catch (DirectoryNotFoundException)

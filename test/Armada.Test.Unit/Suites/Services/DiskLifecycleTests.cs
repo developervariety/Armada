@@ -351,11 +351,11 @@ namespace Armada.Test.Unit.Suites.Services
                     string key = sink.Objects.Keys.Single(k => k.EndsWith("/msn_old.log", StringComparison.Ordinal));
                     AssertTrue(key.StartsWith("armada/raw/missionLogs/", StringComparison.Ordinal), "The log is stored under the raw mission-log prefix: " + key);
                     AssertEqual(new string('d', 1024), System.Text.Encoding.UTF8.GetString(sink.Objects[key]), "The stored object is the file's content");
-                    AssertFalse(File.Exists(oldLog), "The archived log is freed");
+                    AssertArchivedSourceDisposition(live, oldLog, oldLog, "verified mission log");
                     AssertTrue(File.Exists(freshLog), "A log inside its retention stays");
                     AssertEqual("Archive", live.HistoryMode, "The pass reports archive mode");
                     AssertEqual(1, live.ArchivedItems, "One file is archived");
-                    AssertTrue(live.Actions.Any(a => a.Path == oldLog && a.Disposition == "reclaimed" && a.Reason.Contains(key, StringComparison.Ordinal)), "The action names the object key");
+                    AssertTrue(live.Actions.Any(a => a.Path == oldLog && a.Disposition == (OperatingSystem.IsLinux() ? "reclaimed" : "skipped") && a.Reason.Contains(key, StringComparison.Ordinal)), "The action names the verified object key independently of local release");
                     AssertTrue(live.ArchiveManifestKey != null && live.ArchiveManifestKey.StartsWith("armada/raw/manifests/", StringComparison.Ordinal), "The pass uploads a manifest: " + live.ArchiveManifestKey);
                     string manifest = System.Text.Encoding.UTF8.GetString(sink.Objects[live.ArchiveManifestKey!]);
                     AssertTrue(manifest.Contains(key, StringComparison.Ordinal) && manifest.Contains("\"verified\":true", StringComparison.Ordinal), "The manifest records the verified object: " + manifest);
@@ -363,6 +363,64 @@ namespace Armada.Test.Unit.Suites.Services
                 finally
                 {
                     Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Archive retirement keeps active mission history even when its timestamp is old", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Layout layout = CreateLayout();
+                    try
+                    {
+                        Vessel vessel = await CreateVesselWithSiblingAsync(testDb, layout).ConfigureAwait(false);
+                        Mission owner = new Mission("active history owner") { VesselId = vessel.Id, Status = MissionStatusEnum.InProgress, ProcessId = 123 };
+                        owner = await testDb.Driver.Missions.CreateAsync(owner).ConfigureAwait(false);
+                        string path = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), owner.Id + ".log", DateTime.UtcNow.AddDays(-40));
+                        FakeArchiveSink sink = new FakeArchiveSink();
+                        DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                        layout.Settings.DiskLifecycle.Enabled = true;
+                        layout.Settings.DiskLifecycle.DryRun = false;
+                        DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
+                        AssertTrue(File.Exists(path), "a live owner's old log remains at its original path");
+                        AssertEqual(0, sink.Objects.Count, "an active source is not uploaded as a closed snapshot");
+                        AssertTrue(report.Actions.Any(action => action.Path == path && action.Disposition == "kept" && action.Reason.Contains("active", StringComparison.Ordinal)), "the owner hold is explicit");
+
+                        owner.Status = MissionStatusEnum.Failed;
+                        owner.ProcessId = null;
+                        owner.CompletedUtc = DateTime.UtcNow.AddDays(-35);
+                        await testDb.Driver.Missions.UpdateAsync(owner).ConfigureAwait(false);
+                        TaskCompletionSource<DelayedMissionRead> ready = new TaskCompletionSource<DelayedMissionRead>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        sink.AfterFileVerifiedAsync = async key =>
+                        {
+                            if (!key.EndsWith("/" + owner.Id + ".log", StringComparison.Ordinal)) return;
+                            // Upload must not hold the recovery family while it waits on the store.
+                            using (await MissionRecoveryGuard.AcquireAsync(testDb.Driver, owner.Id).ConfigureAwait(false)) { }
+                            ready.TrySetResult(DelayedMissionRead.Install(testDb.Driver, owner.Id, captureBeforeRelease: true));
+                        };
+                        Task<DiskLifecycleReport> archiving = service.ReconcileAsync();
+                        DelayedMissionRead? delayed = null;
+                        try
+                        {
+                            delayed = await ready.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                            await delayed.Started.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                            Mission restarted = await new MissionRestartService(testDb.Driver, layout.Settings, CreateLogging())
+                                .RestartAsync(owner).WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                            AssertEqual(MissionStatusEnum.Pending, restarted.Status, "the real supported restart wins before the captured terminal read returns");
+                        }
+                        finally
+                        {
+                            delayed?.Release();
+                            sink.AfterFileVerifiedAsync = null;
+                        }
+                        DiskLifecycleReport raced = await archiving.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        AssertTrue(File.Exists(path), "a protected restart that wins leaves the active attempt's original log path intact");
+                        AssertTrue(raced.Actions.Any(action => action.Path == path && action.Disposition == "skipped"
+                            && action.Reason.Contains("history owner is still active", StringComparison.Ordinal)),
+                            "retirement re-reads owner state inside shared recovery/execution boundaries rather than trusting the captured terminal snapshot");
+                        AssertEqual(1, raced.ArchiveFreeFailures, "the archived bytes remain verified while current-owner retirement is refused");
+                    }
+                    finally { Cleanup(layout); }
                 }
             }).ConfigureAwait(false);
 
@@ -383,7 +441,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
 
                     AssertTrue(File.Exists(failing), "A file whose upload was not verified is kept");
-                    AssertFalse(File.Exists(passing), "A verified file in the same pass is freed");
+                    AssertArchivedSourceDisposition(live, passing, passing, "verified file beside a rejected upload");
                     AssertEqual(1, live.ArchiveFailures, "The report counts the failed upload");
                     AssertTrue(live.Actions.Any(a => a.Path == failing && a.Disposition == "skipped" && a.Reason.Contains("sha256_mismatch", StringComparison.Ordinal)), "The action names the failure code");
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
@@ -416,7 +474,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            foreach (string recovery in new[] { "put-recovers", "ambiguous-put", "head-recovers", "put-exhausted", "head-exhausted", "put-forbidden", "verify-checksum", "retry-after", "cancel-backoff", "budget-backoff" })
+            foreach (string recovery in new[] { "put-recovers", "ambiguous-put", "head-recovers", "put-exhausted", "head-exhausted", "put-forbidden", "verify-checksum", "body-corrupt", "body-truncated", "body-excess", "get-cap", "get-recovers", "source-changed", "source-replaced", "source-writer", "folder-new-child", "folder-payload-new", "folder-payload-replaced", "retry-after", "cancel-backoff", "budget-backoff" })
             {
                 await RunTest("S3 archive retry preserves verification and request identity: " + recovery, async () =>
                 {
@@ -425,13 +483,23 @@ namespace Armada.Test.Unit.Suites.Services
                         Layout layout = CreateLayout();
                         try
                         {
-                            string file = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_retry.log", DateTime.UtcNow.AddDays(-40));
+                            string sourceRoot = recovery.StartsWith("folder-", StringComparison.Ordinal)
+                                ? Path.Combine(layout.Settings.LogDirectory, "operator-evidence", "old-history")
+                                : Path.Combine(layout.Settings.LogDirectory, "missions");
+                            string file = CreateRetentionFile(sourceRoot, "msn_retry.log", DateTime.UtcNow.AddDays(-40));
+                            if (recovery is "folder-payload-new" or "folder-payload-replaced")
+                            {
+                                CreateRetentionFile(Path.Combine(sourceRoot, "bin"), "old-output.dll", DateTime.UtcNow.AddDays(-40));
+                                Directory.SetLastWriteTimeUtc(Path.Combine(sourceRoot, "bin"), DateTime.UtcNow.AddDays(-40));
+                            }
+                            if (recovery.StartsWith("folder-", StringComparison.Ordinal)) Directory.SetLastWriteTimeUtc(sourceRoot, DateTime.UtcNow.AddDays(-40));
                             byte[] expected = await File.ReadAllBytesAsync(file).ConfigureAwait(false);
                             string sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(expected)).ToLowerInvariant();
                             string md5 = Convert.ToBase64String(System.Security.Cryptography.MD5.HashData(expected));
                             DiskLifecycleService service = CreateArchivingService(testDb, layout, new FakeArchiveSink());
                             layout.Settings.DiskLifecycle.Enabled = true;
                             layout.Settings.DiskLifecycle.DryRun = false;
+                            if (recovery.StartsWith("folder-", StringComparison.Ordinal)) layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
                             File.WriteAllText(layout.Settings.Archive.CredentialsFile, "accessKeyId=exampleaccess\nsecretAccessKey=examplesecret\n");
                             Dictionary<string, byte[]> stored = new Dictionary<string, byte[]>(StringComparer.Ordinal);
                             Dictionary<string, string> hashes = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -442,6 +510,8 @@ namespace Armada.Test.Unit.Suites.Services
                             int puts = 0;
                             int headsAfterPut = 0;
                             int targetHeads = 0;
+                            int targetGets = 0;
+                            FileStream? sourceWriter = null;
                             int clocks = 0;
                             List<TimeSpan> delays = new List<TimeSpan>();
                             using (CancellationTokenSource caller = new CancellationTokenSource())
@@ -500,6 +570,40 @@ namespace Armada.Test.Unit.Suites.Services
                                     head.Headers.TryAddWithoutValidation(S3ArchiveSink.Sha256MetadataHeader, target && recovery == "verify-checksum" ? new string('0', 64) : hashes[path]);
                                     return head;
                                 }
+                                if (request.Method == HttpMethod.Get)
+                                {
+                                    if (target) targetGets++;
+                                    if (target && recovery == "get-cap")
+                                        return new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("<Error><Code>cap_exceeded</Code><Message>download cap exceeded</Message></Error>") };
+                                    if (target && recovery == "get-recovers" && targetGets == 1)
+                                        return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent(String.Empty) };
+                                    if (target && recovery == "source-changed") File.WriteAllBytes(file, expected.Select(value => (byte)(value ^ 1)).ToArray());
+                                    if (target && recovery == "source-replaced")
+                                    {
+                                        File.Move(file, file + ".original");
+                                        File.WriteAllBytes(file, expected);
+                                    }
+                                    if (target && recovery == "source-writer") sourceWriter = new FileStream(file, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                                    if (target && recovery == "folder-new-child") File.WriteAllText(Path.Combine(sourceRoot, "new-history.log"), "new unarchived bytes");
+                                    if (target && (recovery is "folder-payload-new" or "folder-payload-replaced"))
+                                    {
+                                        string payload = Path.Combine(sourceRoot, "bin");
+                                        if (recovery == "folder-payload-replaced")
+                                        {
+                                            Directory.Move(payload, payload + ".old");
+                                            Directory.CreateDirectory(payload);
+                                        }
+                                        File.WriteAllText(Path.Combine(payload, "new-output.txt"), "new payload bytes");
+                                    }
+                                    byte[] data = stored[path].ToArray();
+                                    if (target && recovery == "body-corrupt") data[0] ^= 1;
+                                    if (target && recovery == "body-truncated") data = data.Take(data.Length - 1).ToArray();
+                                    if (target && recovery == "body-excess") data = data.Concat(new byte[] { 0 }).ToArray();
+                                    HttpResponseMessage readBack = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(data) };
+                                    // A server can repeat honest-looking HEAD metadata while returning different bytes.
+                                    readBack.Content.Headers.ContentLength = stored[path].LongLength;
+                                    return readBack;
+                                }
                                 throw new InvalidOperationException("Unexpected archive request method");
                             })))
                             {
@@ -537,19 +641,59 @@ namespace Armada.Test.Unit.Suites.Services
                                     AssertTrue(File.Exists(file), "cancellation retains the unverified source");
                                     return;
                                 }
-                                DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
-                                bool success = recovery is "put-recovers" or "ambiguous-put" or "head-recovers";
-                                AssertEqual(!success, File.Exists(file), "only verified archive bytes permit release: " + recovery);
-                                AssertEqual(success ? 0 : 1, report.ArchiveFailures, "the report preserves the final verification outcome: " + recovery);
+                                DiskLifecycleReport report;
+                                try { report = await service.ReconcileAsync().ConfigureAwait(false); }
+                                finally { sourceWriter?.Dispose(); }
+                                bool success = recovery is "put-recovers" or "ambiguous-put" or "head-recovers" or "get-recovers" or "folder-new-child" or "folder-payload-new" or "folder-payload-replaced";
+                                bool retained = File.Exists(file) || Directory.EnumerateFiles(Path.GetDirectoryName(file)!, "content", SearchOption.AllDirectories).Any();
+                                AssertEqual(!success || !OperatingSystem.IsLinux(), retained, "remote verification and platform-qualified local release are separate: " + recovery);
+                                if (success) AssertArchivedSourceDisposition(report, file, recovery.StartsWith("folder-", StringComparison.Ordinal) ? sourceRoot : file, recovery);
+                                if (recovery == "source-writer")
+                                {
+                                    AssertEqual(1, targetGets, "the remote bytes are read back even when local writer checks refuse retirement");
+                                    if (OperatingSystem.IsLinux())
+                                    {
+                                        AssertEqual(1, report.ArchiveFreeFailures, "a still-open writer refuses local release");
+                                        AssertTrue(Directory.EnumerateFiles(Path.GetDirectoryName(file)!, "recovery.json", SearchOption.AllDirectories).Any(), "Linux writer refusal leaves a recoverable private quarantine");
+                                        AssertTrue(Directory.EnumerateFiles(Path.GetDirectoryName(file)!, ".armada-keep", SearchOption.AllDirectories).Any(), "Linux quarantine is protected from later cleanup");
+                                    }
+                                    else if (OperatingSystem.IsWindows())
+                                    {
+                                        AssertTrue(File.Exists(file), "Windows sharing refusal retains the original source");
+                                        AssertTrue(report.Actions.Any(action => action.Path == file && action.Reason.Contains("local_read_failed", StringComparison.Ordinal)), "Windows reports the local snapshot sharing refusal before retirement");
+                                    }
+                                    else AssertArchivedSourceDisposition(report, file, file, "writer case on an unsupported retirement platform");
+                                }
+                                if (recovery == "folder-new-child")
+                                {
+                                    AssertEqual("new unarchived bytes", File.ReadAllText(Path.Combine(sourceRoot, "new-history.log")), "new children are never removed by recursive history deletion");
+                                    AssertEqual(1, report.ArchiveFreeFailures, "the parent remains with an explicit unarchived-child outcome");
+                                }
+                                if (recovery is "folder-payload-new" or "folder-payload-replaced")
+                                {
+                                    AssertEqual("new payload bytes", File.ReadAllText(Path.Combine(sourceRoot, "bin", "new-output.txt")), "new or replaced payload survives archive retirement");
+                                    AssertEqual(1, report.ArchiveFreeFailures, "payload retirement needs its own qualification");
+                                    if (OperatingSystem.IsLinux()) AssertTrue(report.Actions.Any(action => action.Path == sourceRoot && action.Reason.Contains("payload directories retained", StringComparison.Ordinal)), "retained payload has an explicit reason after Linux history retirement");
+                                    if (recovery == "folder-payload-replaced") AssertTrue(File.Exists(Path.Combine(sourceRoot, "bin.old", "old-output.dll")), "the old payload is not silently retired either");
+                                }
+                                if (recovery == "source-replaced") AssertTrue(File.ReadAllBytes(file).SequenceEqual(expected), "the replacement at the original path remains untouched");
+                                AssertEqual(success || recovery == "get-cap" || recovery == "source-writer" && !OperatingSystem.IsWindows() ? 0 : 1, report.ArchiveFailures, "the report preserves the final verification outcome: " + recovery);
                                 AssertEqual(recovery == "put-recovers" ? 2 : recovery == "put-exhausted" ? 3 : 1, puts, "PUT attempts stay bounded and successful or ambiguous stored uploads are not repeated: " + recovery);
                                 AssertEqual(puts, requests.Count, "each PUT has a fresh request");
                                 AssertEqual(puts, contents.Count, "each PUT has fresh content");
                                 AssertEqual(puts, signatures.Count, "each PUT is signed with the advancing request clock");
                                 AssertTrue(streams.All(stream => !stream.CanRead), "request streams are disposed before the pass completes");
                                 int expectedDelays = recovery is "put-exhausted" or "head-exhausted" ? 2
-                                    : recovery is "put-recovers" or "ambiguous-put" or "head-recovers" ? 1 : 0;
+                                    : recovery is "put-recovers" or "ambiguous-put" or "head-recovers" or "get-recovers" ? 1 : 0;
                                 AssertEqual(expectedDelays, delays.Count, "backoff occurs only for bounded transient recovery");
                                 for (int i = 0; i < delays.Count; i++) AssertEqual(TimeSpan.FromSeconds(Math.Pow(2, i)), delays[i], "backoff increases between attempts");
+                                if (recovery is "body-corrupt" or "body-truncated" or "body-excess") AssertEqual(1, targetGets, "bad downloaded bytes are not accepted or retried as a successful verification");
+                                if (recovery == "get-recovers") AssertEqual(2, targetGets, "GET transport recovery retries verification without repeating PUT");
+                                if (recovery == "get-cap")
+                                {
+                                    AssertTrue(report.ArchiveTransactionCapReached, "GET cap stops the history pass");
+                                    AssertEqual(1, targetGets, "cap refusal is never retried");
+                                }
                                 if (recovery == "head-recovers") AssertEqual(2, headsAfterPut, "verification retries HEAD without another PUT");
                                 if (recovery == "head-exhausted") AssertEqual(3, headsAfterPut, "verification exhaustion is bounded");
                                 if (recovery == "put-exhausted")
@@ -736,7 +880,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(File.Exists(auth) && File.Exists(settingsBackup) && File.Exists(custom), "Deny-listed files stay on disk");
                     AssertFalse(sink.Objects.Keys.Any(k => k.Contains("auth.json", StringComparison.Ordinal) || k.Contains("settings.json", StringComparison.Ordinal) || k.Contains(".private", StringComparison.Ordinal)),
                         "No deny-listed file is uploaded: " + String.Join(", ", sink.Objects.Keys));
-                    AssertFalse(File.Exists(brief), "An ordinary instruction snapshot is archived and freed");
+                    AssertArchivedSourceDisposition(live, brief, brief, "ordinary archived instruction snapshot");
                     AssertEqual(3, live.Actions.Count(a => a.Disposition == "kept" && a.Reason.Contains("deny list", StringComparison.Ordinal)), "Each deny-listed file is reported kept");
                 }
                 finally
@@ -745,42 +889,109 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("A captain session transcript is freed only after a verified upload, never by a plain delete", async () =>
+            foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.Codex, AgentRuntimeEnum.ClaudeCode })
             {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                Layout layout = CreateLayout();
-
-                try
+                await RunTest("Session retirement requires a closed native owner and verified archive: " + runtime, async () =>
                 {
-                    string sessions = Path.Combine(layout.Settings.DataDirectory, "captain-sessions");
-                    string old = CreateRetentionFile(Path.Combine(sessions, "project-a"), "session-old.jsonl", DateTime.UtcNow.AddDays(-45));
-                    string fresh = CreateRetentionFile(Path.Combine(sessions, "project-a"), "session-new.jsonl", DateTime.UtcNow);
-                    layout.Settings.Archive.SessionRoots.Add(new ArchiveSessionRoot { Path = sessions, Name = "runtime-a", Pattern = "*.jsonl", RetentionDays = 30 });
-                    layout.Settings.Archive.KeepHistoryWithoutArchive = false;
-                    layout.Settings.DiskLifecycle.Enabled = true;
-                    layout.Settings.DiskLifecycle.DryRun = false;
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Layout layout = CreateLayout();
+                        try
+                        {
+                            Vessel vessel = await CreateVesselWithSiblingAsync(testDb, layout).ConfigureAwait(false);
+                            Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("session owner", runtime) { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                            Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("native session owner")
+                            {
+                                VesselId = vessel.Id, CaptainId = captain.Id, Status = MissionStatusEnum.InProgress
+                            }).ConfigureAwait(false);
+                            Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                            {
+                                Active = true, CaptainId = captain.Id, WorktreePath = Path.Combine(layout.Settings.DocksDirectory, "ExampleVessel", mission.Id, "ExampleVessel")
+                            }).ConfigureAwait(false);
+                            mission.DockId = dock.Id;
+                            await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                            captain.CurrentMissionId = mission.Id;
+                            await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                            string home = Path.Combine(layout.Settings.DataDirectory, "runtime-home");
+                            string sessions = Path.Combine(home, "sessions");
+                            string sessionId = Guid.NewGuid().ToString("D");
+                            string old = CreateRetentionFile(Path.Combine(sessions, "project-a"), sessionId + ".jsonl", DateTime.UtcNow.AddDays(-45));
+                            string native = runtime == AgentRuntimeEnum.Codex
+                                ? System.Text.Json.JsonSerializer.Serialize(new { type = "session_meta", payload = new { id = sessionId, cwd = dock.WorktreePath } })
+                                : System.Text.Json.JsonSerializer.Serialize(new { type = "user", sessionId, cwd = dock.WorktreePath });
+                            File.WriteAllText(old, native + "\n");
+                            File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-45));
+                            string fresh = CreateRetentionFile(Path.Combine(sessions, "project-a"), Guid.NewGuid().ToString("D") + ".jsonl", DateTime.UtcNow);
+                            string unresolved = CreateRetentionFile(Path.Combine(sessions, "project-a"), Guid.NewGuid().ToString("D") + ".jsonl", DateTime.UtcNow.AddDays(-45));
+                            layout.Settings.ModelTier.UsageRouting.Accounts.Add(new UsageAccountSettings
+                            {
+                                Id = "session-account", Runtime = runtime, HomeDirectory = home, CaptainIds = new List<string> { captain.Id }
+                            });
+                            layout.Settings.Archive.SessionRoots.Add(new ArchiveSessionRoot { Path = sessions, Name = "runtime-a", Pattern = "*.jsonl", RetentionDays = 30 });
+                            layout.Settings.Archive.KeepHistoryWithoutArchive = false;
+                            layout.Settings.DiskLifecycle.Enabled = true;
+                            layout.Settings.DiskLifecycle.DryRun = false;
+                            DiskLifecycleReport noArchive = await new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging()).ReconcileAsync().ConfigureAwait(false);
+                            AssertTrue(File.Exists(old), "without an archive the session stays even when plain history deletion is configured");
+                            AssertTrue(noArchive.Actions.Any(action => action.Path == old && action.Disposition == "kept"));
 
-                    DiskLifecycleService plain = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
-                    DiskLifecycleReport noArchive = await plain.ReconcileAsync().ConfigureAwait(false);
-                    AssertTrue(File.Exists(old), "Without an archive a session transcript is kept even with keeping turned off");
-                    AssertTrue(noArchive.Actions.Any(a => a.Path == old && a.Disposition == "kept"), "The kept transcript is reported");
+                            FakeArchiveSink sink = new FakeArchiveSink();
+                            DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                            DiskLifecycleReport active = await service.ReconcileAsync().ConfigureAwait(false);
+                            AssertTrue(File.Exists(old), "an old active session with no open descriptor remains at its original path");
+                            AssertEqual(0, sink.Objects.Count, "active account protection precedes archive and quarantine");
+                            AssertTrue(active.Actions.Any(action => action.Path == old && action.Disposition == "kept" && action.Reason.Contains("active work", StringComparison.Ordinal)), "the session hold names its active runtime owner");
 
-                    FakeArchiveSink sink = new FakeArchiveSink();
-                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
-                    await service.ReconcileAsync().ConfigureAwait(false);
+                            captain.State = CaptainStateEnum.Idle;
+                            captain.CurrentMissionId = null;
+                            await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                            // An idle captain alone does not make an uncompleted session safe.
+                            DiskLifecycleReport unended = await service.ReconcileAsync().ConfigureAwait(false);
+                            AssertTrue(File.Exists(old), "a nonterminal session mission is protected even without a working captain");
+                            AssertTrue(unended.Actions.Any(action => action.Path == old && action.Reason.Contains("not terminal", StringComparison.Ordinal)));
+                            mission.Status = MissionStatusEnum.Complete;
+                            mission.CompletedUtc = DateTime.UtcNow.AddDays(-40);
+                            await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                            dock.Active = false;
+                            dock.CaptainId = null;
+                            await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                            Mission? laterMission = null;
+                            sink.AfterFileVerifiedAsync = async key =>
+                            {
+                                if (!key.EndsWith(sessionId + ".jsonl", StringComparison.Ordinal)) return;
+                                laterMission = await testDb.Driver.Missions.CreateAsync(new Mission("next account work")
+                                {
+                                    VesselId = vessel.Id, CaptainId = captain.Id, Status = MissionStatusEnum.InProgress
+                                }).ConfigureAwait(false);
+                                captain.State = CaptainStateEnum.Working;
+                                captain.CurrentMissionId = laterMission.Id;
+                                await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                            };
+                            DiskLifecycleReport raced = await service.ReconcileAsync().ConfigureAwait(false);
+                            AssertTrue(File.Exists(old), "an account that starts new work during upload keeps the old session at its original path");
+                            AssertEqual(1, raced.ArchiveFreeFailures, "the post-upload owner check refuses retirement");
+                            sink.AfterFileVerifiedAsync = null;
+                            AssertNotNull(laterMission, "the verified upload boundary ran");
+                            laterMission!.Status = MissionStatusEnum.Cancelled;
+                            laterMission.CompletedUtc = DateTime.UtcNow;
+                            await testDb.Driver.Missions.UpdateAsync(laterMission).ConfigureAwait(false);
+                            captain.State = CaptainStateEnum.Idle;
+                            captain.CurrentMissionId = null;
+                            await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                            DiskLifecycleReport ended = await service.ReconcileAsync().ConfigureAwait(false);
+                            AssertEqual(1, ended.ArchiveReusedItems, "owner-safe retirement reuses the already verified object");
+                            AssertArchivedSourceDisposition(ended, old, old, "known ended native session after complete archive verification");
+                            AssertTrue(File.Exists(fresh), "fresh session remains");
+                            AssertTrue(File.Exists(unresolved), "unresolved session owner stays at its original path");
+                            AssertTrue(ended.Actions.Any(action => action.Path == unresolved && action.Disposition == "kept" && action.Reason.Contains("session owner unresolved", StringComparison.Ordinal)), "unresolved ownership has an explicit kept reason");
+                            AssertTrue(sink.Objects.Keys.Any(key => key.StartsWith("armada/raw/captainSessions-runtime-a/", StringComparison.Ordinal) && key.EndsWith("/project-a/" + sessionId + ".jsonl", StringComparison.Ordinal)), "the ended native session keeps its normal archive key");
+                        }
+                        finally { Cleanup(layout); }
+                    }
+                }).ConfigureAwait(false);
+            }
 
-                    AssertFalse(File.Exists(old), "An archived transcript past its retention is freed");
-                    AssertTrue(File.Exists(fresh), "A transcript inside its retention stays");
-                    AssertTrue(sink.Objects.Keys.Any(k => k.StartsWith("armada/raw/captainSessions-runtime-a/", StringComparison.Ordinal) && k.EndsWith("/project-a/session-old.jsonl", StringComparison.Ordinal)),
-                        "The transcript is stored under its session root with its relative path: " + String.Join(", ", sink.Objects.Keys));
-                }
-                finally
-                {
-                    Cleanup(layout);
-                }
-            }).ConfigureAwait(false);
-
-            await RunTest("An idle operator-evidence folder is archived without its payload before it is removed", async () =>
+            await RunTest("An idle operator-evidence folder retires archived files and keeps unqualified payload", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Layout layout = CreateLayout();
@@ -794,9 +1005,10 @@ namespace Armada.Test.Unit.Suites.Services
                     layout.Settings.DiskLifecycle.Enabled = true;
                     layout.Settings.DiskLifecycle.DryRun = false;
 
-                    await service.ReconcileAsync().ConfigureAwait(false);
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
 
-                    AssertFalse(Directory.Exists(expired), "The archived folder is removed");
+                    AssertTrue(Directory.Exists(Path.Combine(expired, "checkout", ".git")), "Unarchived payload remains for its own qualification");
+                    AssertArchivedSourceDisposition(live, Path.Combine(expired, "receipt.json"), expired, "verified bound receipt");
                     List<string> keys = sink.Objects.Keys.Where(k => k.StartsWith("armada/raw/operatorEvidence/", StringComparison.Ordinal)).ToList();
                     AssertTrue(keys.Any(k => k.EndsWith("/proof-v0/receipt.json", StringComparison.Ordinal)), "The receipt is archived: " + String.Join(", ", keys));
                     AssertTrue(keys.Any(k => k.EndsWith("/proof-v0/checkout/src/Program.cs", StringComparison.Ordinal)), "Source files are archived");
@@ -828,7 +1040,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                     DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
 
-                    AssertFalse(Directory.Exists(expired), "The bundled folder is freed");
+                    AssertTrue(Directory.Exists(Path.Combine(expired, "checkout", ".git")), "The bundle does not authorize unarchived payload retirement");
+                    AssertArchivedSourceDisposition(live, Path.Combine(expired, "receipt.json"), expired, "bound bundled source");
+                    AssertEqual(1, live.ArchiveFreeFailures, "The remaining payload is reported");
                     List<string> keys = sink.Objects.Keys.Where(k => k.StartsWith("armada/raw/operatorEvidence/", StringComparison.Ordinal)).ToList();
                     AssertEqual(1, keys.Count, "The folder is one object: " + String.Join(", ", keys));
                     AssertTrue(keys[0].EndsWith("/proof-big.tar.gz", StringComparison.Ordinal), "The object is keyed by the folder: " + keys[0]);
@@ -873,13 +1087,13 @@ namespace Armada.Test.Unit.Suites.Services
                     DiskLifecycleReport first = await service.ReconcileAsync().ConfigureAwait(false);
 
                     AssertTrue(File.Exists(denied), "The deny-listed file stays where it was");
-                    AssertFalse(File.Exists(Path.Combine(expired, "receipt.json")), "An archived file beside it is freed");
-                    AssertFalse(Directory.Exists(Path.Combine(expired, "checkout", "src")), "An emptied folder is removed");
-                    AssertFalse(Directory.Exists(Path.Combine(expired, "checkout", ".git")), "The clone is removed");
+                    AssertArchivedSourceDisposition(first, Path.Combine(expired, "receipt.json"), expired, "archived file beside denied data");
+                    AssertEqual(!OperatingSystem.IsLinux(), Directory.Exists(Path.Combine(expired, "checkout", "src")), "only Linux retirement empties this source folder");
+                    AssertTrue(Directory.Exists(Path.Combine(expired, "checkout", ".git")), "Unarchived clone payload stays");
                     AssertFalse(sink.Objects.Keys.Any(k => k.Contains("settings.json", StringComparison.Ordinal)), "The deny-listed file is not uploaded: " + String.Join(", ", sink.Objects.Keys));
                     AssertTrue(sink.Objects.Keys.Any(k => k.EndsWith("/proof-denied/receipt.json", StringComparison.Ordinal)), "The rest of the folder is archived");
-                    AssertTrue(first.Actions.Any(a => a.Path == expired && a.Disposition == "reclaimed" && a.Reason.Contains("stay in place", StringComparison.Ordinal)),
-                        "The action says the deny-listed file stays");
+                    if (OperatingSystem.IsLinux()) AssertTrue(first.Actions.Any(a => a.Path == expired && a.Disposition == "skipped" && a.Reason.Contains("payload directories retained", StringComparison.Ordinal)),
+                        "The action names the separate payload-retirement requirement after Linux file release");
 
                     int puts = sink.Puts.Count;
                     foreach (string directory in new[] { Path.GetDirectoryName(denied)!, Path.Combine(expired, "checkout"), expired })
@@ -887,9 +1101,10 @@ namespace Armada.Test.Unit.Suites.Services
                     DiskLifecycleReport second = await service.ReconcileAsync().ConfigureAwait(false);
 
                     AssertTrue(File.Exists(denied), "The next pass keeps the deny-listed file");
-                    AssertEqual(puts, sink.Puts.Count, "The next pass uploads nothing");
-                    AssertTrue(second.Actions.Any(a => a.Path == expired && a.Disposition == "kept" && a.Reason.Contains("only deny-listed files", StringComparison.Ordinal)),
-                        "The next pass reports the folder kept for its deny-listed file");
+                    AssertEqual(puts + (OperatingSystem.IsLinux() ? 0 : 1), sink.Puts.Count, "kept non-Linux sources reuse remote objects and write only a new pass manifest");
+                    if (OperatingSystem.IsLinux()) AssertTrue(second.Actions.Any(a => a.Path == expired && a.Disposition == "kept" && a.Reason.Contains("only deny-listed files", StringComparison.Ordinal)),
+                        "Linux released the archived files, so only denied history remains");
+                    else AssertArchivedSourceDisposition(second, Path.Combine(expired, "receipt.json"), expired, "retained source reused on the next pass");
                 }
                 finally
                 {
@@ -953,8 +1168,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(keys.Any(k => k.EndsWith("/msn_old.memory/01-core.md", StringComparison.Ordinal)), "A file of an expired memory folder is archived: " + String.Join(", ", keys));
                     AssertTrue(keys.Any(k => k.EndsWith("/msn_old.mission/brief.md", StringComparison.Ordinal)), "A file of an expired description folder is archived");
                     AssertEqual(3, keys.Count, "Only the expired folders' files are archived: " + String.Join(", ", keys));
-                    AssertFalse(Directory.Exists(oldMemory), "The archived memory folder is freed");
-                    AssertFalse(Directory.Exists(oldMission), "The archived description folder is freed");
+                    AssertArchivedSourceDisposition(live, oldMemory, oldMemory, "archived memory folder");
+                    AssertArchivedSourceDisposition(live, oldMission, oldMission, "archived description folder");
                     AssertTrue(File.Exists(Path.Combine(freshMemory, "01-core.md")), "A folder with a recent file is kept whole");
                     DiskLifecycleCategory category = live.Categories.Single(c => c.Category == "instructions");
                     AssertEqual(2, category.ReclaimableItems, "Each expired folder is one reclaimable item");
@@ -979,6 +1194,9 @@ namespace Armada.Test.Unit.Suites.Services
                 try
                 {
                     string evidence = CreateEvidenceFolder(Path.Combine(layout.Settings.LogDirectory, "operator-evidence"), "proof-ro", DateTime.UtcNow.AddDays(-20));
+                    // This case owns only archived history; unarchived payload has a separate contract.
+                    Directory.Delete(Path.Combine(evidence, "checkout", ".git"), true);
+                    Directory.Delete(Path.Combine(evidence, "checkout", "bin"), true);
                     string lockedSource = Path.Combine(evidence, "checkout", "src");
                     File.SetUnixFileMode(lockedSource, readOnlyDirectory);
                     File.SetUnixFileMode(Path.Combine(evidence, "checkout"), readOnlyDirectory);
@@ -993,10 +1211,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     DiskLifecycleReport first = await service.ReconcileAsync().ConfigureAwait(false);
 
-                    AssertFalse(Directory.Exists(evidence), "An archived folder holding read-only folders is freed");
+                    AssertArchivedSourceDisposition(first, evidence, evidence, "archived folder with read-only owned children");
                     AssertTrue(File.Exists(log), "A file whose removal is refused stays");
                     AssertEqual(readOnlyDirectory, File.GetUnixFileMode(missions) & writableDirectory, "The folder that holds the item is not changed");
-                    AssertEqual(1, first.ArchiveFreeFailures, "The report counts the item that could not be freed");
+                    AssertEqual(OperatingSystem.IsLinux() ? 1 : 2, first.ArchiveFreeFailures, "the report counts every platform-qualified removal refusal");
                     AssertTrue(first.Errors.Any(e => e.Contains(log, StringComparison.Ordinal)), "The report's errors name the item: " + String.Join(" | ", first.Errors));
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_free_failed", 10).ConfigureAwait(false);
                     AssertEqual(1, events.Count, "One free-failure event is recorded");
@@ -1006,10 +1224,10 @@ namespace Armada.Test.Unit.Suites.Services
                     File.SetUnixFileMode(missions, writableDirectory);
                     DiskLifecycleReport second = await service.ReconcileAsync().ConfigureAwait(false);
 
-                    AssertFalse(File.Exists(log), "The next pass frees the item");
+                    AssertArchivedSourceDisposition(second, log, log, "retry of a verified source after its holding parent is writable");
                     AssertEqual(logUploads, sink.Puts.Count(k => k.EndsWith("/msn_locked.log", StringComparison.Ordinal)), "The next pass does not upload the verified file again");
-                    AssertEqual(1, second.ArchiveReusedItems, "The report counts the file found already archived");
-                    AssertEqual(0, second.ArchiveFreeFailures, "Nothing is left unfreed");
+                    AssertEqual(OperatingSystem.IsLinux() ? 1 : 3, second.ArchiveReusedItems, "all sources kept on the prior pass reuse verified remote objects");
+                    AssertEqual(OperatingSystem.IsLinux() ? 0 : 2, second.ArchiveFreeFailures, "unsupported local retirement remains explicitly unfreed");
                 }
                 finally
                 {
@@ -1044,7 +1262,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                     DiskLifecycleReport first = await service.ReconcileAsync().ConfigureAwait(false);
 
-                    AssertEqual(1, logs.Count(File.Exists), "Two logs are archived and freed, one is kept");
+                    AssertEqual(OperatingSystem.IsLinux() ? 1 : 3, logs.Count(File.Exists), "two logs verify remotely; local release also requires Linux support");
+                    AssertEqual(2, first.ArchivedItems, "the remote verification bound executes on every platform");
+                    if (!OperatingSystem.IsLinux())
+                        foreach (DiskLifecycleAction action in first.Actions.Where(action => action.Category == "missionLogs" && action.Disposition == "skipped"))
+                            AssertArchivedSourceDisposition(first, action.Path, action.Path, "bounded archive source on unsupported platform");
                     AssertTrue(first.ArchiveCapped, "The report says the pass reached its bound");
                     AssertEqual(1, first.ArchiveDeferredItems, "The report counts the deferred item");
                     AssertTrue(first.Actions.Any(a => a.Disposition == "deferred" && logs.Contains(a.Path) && File.Exists(a.Path)), "The deferred item is recorded by path");
@@ -1054,8 +1276,15 @@ namespace Armada.Test.Unit.Suites.Services
 
                     DiskLifecycleReport second = await service.ReconcileAsync().ConfigureAwait(false);
 
-                    AssertEqual(0, logs.Count(File.Exists), "The next pass archives and frees the deferred log");
-                    AssertFalse(second.ArchiveCapped, "A pass under its bound is not capped");
+                    AssertEqual(OperatingSystem.IsLinux() ? 0 : 3, logs.Count(File.Exists), "the next pass frees only platform-supported local sources");
+                    AssertEqual(!OperatingSystem.IsLinux(), second.ArchiveCapped, "retained non-Linux sources still count against the unchanged file bound");
+                    if (!OperatingSystem.IsLinux())
+                    {
+                        AssertEqual(2, second.ArchiveReusedItems, "bounded retained sources are verified again without new raw uploads");
+                        AssertEqual(1, second.ArchiveDeferredItems, "the unchanged bound leaves the remaining source deferred");
+                        foreach (DiskLifecycleAction action in second.Actions.Where(action => action.Category == "missionLogs" && action.Disposition == "skipped"))
+                            AssertArchivedSourceDisposition(second, action.Path, action.Path, "reused source on unsupported platform");
+                    }
                 }
                 finally
                 {
@@ -1680,6 +1909,19 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         #region Private-Methods
+
+        private void AssertArchivedSourceDisposition(DiskLifecycleReport report, string sourcePath, string actionPath, string scenario)
+        {
+            bool exists = File.Exists(sourcePath) || Directory.Exists(sourcePath);
+            if (OperatingSystem.IsLinux()) AssertFalse(exists, "Linux retires the bound archived source: " + scenario);
+            else
+            {
+                AssertTrue(exists, "unsupported retirement keeps the source at its original path: " + scenario);
+                AssertTrue(report.Actions.Any(action => action.Path == actionPath && action.Disposition == "skipped"
+                    && action.Reason.Contains("source quiescence and inode checks are unavailable", StringComparison.Ordinal)),
+                    "the report names unavailable local identity/quiescence checks: " + scenario);
+            }
+        }
 
         // A leftover link carries its own old timestamp. .NET has no API that sets a link's timestamp
         // without following it, so this uses touch -h where it exists and does nothing elsewhere.

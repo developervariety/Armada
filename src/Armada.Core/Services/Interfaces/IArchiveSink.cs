@@ -7,8 +7,8 @@ namespace Armada.Core.Services.Interfaces
 
     /// <summary>
     /// Destination for archived history. An implementation verifies each upload against the local
-    /// SHA-256 and size before it reports success, so a caller frees its local copy only on
-    /// <see cref="ArchivePutResult.Verified"/>. Failures are returned as named results, not thrown,
+    /// downloaded SHA-256 and size before it reports success. Local retirement additionally requires
+    /// an unchanged, quiescent source binding; <see cref="ArchivePutResult.Verified"/> alone is not a path-delete permit. Failures are returned as named results, not thrown,
     /// except for cancellation.
     /// </summary>
     public interface IArchiveSink

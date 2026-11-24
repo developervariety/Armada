@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Verify S3 archive objects with a complete bounded streamed GET and SHA-256 before local history can be freed; reject false metadata, short bodies and corrupt bytes within the existing retry, cancellation and provider-cap limits. Bind local source identity and content through verification. Linux retirement uses a private recoverable quarantine and actual writer checks; changed, active or unproved sources stay, and folder cleanup preserves new unarchived children and unqualified payload. Native session retirement requires an idle managed account plus a header-bound terminal mission and closed dock; active and unresolved session owners retain their original files. Final retirement rechecks bound owners under the existing recovery-family then execution boundaries so a winning supported restart cannot lose its current artifact path.
+
 - Architect fan-out rejects invalid legacy dependency references before creating work and keeps marked slices waiting until the complete graph is recorded. Graph creation, saved-graph repair and assignment share a voyage boundary, so a concurrent stale assignment or hold cannot restore an old serial edge or launch before its actual predecessor finishes. An explicitly consumed, source-bound administrative restart retains its saved-work recovery path.
 
 - Suite leases state whether the caller may run its full suite and explain queued host, vessel or memory waits without exposing other missions or inventing a wait time.
