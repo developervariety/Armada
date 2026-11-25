@@ -362,7 +362,11 @@ namespace Armada.Test.Unit.Suites.Services
                     incident.TenantId = incident.TenantId ?? snapshot.TenantId;
                     incident.UserId = incident.UserId ?? snapshot.UserId;
                     incident.LastUpdateUtc = incident.LastUpdateUtc == default ? snapshot.CreatedUtc : incident.LastUpdateUtc;
-                    if (incident.OpenedReason == null && incident.RootCauseWrittenBy == null) incident.OpenedReason = incident.RootCause;
+                    using JsonDocument stored = JsonDocument.Parse(snapshot.Payload!);
+                    if (incident.OpenedReason == null && incident.RootCauseWrittenBy == null
+                        && !stored.RootElement.EnumerateObject().Any(property =>
+                            String.Equals(property.Name, "OpenedReason", StringComparison.OrdinalIgnoreCase)))
+                        incident.OpenedReason = incident.RootCause;
                     return incident;
                 })
                 .ToList();

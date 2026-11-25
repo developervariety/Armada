@@ -327,6 +327,19 @@ namespace Armada.Test.Unit.Suites.Services
                     RootCause = AutomaticReason
                 })).ConfigureAwait(false);
                 AssertEqual(IncidentRootCauseRule.UnchangedCode, code);
+                Incident current = await incidents.CreateAutomaticallyAsync(McpTestCaller.Operator,
+                    new IncidentUpsertRequest { Title = "Opened without cause text" }).ConfigureAwait(false);
+                const string determinedCause = "The fixture resource was absent from the test deployment.";
+                await incidents.UpdateAutomaticallyAsync(McpTestCaller.Operator, current.Id,
+                    new IncidentUpsertRequest { RootCause = determinedCause }).ConfigureAwait(false);
+                Incident currentRead = (await incidents.ReadAsync(McpTestCaller.Operator, current.Id).ConfigureAwait(false))!;
+                AssertNull(currentRead.OpenedReason, "An explicit null opening reason is not a missing legacy field.");
+                AssertEqual(determinedCause, currentRead.RootCause, "Reading preserves a later determined automatic cause.");
+                Incident currentClosed = await incidents.UpdateAutomaticallyAsync(McpTestCaller.Operator, current.Id,
+                    new IncidentUpsertRequest { Status = IncidentStatusEnum.Closed }).ConfigureAwait(false);
+                AssertEqual(IncidentStatusEnum.Closed, currentClosed.Status, "The later distinct cause permits automatic closure.");
+                AssertTrue(currentClosed.ClosedAutomatically);
+                AssertNull(currentClosed.RootCauseWrittenBy, "Automatic closure does not invent person-written authorship.");
             }).ConfigureAwait(false);
 
             await RunProjectionTestsAsync().ConfigureAwait(false);

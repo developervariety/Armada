@@ -1,6 +1,7 @@
 namespace Armada.Core.Database
 {
     using System;
+    using System.Linq;
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using Armada.Core.Models;
@@ -39,14 +40,20 @@ namespace Armada.Core.Database
         {
             if (String.IsNullOrWhiteSpace(payload)) return null;
 
-            Incident? incident = JsonSerializer.Deserialize<Incident>(payload, _JsonOptions);
+            using JsonDocument snapshot = JsonDocument.Parse(payload);
+            Incident? incident = snapshot.RootElement.Deserialize<Incident>(_JsonOptions);
             if (incident == null) return null;
 
             incident.TenantId = incident.TenantId ?? snapshotTenantId;
             incident.UserId = incident.UserId ?? snapshotUserId;
             incident.LastUpdateUtc = incident.LastUpdateUtc == default ? snapshotCreatedUtc : incident.LastUpdateUtc;
 
-            if (incident.OpenedReason == null && incident.RootCauseWrittenBy == null)
+            // An explicit null is a recorded absence of opening text. Only older snapshots that
+            // lack the field need the fallback; otherwise a later automatic cause becomes its own
+            // opening reason on read and can never qualify an automatic close.
+            if (incident.OpenedReason == null && incident.RootCauseWrittenBy == null
+                && !snapshot.RootElement.EnumerateObject().Any(property =>
+                    String.Equals(property.Name, nameof(Incident.OpenedReason), StringComparison.OrdinalIgnoreCase)))
                 incident.OpenedReason = incident.RootCause;
             return incident;
         }
