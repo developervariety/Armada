@@ -655,6 +655,13 @@ mission, dock, repository context, selected playbooks, and runtime tools. The
 operator still owns dispatch, monitoring, landing, recovery, and closure unless
 the mission explicitly delegates one of those actions.
 
+The code-index section compares a staged pack's recorded start commit with the
+actual dock HEAD. It marks a mismatch as stale and names both commits. Missing,
+ambiguous, unreadable or oversized metadata leaves the comparison unverified.
+A current checkout comparison does not establish index freshness: indexed
+evidence still needs verification against the checkout. The staged pack remains
+unchanged, and this check does not create or refresh an index.
+
 ## Judge acceptance evidence
 
 When a brief lists acceptance criteria, the Judge includes an exact

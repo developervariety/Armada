@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Generated context guidance compares a staged pack's recorded start with the actual dock HEAD, names stale commits, and reports incomplete or ambiguous comparisons as unverified without rewriting the pack or updating its index.
+
 - Automatic incident closure needs a non-empty cause distinct from the opened failure text. Held closes retain active status and new recovery evidence without repeated empty snapshots or false close events; recovery and review dispositions remain independent of a verified cause.
 
 - Serial Architect lifecycle coverage also exercises newest-first voyage rows, so a same-titled revising Worker cannot hide a lost initial-Worker dependency behind SQLite row order.

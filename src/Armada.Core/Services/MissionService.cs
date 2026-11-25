@@ -6307,6 +6307,38 @@ namespace Armada.Core.Services
             {
                 content += "A generated code-index context pack is staged at `_briefing/context-pack.md`. " +
                     "Read it before broad code search.\n";
+                string checkoutState = "Context pack checkout: unverified. The pack metadata or dock HEAD could not be verified.\n";
+                try
+                {
+                    string pack = await ReadWorkspaceTextAsync(contextPackPath, token, bounded: true).ConfigureAwait(false);
+                    const string startPrefix = "Start commit (the mission checkout; assigned files marked as read at the start commit): ";
+                    const string indexPrefix = "Indexed commit (related evidence and assigned files taken from the index): ";
+                    string[] lines = pack.Replace("\r\n", "\n").Split('\n');
+                    string[] starts = lines.Where(line => line.StartsWith(startPrefix, StringComparison.Ordinal)).ToArray();
+                    string[] indexes = lines.Where(line => line.StartsWith(indexPrefix, StringComparison.Ordinal)).ToArray();
+                    string? head = _Git == null ? null : await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);
+                    if (starts.Length == 1 && indexes.Length == 1)
+                    {
+                        string start = starts[0].Substring(startPrefix.Length).Trim();
+                        string indexed = indexes[0].Substring(indexPrefix.Length).Trim();
+                        bool FullCommit(string? value) => value != null && (value.Length == 40 || value.Length == 64)
+                            && value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
+                        if (FullCommit(start) && FullCommit(indexed) && FullCommit(head))
+                        {
+                            bool matches = String.Equals(start, head, StringComparison.OrdinalIgnoreCase);
+                            checkoutState = "Context pack checkout: " + (matches ? "current." : "stale.")
+                                + " Recorded start: " + start + "; actual dock HEAD: " + head + ". "
+                                + "Indexed commit: " + indexed + ". Verify indexed evidence against the checkout.\n";
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception)
+                {
+                    // A missing, oversized, invalid or unreadable pack cannot establish freshness.
+                    // Preserve its bytes and keep the ordinary-search fallback in the guidance.
+                }
+                content += checkoutState;
             }
             else
             {

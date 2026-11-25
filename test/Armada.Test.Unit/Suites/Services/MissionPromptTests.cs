@@ -2322,24 +2322,40 @@ namespace Armada.Test.Unit.Suites.Services
                             + "Indexed commit (related evidence and assigned files taken from the index): " + packCommit + "\n"
                             + "Start commit (the mission checkout; assigned files marked as read at the start commit): " + packCommit + "\n"
                             + "Commit check: the indexed commit is the start commit.\n";
-                        foreach (string head in new[] { new string('b', 40), packCommit })
+                        string startLine = "Start commit (the mission checkout; assigned files marked as read at the start commit): " + packCommit + "\n";
+                        var scenarios = new[]
+                        {
+                            (Pack: pack, Head: new string('b', 40), State: "stale"),
+                            (Pack: pack, Head: packCommit, State: "current"),
+                            (Pack: pack.Replace("Indexed commit (related evidence and assigned files taken from the index): " + packCommit,
+                                "Indexed commit (related evidence and assigned files taken from the index): " + new string('c', 40)), Head: packCommit, State: "current"),
+                            (Pack: pack.Replace(startLine, ""), Head: packCommit, State: "unverified"),
+                            (Pack: pack + startLine, Head: packCommit, State: "unverified"),
+                            (Pack: pack.Replace(startLine, startLine.Replace(packCommit, "unknown")), Head: packCommit, State: "unverified"),
+                            (Pack: pack, Head: "", State: "unverified"),
+                            (Pack: pack, Head: "aaaaaaa", State: "unverified"),
+                            (Pack: pack + new string('x', 1024 * 1024), Head: packCommit, State: "unverified")
+                        };
+                        foreach (var scenario in scenarios)
                         {
                             string dir = Path.Combine(Path.GetTempPath(), "armada_prompt_pack_freshness_" + Guid.NewGuid().ToString("N"));
                             freshnessDirs.Add(dir);
                             Directory.CreateDirectory(Path.Combine(dir, "_briefing"));
                             string packPath = Path.Combine(dir, "_briefing", "context-pack.md");
-                            await File.WriteAllTextAsync(packPath, pack);
-                            git.HeadCommitHashResult = head;
+                            await File.WriteAllTextAsync(packPath, scenario.Pack);
+                            git.HeadCommitHashResult = scenario.Head;
                             await service.GenerateClaudeMdAsync(dir, mission, vessel);
                             string brief = await File.ReadAllTextAsync(Path.Combine(dir, "CLAUDE.md"));
-                            AssertEqual(head != packCommit, brief.Contains("Context pack checkout: stale."),
+                            AssertContains("Context pack checkout: " + scenario.State + ".", brief,
+                                "freshness requires unique full metadata, a full dock HEAD, and a complete bounded read");
+                            AssertEqual(scenario.State == "stale", brief.Contains("Context pack checkout: stale."),
                                 "a pack whose recorded start differs from the actual dock HEAD must be marked stale");
-                            if (head != packCommit)
+                            if (scenario.State == "stale")
                             {
-                                AssertContains(head, brief, "the stale warning names the actual checkout HEAD");
+                                AssertContains(scenario.Head, brief, "the stale warning names the actual checkout HEAD");
                                 AssertContains(packCommit, brief, "the stale warning names the pack's recorded start");
                             }
-                            AssertEqual(pack, await File.ReadAllTextAsync(packPath), "freshness guidance preserves the staged pack's exact evidence");
+                            AssertEqual(scenario.Pack, await File.ReadAllTextAsync(packPath), "freshness guidance preserves the staged pack's exact evidence");
                         }
                     }
                     finally

@@ -43,9 +43,27 @@ namespace Armada.Core.Services
             return stat.Exists && !stat.IsDirectory;
         }
 
-        private async Task<string> ReadWorkspaceTextAsync(string path, CancellationToken token)
+        private async Task<string> ReadWorkspaceTextAsync(string path, CancellationToken token, bool bounded = false)
         {
-            if (!HarborCheckoutAddress.IsHarbor(path)) return await File.ReadAllTextAsync(path, token).ConfigureAwait(false);
+            if (!HarborCheckoutAddress.IsHarbor(path))
+            {
+                if (!bounded) return await File.ReadAllTextAsync(path, token).ConfigureAwait(false);
+                // Match the checkout owner's one-MiB complete-text limit. Read at most one extra
+                // byte so a file that grows after the length check cannot make this read unbounded.
+                const int limit = 1024 * 1024;
+                using FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (stream.Length > limit) throw new IOException("Workspace text exceeds the read limit.");
+                byte[] bytes = new byte[limit + 1];
+                int count = 0;
+                while (count < bytes.Length)
+                {
+                    int read = await stream.ReadAsync(bytes.AsMemory(count), token).ConfigureAwait(false);
+                    if (read == 0) break;
+                    count += read;
+                }
+                if (count > limit) throw new IOException("Workspace text exceeds the read limit.");
+                return new System.Text.UTF8Encoding(false, true).GetString(bytes, 0, count);
+            }
             string address = WorkspaceAddress(path, out string relative);
             return await RequireHarborCheckouts().ReadTextAsync(address, relative, token).ConfigureAwait(false);
         }
