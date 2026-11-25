@@ -182,11 +182,26 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Disk alert added", annotated.Postmortem, "editing other fields of a closed incident is allowed");
             }).ConfigureAwait(false);
 
-            await RunTest("An automatic close is allowed without a written cause and is marked automatic", async () =>
+            await RunTest("An automatic close needs a distinct cause and records it as automatic", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 Incident created = await OpenAutomaticIncidentAsync(incidents).ConfigureAwait(false);
+
+                foreach (string? cause in new string?[] { null, "   ", AutomaticReason })
+                {
+                    Incident retained = await incidents.UpdateAutomaticallyAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
+                    {
+                        Status = IncidentStatusEnum.Closed,
+                        RootCause = cause
+                    }).ConfigureAwait(false);
+                    AssertEqual(IncidentStatusEnum.Open, retained.Status,
+                        "An automatic close without a distinct cause keeps the incident open");
+                    Incident stored = (await incidents.ReadAsync(McpTestCaller.Operator, created.Id).ConfigureAwait(false))!;
+                    AssertEqual(IncidentStatusEnum.Open, stored.Status, "The missing-cause close must not persist");
+                    AssertNull(stored.ClosedUtc);
+                    AssertFalse(stored.ClosedAutomatically);
+                }
 
                 Incident closed = await incidents.UpdateAutomaticallyAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
                 {

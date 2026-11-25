@@ -225,6 +225,17 @@ namespace Armada.Test.Database
                 Voyage racing = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-race-voyage", token, v => { v.Status = VoyageStatusEnum.Complete; v.CompletedUtc = old; }).ConfigureAwait(false);
                 Mission edited = await fixture.CreateMissionAsync(tenant.Id, user.Id, racing.Id, vessel.Id, captain.Id, "expiry-race-edited", token, configure: m => m.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
                 Mission quiet = await fixture.CreateMissionAsync(tenant.Id, user.Id, racing.Id, vessel.Id, captain.Id, "expiry-race-quiet", token, configure: m => m.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
+                Mission editedChild = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-race-edited-child", token,
+                    configure: m => { m.Status = MissionStatusEnum.Pending; m.ParentMissionId = edited.Id; }).ConfigureAwait(false);
+                Mission quietChild = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-race-quiet-child", token,
+                    configure: m => { m.Status = MissionStatusEnum.Pending; m.ParentMissionId = quiet.Id; }).ConfigureAwait(false);
+                Dictionary<string, string> attemptIds = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (Mission parent in new[] { edited, quiet })
+                {
+                    MissionAttemptProvenance attempt = await _Driver.MissionAttempts.CreateAsync(new MissionAttemptProvenance
+                    { TenantId = tenant.Id, UserId = user.Id, MissionId = parent.Id, ProcessId = 301, StartedUtc = old }, token).ConfigureAwait(false);
+                    attemptIds[parent.Id] = attempt.Id;
+                }
                 Voyage reopening = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-race-reopening", token, v => { v.Status = VoyageStatusEnum.InProgress; v.CompletedUtc = old; }).ConfigureAwait(false);
 
                 DataExpiryCutoffs cutoffs = DataExpiryCutoffs.FromRetention(DateTime.UtcNow, 1, 0);
@@ -255,6 +266,16 @@ namespace Armada.Test.Database
                 DatabaseAssert.True(await _Driver.Missions.ReadAsync(quiet.Id, token).ConfigureAwait(false) == null, "An unchanged exported mission is deleted");
                 Mission kept = DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(edited.Id, token).ConfigureAwait(false), "A mission changed after its export is kept");
                 DatabaseAssert.Equal(editedTitle, kept.Title, "The kept mission holds the change made after the export");
+                Mission keptChild = DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(editedChild.Id, token).ConfigureAwait(false), "The changed mission's child survives");
+                int keptAttempts = (await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, edited.Id, 10, token).ConfigureAwait(false)).Items.Count;
+                DatabaseAssert.True(keptChild.ParentMissionId == edited.Id && keptAttempts == 1,
+                    "A mission retained after export retains its related history: parent link=" + keptChild.ParentMissionId + ", attempt rows=" + keptAttempts);
+                DatabaseAssert.True((await _Driver.Missions.ReadAsync(quietChild.Id, token).ConfigureAwait(false))!.ParentMissionId == null,
+                    "An actually deleted mission clears its surviving child's link");
+                DatabaseAssert.Equal(0, (await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, quiet.Id, 10, token).ConfigureAwait(false)).Items.Count,
+                    "An actually deleted mission removes its attempt rows");
+                DatabaseAssert.True(racing1.Ids("mission_attempt_provenance").Contains(attemptIds[quiet.Id]),
+                    "Attempt history must pass through the exporter before its mission is deleted");
                 DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(racing.Id, token).ConfigureAwait(false), "A voyage that still has a mission waits for the next pass");
                 DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(reopening.Id, token).ConfigureAwait(false), "A voyage that started matching after the snapshot is kept");
 
@@ -263,6 +284,12 @@ namespace Armada.Test.Database
 
                 DatabaseAssert.Equal(editedTitle, next.Titles("missions")[edited.Id], "The next pass exports the changed mission state");
                 DatabaseAssert.True(await _Driver.Missions.ReadAsync(edited.Id, token).ConfigureAwait(false) == null, "The changed mission is deleted on the next pass");
+                DatabaseAssert.True((await _Driver.Missions.ReadAsync(editedChild.Id, token).ConfigureAwait(false))!.ParentMissionId == null,
+                    "The retained child's link is cleared only when its parent is actually deleted");
+                DatabaseAssert.Equal(0, (await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, edited.Id, 10, token).ConfigureAwait(false)).Items.Count,
+                    "The retained attempt rows expire with the actual parent deletion on the next pass");
+                DatabaseAssert.True(next.Ids("mission_attempt_provenance").Contains(attemptIds[edited.Id]),
+                    "The next pass exports retained attempt history before deleting the changed mission");
                 DatabaseAssert.True(await _Driver.Voyages.ReadAsync(racing.Id, token).ConfigureAwait(false) == null, "The voyage is deleted once its missions are gone");
                 DatabaseAssert.True(await _Driver.Voyages.ReadAsync(reopening.Id, token).ConfigureAwait(false) == null, "The voyage that started matching expires on the next pass");
             }

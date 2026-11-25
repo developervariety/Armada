@@ -2290,6 +2290,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string withPackDir = Path.Combine(Path.GetTempPath(), "armada_prompt_with_context_" + Guid.NewGuid().ToString("N"));
                     Directory.CreateDirectory(noPackDir);
                     Directory.CreateDirectory(withPackDir);
+                    List<string> freshnessDirs = new List<string>();
 
                     try
                     {
@@ -2315,11 +2316,37 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("discovery evidence, not authority", withContext);
                         AssertContains("verified against the current branch before editing", withContext);
                         AssertContains("Final report must include one `Pack:` line", withContext);
+
+                        string packCommit = new string('a', 40);
+                        string pack = "# Armada Code Context Pack\n"
+                            + "Indexed commit (related evidence and assigned files taken from the index): " + packCommit + "\n"
+                            + "Start commit (the mission checkout; assigned files marked as read at the start commit): " + packCommit + "\n"
+                            + "Commit check: the indexed commit is the start commit.\n";
+                        foreach (string head in new[] { new string('b', 40), packCommit })
+                        {
+                            string dir = Path.Combine(Path.GetTempPath(), "armada_prompt_pack_freshness_" + Guid.NewGuid().ToString("N"));
+                            freshnessDirs.Add(dir);
+                            Directory.CreateDirectory(Path.Combine(dir, "_briefing"));
+                            string packPath = Path.Combine(dir, "_briefing", "context-pack.md");
+                            await File.WriteAllTextAsync(packPath, pack);
+                            git.HeadCommitHashResult = head;
+                            await service.GenerateClaudeMdAsync(dir, mission, vessel);
+                            string brief = await File.ReadAllTextAsync(Path.Combine(dir, "CLAUDE.md"));
+                            AssertEqual(head != packCommit, brief.Contains("Context pack checkout: stale."),
+                                "a pack whose recorded start differs from the actual dock HEAD must be marked stale");
+                            if (head != packCommit)
+                            {
+                                AssertContains(head, brief, "the stale warning names the actual checkout HEAD");
+                                AssertContains(packCommit, brief, "the stale warning names the pack's recorded start");
+                            }
+                            AssertEqual(pack, await File.ReadAllTextAsync(packPath), "freshness guidance preserves the staged pack's exact evidence");
+                        }
                     }
                     finally
                     {
                         try { Directory.Delete(noPackDir, true); } catch { }
                         try { Directory.Delete(withPackDir, true); } catch { }
+                        foreach (string dir in freshnessDirs) try { Directory.Delete(dir, true); } catch { }
                     }
                 }
             });
