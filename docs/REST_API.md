@@ -4737,12 +4737,17 @@ then omit the root cause. A `POST` keeps the supplied root cause as
 `OpenedReason`. A `POST` that creates an incident already `Closed` needs a root
 cause, or it is refused with `incident_root_cause_required`.
 
-The incident lifecycle and autonomous recovery close incidents without a
-written cause. Such a close or rollback sets `ClosedAutomatically` to `true`,
-and a cause a system path supplies never sets `RootCauseWrittenBy`. When the
-root cause is still the `OpenedReason` text, the automatic close sets
-`RootCause` to null and `OpenedReason` keeps the text. The flag returns to
-`false` when the incident leaves `Closed` or `RolledBack`.
+The incident lifecycle and autonomous recovery can close an incident when its
+cause is non-empty and differs from `OpenedReason`. Otherwise its active status
+and closure facts stay unchanged, while other new recovery facts can still be
+recorded. A repeated held close with no new facts writes no snapshot. A
+permitted automatic close or rollback sets `ClosedAutomatically` to `true`;
+a cause a system path supplies never sets `RootCauseWrittenBy`. The flag returns
+to `false` when the incident leaves `Closed` or `RolledBack`. An automatic rollback
+retains its existing lifecycle contract; this close requirement does not add a
+person-written-cause requirement to rollback.
+When a rollback still holds only the opened failure text, it clears `RootCause`
+and keeps that text in `OpenedReason`.
 
 ```bash
 curl -X PUT http://localhost:7890/api/v1/incidents/inc_abc123 \

@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Automatic incident closure needs a non-empty cause distinct from the opened failure text. Held closes retain active status and new recovery evidence without repeated empty snapshots or false close events; recovery and review dispositions remain independent of a verified cause.
+
 - Serial Architect lifecycle coverage also exercises newest-first voyage rows, so a same-titled revising Worker cannot hide a lost initial-Worker dependency behind SQLite row order.
 
 - Exact-owner historical completion correction can resume the first cancelled TestEngineer after a completed, source-bound Worker in an intact six-role implementation chain. It preserves completed producer and review records, retains every other duty and charge, and binds the one-use restart to the immediate dependency's commit. Landed facts, completed review outcomes, changed source or stale evidence still refuse recovery.

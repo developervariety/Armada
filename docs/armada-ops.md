@@ -241,7 +241,8 @@ hold, the voyage stays open, and the inbox reads "Awaiting operator ruling on a
 criterion conflict" with the incident whose root cause `criterion_conflict`
 lists each conflict. Rule with `armada_review_hold`: `clear` lands the work as
 it stands, `fail` ends it `Failed` with the `criterion_conflict:` rescue block.
-Either ruling closes the incident. See [PIPELINES.md](PIPELINES.md),
+Either ruling records the disposition; an incident with an unknown cause stays
+active for the operator to resolve. See [PIPELINES.md](PIPELINES.md),
 "Criterion conflicts".
 
 DoD commands use their workflow profile's environment variables. Consumer commands

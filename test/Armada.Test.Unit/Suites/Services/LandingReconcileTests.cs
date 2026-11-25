@@ -203,7 +203,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Confirming a proposal completes the mission, its voyage and closes its incident", async () =>
+            await RunTest("Confirming a proposal completes its mission and voyage and closes only cause-qualified incidents", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -220,6 +220,12 @@ namespace Armada.Test.Unit.Suites.Services
                         MissionId = mission.Id,
                         VesselId = vessel.Id
                     }).ConfigureAwait(false);
+                    Incident knownIncident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Verified landing reconciliation fault", MissionId = mission.Id, VesselId = vessel.Id
+                    }).ConfigureAwait(false);
+                    await incidents.UpdateAutomaticallyAsync(auth, knownIncident.Id, new IncidentUpsertRequest
+                    { RootCause = "The landing state was not reconciled after its external merge." }).ConfigureAwait(false);
                     await CreateSweep(testDb, git).SweepAsync().ConfigureAwait(false);
 
                     MissionStatusTransitionResult result = await CreateTransitions(testDb, git).TransitionAsync(mission, MissionStatusEnum.Complete).ConfigureAwait(false);
@@ -237,7 +243,10 @@ namespace Armada.Test.Unit.Suites.Services
                     Voyage? voyageAfter = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
                     AssertEqual(VoyageStatusEnum.Complete, voyageAfter!.Status, "voyage completion runs after the confirmation");
                     Incident? incidentAfter = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
-                    AssertEqual(IncidentStatusEnum.Closed, incidentAfter!.Status, "the mission's incident is closed");
+                    AssertEqual(IncidentStatusEnum.Open, incidentAfter!.Status, "Confirmation does not determine an unknown incident cause");
+                    AssertNull(incidentAfter.ClosedUtc);
+                    AssertEqual(IncidentStatusEnum.Closed, (await incidents.ReadAsync(auth, knownIncident.Id).ConfigureAwait(false))!.Status,
+                        "The cause-qualified incident closes normally");
                     List<InboxItem> items = await new InboxService(testDb.Driver, CreateLogging()).GetInboxAsync().ConfigureAwait(false);
                     AssertFalse(items.Any(item => item.EntityId == mission.Id), "the Needs You item is gone");
                 }

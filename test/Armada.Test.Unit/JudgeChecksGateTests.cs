@@ -1731,8 +1731,8 @@ namespace Armada.Test.Unit
 
             // The operator rules on a held criterion conflict with armada_review_hold. Clear lands the work as it
             // stands; fail ends the mission Failed with the rescue-block marker, so no rescue runs against the unchanged
-            // criterion. Either ruling closes the incident and lets the voyage finish.
-            await RunTest("CriterionReviewRuling_ClearLandsTheWorkAndFailEndsItFailedWithNoRescue_AndClosesTheIncident", async () =>
+            // criterion. Either ruling lets the voyage finish and records its disposition without inventing a cause.
+            await RunTest("CriterionReviewRuling_ClearLandsAndFailEndsFailedWithNoRescue_WhileUnknownIncidentCauseStaysOpen", async () =>
             {
                 const string conflictOutput =
                     "## Correctness\nThe cache grows without bound.\n\n" +
@@ -1776,9 +1776,19 @@ namespace Armada.Test.Unit
 
                         AuthContext auth = AuthContext.Authenticated(
                             Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest");
-                        Incident? incident = await new IncidentService(testDb.Driver).ReadAsync(auth, incidentId).ConfigureAwait(false);
-                        AssertEqual(IncidentStatusEnum.Closed, incident!.Status, "the ruling closes the incident");
+                        IncidentService rulingIncidents = new IncidentService(testDb.Driver);
+                        Incident? incident = await rulingIncidents.ReadAsync(auth, incidentId).ConfigureAwait(false);
+                        AssertEqual(IncidentStatusEnum.Open, incident!.Status, "The ruling alone does not determine the incident cause");
+                        AssertNull(incident.ClosedUtc);
                         AssertContains(clear ? "the criterion was wrong" : "the fix is required", incident.Postmortem ?? String.Empty, "the incident records the ruling");
+                        Incident personClosed = await rulingIncidents.UpdateAsync(auth, incidentId, new IncidentUpsertRequest
+                        {
+                            Status = IncidentStatusEnum.Closed,
+                            RootCause = clear ? "The criterion required an unbounded cache despite the declared memory bound."
+                                : "The implementation omitted the required cache bound."
+                        }).ConfigureAwait(false);
+                        AssertEqual(IncidentStatusEnum.Closed, personClosed.Status, "The operator can close it with a determined cause after ruling");
+                        AssertFalse(personClosed.ClosedAutomatically);
 
                         await new VoyageService(CreateLogging(), testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
                         Voyage? voyageAfter = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);

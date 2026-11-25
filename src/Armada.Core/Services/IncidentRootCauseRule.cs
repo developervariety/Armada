@@ -3,11 +3,10 @@ namespace Armada.Core.Services
     using System;
 
     /// <summary>
-    /// The one rule every caller-facing surface applies when a person or operator closes an incident:
-    /// the root cause in force at close must be non-empty text that the closer wrote, and it must not
-    /// be the text the incident was opened with. The opened text is usually an automatic copy of a
-    /// failure reason, so accepting it would make an automatic reading look like a verified cause.
-    /// Text is compared after trimming, ordinally.
+    /// The shared content rule for closing an incident: the cause must be non-empty and differ from
+    /// the text the incident was opened with. Caller-facing closes also require person-written
+    /// authorship, which IncidentService records separately; an automatic writer never gains that
+    /// authorship on automatic updates. Text is compared after trimming, ordinally.
     /// </summary>
     public static class IncidentRootCauseRule
     {
@@ -28,11 +27,11 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Evaluate a root cause a person supplies against the text the incident was opened with.
+        /// Evaluate determined cause text against the text the incident was opened with.
         /// </summary>
-        /// <param name="rootCause">Root-cause text the person supplies.</param>
+        /// <param name="rootCause">Root-cause text to check.</param>
         /// <param name="openedReason">Text the incident was opened with, or null when it had none.</param>
-        /// <returns>Null when the text is a person-written cause; otherwise the refusal code.</returns>
+        /// <returns>Null when the content passes; otherwise the refusal code. This does not establish authorship.</returns>
         public static string? Evaluate(string? rootCause, string? openedReason)
         {
             string? written = Trim(rootCause);

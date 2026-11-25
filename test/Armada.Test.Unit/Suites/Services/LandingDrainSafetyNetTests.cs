@@ -931,6 +931,13 @@ namespace Armada.Test.Unit.Suites.Services
                     Severity = IncidentSeverityEnum.High,
                     VoyageId = voyage.Id
                 }).ConfigureAwait(false);
+                Incident knownIncident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Verified stuck-voyage failure", Summary = "Voyage has no live missions and no progress.",
+                    Status = IncidentStatusEnum.Open, VoyageId = voyage.Id
+                }).ConfigureAwait(false);
+                await incidents.UpdateAutomaticallyAsync(auth, knownIncident.Id, new IncidentUpsertRequest
+                { RootCause = "The completed voyage missed its completion reconciliation." }).ConfigureAwait(false);
 
                 AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
                     testDb.Driver,
@@ -945,9 +952,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                 Incident? closed = await incidents.ReadAsync(auth, openIncident.Id).ConfigureAwait(false);
                 AssertNotNull(closed);
-                AssertEqual(IncidentStatusEnum.Closed, closed!.Status, "Open stuck-voyage incident must close when voyage completes.");
-                AssertTrue(closed.ClosedAutomatically, "The landing drain records its close as automatic.");
-                AssertNull(closed.RootCauseWrittenBy, "An automatic close carries no person-written cause.");
+                AssertEqual(IncidentStatusEnum.Open, closed!.Status, "Voyage completion does not determine the unknown incident cause");
+                AssertNull(closed.ClosedUtc);
+                Incident knownClosed = (await incidents.ReadAsync(auth, knownIncident.Id).ConfigureAwait(false))!;
+                AssertEqual(IncidentStatusEnum.Closed, knownClosed.Status, "A cause-qualified stuck-voyage incident closes");
+                AssertTrue(knownClosed.ClosedAutomatically, "The landing drain records its close as automatic.");
+                AssertNull(knownClosed.RootCauseWrittenBy, "An automatic close carries no person-written cause.");
             }).ConfigureAwait(false);
 
             // The quiet clock must anchor on real forward progress (mission start/completion), NOT on
@@ -1239,6 +1249,8 @@ namespace Armada.Test.Unit.Suites.Services
                     Severity = IncidentSeverityEnum.Medium,
                     VoyageId = voyage.Id
                 }).ConfigureAwait(false);
+                await incidents.UpdateAutomaticallyAsync(auth, unrelated.Id, new IncidentUpsertRequest
+                { RootCause = "A distinct verified operator-review issue remains unresolved." }).ConfigureAwait(false);
 
                 AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(
                     testDb.Driver,

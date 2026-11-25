@@ -897,11 +897,20 @@ namespace Armada.Server
             foreach (Incident incident in active.Where(item =>
                 (item.Summary ?? String.Empty).Contains("no live missions", StringComparison.OrdinalIgnoreCase)))
             {
-                await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+                Incident closedIncident = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
                 {
                     Status = IncidentStatusEnum.Closed,
                     ClosedUtc = DateTime.UtcNow
                 }, token).ConfigureAwait(false);
+
+                if (closedIncident.Status != IncidentStatusEnum.Closed)
+                {
+                    _Logging.Info(_Header + "stuck-voyage incident " + incident.Id + " remains " + closedIncident.Status
+                        + ": automatic close held; "
+                        + (closedIncident.Status == IncidentStatusEnum.RolledBack ? "incident already RolledBack"
+                            : IncidentRootCauseRule.Evaluate(closedIncident.RootCause, closedIncident.OpenedReason) ?? "incident status changed") + ".");
+                    continue;
+                }
 
                 await EmitLandingDrainEventAsync(
                     "landing_drain.stuck_voyage_incident_closed",
@@ -1192,15 +1201,15 @@ namespace Armada.Server
 
                 // A block-policy rescue that produced no commits (rescue_produced_no_commits) was
                 // deliberately failed by the no-op detection guard in MissionLandingHandler. No
-                // further recovery is possible and no incident is meaningful for operator review:
-                // the work already landed via another path. Close any pre-existing open incident
-                // and skip the normal incident/runbook path so the sweep never re-opens one.
+                // further autonomous rescue is permitted. Close a pre-existing incident only when its cause
+                // is known; otherwise keep it for operator review. Skip the normal incident/runbook
+                // path so a later sweep does not create a duplicate incident.
                 if (!decision.DispatchRescue
                     && IsAutoRescueMission(latest)
                     && String.Equals(latest.FailureReason, "rescue_produced_no_commits", StringComparison.OrdinalIgnoreCase))
                 {
                     await CloseActiveMissionIncidentsAsync(auth, latest,
-                        "Autonomous recovery suppressed: rescue produced no commits; no further recovery possible.",
+                        "Autonomous recovery suppressed: rescue produced no commits; no further autonomous rescue will be dispatched.",
                         token).ConfigureAwait(false);
                     await MarkPolicyBlockedAsync(latest, token).ConfigureAwait(false);
                     await EmitEventAsync("autonomous_recovery.blocked",
@@ -1752,7 +1761,7 @@ namespace Armada.Server
                 return false;
 
             // The first suppression pass marks recovery-handled fields, cancels active rescues, and
-            // closes incidents. On subsequent passes the mission is still suppressed (rescue dispatch
+            // closes cause-qualified incidents. On subsequent passes the mission is still suppressed (rescue dispatch
             // stays blocked) but the cancellation / incident-closing / logging work must not repeat,
             // otherwise the sweep re-runs it on every tick. Skip the work once the mission is marked.
             if (IsRecoveryHandled(mission))
@@ -1821,6 +1830,15 @@ namespace Armada.Server
                     RecoveryNotes = AppendNote(incident.RecoveryNotes, note),
                     ClosedUtc = DateTime.UtcNow
                 }, token).ConfigureAwait(false);
+
+                if (updated.Status != IncidentStatusEnum.Closed)
+                {
+                    _Logging.Info(_Header + "incident " + updated.Id + " remains " + updated.Status
+                        + ": automatic close held; "
+                        + (updated.Status == IncidentStatusEnum.RolledBack ? "incident already RolledBack"
+                            : IncidentRootCauseRule.Evaluate(updated.RootCause, updated.OpenedReason) ?? "incident status changed") + ".");
+                    continue;
+                }
 
                 await EmitEventAsync("autonomous_recovery.incident_closed_cancelled_voyage",
                     "Autonomous recovery closed incident " + updated.Id + " because parent voyage " + mission.VoyageId + " is Cancelled.",

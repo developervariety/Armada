@@ -404,13 +404,18 @@ namespace Armada.Server
                 {
                     try
                     {
-                        string note = "Closed because the operator confirmed the landing. " + evidence.Describe();
-                        await incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+                        string note = "The operator confirmed the landing. " + evidence.Describe();
+                        Incident updatedIncident = await incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
                         {
                             Status = IncidentStatusEnum.Closed,
                             RecoveryNotes = String.IsNullOrWhiteSpace(incident.RecoveryNotes) ? note : incident.RecoveryNotes + "\n" + note,
                             ClosedUtc = DateTime.UtcNow
                         }, token).ConfigureAwait(false);
+                        if (updatedIncident.Status != IncidentStatusEnum.Closed)
+                            _Logging.Info(_Header + "mission " + mission.Id + " completed; incident " + incident.Id
+                                + " remains " + updatedIncident.Status + ": automatic close held; "
+                        + (updatedIncident.Status == IncidentStatusEnum.RolledBack ? "incident already RolledBack"
+                            : IncidentRootCauseRule.Evaluate(updatedIncident.RootCause, updatedIncident.OpenedReason) ?? "incident status changed") + ".");
                     }
                     catch (OperationCanceledException) when (token.IsCancellationRequested)
                     {

@@ -197,9 +197,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Update an incident from a system path (incident lifecycle, autonomous recovery). The root-cause
-        /// rule does not apply, a close or rollback is recorded as automatic, and any root cause the
-        /// request supplies is recorded as automatic, never as person-written.
+        /// Update an incident from a system path (incident lifecycle, autonomous recovery). A close
+        /// without a distinct root cause keeps the active status and closure facts; other supplied
+        /// facts can still be recorded. A permitted close or rollback is recorded as automatic,
+        /// and a supplied cause is never recorded as person-written.
         /// </summary>
         public async Task<Incident> UpdateAutomaticallyAsync(AuthContext auth, string id, IncidentUpsertRequest request, CancellationToken token = default)
         {
@@ -248,9 +249,18 @@ namespace Armada.Core.Services
             // reopen it nor replace the operator's cause and notes; the caller sees the unchanged incident.
             if (automatic && IsTerminal(previousStatus)) return incident;
 
+            // A recovery action or an elapsed quiet period does not determine the failure's cause.
+            // Hold the terminal transition, while retaining any new recovery evidence in the update.
+            // Never replace the prior cause with invalid close text or stamp a closure that did not occur.
+            bool automaticCloseHeld = automatic && request.Status == IncidentStatusEnum.Closed
+                && IncidentRootCauseRule.Evaluate(
+                    request.RootCause != null ? Normalize(request.RootCause) : incident.RootCause,
+                    incident.OpenedReason) != null;
+            string? beforeHeldClose = automaticCloseHeld ? IncidentSnapshotCodec.Serialize(incident) : null;
+
             incident.Title = Normalize(request.Title) ?? incident.Title;
             incident.Summary = request.Summary != null ? Normalize(request.Summary) : incident.Summary;
-            incident.Status = request.Status ?? incident.Status;
+            incident.Status = automaticCloseHeld ? previousStatus : request.Status ?? incident.Status;
             incident.Severity = request.Severity ?? incident.Severity;
             incident.EnvironmentId = request.EnvironmentId != null ? Normalize(request.EnvironmentId) : incident.EnvironmentId;
             incident.EnvironmentName = request.EnvironmentName != null ? Normalize(request.EnvironmentName) : incident.EnvironmentName;
@@ -266,7 +276,7 @@ namespace Armada.Core.Services
             incident.RegressionLandedCommit = request.RegressionLandedCommit != null ? RegressionLinkRules.NormalizeCommit(request.RegressionLandedCommit) : incident.RegressionLandedCommit;
             incident.RollbackDeploymentId = request.RollbackDeploymentId != null ? Normalize(request.RollbackDeploymentId) : incident.RollbackDeploymentId;
             incident.Impact = request.Impact != null ? Normalize(request.Impact) : incident.Impact;
-            incident.RootCause = request.RootCause != null ? Normalize(request.RootCause) : incident.RootCause;
+            incident.RootCause = !automaticCloseHeld && request.RootCause != null ? Normalize(request.RootCause) : incident.RootCause;
             incident.RecoveryNotes = request.RecoveryNotes != null ? Normalize(request.RecoveryNotes) : incident.RecoveryNotes;
             incident.Postmortem = request.Postmortem != null ? Normalize(request.Postmortem) : incident.Postmortem;
             incident.MitigatedUtc = request.MitigatedUtc.HasValue ? request.MitigatedUtc.Value.ToUniversalTime() : incident.MitigatedUtc;
@@ -278,7 +288,11 @@ namespace Armada.Core.Services
             {
                 incident.MitigatedUtc = DateTime.UtcNow;
             }
-            incident.ClosedUtc = request.ClosedUtc.HasValue ? request.ClosedUtc.Value.ToUniversalTime() : incident.ClosedUtc;
+            if (!automaticCloseHeld && request.ClosedUtc.HasValue)
+                incident.ClosedUtc = request.ClosedUtc.Value.ToUniversalTime();
+            // A repeated held close with no new facts must not write another snapshot every sweep.
+            if (automaticCloseHeld && String.Equals(beforeHeldClose, IncidentSnapshotCodec.Serialize(incident), StringComparison.Ordinal))
+                return incident;
             DateTime now = DateTime.UtcNow;
             incident.LastUpdateUtc = now > incident.LastUpdateUtc ? now : incident.LastUpdateUtc.AddTicks(1);
             if (!automatic && request.Status.HasValue && !IsTerminal(incident.Status))
@@ -405,7 +419,7 @@ namespace Armada.Core.Services
 
         // A criterion-review incident stands for a Judge verdict held for an operator ruling. Closing it by hand would
         // leave the mission held with no incident to point at, so the close is refused while the hold names it; the
-        // ruling (armada_review_hold clear or fail) closes the incident itself.
+        // ruling (armada_review_hold clear or fail) records its disposition before the incident can be closed.
         private async Task RefuseCloseWhileCriterionReviewHeldAsync(Incident incident, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(incident.MissionId)) return;
@@ -414,7 +428,7 @@ namespace Armada.Core.Services
             if (!String.Equals(JudgeCriterionConflicts.ReadIncidentId(mission!.HeldForOperatorReviewReason), incident.Id, StringComparison.Ordinal)) return;
             throw new InvalidOperationException(JudgeCriterionConflicts.IncidentCloseRefusedCode + ": mission " + mission.Id
                 + " is still held for an operator ruling on this criterion conflict. Rule with armada_review_hold (clear lands the work, "
-                + "fail ends it Failed with no rescue); the ruling closes this incident.");
+                + "fail ends it Failed with no rescue). The ruling is recorded; close this incident after its cause is determined.");
         }
 
         private static void ApplyRootCauseAuthorship(

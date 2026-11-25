@@ -8421,8 +8421,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Close the criterion-review incident of a verdict the operator ruled on, recording the ruling. A failure to
-        /// close is logged and does not undo the ruling; the incident then stays open for the operator to close.
+        /// Record the ruling and close its criterion-review incident only when a distinct cause is known.
+        /// An incident kept active does not undo the ruling and remains available for the operator to resolve.
         /// </summary>
         private async Task CloseCriterionReviewIncidentAsync(Mission mission, string incidentId, string ruling, CancellationToken token)
         {
@@ -8436,12 +8436,17 @@ namespace Armada.Core.Services
                     true,
                     "MissionHandoff",
                     principalDisplay: "Armada Mission Handoff");
-                await incidents.UpdateAutomaticallyAsync(auth, incidentId, new IncidentUpsertRequest
+                Incident updatedIncident = await incidents.UpdateAutomaticallyAsync(auth, incidentId, new IncidentUpsertRequest
                 {
                     Status = IncidentStatusEnum.Closed,
                     Postmortem = ruling,
                     ClosedUtc = DateTime.UtcNow
                 }, token).ConfigureAwait(false);
+                if (updatedIncident.Status != IncidentStatusEnum.Closed)
+                    _Logging.Warn(_Header + "the ruling on mission " + mission.Id + " stands, but incident " + incidentId
+                        + " remains " + updatedIncident.Status + ": automatic close held; "
+                        + (updatedIncident.Status == IncidentStatusEnum.RolledBack ? "incident already RolledBack"
+                            : IncidentRootCauseRule.Evaluate(updatedIncident.RootCause, updatedIncident.OpenedReason) ?? "incident status changed") + ".");
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -8496,7 +8501,7 @@ namespace Armada.Core.Services
                 RootCause = JudgeCriterionConflicts.ReasonCode,
                 RecoveryNotes = "Review each criterion below and rule on mission " + mission.Id + " with armada_review_hold. Clear lands the work as "
                     + "it stands (the criterion was wrong, or the required fix is out of scope). Fail ends the mission Failed with no rescue; correct "
-                    + "the criterion on the objective and dispatch the work again. Either ruling closes this incident.\n\nConflicts (criterion -- conflict):\n" + lines,
+                    + "the criterion on the objective and dispatch the work again. The ruling is recorded; this incident stays active until its cause is determined.\n\nConflicts (criterion -- conflict):\n" + lines,
                 DetectedUtc = DateTime.UtcNow
             }, token).ConfigureAwait(false);
             return created.Id;

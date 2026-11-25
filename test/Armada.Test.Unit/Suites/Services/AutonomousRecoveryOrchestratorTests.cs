@@ -902,6 +902,11 @@ namespace Armada.Test.Unit.Suites.Services
                     "The budget hard-block wins over the repeated-failure guard. Message: " + blocked.Objects[0].Message);
                 AssertFalse((blocked.Objects[0].Message ?? String.Empty).Contains("repeated_identical_test_failure", StringComparison.Ordinal),
                     "The guard must not override a hard-block. Message: " + blocked.Objects[0].Message);
+                AuthContext auth = AuthContext.Authenticated("ten_budget", "usr_budget", false, true, "UnitTest");
+                Incident budgetIncident = (await incidents.EnumerateAsync(auth, new IncidentQuery { MissionId = rescue.Id }).ConfigureAwait(false)).Objects.Single();
+                AssertEqual(IncidentStatusEnum.Open, budgetIncident.Status, "Budget exhaustion does not resolve the failure");
+                AssertNull(budgetIncident.ClosedUtc);
+                AssertEqual(0, admiral.DispatchedMissions.Count);
             }).ConfigureAwait(false);
 
             await RunTest("Recoverable failed mission creates incident, runbook execution, and rescue mission", async () =>
@@ -946,6 +951,8 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertEqual(1, incidentPage.Objects.Count);
                 AssertEqual(IncidentSeverityEnum.Medium, incidentPage.Objects[0].Severity);
+                AssertEqual(IncidentStatusEnum.Open, incidentPage.Objects[0].Status, "Rescue dispatch does not resolve the failure");
+                AssertNull(incidentPage.Objects[0].ClosedUtc);
 
                 EnumerationResult<RunbookExecution> executionPage = await runbooks.EnumerateExecutionsAsync(auth, new RunbookExecutionQuery
                 {
@@ -1812,7 +1819,7 @@ namespace Armada.Test.Unit.Suites.Services
                     + String.Join(", ", voyages.Select(v => v.Title + "/" + v.Status)));
             }).ConfigureAwait(false);
 
-            await RunTest("Cancelled voyage closes every active incident of the failed mission beyond one page", async () =>
+            await RunTest("Cancelled voyage processes cause-qualified incidents beyond one page and keeps unknown causes open", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_auto_many_open", "usr_auto_many_open").ConfigureAwait(false);
@@ -1834,13 +1841,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AuthContext auth = AuthContext.Authenticated("ten_auto_many_open", "usr_auto_many_open", false, true, "UnitTest");
                 for (int i = 0; i < 30; i++)
                 {
-                    await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    Incident seeded = await incidents.CreateAsync(auth, new IncidentUpsertRequest
                     {
                         Title = "Open incident " + i,
                         Status = IncidentStatusEnum.Open,
                         MissionId = failed.Id,
                         VesselId = vessel.Id
                     }).ConfigureAwait(false);
+                    if (i != 0 && i != 29)
+                        await incidents.UpdateAutomaticallyAsync(auth, seeded.Id, new IncidentUpsertRequest
+                        { RootCause = "The failed mission used a missing fixture resource." }).ConfigureAwait(false);
                 }
 
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver,
@@ -1854,7 +1864,9 @@ namespace Armada.Test.Unit.Suites.Services
                     PageNumber = 1,
                     PageSize = 100
                 }).ConfigureAwait(false)).Objects;
-                AssertEqual(0, active.Count, "Every active incident of a cancelled-voyage mission is closed, not only the first page.");
+                AssertEqual(2, active.Count, "Only the two incidents without a determined cause stay active");
+                AssertTrue(active.All(item => item.Status == IncidentStatusEnum.Open && item.ClosedUtc == null),
+                    "A cancelled voyage does not stamp a closure for an unknown cause");
                 List<Incident> closedIncidents = (await incidents.EnumerateAsync(auth, new IncidentQuery
                 {
                     MissionId = failed.Id,
@@ -1862,9 +1874,12 @@ namespace Armada.Test.Unit.Suites.Services
                     PageNumber = 1,
                     PageSize = 100
                 }).ConfigureAwait(false)).Objects;
-                AssertEqual(30, closedIncidents.Count);
+                AssertEqual(28, closedIncidents.Count, "Every cause-qualified incident closes across all pages");
                 AssertTrue(closedIncidents.All(item => item.ClosedAutomatically && item.RootCauseWrittenBy == null),
                     "Recovery records each close as automatic, with no person-written cause.");
+                List<ArmadaEvent> closeEvents = await testDb.Driver.Events.EnumerateByMissionAsync(failed.Id, 1000).ConfigureAwait(false);
+                AssertEqual(28, closeEvents.Count(item => item.EventType == "autonomous_recovery.incident_closed_cancelled_voyage"),
+                    "Held closures must not emit a successful-close event");
             }).ConfigureAwait(false);
 
             await RunTest("Recovery policy gates are released once no application holds them", async () =>
@@ -4652,7 +4667,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A repeat sweep must not dispatch a duplicate rescue.");
             }).ConfigureAwait(false);
 
-            await RunTest("PolicyBlock skips incident and closes existing for rescue_produced_no_commits auto-rescue", async () =>
+            await RunTest("PolicyBlock skips further rescue and retains an existing incident whose cause is unknown", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_rescue_no_commits", "usr_rescue_no_commits").ConfigureAwait(false);
@@ -4676,7 +4691,7 @@ namespace Armada.Test.Unit.Suites.Services
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-2)
                 }).ConfigureAwait(false);
 
-                // Pre-seed an open incident that the guard must close.
+                // Pre-seed an open incident whose cause has not been determined.
                 AuthContext auth = AuthContext.Authenticated("ten_rescue_no_commits", "usr_rescue_no_commits", false, true, "UnitTest");
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 Incident existingIncident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
@@ -4695,15 +4710,16 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, admiral.DispatchedMissions.Count, "No rescue must be dispatched for a rescue_produced_no_commits auto-rescue.");
 
-                // The pre-existing incident must be closed.
+                // Blocking further rescue does not determine the cause of the existing incident.
                 EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
                 {
                     MissionId = noOpRescue.Id,
                     PageNumber = 1,
                     PageSize = 10
                 }).ConfigureAwait(false);
-                AssertTrue(incidentPage.Objects.All(item => item.Status == IncidentStatusEnum.Closed),
-                    "Existing open incident for rescue_produced_no_commits must be closed by the guard.");
+                AssertEqual(1, incidentPage.Objects.Count);
+                AssertTrue(incidentPage.Objects.All(item => item.Status == IncidentStatusEnum.Open && item.ClosedUtc == null),
+                    "A policy block alone must not close an incident with an unknown cause");
 
                 // Policy must be marked blocked so subsequent sweeps short-circuit via IsAlreadyHandledAsync.
                 Mission? rescueAfter = await testDb.Driver.Missions.ReadAsync(noOpRescue.Id).ConfigureAwait(false);

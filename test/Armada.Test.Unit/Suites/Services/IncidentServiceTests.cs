@@ -201,7 +201,24 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(IncidentStatusEnum.Open, stored.Status, "The missing-cause close must not persist");
                     AssertNull(stored.ClosedUtc);
                     AssertFalse(stored.ClosedAutomatically);
+                    AssertEqual(created.LastUpdateUtc, stored.LastUpdateUtc, "A held close with no new facts does not write another snapshot");
                 }
+
+                Incident recoveryRecorded = await incidents.UpdateAutomaticallyAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Closed,
+                    RecoveryNotes = "Recovery finished; the cause remains under investigation."
+                }).ConfigureAwait(false);
+                AssertEqual(IncidentStatusEnum.Open, recoveryRecorded.Status, "New recovery evidence does not supply a cause");
+                AssertContains("cause remains under investigation", recoveryRecorded.RecoveryNotes ?? String.Empty);
+                AssertEqual(AutomaticReason, recoveryRecorded.RootCause, "A held close preserves the previous failure reading");
+                AssertNull(recoveryRecorded.ClosedUtc);
+                Incident repeated = await incidents.UpdateAutomaticallyAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Closed,
+                    RecoveryNotes = recoveryRecorded.RecoveryNotes
+                }).ConfigureAwait(false);
+                AssertEqual(recoveryRecorded.LastUpdateUtc, repeated.LastUpdateUtc, "Repeated recovery facts do not create another held-close snapshot");
 
                 Incident closed = await incidents.UpdateAutomaticallyAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
                 {

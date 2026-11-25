@@ -378,9 +378,12 @@ period. A newer matching failure reopens a mitigated incident and raises its
 severity to at least High. Re-observing a failure on an incident that is already
 open records the new failure evidence and keeps the incident's severity: the
 severity set at creation or by an operator is preserved, and the sweep leaves
-the incident alone once the evidence is already recorded. Such a close sets
-`ClosedAutomatically` and leaves `RootCause` unset when it holds only the
-opened text; `OpenedReason` keeps that text.
+the incident alone once the evidence is already recorded. Automatic closure
+also needs a non-empty cause that differs from `OpenedReason`. Otherwise the
+incident keeps its active status and closure facts; new recovery evidence can
+still be recorded. A held close with no new facts writes no repeated snapshot.
+A permitted automatic close sets `ClosedAutomatically` and keeps the distinct
+cause without claiming person-written authorship.
 
 A cancelled rescue does not resolve the failure it was dispatched for. When the
 latest rescue of a failed mission is cancelled, the incident keeps its status:
@@ -388,8 +391,9 @@ an Open incident stays Open, and a Mitigated incident stays as the operator set
 it. The lifecycle adds one recovery note that names the rescue and quotes its
 cancel reason, which names who cancelled it when that is known. An operator
 voyage cancel records `Voyage cancelled by operator.` When the failed mission
-itself is cancelled, or its own voyage is cancelled, the incident is superseded
-and closes.
+itself is cancelled, or its own voyage is cancelled, the work can be superseded,
+but the incident closes only when its distinct cause is known. Cancellation,
+rescue dispatch, and an exhausted recovery budget do not determine a cause.
 
 ## 8. Runbooks
 

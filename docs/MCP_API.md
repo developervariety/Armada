@@ -1973,9 +1973,10 @@ returns `Error` and `Code`: `incident_root_cause_required` or
 An accepted cause is stored with its author in `RootCauseWrittenBy` and the
 time in `RootCauseWrittenUtc`. `OpenedReason` keeps the automatic text. A null
 `RootCauseWrittenBy` means that the cause is automatic. A close by the incident
-lifecycle or by autonomous recovery sets `ClosedAutomatically` and never counts
-as person-written. Such a close leaves `RootCause` null when it still holds the
-`OpenedReason` text.
+lifecycle or by autonomous recovery needs a non-empty cause that differs from
+`OpenedReason`; otherwise the incident keeps its active status and closure
+facts. Other recovery evidence can still be recorded. A permitted automatic
+close sets `ClosedAutomatically` and never counts as person-written.
 
 ## Client Names
 

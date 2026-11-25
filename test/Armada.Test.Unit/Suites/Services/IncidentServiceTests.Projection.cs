@@ -80,7 +80,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await incidents.UpdateAutomaticallyAsync(creator, created.Id, new IncidentUpsertRequest { Summary = "first revision " + i }).ConfigureAwait(false);
                     await incidents.UpdateAutomaticallyAsync(creator, created.Id, new IncidentUpsertRequest { Status = IncidentStatusEnum.Mitigated, Impact = "impact " + i }).ConfigureAwait(false);
                     if (i % 3 == 0)
-                        await incidents.UpdateAutomaticallyAsync(creator, created.Id, new IncidentUpsertRequest { Status = IncidentStatusEnum.Closed }).ConfigureAwait(false);
+                        await incidents.UpdateAutomaticallyAsync(creator, created.Id, new IncidentUpsertRequest { Status = IncidentStatusEnum.Closed, RootCause = "Determined fixture cause " + i }).ConfigureAwait(false);
                     else if (i % 3 == 1)
                         await incidents.UpdateAutomaticallyAsync(creator, created.Id, new IncidentUpsertRequest { Status = IncidentStatusEnum.Open }).ConfigureAwait(false);
                 }

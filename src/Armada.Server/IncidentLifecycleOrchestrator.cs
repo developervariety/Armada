@@ -223,7 +223,7 @@ namespace Armada.Server
                     && settings.AutoClose
                     && QuietPeriodElapsed(incident, settings))
                 {
-                    return await UpdateIncidentAsync(auth, incident, IncidentStatusEnum.Closed, incident.Severity, "Closed automatically after quiet period. " + evidence.Note, "incident.lifecycle_closed", token).ConfigureAwait(false);
+                    return await UpdateIncidentAsync(auth, incident, IncidentStatusEnum.Closed, incident.Severity, "Quiet period elapsed. " + evidence.Note, "incident.lifecycle_closed", token).ConfigureAwait(false);
                 }
             }
 
@@ -508,8 +508,10 @@ namespace Armada.Server
             if (updated == null) return false;
             if (updated.Status != status)
             {
-                _Logging.Info(_Header + "incident " + updated.Id + " is " + updated.Status + " since the sweep read it; move to " + status + " skipped");
-                return false;
+                _Logging.Info(_Header + "incident " + updated.Id + " is " + updated.Status + "; move to " + status + " skipped"
+                    + (status == IncidentStatusEnum.Closed ? "; automatic close needs a distinct root cause" : String.Empty));
+                // New recovery evidence still counts as a change; no transition event is emitted.
+                return updated.LastUpdateUtc != incident.LastUpdateUtc;
             }
 
             await EmitEventAsync(eventType, "Incident " + updated.Id + " moved to " + status + ".", updated, note, token).ConfigureAwait(false);

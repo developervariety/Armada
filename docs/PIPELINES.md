@@ -825,7 +825,8 @@ The operator rules with `armada_review_hold`:
   operator corrects the criterion on the objective and dispatches the work
   again.
 
-Either ruling closes the incident and records the ruling as its postmortem.
+Either ruling records the disposition as the incident's postmortem. The incident
+closes only when a distinct cause is known; a ruling alone does not invent one.
 Closing the incident by hand while the hold stands is refused with
 `criterion_review_hold_open`. The `revision_kind` decision is not consulted
 for a verdict held this way.
