@@ -258,69 +258,75 @@ namespace Armada.Core.Database
             {
                 for (int offset = 0; offset < keys.Count; offset += _DeleteChunkSize)
                 {
-                    using DbTransaction transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token).ConfigureAwait(false);
-                    // PostgreSQL row locks do not protect absent attempt rows: there is no mission
-                    // foreign key. Hold a write-conflicting table lock only for this delete chunk.
-                    if (_Provider == DatabaseTypeEnum.Postgresql)
+                    using (DbTransaction transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token).ConfigureAwait(false))
                     {
-                        using DbCommand tableLock = connection.CreateCommand();
-                        tableLock.Transaction = transaction;
-                        tableLock.CommandText = "LOCK TABLE mission_attempt_provenance IN SHARE ROW EXCLUSIVE MODE;";
-                        await tableLock.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        // PostgreSQL row locks do not protect absent attempt rows: there is no mission
+                        // foreign key. Hold a write-conflicting table lock only for this delete chunk.
+                        if (_Provider == DatabaseTypeEnum.Postgresql)
+                        {
+                            using (DbCommand tableLock = connection.CreateCommand())
+                            {
+                                tableLock.Transaction = transaction;
+                                tableLock.CommandText = "LOCK TABLE mission_attempt_provenance IN SHARE ROW EXCLUSIVE MODE;";
+                                await tableLock.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                            }
+                        }
+                        int chunkDeleted = 0;
+                        for (int i = offset; i < Math.Min(keys.Count, offset + _DeleteChunkSize); i++)
+                        {
+                            ExpiredRowKey key = keys[i];
+                            string missionId = Convert.ToString(key.Id, CultureInfo.InvariantCulture)!;
+                            string hints = _Provider == DatabaseTypeEnum.SqlServer ? " WITH (UPDLOCK, HOLDLOCK)" : String.Empty;
+                            string attemptLock = _Provider == DatabaseTypeEnum.Mysql ? " FOR UPDATE" : String.Empty;
+                            Dictionary<string, string> currentAttempts = new Dictionary<string, string>(StringComparer.Ordinal);
+                            using (DbCommand readAttempts = connection.CreateCommand())
+                            {
+                                readAttempts.Transaction = transaction;
+                                readAttempts.CommandText = "SELECT * FROM mission_attempt_provenance" + hints + " WHERE mission_id = @key ORDER BY id" + attemptLock + ";";
+                                ProductionFactSql.Add(readAttempts, "@key", key.Id);
+                                using (DbDataReader rows = await readAttempts.ExecuteReaderAsync(token).ConfigureAwait(false))
+                                {
+                                    while (await rows.ReadAsync(token).ConfigureAwait(false))
+                                        currentAttempts.Add(Convert.ToString(rows["id"], CultureInfo.InvariantCulture)!, Fingerprint(rows));
+                                }
+                            }
+                            if (exporter != null)
+                            {
+                                exportedAttempts.TryGetValue(missionId, out Dictionary<string, string>? expected);
+                                if (currentAttempts.Count != (expected?.Count ?? 0)
+                                    || currentAttempts.Any(row => expected == null || !expected.TryGetValue(row.Key, out string? hash) || hash != row.Value))
+                                    continue;
+                            }
+                            string guarded = "(" + predicate + ") AND id = @key AND last_update_utc " + (key.Version == null ? "IS NULL" : "= @version");
+                            string parentLock = _Provider == DatabaseTypeEnum.Mysql || _Provider == DatabaseTypeEnum.Postgresql ? " FOR UPDATE" : String.Empty;
+                            using (DbCommand parent = CreateCommand(connection, "SELECT id FROM missions" + hints + " WHERE " + guarded + parentLock + ";", timestampTable, cutoff, cutoffs))
+                            {
+                                parent.Transaction = transaction;
+                                ProductionFactSql.Add(parent, "@key", key.Id);
+                                if (key.Version != null) ProductionFactSql.Add(parent, "@version", key.Version);
+                                if (await parent.ExecuteScalarAsync(token).ConfigureAwait(false) == null) continue;
+                            }
+                            using (DbCommand related = connection.CreateCommand())
+                            {
+                                related.Transaction = transaction;
+                                related.CommandText = "UPDATE missions SET parent_mission_id = NULL WHERE parent_mission_id = @key;"
+                                    + " DELETE FROM mission_attempt_provenance WHERE mission_id = @key;";
+                                ProductionFactSql.Add(related, "@key", key.Id);
+                                await related.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                            }
+                            using (DbCommand remove = CreateCommand(connection, "DELETE FROM missions WHERE " + guarded + ";", timestampTable, cutoff, cutoffs))
+                            {
+                                remove.Transaction = transaction;
+                                ProductionFactSql.Add(remove, "@key", key.Id);
+                                if (key.Version != null) ProductionFactSql.Add(remove, "@version", key.Version);
+                                if (await DeleteAsync(remove, "missions", token).ConfigureAwait(false) != 1)
+                                    throw new InvalidOperationException("Mission changed during related-history expiry; the delete chunk is rolled back.");
+                            }
+                            chunkDeleted++;
+                        }
+                        await transaction.CommitAsync(token).ConfigureAwait(false);
+                        deleted += chunkDeleted;
                     }
-                    int chunkDeleted = 0;
-                    for (int i = offset; i < Math.Min(keys.Count, offset + _DeleteChunkSize); i++)
-                    {
-                        ExpiredRowKey key = keys[i];
-                        string missionId = Convert.ToString(key.Id, CultureInfo.InvariantCulture)!;
-                        string hints = _Provider == DatabaseTypeEnum.SqlServer ? " WITH (UPDLOCK, HOLDLOCK)" : String.Empty;
-                        string attemptLock = _Provider == DatabaseTypeEnum.Mysql ? " FOR UPDATE" : String.Empty;
-                        Dictionary<string, string> currentAttempts = new Dictionary<string, string>(StringComparer.Ordinal);
-                        using (DbCommand readAttempts = connection.CreateCommand())
-                        {
-                            readAttempts.Transaction = transaction;
-                            readAttempts.CommandText = "SELECT * FROM mission_attempt_provenance" + hints + " WHERE mission_id = @key ORDER BY id" + attemptLock + ";";
-                            ProductionFactSql.Add(readAttempts, "@key", key.Id);
-                            using DbDataReader rows = await readAttempts.ExecuteReaderAsync(token).ConfigureAwait(false);
-                            while (await rows.ReadAsync(token).ConfigureAwait(false))
-                                currentAttempts.Add(Convert.ToString(rows["id"], CultureInfo.InvariantCulture)!, Fingerprint(rows));
-                        }
-                        if (exporter != null)
-                        {
-                            exportedAttempts.TryGetValue(missionId, out Dictionary<string, string>? expected);
-                            if (currentAttempts.Count != (expected?.Count ?? 0)
-                                || currentAttempts.Any(row => expected == null || !expected.TryGetValue(row.Key, out string? hash) || hash != row.Value))
-                                continue;
-                        }
-                        string guarded = "(" + predicate + ") AND id = @key AND last_update_utc " + (key.Version == null ? "IS NULL" : "= @version");
-                        string parentLock = _Provider == DatabaseTypeEnum.Mysql || _Provider == DatabaseTypeEnum.Postgresql ? " FOR UPDATE" : String.Empty;
-                        using (DbCommand parent = CreateCommand(connection, "SELECT id FROM missions" + hints + " WHERE " + guarded + parentLock + ";", timestampTable, cutoff, cutoffs))
-                        {
-                            parent.Transaction = transaction;
-                            ProductionFactSql.Add(parent, "@key", key.Id);
-                            if (key.Version != null) ProductionFactSql.Add(parent, "@version", key.Version);
-                            if (await parent.ExecuteScalarAsync(token).ConfigureAwait(false) == null) continue;
-                        }
-                        using (DbCommand related = connection.CreateCommand())
-                        {
-                            related.Transaction = transaction;
-                            related.CommandText = "UPDATE missions SET parent_mission_id = NULL WHERE parent_mission_id = @key;"
-                                + " DELETE FROM mission_attempt_provenance WHERE mission_id = @key;";
-                            ProductionFactSql.Add(related, "@key", key.Id);
-                            await related.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                        }
-                        using (DbCommand remove = CreateCommand(connection, "DELETE FROM missions WHERE " + guarded + ";", timestampTable, cutoff, cutoffs))
-                        {
-                            remove.Transaction = transaction;
-                            ProductionFactSql.Add(remove, "@key", key.Id);
-                            if (key.Version != null) ProductionFactSql.Add(remove, "@version", key.Version);
-                            if (await DeleteAsync(remove, "missions", token).ConfigureAwait(false) != 1)
-                                throw new InvalidOperationException("Mission changed during related-history expiry; the delete chunk is rolled back.");
-                        }
-                        chunkDeleted++;
-                    }
-                    await transaction.CommitAsync(token).ConfigureAwait(false);
-                    deleted += chunkDeleted;
                 }
             }
             result?.Add("missions", deleted);
@@ -469,10 +475,12 @@ namespace Armada.Core.Database
                     if (capture == null) await exporter.ExportAsync(table, reader, token).ConfigureAwait(false);
                     else
                     {
-                        using CapturingExpiryReader captured = new CapturingExpiryReader(reader, capture);
-                        int count = await exporter.ExportAsync(table, captured, token).ConfigureAwait(false);
-                        if (!captured.Completed || count != captured.Count)
-                            throw new InvalidOperationException("Data expiry exporter did not consume the complete " + table + " snapshot.");
+                        using (CapturingExpiryReader captured = new CapturingExpiryReader(reader, capture))
+                        {
+                            int count = await exporter.ExportAsync(table, captured, token).ConfigureAwait(false);
+                            if (!captured.Completed || count != captured.Count)
+                                throw new InvalidOperationException("Data expiry exporter did not consume the complete " + table + " snapshot.");
+                        }
                     }
                 }
             }

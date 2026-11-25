@@ -51,18 +51,20 @@ namespace Armada.Core.Services
                 // Match the checkout owner's one-MiB complete-text limit. Read at most one extra
                 // byte so a file that grows after the length check cannot make this read unbounded.
                 const int limit = 1024 * 1024;
-                using FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                if (stream.Length > limit) throw new IOException("Workspace text exceeds the read limit.");
-                byte[] bytes = new byte[limit + 1];
-                int count = 0;
-                while (count < bytes.Length)
+                using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 {
-                    int read = await stream.ReadAsync(bytes.AsMemory(count), token).ConfigureAwait(false);
-                    if (read == 0) break;
-                    count += read;
+                    if (stream.Length > limit) throw new IOException("Workspace text exceeds the read limit.");
+                    byte[] bytes = new byte[limit + 1];
+                    int count = 0;
+                    while (count < bytes.Length)
+                    {
+                        int read = await stream.ReadAsync(bytes.AsMemory(count), token).ConfigureAwait(false);
+                        if (read == 0) break;
+                        count += read;
+                    }
+                    if (count > limit) throw new IOException("Workspace text exceeds the read limit.");
+                    return new System.Text.UTF8Encoding(false, true).GetString(bytes, 0, count);
                 }
-                if (count > limit) throw new IOException("Workspace text exceeds the read limit.");
-                return new System.Text.UTF8Encoding(false, true).GetString(bytes, 0, count);
             }
             string address = WorkspaceAddress(path, out string relative);
             return await RequireHarborCheckouts().ReadTextAsync(address, relative, token).ConfigureAwait(false);
