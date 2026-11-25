@@ -39,7 +39,7 @@ namespace Armada.Server.Routes
                 { return ReplayError(req, 400, ApiResultEnum.BadRequest, "The administrative correction request is invalid."); }
                 catch (InvalidOperationException)
                 { return ReplayError(req, 409, ApiResultEnum.Conflict, "Read a fresh preview and resolve its source and graph blockers; nothing changed."); }
-            }, api => api.WithTag("Voyages").WithSummary("Preview or correct an evidenced planning-only administrative completion without restarting work")
+            }, api => api.WithTag("Voyages").WithSummary("Preview or correct an evidenced administrative completion without restarting work")
                 .WithRequestBody(OpenApiJson.BodyFor<AdministrativeVoyageRecoveryRequest>("Preview first; apply requires the exact current fingerprint", true))
                 .WithResponse(200, OpenApiJson.For<AdministrativeVoyageRecoveryPlan>("Evidence-bound preview or correction receipt")).WithSecurity("ApiKey"));
         }

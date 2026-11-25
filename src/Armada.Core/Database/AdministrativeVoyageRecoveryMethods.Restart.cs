@@ -45,7 +45,9 @@ namespace Armada.Core.Database
                 {
                     PermitId = permit.PermitId, MissionId = missionId, VoyageId = permit.VoyageId,
                     OriginalCreatedUtc = target.CreatedUtc, DependencyId = target.DependsOnMissionId,
-                    DependencyCommit = permit.PlanningSourceCommit, SourceCommit = permit.Disposition.PreservedSourceCommit,
+                    DependencyCommit = current.Missions.Single(m => m.Id == target.DependsOnMissionId).CommitHash
+                        ?? throw new InvalidOperationException("The preserved dependency has no source commit."),
+                    SourceCommit = permit.Disposition.PreservedSourceCommit,
                     PriorSnapshot = current.Json
                 };
                 string consumedId = "evt_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(permit.PermitId))).ToLowerInvariant().Substring(0, 20);

@@ -6,7 +6,7 @@ namespace Armada.Core.Services
     using Armada.Core.Authorization;
     using Armada.Core.Enums;
     using Armada.Core.Models;
-    /// <summary>Fail-closed stored-graph eligibility for correcting a planning-only completion.</summary>
+    /// <summary>Fail-closed stored-graph eligibility for correcting an evidenced administrative completion.</summary>
     public static class AdministrativeVoyageRecoveryRule
     {
         /// <summary>Return every required graph or source-evidence gap. This rule never changes state.</summary>
@@ -24,7 +24,7 @@ namespace Armada.Core.Services
                 blockers.Add("voyage_not_finalized_complete");
             if (sourceCommit.Length != 40 || sourceCommit.Any(c => !Uri.IsHexDigit(c)))
                 blockers.Add("exact_source_commit_required");
-            List<Mission> stages = missions.OrderBy(m => m.StageOrder).ThenBy(m => m.Id, StringComparer.Ordinal).ToList();
+            List<Mission> stages = OrderedStages(missions);
             if (stages.Count < 2) { blockers.Add("required_stage_graph_missing"); return blockers; }
             Mission planner = stages[0];
             if (!PersonaCatalog.Matches(planner.Persona, "Architect") || planner.Status != MissionStatusEnum.Complete
@@ -33,6 +33,7 @@ namespace Armada.Core.Services
                 || !String.Equals(planner.CommitHash, sourceCommit, StringComparison.OrdinalIgnoreCase))
                 blockers.Add("planning_only_anchor_unproved");
             string? chain = planner.StageChainId;
+            bool reviewContinuation = historicalEvidence && IsCompletedProducerReviewContinuation(stages, historicalWork);
             foreach (Mission stage in stages)
             {
                 if (!OwnershipPolicy.SameTenant(stage.TenantId, tenantId)
@@ -55,6 +56,7 @@ namespace Armada.Core.Services
                     && !String.Equals(stage.CommitHash, sourceCommit, StringComparison.OrdinalIgnoreCase))
                     blockers.Add("conflicting_historical_commit:" + stage.Id);
                 if (index == 0) continue;
+                if (reviewContinuation && index == 1) continue;
                 bool cancelledByOperator = OperatorStop.IsOperatorStopped(stage.FailureReason)
                     || String.Equals(stage.FailureReason, "Mission cancelled by operator.", StringComparison.Ordinal)
                     || (stage.FailureReason ?? String.Empty).StartsWith(
@@ -71,5 +73,38 @@ namespace Armada.Core.Services
             }
             return blockers;
         }
+
+        /// <summary>
+        /// Recognize only the intact six-role implementation chain whose completed producer precedes the first
+        /// cancelled TestEngineer. This identifies a graph shape, not source verification or an acceptance decision.
+        /// </summary>
+        public static bool IsCompletedProducerReviewContinuation(IReadOnlyList<Mission> missions, HistoricalWorkDisposition? work)
+        {
+            if (missions == null) throw new ArgumentNullException(nameof(missions));
+            if (work == null || String.IsNullOrEmpty(work.PreservedSourceCommit)) return false;
+            List<Mission> stages = OrderedStages(missions);
+            string[] roles = { "Architect", "Worker", "TestEngineer", "Linter", "Worker", "Judge" };
+            if (stages.Count != roles.Length) return false;
+            for (int index = 0; index < roles.Length; index++)
+                if (!PersonaCatalog.Matches(stages[index].Persona, roles[index]) || stages[index].Mode != MissionModeEnum.Implementation)
+                    return false;
+            Mission planner = stages[0];
+            Mission producer = stages[1];
+            Mission review = stages[2];
+            if (planner.Status != MissionStatusEnum.Complete || producer.Status != MissionStatusEnum.Complete
+                || producer.DependsOnMissionId != planner.Id || review.DependsOnMissionId != producer.Id
+                || review.Id != work.MissionId || !stages.Skip(2).All(stage => stage.Status == MissionStatusEnum.Cancelled)
+                || !String.Equals(producer.StartFromRef, planner.CommitHash, StringComparison.OrdinalIgnoreCase)
+                || !String.Equals(producer.CommitHash, work.PreservedSourceCommit, StringComparison.OrdinalIgnoreCase)
+                || !String.Equals(review.StartFromRef, work.PreservedSourceCommit, StringComparison.OrdinalIgnoreCase)
+                || !producer.CompletedUtc.HasValue || !review.CompletedUtc.HasValue
+                || producer.CompletedUtc.Value > (review.StartedUtc ?? review.CompletedUtc.Value)) return false;
+            if (producer.RequiresReview && (!producer.ReviewedUtc.HasValue || String.IsNullOrEmpty(producer.ReviewedByUserId)
+                || producer.ReviewedUtc.Value > (review.StartedUtc ?? review.CompletedUtc.Value))) return false;
+            return true;
+        }
+
+        private static List<Mission> OrderedStages(IReadOnlyList<Mission> missions) =>
+            missions.OrderBy(m => m.StageOrder).ThenBy(m => m.Id, StringComparer.Ordinal).ToList();
     }
 }

@@ -126,8 +126,9 @@ namespace Armada.Server
         {
             HistoricalWorkDisposition work = request.HistoricalWork!;
             Mission? target = stages.SingleOrDefault(m => m.Id == work.MissionId);
-            if (target == null || !PersonaCatalog.Matches(target.Persona, PersonaCatalog.Worker)
-                || target.DependsOnMissionId != planner.Id || target.Status != MissionStatusEnum.Cancelled
+            bool reviewContinuation = AdministrativeVoyageRecoveryRule.IsCompletedProducerReviewContinuation(stages, work);
+            if (target == null || (!reviewContinuation && (!PersonaCatalog.Matches(target.Persona, PersonaCatalog.Worker)
+                || target.DependsOnMissionId != planner.Id)) || target.Status != MissionStatusEnum.Cancelled
                 || !IsDigest(work.NativeEvidenceSHA256) || !IsDigest(work.CountsEvidenceSHA256)
                 || String.IsNullOrWhiteSpace(work.Reason) || work.Reason.Length > 2000
                 || String.IsNullOrWhiteSpace(work.PreservedSourceRef)

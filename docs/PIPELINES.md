@@ -39,15 +39,15 @@ remain terminal; this rule does not reopen or rewrite past outcomes.
 `POST /api/v1/voyages/{id}/administrative-completion-correction` is an explicit
 exact-owner global operator action. Preview with `dryRun: true` and the exact
 `sourceCommit`. Apply uses `dryRun: false` and the returned
-`expectedFingerprint`. The action corrects only a planning-only administrative
-Complete outcome to Failed. It preserves the original completion time and every
+`expectedFingerprint`. The action corrects an evidenced administrative Complete
+outcome to Failed. It preserves the original completion time and every
 mission row. The audit event `voyage.administrative_completion_corrected`
 retains the prior voyage, full stage rows and the verified source evidence in
 the same transaction as the status correction. It does not launch a stage,
 accept a report, reset a budget or broaden ordinary restart.
 
-The original linear stage graph and exact owner must remain intact. The only
-Complete stage must be an Implementation Architect whose retained planning
+The original linear stage graph and exact owner must remain intact. In the
+planning-only shape, the only Complete stage is an Implementation Architect whose retained planning
 branch still resolves to its exact starting commit. The server fetches the
 repository and checks source objects and stage landing trailers. Landing or
 checkout lineage, landed attempt facts, unresolved Checks, active captains,
@@ -55,9 +55,22 @@ rescue descendants and completion or landing handling all refuse correction.
 The fingerprint binds current database rows and the source evidence; any change
 requires a new preview.
 
+A historical first-review continuation also supports one exact six-role
+implementation chain: Architect, Worker, TestEngineer, Linter, revising Worker,
+Judge. The Architect and first Worker are Complete; every later stage is
+Cancelled. The named target is the first TestEngineer, whose starting commit
+matches the completed Worker's retained commit. The Worker starts from the
+Architect's commit and completes before that review starts (or is cancelled
+without starting). A Worker that requires review must have its recorded approval
+before that boundary. The completed producer's `mission.completed` event records
+its delivered duty; it does not accept the whole work. A native landing event,
+a completed review event, or any existing landing fact still refuses correction.
+Other graph shapes remain outside this continuation. Completed producer rows and
+their review records are never reset.
+
 Saved historical work uses an explicit `historicalWork` disposition. The exact
 owner states `kind: Unaccepted` and binds the current preview fingerprint,
-original Worker, retained recovery ref and commit, latest owned cancellation
+cancelled target, retained recovery ref and commit, latest owned cancellation
 event, retained native-evidence digest, count-evidence digest and truthful
 reason. This is an owner decision about acceptance, not machine proof or a
 boolean override. The server independently verifies the retained ref and object,
@@ -74,14 +87,14 @@ immutable audit. An explicit subsequent REST, MCP or WebSocket restart supplies
 `administrativeRestartPermitId`. That request rechecks the exact owner, current
 graph, source and cancellation evidence under recovery, execution, publication,
 completion and capacity guards. Permit consumption and the same-ID mission
-reset commit atomically with an immutable prior-state receipt. Only that Worker
+reset commit atomically with an immutable prior-state receipt. Only that cancelled target
 returns Pending and its original voyage returns InProgress. Normal voyage Checks
 are armed again; the correction service launches no command. Other required
 stages remain stopped. No budget, recovery count, original creation time or
 source-history record is reset.
 
-The consumed epoch provisions the exact preserved commit instead of inheriting
-the planner's unchanged branch. It resumes that preserved work without
+The consumed epoch provisions the exact preserved commit and binds the unchanged
+immediate dependency's commit. It resumes that preserved work without
 rematerializing the Architect plan. Ordinary slice admission still requires the
 complete graph and current permissions. Dependency identity and review duties remain;
 there is no default-branch fallback. An ordinary later restart invalidates the

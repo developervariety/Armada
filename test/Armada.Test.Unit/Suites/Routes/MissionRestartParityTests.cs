@@ -41,6 +41,7 @@ namespace Armada.Test.Unit.Suites.Routes
             await RunResearchReplayTestsAsync().ConfigureAwait(false);
             await RunAdministrativeCorrectionTestsAsync().ConfigureAwait(false);
             await RunHistoricalPermitTestsAsync().ConfigureAwait(false);
+            await RunCompletedProducerReviewTestsAsync().ConfigureAwait(false);
             await RunTest("ResearchReplay_PreviewsFullChainWithoutChangingCompletedDutiesOrFailedVerdict", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))

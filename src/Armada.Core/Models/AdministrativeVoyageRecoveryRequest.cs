@@ -1,6 +1,6 @@
 namespace Armada.Core.Models
 {
-    /// <summary>Explicit correction of a planning-only administrative completion; never a restart.</summary>
+    /// <summary>Explicit correction of an evidenced administrative completion; never a restart.</summary>
     public sealed class AdministrativeVoyageRecoveryRequest
     {
         /// <summary>Return evidence and blockers without changing state.</summary>

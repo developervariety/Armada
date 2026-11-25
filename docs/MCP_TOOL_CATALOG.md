@@ -217,7 +217,9 @@ An explicit `administrativeRestartPermitId` uses the separate exact-owner
 contract. It consumes an already issued one-use permit for saved unaccepted work;
 it does not make ordinary Complete voyages restartable. The source, graph,
 owner and issued instructions must remain unchanged. Correction itself starts
-no mission, and permit consumption releases only its named original Worker.
+no mission, and permit consumption releases only its named cancelled target:
+the original Worker or the first TestEngineer of a supported completed-producer
+chain. Completed producers and all other required stages stay unchanged.
 
 A restarted Judge whose earlier run ended `FAIL` or `NEEDS_REVISION` carries a
 bounded, historical excerpt of that run in its description (at most 6000

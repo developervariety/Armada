@@ -16,7 +16,7 @@ namespace Armada.Core.Models
         public string SourceCommit { get; set; } = String.Empty;
         /// <summary>Preserved dependency identity.</summary>
         public string? DependencyId { get; set; }
-        /// <summary>Planner commit that the source must include.</summary>
+        /// <summary>Commit of the unchanged immediate dependency that the source must include.</summary>
         public string DependencyCommit { get; set; } = String.Empty;
         /// <summary>Complete prior corrected state; it preserves output, reason, counters and source.</summary>
         public string PriorSnapshot { get; set; } = String.Empty;

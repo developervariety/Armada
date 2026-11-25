@@ -46,7 +46,7 @@ namespace Armada.Core.Database
                     throw new InvalidOperationException("Administrative completion correction is unproved or its preview is stale; nothing changed.");
                 DateTime now = DateTime.UtcNow;
                 ArmadaEvent audit = new ArmadaEvent("voyage.administrative_completion_corrected",
-                    "Planning-only administrative completion corrected to Failed; no mission restarted or accepted.")
+                    "Evidenced administrative completion corrected to Failed; no mission restarted or accepted.")
                 { TenantId = tenantId, UserId = userId, EntityType = "voyage", EntityId = voyageId, VoyageId = voyageId,
                     Payload = JsonSerializer.Serialize(new { PriorSnapshot = json, PriorFingerprint = plan.Fingerprint,
                         OwnerDisposition = request.HistoricalWork }), CreatedUtc = now };
@@ -143,6 +143,10 @@ namespace Armada.Core.Database
             List<string> blockers = evaluateEligibility
                 ? AdministrativeVoyageRecoveryRule.FindBlockers(voyage, missions, tenantId, userId, request.SourceCommit,
                     request.HistoricalWork, request.CapturedHistoricalEvidence) : new List<string>();
+            bool reviewContinuation = request.CapturedHistoricalEvidence
+                && AdministrativeVoyageRecoveryRule.IsCompletedProducerReviewContinuation(missions, request.HistoricalWork);
+            string? completedProducerId = reviewContinuation
+                ? missions.Single(stage => stage.Id == request.HistoricalWork!.MissionId).DependsOnMissionId : null;
             if (String.IsNullOrEmpty(request.CapturedSourceEvidence)) blockers.Add("repository_source_evidence_required");
             foreach (Mission mission in missions)
             {
@@ -160,9 +164,10 @@ namespace Armada.Core.Database
                     "mission_id=@id AND event_type NOT IN ('mission.administrative_restart_permit_issued','mission.administrative_restart_consumed')",
                     mission.Id, token).ConfigureAwait(false);
                 snapshot["nativeEvents:" + mission.Id] = nativeEvents;
-                if (!String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase)
-                    && nativeEvents.Any(row => Convert.ToString(row["event_type"]) == "mission.completed"
-                        || Convert.ToString(row["event_type"]) == "mission.landed"))
+                if (nativeEvents.Any(row => Convert.ToString(row["event_type"]) == "mission.landed"
+                    || (Convert.ToString(row["event_type"]) == "mission.completed"
+                        && !String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase)
+                        && mission.Id != completedProducerId)))
                     blockers.Add("conflicting_accepted_native_outcome:" + mission.Id);
                 if (!request.CapturedHistoricalEvidence && ((mission.Status == MissionStatusEnum.Cancelled && facts.Count > 0)
                     || facts.Any(row => Convert.ToString(row["fact_type"]) == "Restarted" || Convert.ToString(row["fact_type"]) == "Retried")))

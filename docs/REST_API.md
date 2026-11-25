@@ -1769,8 +1769,10 @@ A voyage is a batch of related missions tracked together.
 
 #### POST /api/v1/voyages/{id}/administrative-completion-correction
 
-An exact-owner global administrator previews or corrects a planning-only
-administrative `Complete` outcome. Captain and Ask callers are refused.
+An exact-owner global administrator previews or corrects an evidenced
+administrative `Complete` outcome. Supported shapes are planning-only work and
+the first cancelled TestEngineer after a completed producer in the exact six-role
+implementation chain. Captain and Ask callers are refused.
 
 | Field | Type | Description |
 |---|---|---|
