@@ -2,10 +2,13 @@ namespace Armada.Core.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Data;
     using System.Data.Common;
     using System.Globalization;
     using System.Linq;
+    using System.Security.Cryptography;
     using System.Text;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
@@ -15,8 +18,7 @@ namespace Armada.Core.Database
 
     /// <summary>
     /// Provider-neutral retention purge. The retention rules are written once here; the only
-    /// per-provider facts are how each table stores its timestamps and how the <c>read</c> column is
-    /// quoted.
+    /// per-provider facts are timestamps, quoting and the short locks that protect related history.
     /// </summary>
     public sealed class DataExpiryMethods : IDataExpiryMethods
     {
@@ -62,6 +64,7 @@ namespace Armada.Core.Database
             ["request_history"] = new ExpiryIdentity("id", null),
             ["request_history_detail"] = new ExpiryIdentity("request_history_id", null),
             ["mission_attempt_facts"] = new ExpiryIdentity("id", null),
+            ["mission_attempt_provenance"] = new ExpiryIdentity("id", null),
             ["preparation_claim_observations"] = new ExpiryIdentity("id", null),
             ["lane_state_transitions"] = new ExpiryIdentity("id", null)
         };
@@ -148,19 +151,12 @@ namespace Armada.Core.Database
                 string expiredStandaloneMissions = "voyage_id IS NULL AND status IN (" + Literals(ExpiringStandaloneMissionStatuses) + ")"
                     + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff";
 
-                // A mission whose parent expires loses the link instead of blocking the delete, matching
-                // ON DELETE SET NULL on the providers whose foreign key declares it.
-                await ExecuteAsync(connection, "missions", null, ClearParentSql(missionsOfExpiredVoyages), "voyages", cutoff, cutoffs, token).ConfigureAwait(false);
-                // Attempt provenance goes with its mission. The rows are deleted first, so a provider whose connection
-                // does not enforce a cascading foreign key leaves none behind.
-                await ExecuteAsync(connection, "mission_attempt_provenance", null, "DELETE FROM mission_attempt_provenance WHERE mission_id IN (SELECT id FROM missions WHERE " + missionsOfExpiredVoyages + ");", "voyages", cutoff, cutoffs, token).ConfigureAwait(false);
+                // Related history is removed only with a mission that still matches its exported state.
                 await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + missionsOfExpiredVoyages + ";", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
                 // A voyage that still has missions (one kept because it changed after its export) waits for the next pass.
                 await ExecuteAsync(connection, "voyages", result, "DELETE FROM voyages WHERE status IN (" + Literals(ExpiringVoyageStatuses) + ")"
                     + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff"
                     + " AND NOT EXISTS (SELECT 1 FROM missions WHERE missions.voyage_id = voyages.id);", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
-                await ExecuteAsync(connection, "missions", null, ClearParentSql(expiredStandaloneMissions), "missions", cutoff, cutoffs, token).ConfigureAwait(false);
-                await ExecuteAsync(connection, "mission_attempt_provenance", null, "DELETE FROM mission_attempt_provenance WHERE mission_id IN (SELECT id FROM missions WHERE " + expiredStandaloneMissions + ");", "missions", cutoff, cutoffs, token).ConfigureAwait(false);
                 await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + expiredStandaloneMissions + ";", "missions", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
 
                 await ExecuteAsync(connection, "signals", result, "DELETE FROM signals WHERE " + ReadColumn() + " = @true AND created_utc < @cutoff;",
@@ -205,17 +201,14 @@ namespace Armada.Core.Database
                 + " WHERE latest_snapshots.entity_id = events.entity_id AND latest_snapshots.latest_utc > events.created_utc)";
         }
 
-        private static string ClearParentSql(string expiredMissionPredicate)
-        {
-            // The inner derived table is materialized first, so providers that refuse to read the table
-            // they update in a subquery accept the statement.
-            return "UPDATE missions SET parent_mission_id = NULL WHERE parent_mission_id IN (SELECT id FROM (SELECT id FROM missions WHERE "
-                + expiredMissionPredicate + ") expired_missions);";
-        }
-
         private async Task ExecuteAsync(DbConnection connection, string table, DataExpiryResult? result, string sql, string timestampTable,
             DateTime cutoff, DataExpiryCutoffs cutoffs, CancellationToken token, IDataExpiryRowExporter? exporter = null)
         {
+            if (table == "missions")
+            {
+                await DeleteMissionsAsync(connection, result, sql, timestampTable, cutoff, cutoffs, exporter, token).ConfigureAwait(false);
+                return;
+            }
             if (exporter != null)
             {
                 await DeleteExportedAsync(connection, table, result, sql, timestampTable, cutoff, cutoffs, exporter, token).ConfigureAwait(false);
@@ -230,6 +223,118 @@ namespace Armada.Core.Database
                     result?.Add(table, deleted);
                 }
             }
+        }
+
+        private async Task DeleteMissionsAsync(DbConnection connection, DataExpiryResult? result, string sql, string timestampTable,
+            DateTime cutoff, DataExpiryCutoffs cutoffs, IDataExpiryRowExporter? exporter, CancellationToken token)
+        {
+            ExpiryIdentity identity = _ExportedIdentities["missions"];
+            List<ExpiredRowKey> keys = new List<ExpiredRowKey>();
+            Dictionary<string, Dictionary<string, string>> exportedAttempts = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+            if (exporter == null)
+                keys = await SnapshotKeysAsync(connection, "missions", identity, sql, timestampTable, cutoff, cutoffs, token).ConfigureAwait(false);
+            else
+                await ExportAsync(connection, "missions", sql, timestampTable, cutoff, cutoffs, exporter, token,
+                    row => keys.Add(new ExpiredRowKey(row["id"], row["last_update_utc"] is DBNull ? null : row["last_update_utc"]))).ConfigureAwait(false);
+            if (keys.Count == 0) { result?.Add("missions", 0); return; }
+
+            int whereAt = sql.IndexOf(_WherePrefix, StringComparison.Ordinal);
+            if (whereAt < 0) throw new InvalidOperationException("Mission expiry needs a WHERE clause.");
+            string predicate = sql.Substring(whereAt + _WherePrefix.Length).TrimEnd().TrimEnd(';');
+            if (exporter != null)
+            {
+                string attemptSql = "DELETE FROM mission_attempt_provenance WHERE mission_id IN (SELECT id FROM missions WHERE " + predicate + ");";
+                await ExportAsync(connection, "mission_attempt_provenance", attemptSql, timestampTable, cutoff, cutoffs, exporter, token, row =>
+                {
+                    string missionId = Convert.ToString(row["mission_id"], CultureInfo.InvariantCulture)!;
+                    if (!exportedAttempts.TryGetValue(missionId, out Dictionary<string, string>? attempts))
+                        exportedAttempts[missionId] = attempts = new Dictionary<string, string>(StringComparer.Ordinal);
+                    attempts.Add(Convert.ToString(row["id"], CultureInfo.InvariantCulture)!, Fingerprint(row));
+                }).ConfigureAwait(false);
+            }
+
+            int deleted = 0;
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
+            {
+                for (int offset = 0; offset < keys.Count; offset += _DeleteChunkSize)
+                {
+                    using DbTransaction transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token).ConfigureAwait(false);
+                    // PostgreSQL row locks do not protect absent attempt rows: there is no mission
+                    // foreign key. Hold a write-conflicting table lock only for this delete chunk.
+                    if (_Provider == DatabaseTypeEnum.Postgresql)
+                    {
+                        using DbCommand tableLock = connection.CreateCommand();
+                        tableLock.Transaction = transaction;
+                        tableLock.CommandText = "LOCK TABLE mission_attempt_provenance IN SHARE ROW EXCLUSIVE MODE;";
+                        await tableLock.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                    int chunkDeleted = 0;
+                    for (int i = offset; i < Math.Min(keys.Count, offset + _DeleteChunkSize); i++)
+                    {
+                        ExpiredRowKey key = keys[i];
+                        string missionId = Convert.ToString(key.Id, CultureInfo.InvariantCulture)!;
+                        string hints = _Provider == DatabaseTypeEnum.SqlServer ? " WITH (UPDLOCK, HOLDLOCK)" : String.Empty;
+                        string attemptLock = _Provider == DatabaseTypeEnum.Mysql ? " FOR UPDATE" : String.Empty;
+                        Dictionary<string, string> currentAttempts = new Dictionary<string, string>(StringComparer.Ordinal);
+                        using (DbCommand readAttempts = connection.CreateCommand())
+                        {
+                            readAttempts.Transaction = transaction;
+                            readAttempts.CommandText = "SELECT * FROM mission_attempt_provenance" + hints + " WHERE mission_id = @key ORDER BY id" + attemptLock + ";";
+                            ProductionFactSql.Add(readAttempts, "@key", key.Id);
+                            using DbDataReader rows = await readAttempts.ExecuteReaderAsync(token).ConfigureAwait(false);
+                            while (await rows.ReadAsync(token).ConfigureAwait(false))
+                                currentAttempts.Add(Convert.ToString(rows["id"], CultureInfo.InvariantCulture)!, Fingerprint(rows));
+                        }
+                        if (exporter != null)
+                        {
+                            exportedAttempts.TryGetValue(missionId, out Dictionary<string, string>? expected);
+                            if (currentAttempts.Count != (expected?.Count ?? 0)
+                                || currentAttempts.Any(row => expected == null || !expected.TryGetValue(row.Key, out string? hash) || hash != row.Value))
+                                continue;
+                        }
+                        string guarded = "(" + predicate + ") AND id = @key AND last_update_utc " + (key.Version == null ? "IS NULL" : "= @version");
+                        string parentLock = _Provider == DatabaseTypeEnum.Mysql || _Provider == DatabaseTypeEnum.Postgresql ? " FOR UPDATE" : String.Empty;
+                        using (DbCommand parent = CreateCommand(connection, "SELECT id FROM missions" + hints + " WHERE " + guarded + parentLock + ";", timestampTable, cutoff, cutoffs))
+                        {
+                            parent.Transaction = transaction;
+                            ProductionFactSql.Add(parent, "@key", key.Id);
+                            if (key.Version != null) ProductionFactSql.Add(parent, "@version", key.Version);
+                            if (await parent.ExecuteScalarAsync(token).ConfigureAwait(false) == null) continue;
+                        }
+                        using (DbCommand related = connection.CreateCommand())
+                        {
+                            related.Transaction = transaction;
+                            related.CommandText = "UPDATE missions SET parent_mission_id = NULL WHERE parent_mission_id = @key;"
+                                + " DELETE FROM mission_attempt_provenance WHERE mission_id = @key;";
+                            ProductionFactSql.Add(related, "@key", key.Id);
+                            await related.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                        using (DbCommand remove = CreateCommand(connection, "DELETE FROM missions WHERE " + guarded + ";", timestampTable, cutoff, cutoffs))
+                        {
+                            remove.Transaction = transaction;
+                            ProductionFactSql.Add(remove, "@key", key.Id);
+                            if (key.Version != null) ProductionFactSql.Add(remove, "@version", key.Version);
+                            if (await DeleteAsync(remove, "missions", token).ConfigureAwait(false) != 1)
+                                throw new InvalidOperationException("Mission changed during related-history expiry; the delete chunk is rolled back.");
+                        }
+                        chunkDeleted++;
+                    }
+                    await transaction.CommitAsync(token).ConfigureAwait(false);
+                    deleted += chunkDeleted;
+                }
+            }
+            result?.Add("missions", deleted);
+        }
+
+        private static string Fingerprint(DbDataReader row)
+        {
+            object?[] values = new object?[row.FieldCount];
+            for (int i = 0; i < values.Length; i++)
+            {
+                object value = row.GetValue(i);
+                values[i] = value is DBNull ? null : value;
+            }
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values))));
         }
 
         // The exported rows are the only rows deleted. The identity (and version, where the table has
@@ -342,7 +447,7 @@ namespace Armada.Core.Database
         // Reads the rows a delete statement selects, with the same predicate and parameters, and hands
         // them to the exporter before the delete runs.
         private async Task ExportAsync(DbConnection connection, string table, string deleteSql, string timestampTable,
-            DateTime cutoff, DataExpiryCutoffs cutoffs, IDataExpiryRowExporter exporter, CancellationToken token)
+            DateTime cutoff, DataExpiryCutoffs cutoffs, IDataExpiryRowExporter exporter, CancellationToken token, Action<DbDataReader>? capture = null)
         {
             if (!deleteSql.StartsWith(_DeletePrefix, StringComparison.Ordinal))
                 throw new InvalidOperationException("data expiry export of " + table + " needs a DELETE FROM statement");
@@ -361,7 +466,14 @@ namespace Armada.Core.Database
 
                 await using (reader.ConfigureAwait(false))
                 {
-                    await exporter.ExportAsync(table, reader, token).ConfigureAwait(false);
+                    if (capture == null) await exporter.ExportAsync(table, reader, token).ConfigureAwait(false);
+                    else
+                    {
+                        using CapturingExpiryReader captured = new CapturingExpiryReader(reader, capture);
+                        int count = await exporter.ExportAsync(table, captured, token).ConfigureAwait(false);
+                        if (!captured.Completed || count != captured.Count)
+                            throw new InvalidOperationException("Data expiry exporter did not consume the complete " + table + " snapshot.");
+                    }
                 }
             }
         }
@@ -449,6 +561,58 @@ namespace Armada.Core.Database
         #endregion
 
         #region Nested-Types
+
+        // Capture the identity/state from the same rows the exporter consumes, before an observer
+        // can change the database. Only keys and fingerprints survive the streamed export.
+        private sealed class CapturingExpiryReader : DbDataReader
+        {
+            private readonly DbDataReader _Inner;
+            private readonly Action<DbDataReader> _Capture;
+            internal int Count { get; private set; }
+            internal bool Completed { get; private set; }
+            internal CapturingExpiryReader(DbDataReader inner, Action<DbDataReader> capture) { _Inner = inner; _Capture = capture; }
+            private bool Observed(bool hasRow)
+            {
+                if (hasRow) { _Capture(_Inner); Count++; }
+                else Completed = true;
+                return hasRow;
+            }
+            public override bool Read() => Observed(_Inner.Read());
+            public override async Task<bool> ReadAsync(CancellationToken token) => Observed(await _Inner.ReadAsync(token).ConfigureAwait(false));
+            public override object this[int ordinal] => _Inner[ordinal];
+            public override object this[string name] => _Inner[name];
+            public override int Depth => _Inner.Depth;
+            public override int FieldCount => _Inner.FieldCount;
+            public override bool HasRows => _Inner.HasRows;
+            public override bool IsClosed => _Inner.IsClosed;
+            public override int RecordsAffected => _Inner.RecordsAffected;
+            public override bool GetBoolean(int ordinal) => _Inner.GetBoolean(ordinal);
+            public override byte GetByte(int ordinal) => _Inner.GetByte(ordinal);
+            public override long GetBytes(int ordinal, long offset, byte[]? buffer, int start, int length) => _Inner.GetBytes(ordinal, offset, buffer, start, length);
+            public override char GetChar(int ordinal) => _Inner.GetChar(ordinal);
+            public override long GetChars(int ordinal, long offset, char[]? buffer, int start, int length) => _Inner.GetChars(ordinal, offset, buffer, start, length);
+            public override string GetDataTypeName(int ordinal) => _Inner.GetDataTypeName(ordinal);
+            public override DateTime GetDateTime(int ordinal) => _Inner.GetDateTime(ordinal);
+            public override decimal GetDecimal(int ordinal) => _Inner.GetDecimal(ordinal);
+            public override double GetDouble(int ordinal) => _Inner.GetDouble(ordinal);
+            public override Type GetFieldType(int ordinal) => _Inner.GetFieldType(ordinal);
+            public override float GetFloat(int ordinal) => _Inner.GetFloat(ordinal);
+            public override Guid GetGuid(int ordinal) => _Inner.GetGuid(ordinal);
+            public override short GetInt16(int ordinal) => _Inner.GetInt16(ordinal);
+            public override int GetInt32(int ordinal) => _Inner.GetInt32(ordinal);
+            public override long GetInt64(int ordinal) => _Inner.GetInt64(ordinal);
+            public override string GetName(int ordinal) => _Inner.GetName(ordinal);
+            public override int GetOrdinal(string name) => _Inner.GetOrdinal(name);
+            public override string GetString(int ordinal) => _Inner.GetString(ordinal);
+            public override object GetValue(int ordinal) => _Inner.GetValue(ordinal);
+            public override int GetValues(object[] values) => _Inner.GetValues(values);
+            public override bool IsDBNull(int ordinal) => _Inner.IsDBNull(ordinal);
+            public override bool NextResult() => _Inner.NextResult();
+            public override Task<bool> NextResultAsync(CancellationToken token) => _Inner.NextResultAsync(token);
+            public override System.Collections.IEnumerator GetEnumerator() => new DbEnumerator(this, false);
+            public override void Close() => _Inner.Close();
+            public override ValueTask DisposeAsync() => _Inner.DisposeAsync();
+        }
 
         private sealed class ExpiryIdentity
         {

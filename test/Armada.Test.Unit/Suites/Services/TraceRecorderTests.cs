@@ -327,12 +327,26 @@ namespace Armada.Test.Unit.Suites.Services
                         }).ConfigureAwait(false);
                         mission.CompletedUtc = DateTime.UtcNow.AddDays(-40);
                         await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        Mission child = await db.Missions.CreateAsync(new Mission("retained child", "")
+                        { Status = MissionStatusEnum.Pending, ParentMissionId = mission.Id }).ConfigureAwait(false);
+                        MissionAttemptProvenance attempt = await db.MissionAttempts.CreateAsync(new MissionAttemptProvenance
+                        { MissionId = mission.Id, ProcessId = 304, StartedUtc = DateTime.UtcNow.AddDays(-40) }).ConfigureAwait(false);
 
-                        FakeArchiveSink sink = new FakeArchiveSink();
+                        FakeArchiveSink sink = new FakeArchiveSink { FailKeysContaining = "/mission_attempt_provenance/" };
                         ArchiveSettings archive = new ArchiveSettings { Enabled = true, Endpoint = "https://archive.example", Bucket = "bucket", CredentialsFile = "/nonexistent/credentials", KeyPrefix = "armada" };
                         DataExpiryService expiry = new DataExpiryService(logging, db, 30, 0) { StagingDirectory = staging };
                         TraceRecorder recorder = new TraceRecorder(db, logging);
                         HistoryArchiveWiring.Connect(expiry, recorder, () => archive, _ => sink);
+
+                        bool refusedAttemptArchive = false;
+                        try { await expiry.PurgeExpiredDataAsync().ConfigureAwait(false); }
+                        catch (InvalidOperationException ex) { refusedAttemptArchive = ex.Message.Contains("not verified", StringComparison.Ordinal); }
+                        AssertTrue(refusedAttemptArchive, "An unverified attempt archive stops mission expiry.");
+                        AssertNotNull(await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false), "The mission remains after a rejected attempt export.");
+                        AssertEqual(mission.Id, (await db.Missions.ReadAsync(child.Id).ConfigureAwait(false))!.ParentMissionId,
+                            "A rejected attempt export retains the child's parent link.");
+                        AssertNotNull(await db.MissionAttempts.ReadAsync(attempt.Id).ConfigureAwait(false), "The unverified attempt remains locally.");
+                        sink.FailKeysContaining = null;
 
                         DataExpiryResult result = await expiry.PurgeExpiredDataAsync().ConfigureAwait(false);
 
@@ -344,6 +358,16 @@ namespace Armada.Test.Unit.Suites.Services
                         TraceArchivePointer pointer = trace.Document.Archive.Single();
                         AssertTrue(pointer.Key.StartsWith("armada/trace/", StringComparison.Ordinal) && sink.Objects.ContainsKey(pointer.Key), "the trace record points to its archived copy: " + pointer.Key);
                         AssertTrue(sink.Objects.Keys.Any(k => k.StartsWith("armada/raw/db/missions/", StringComparison.Ordinal)), "the mission row itself is exported to the archive");
+                        AssertNull(await db.MissionAttempts.ReadAsync(attempt.Id).ConfigureAwait(false), "Verified attempt history expires with the mission.");
+                        AssertNull((await db.Missions.ReadAsync(child.Id).ConfigureAwait(false))!.ParentMissionId, "The surviving child's link clears only after verified export.");
+                        string attemptKey = sink.Objects.Keys.Single(k => k.StartsWith("armada/raw/db/mission_attempt_provenance/", StringComparison.Ordinal));
+                        using (System.IO.Compression.GZipStream gzip = new System.IO.Compression.GZipStream(new MemoryStream(sink.Objects[attemptKey]), System.IO.Compression.CompressionMode.Decompress))
+                        using (StreamReader reader = new StreamReader(gzip))
+                        {
+                            string exportedAttempt = await reader.ReadToEndAsync().ConfigureAwait(false);
+                            AssertTrue(exportedAttempt.Contains(attempt.Id, StringComparison.Ordinal)
+                                && exportedAttempt.Contains(mission.Id, StringComparison.Ordinal), "The verified gzip payload contains the actual attempt and its mission.");
+                        }
 
                         await db.TraceRecords.DeleteAsync(new[] { mission.Id }).ConfigureAwait(false);
                         TraceChain chain = await recorder.TraceAsync(mission.Id).ConfigureAwait(false);

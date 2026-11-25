@@ -2,6 +2,7 @@ namespace Armada.Test.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -236,13 +237,25 @@ namespace Armada.Test.Database
                     { TenantId = tenant.Id, UserId = user.Id, MissionId = parent.Id, ProcessId = 301, StartedUtc = old }, token).ConfigureAwait(false);
                     attemptIds[parent.Id] = attempt.Id;
                 }
+                Mission attemptEdited = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-attempt-edited", token,
+                    configure: m => { m.Status = MissionStatusEnum.Complete; m.CompletedUtc = old; }).ConfigureAwait(false);
+                Mission attemptInserted = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-attempt-inserted", token,
+                    configure: m => { m.Status = MissionStatusEnum.Complete; m.CompletedUtc = old; }).ConfigureAwait(false);
+                Mission attemptEditedChild = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-attempt-edited-child", token,
+                    configure: m => { m.Status = MissionStatusEnum.Pending; m.ParentMissionId = attemptEdited.Id; }).ConfigureAwait(false);
+                Mission attemptInsertedChild = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-attempt-inserted-child", token,
+                    configure: m => { m.Status = MissionStatusEnum.Pending; m.ParentMissionId = attemptInserted.Id; }).ConfigureAwait(false);
+                MissionAttemptProvenance changingAttempt = await _Driver.MissionAttempts.CreateAsync(new MissionAttemptProvenance
+                { TenantId = tenant.Id, UserId = user.Id, MissionId = attemptEdited.Id, ProcessId = 302, StartedUtc = old }, token).ConfigureAwait(false);
                 Voyage reopening = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-race-reopening", token, v => { v.Status = VoyageStatusEnum.InProgress; v.CompletedUtc = old; }).ConfigureAwait(false);
 
                 DataExpiryCutoffs cutoffs = DataExpiryCutoffs.FromRetention(DateTime.UtcNow, 1, 0);
                 string editedTitle = edited.Title + "-edited";
                 bool missionEdited = false;
                 bool voyageReopened = false;
-                RecordingRowExporter racing1 = new RecordingRowExporter(async table =>
+                bool attemptChanged = false;
+                string? insertedAttemptId = null;
+                RecordingRowExporter racing1 = new RecordingRowExporter(async (table, ids) =>
                 {
                     // The writer acts once, in the window between a table's export and its delete.
                     if (table == "missions" && !missionEdited)
@@ -258,6 +271,24 @@ namespace Armada.Test.Database
                         Voyage current = DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(reopening.Id, token).ConfigureAwait(false), "The voyage is readable between export and delete");
                         current.Status = VoyageStatusEnum.Complete;
                         await _Driver.Voyages.UpdateAsync(current, token).ConfigureAwait(false);
+                    }
+                    else if (table == "mission_attempt_provenance" && ids.Contains(changingAttempt.Id) && !attemptChanged)
+                    {
+                        attemptChanged = true;
+                        DateTime editedVersion = (await _Driver.Missions.ReadAsync(attemptEdited.Id, token).ConfigureAwait(false))!.LastUpdateUtc;
+                        DateTime insertedVersion = (await _Driver.Missions.ReadAsync(attemptInserted.Id, token).ConfigureAwait(false))!.LastUpdateUtc;
+                        DatabaseAssert.Equal(0, (await _Driver.MissionAttempts.EnumerateByMissionAsync(tenant.Id, attemptInserted.Id, 10, token).ConfigureAwait(false)).Items.Count,
+                            "The insertion starts from the actually exported empty attempt set");
+                        DatabaseAssert.Equal(1, await _Driver.MissionAttempts.CloseAsync(attemptEdited.Id, 302,
+                            MissionAttemptOutcomeEnum.Completed, 0, "expiry-race", DateTime.UtcNow, token).ConfigureAwait(false),
+                            "The attempt changes after its actual export without changing the mission version");
+                        MissionAttemptProvenance inserted = await _Driver.MissionAttempts.CreateAsync(new MissionAttemptProvenance
+                        { TenantId = tenant.Id, UserId = user.Id, MissionId = attemptInserted.Id, ProcessId = 303, StartedUtc = old }, token).ConfigureAwait(false);
+                        insertedAttemptId = inserted.Id;
+                        DatabaseAssert.Equal(editedVersion, (await _Driver.Missions.ReadAsync(attemptEdited.Id, token).ConfigureAwait(false))!.LastUpdateUtc,
+                            "Closing an attempt does not change the parent version used by the delete guard");
+                        DatabaseAssert.Equal(insertedVersion, (await _Driver.Missions.ReadAsync(attemptInserted.Id, token).ConfigureAwait(false))!.LastUpdateUtc,
+                            "Inserting an attempt does not change the parent version used by the delete guard");
                     }
                 });
                 await _Driver.DataExpiry.PurgeExpiredAsync(cutoffs, racing1, token).ConfigureAwait(false);
@@ -278,6 +309,15 @@ namespace Armada.Test.Database
                     "Attempt history must pass through the exporter before its mission is deleted");
                 DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(racing.Id, token).ConfigureAwait(false), "A voyage that still has a mission waits for the next pass");
                 DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(reopening.Id, token).ConfigureAwait(false), "A voyage that started matching after the snapshot is kept");
+                DatabaseAssert.True(attemptChanged && insertedAttemptId != null, "The real attempt export triggered both related-history writers");
+                DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(attemptEdited.Id, token).ConfigureAwait(false), "A changed exported attempt retains its mission");
+                DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(attemptInserted.Id, token).ConfigureAwait(false), "An attempt inserted into an exported empty set retains its mission");
+                DatabaseAssert.Equal(attemptEdited.Id, (await _Driver.Missions.ReadAsync(attemptEditedChild.Id, token).ConfigureAwait(false))!.ParentMissionId,
+                    "A changed attempt keeps its surviving child's parent link");
+                DatabaseAssert.Equal(attemptInserted.Id, (await _Driver.Missions.ReadAsync(attemptInsertedChild.Id, token).ConfigureAwait(false))!.ParentMissionId,
+                    "A new attempt keeps its surviving child's parent link");
+                DatabaseAssert.Equal(MissionAttemptOutcomeEnum.Completed,
+                    (await _Driver.MissionAttempts.ReadAsync(changingAttempt.Id, token).ConfigureAwait(false))!.Outcome, "The completed attempt state survives");
 
                 RecordingRowExporter next = new RecordingRowExporter(null);
                 await _Driver.DataExpiry.PurgeExpiredAsync(cutoffs, next, token).ConfigureAwait(false);
@@ -292,6 +332,11 @@ namespace Armada.Test.Database
                     "The next pass exports retained attempt history before deleting the changed mission");
                 DatabaseAssert.True(await _Driver.Voyages.ReadAsync(racing.Id, token).ConfigureAwait(false) == null, "The voyage is deleted once its missions are gone");
                 DatabaseAssert.True(await _Driver.Voyages.ReadAsync(reopening.Id, token).ConfigureAwait(false) == null, "The voyage that started matching expires on the next pass");
+                DatabaseAssert.True(next.Ids("mission_attempt_provenance").Contains(changingAttempt.Id)
+                    && next.Ids("mission_attempt_provenance").Contains(insertedAttemptId!), "The next pass exports both retained attempt states");
+                DatabaseAssert.Equal("Completed", next.Outcomes("mission_attempt_provenance")[changingAttempt.Id], "The next archive contains the changed outcome");
+                foreach (Mission parent in new[] { attemptEdited, attemptInserted })
+                    DatabaseAssert.True(await _Driver.Missions.ReadAsync(parent.Id, token).ConfigureAwait(false) == null, "A now-unchanged mission expires with its exported attempt history");
             }
             finally
             {
@@ -301,11 +346,12 @@ namespace Armada.Test.Database
 
         private sealed class RecordingRowExporter : IDataExpiryRowExporter
         {
-            private readonly Func<string, Task>? _AfterExport;
+            private readonly Func<string, IReadOnlyList<string>, Task>? _AfterExport;
             private readonly Dictionary<string, List<string>> _Exported = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             private readonly Dictionary<string, Dictionary<string, string>> _ExportedTitles = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+            private readonly Dictionary<string, Dictionary<string, string>> _ExportedOutcomes = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
 
-            internal RecordingRowExporter(Func<string, Task>? afterExport)
+            internal RecordingRowExporter(Func<string, IReadOnlyList<string>, Task>? afterExport)
             {
                 _AfterExport = afterExport;
             }
@@ -313,20 +359,27 @@ namespace Armada.Test.Database
             internal List<string> Ids(string table) => _Exported.TryGetValue(table, out List<string>? ids) ? ids : new List<string>();
 
             internal Dictionary<string, string> Titles(string table) => _ExportedTitles.TryGetValue(table, out Dictionary<string, string>? titles) ? titles : new Dictionary<string, string>();
+            internal Dictionary<string, string> Outcomes(string table) => _ExportedOutcomes.TryGetValue(table, out Dictionary<string, string>? outcomes) ? outcomes : new Dictionary<string, string>();
 
             public async Task<int> ExportAsync(string table, System.Data.Common.DbDataReader rows, CancellationToken token)
             {
                 int count = 0;
                 List<string> ids = new List<string>();
                 Dictionary<string, string> titles = new Dictionary<string, string>();
+                Dictionary<string, string> outcomes = new Dictionary<string, string>();
                 int titleOrdinal = -1;
+                int outcomeOrdinal = -1;
                 for (int i = 0; i < rows.FieldCount; i++)
+                {
                     if (String.Equals(rows.GetName(i), "title", StringComparison.OrdinalIgnoreCase)) titleOrdinal = i;
+                    if (String.Equals(rows.GetName(i), "outcome", StringComparison.OrdinalIgnoreCase)) outcomeOrdinal = i;
+                }
                 while (await rows.ReadAsync(token).ConfigureAwait(false))
                 {
                     string id = Convert.ToString(rows.GetValue(rows.GetOrdinal("id")))!;
                     ids.Add(id);
                     if (titleOrdinal >= 0) titles[id] = Convert.ToString(rows.GetValue(titleOrdinal))!;
+                    if (outcomeOrdinal >= 0) outcomes[id] = Convert.ToString(rows.GetValue(outcomeOrdinal))!;
                     count++;
                 }
                 await rows.DisposeAsync().ConfigureAwait(false);
@@ -334,7 +387,9 @@ namespace Armada.Test.Database
                 _Exported[table].AddRange(ids);
                 if (!_ExportedTitles.ContainsKey(table)) _ExportedTitles[table] = new Dictionary<string, string>();
                 foreach (KeyValuePair<string, string> title in titles) _ExportedTitles[table][title.Key] = title.Value;
-                if (_AfterExport != null) await _AfterExport(table).ConfigureAwait(false);
+                if (!_ExportedOutcomes.ContainsKey(table)) _ExportedOutcomes[table] = new Dictionary<string, string>();
+                foreach (KeyValuePair<string, string> outcome in outcomes) _ExportedOutcomes[table][outcome.Key] = outcome.Value;
+                if (_AfterExport != null) await _AfterExport(table, ids).ConfigureAwait(false);
                 return count;
             }
         }

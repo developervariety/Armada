@@ -64,6 +64,12 @@ Every key starts with `archive.keyPrefix`.
 - `IDataExpiryObserver` receives each database row that data expiry is about to
   delete, before the delete runs. An observer that throws stops the run, so
   every row not yet deleted is kept.
+- Mission expiry exports attempt provenance with its mission. It then checks
+  the mission version and the complete attempt set again before it clears
+  child links or deletes attempt rows. A changed mission or attempt, including
+  an attempt added to an empty set, keeps that mission and its related history
+  for a later pass. Related cleanup and the final mission delete commit in one
+  transaction. Uploads and observer writes finish before that transaction.
 - `ArchiveKeys` builds every key above, so writers and the expiry job agree on
   the layout.
 

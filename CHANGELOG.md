@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Mission expiry exports attempt provenance and retains related history when the exported mission or attempt state changes. Child-link cleanup, attempt removal and the guarded mission delete commit together after export and observer writes finish.
+
 - Generated context guidance compares a staged pack's recorded start with the actual dock HEAD, names stale commits, and reports incomplete or ambiguous comparisons as unverified without rewriting the pack or updating its index.
 
 - Automatic incident closure needs a non-empty cause distinct from the opened failure text. Held closes retain active status and new recovery evidence without repeated empty snapshots or false close events; recovery and review dispositions remain independent of a verified cause.
