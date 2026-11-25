@@ -644,6 +644,13 @@ namespace Armada.Test.Unit.Suites.Services
                                 DiskLifecycleReport report;
                                 try { report = await service.ReconcileAsync().ConfigureAwait(false); }
                                 finally { sourceWriter?.Dispose(); }
+                                if (recovery is "folder-payload-new" or "folder-payload-replaced")
+                                {
+                                    AssertEqual("new payload bytes", File.ReadAllText(Path.Combine(sourceRoot, "bin", "new-output.txt")), "new or replaced payload survives archive retirement");
+                                    AssertEqual(1, report.ArchiveFreeFailures, "payload retirement needs its own qualification");
+                                    if (OperatingSystem.IsLinux()) AssertTrue(report.Actions.Any(action => action.Path == sourceRoot && action.Reason.Contains("payload directories retained", StringComparison.Ordinal)), "retained payload has an explicit reason after Linux history retirement");
+                                    if (recovery == "folder-payload-replaced") AssertTrue(File.Exists(Path.Combine(sourceRoot, "bin.old", "old-output.dll")), "the old payload is not silently retired either");
+                                }
                                 bool success = recovery is "put-recovers" or "ambiguous-put" or "head-recovers" or "get-recovers" or "folder-new-child" or "folder-payload-new" or "folder-payload-replaced";
                                 bool retained = File.Exists(file) || Directory.EnumerateFiles(Path.GetDirectoryName(file)!, "content", SearchOption.AllDirectories).Any();
                                 AssertEqual(!success || !OperatingSystem.IsLinux(), retained, "remote verification and platform-qualified local release are separate: " + recovery);
@@ -668,13 +675,6 @@ namespace Armada.Test.Unit.Suites.Services
                                 {
                                     AssertEqual("new unarchived bytes", File.ReadAllText(Path.Combine(sourceRoot, "new-history.log")), "new children are never removed by recursive history deletion");
                                     AssertEqual(1, report.ArchiveFreeFailures, "the parent remains with an explicit unarchived-child outcome");
-                                }
-                                if (recovery is "folder-payload-new" or "folder-payload-replaced")
-                                {
-                                    AssertEqual("new payload bytes", File.ReadAllText(Path.Combine(sourceRoot, "bin", "new-output.txt")), "new or replaced payload survives archive retirement");
-                                    AssertEqual(1, report.ArchiveFreeFailures, "payload retirement needs its own qualification");
-                                    if (OperatingSystem.IsLinux()) AssertTrue(report.Actions.Any(action => action.Path == sourceRoot && action.Reason.Contains("payload directories retained", StringComparison.Ordinal)), "retained payload has an explicit reason after Linux history retirement");
-                                    if (recovery == "folder-payload-replaced") AssertTrue(File.Exists(Path.Combine(sourceRoot, "bin.old", "old-output.dll")), "the old payload is not silently retired either");
                                 }
                                 if (recovery == "source-replaced") AssertTrue(File.ReadAllBytes(file).SequenceEqual(expected), "the replacement at the original path remains untouched");
                                 AssertEqual(success || recovery == "get-cap" || recovery == "source-writer" && !OperatingSystem.IsWindows() ? 0 : 1, report.ArchiveFailures, "the report preserves the final verification outcome: " + recovery);
