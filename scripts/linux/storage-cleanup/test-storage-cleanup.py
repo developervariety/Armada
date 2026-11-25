@@ -362,13 +362,14 @@ class AgentHistoryTests(unittest.TestCase):
                     if directory.is_dir():
                         set_dir_age(directory, 90)
                 database = home / '.local/share/opencode/opencode.db'
-                with sqlite3.connect(database) as connection:
-                    connection.executescript('CREATE TABLE session(id TEXT,parent_id TEXT,time_updated INTEGER);'
-                                             'CREATE TABLE message(session_id TEXT,time_created INTEGER,time_updated INTEGER);'
-                                             'CREATE TABLE part(session_id TEXT,time_created INTEGER,time_updated INTEGER);'
-                                             'CREATE TABLE event(aggregate_id TEXT,data TEXT);'
-                                             'CREATE TABLE event_sequence(aggregate_id TEXT);')
-                    connection.execute('INSERT INTO session VALUES (?,?,?)', ('saved-session', None, 1))
+                with contextlib.closing(sqlite3.connect(database)) as connection:
+                    with connection:
+                        connection.executescript('CREATE TABLE session(id TEXT,parent_id TEXT,time_updated INTEGER);'
+                                                 'CREATE TABLE message(session_id TEXT,time_created INTEGER,time_updated INTEGER);'
+                                                 'CREATE TABLE part(session_id TEXT,time_created INTEGER,time_updated INTEGER);'
+                                                 'CREATE TABLE event(aggregate_id TEXT,data TEXT);'
+                                                 'CREATE TABLE event_sequence(aggregate_id TEXT);')
+                        connection.execute('INSERT INTO session VALUES (?,?,?)', ('saved-session', None, 1))
                 before_database = database.read_bytes()
                 cache = home / '.local/share/NuGet/http-cache/old.dat'
                 write_file(cache, 90, size=64)
@@ -386,7 +387,7 @@ class AgentHistoryTests(unittest.TestCase):
                     self.assertTrue((home / relative).is_file(), 'Raw history must remain: ' + relative)
                     self.assertEqual((home / relative).read_bytes(), b'x' * 64)
                 self.assertEqual(database.read_bytes(), before_database)
-                with sqlite3.connect(database) as connection:
+                with contextlib.closing(sqlite3.connect(database)) as connection:
                     self.assertEqual(connection.execute('SELECT id FROM session').fetchall(), [('saved-session',)])
                 self.assertFalse(invoked.exists(), 'History cleanup must not invoke native session deletion')
                 self.assertEqual(result, 0, output.getvalue())
