@@ -211,6 +211,12 @@ check that a new test is wired in: after adding tests, confirm the total moved
 by exactly the number you added. A total that did not move means the tests are
 not registered and will never run, never fail, and never appear.
 
+The unit Pipeline Dispatch lifecycle case forwards all writes to its real SQLite
+database and returns voyage rows in PostgreSQL's newest-first order. This exposes
+selection of a same-titled revising Worker while the stored serial graph must
+retain the initial Worker and each slice's terminal predecessor. It is an ordering
+control, not a PostgreSQL provider run.
+
 ## Shared Suite Runner
 
 `src/Test.Automated` runs every suite in `src/Test.Shared` through the Touchstone console runner. Suites are discovered by reflection, so a written suite cannot be left unregistered.

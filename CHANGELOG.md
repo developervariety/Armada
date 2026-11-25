@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Serial Architect lifecycle coverage also exercises newest-first voyage rows, so a same-titled revising Worker cannot hide a lost initial-Worker dependency behind SQLite row order.
+
 - Exact-owner historical completion correction can resume the first cancelled TestEngineer after a completed, source-bound Worker in an intact six-role implementation chain. It preserves completed producer and review records, retains every other duty and charge, and binds the one-use restart to the immediate dependency's commit. Landed facts, completed review outcomes, changed source or stale evidence still refuse recovery.
 
 - Verify S3 archive objects with a complete bounded streamed GET and SHA-256 before local history can be freed; reject false metadata, short bodies and corrupt bytes within the existing retry, cancellation and provider-cap limits. Bind local source identity and content through verification. Linux retirement uses a private recoverable quarantine and actual writer checks; changed, active or unproved sources stay, and folder cleanup preserves new unarchived children and unqualified payload. Native session retirement requires an idle managed account plus a header-bound terminal mission and closed dock; active and unresolved session owners retain their original files. Final retirement rechecks bound owners under the existing recovery-family then execution boundaries so a winning supported restart cannot lose its current artifact path.

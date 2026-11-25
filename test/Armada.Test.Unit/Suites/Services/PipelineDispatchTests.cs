@@ -691,6 +691,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
+                    NewestFirstMissionMethods.Install(testDb.Driver);
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     DirCreatingGitStub git = new DirCreatingGitStub();
@@ -776,10 +777,13 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(2, workers.Count, titles[i] + " has an initial and a revising Worker with the same title");
                         Mission? testStage = rows.FirstOrDefault(m => m.Title == titles[i] + " [Test Engineer]");
                         AssertNotNull(testStage, titles[i] + " has its Test Engineer stage");
-                        revising[i] = workers.Single(m => m.DependsOnMissionId == testStage!.Id);
-                        roots[i] = workers.Single(m => m.Id != revising[i].Id);
                         judges[i] = rows.Single(m => m.Title == titles[i] + " [Judge]");
-                        AssertEqual(revising[i].Id, judges[i].DependsOnMissionId, titles[i] + " Judge follows its revising Worker");
+                        revising[i] = workers.Single(m => m.Id == judges[i].DependsOnMissionId);
+                        roots[i] = workers.Single(m => m.Id != revising[i].Id);
+                        AssertEqual(revising[i].Id, workers[0].Id,
+                            "The fixture returns the newer revising Worker first, as PostgreSQL does.");
+                        AssertEqual(testStage!.Id, revising[i].DependsOnMissionId,
+                            titles[i] + " revising Worker keeps its own Test Engineer dependency");
                         AssertEqual(roots[i].Id, testStage!.DependsOnMissionId, titles[i] + " Test Engineer follows its initial Worker");
                     }
 
