@@ -309,7 +309,7 @@ namespace Armada.Test.Unit.Suites.Routes
 
         private static async Task<HistoricalFixture> SeedHistoricalPermitAsync(SurfaceParityHarness harness, bool reviewContinuation = false)
         {
-            AdministrativeFixture fixture = await SeedAdministrativeAsync(harness).ConfigureAwait(false);
+            AdministrativeFixture fixture = await SeedAdministrativeAsync(harness, reviewContinuation).ConfigureAwait(false);
             fixture.Stages[2].Persona = "TestEngineer";
             await harness.Driver.Missions.UpdateAsync(fixture.Stages[2]).ConfigureAwait(false);
             foreach (string role in new[] { "Linter", "Worker", "Judge" })
@@ -340,15 +340,20 @@ namespace Armada.Test.Unit.Suites.Routes
                 worker.CommitHash = saved;
                 worker.BranchName = "recover/frozen-work";
                 worker.FailureReason = null;
+                worker.ReviewedUtc = worker.CompletedUtc!.Value.AddSeconds(1);
+                worker.ReviewedByUserId = Constants.DefaultUserId;
                 fixture.Stages[1] = await harness.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                Mission storedProducer = (await harness.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                if (storedProducer.Status != MissionStatusEnum.Complete || storedProducer.CommitHash != saved)
+                    throw new InvalidOperationException("The fixture must store genuinely completed producer work before requesting review recovery.");
                 await harness.Driver.Events.CreateAsync(new ArmadaEvent("mission.completed", "Producer duty completed; required independent reviews remain")
                 { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, MissionId = worker.Id,
-                    VoyageId = worker.VoyageId }).ConfigureAwait(false);
+                    VoyageId = worker.VoyageId, CreatedUtc = worker.CompletedUtc.Value }).ConfigureAwait(false);
                 target = fixture.Stages[2];
                 target.StartFromRef = saved;
-                target.StartedUtc = DateTime.UtcNow.AddMinutes(-10);
+                target.StartedUtc = DateTime.UtcNow.AddMinutes(-1);
                 target.ProcessStartedUtc = target.StartedUtc;
-                target.CompletedUtc = DateTime.UtcNow.AddMinutes(-2);
+                target.CompletedUtc = DateTime.UtcNow.AddSeconds(-30);
                 target.FailureReason = "Mission cancelled by operator.";
                 target.AgentOutput = "Historical saved report and separate charge history";
                 target.PreservedRunOutput = "Prior review input and charge history retained.";
@@ -356,6 +361,8 @@ namespace Armada.Test.Unit.Suites.Routes
                 target.LandingRetryCount = 2;
                 target.RequiresReview = true;
                 fixture.Stages[2] = await harness.Driver.Missions.UpdateAsync(target).ConfigureAwait(false);
+                fixture.Voyage.CompletedUtc = target.CompletedUtc.Value.AddSeconds(10);
+                await harness.Driver.Voyages.UpdateAsync(fixture.Voyage).ConfigureAwait(false);
                 foreach (Mission later in fixture.Stages.Skip(3))
                 {
                     later.FailureReason = "Blocked by cancelled dependency " + target.Id + ".";

@@ -147,7 +147,7 @@ namespace Armada.Test.Unit.Suites.Routes
             public string Repository { get; set; } = String.Empty;
         }
 
-        private static async Task<AdministrativeFixture> SeedAdministrativeAsync(SurfaceParityHarness harness)
+        private static async Task<AdministrativeFixture> SeedAdministrativeAsync(SurfaceParityHarness harness, bool completingProducer = false)
         {
             string source = System.IO.Path.Combine(harness.Settings.ReposDirectory, "administrative-source");
             GitServiceTests.SeedTemplateRepository(source);
@@ -170,7 +170,8 @@ namespace Armada.Test.Unit.Suites.Routes
                     Persona = role, Mode = MissionModeEnum.Implementation, StageChainId = chain, StageOrder = result.Stages.Count + 1,
                     DependsOnMissionId = result.Stages.LastOrDefault()?.Id, StartFromRef = commit,
                     CommitHash = planner ? commit : null, BranchName = planner ? "planning" : null,
-                    Status = planner ? MissionStatusEnum.Complete : MissionStatusEnum.Cancelled,
+                    Status = planner ? MissionStatusEnum.Complete
+                        : completingProducer && role == "Worker" ? MissionStatusEnum.Pending : MissionStatusEnum.Cancelled,
                     FailureReason = planner ? null : "Mission cancelled by operator.", CompletedUtc = DateTime.UtcNow.AddMinutes(-2) }).ConfigureAwait(false);
                 result.Stages.Add(stage);
             }
