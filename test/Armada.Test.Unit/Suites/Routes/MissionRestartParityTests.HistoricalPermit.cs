@@ -22,90 +22,93 @@ namespace Armada.Test.Unit.Suites.Routes
         {
             await RunTest("Historical saved-work disposition issues a nonlaunching one-use same-mission restart permit", async () =>
             {
-                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                foreach (bool reviewContinuation in new[] { false, true })
                 {
-                    HistoricalFixture fixture = await SeedHistoricalPermitAsync(harness).ConfigureAwait(false);
-                    Mission worker = fixture.Base.Stages[1];
-                    string[] originalRows = (await harness.Driver.Missions.EnumerateByVoyageAsync(fixture.Base.Voyage.Id).ConfigureAwait(false))
-                        .OrderBy(m => m.Id, StringComparer.Ordinal).Select(m => JsonSerializer.Serialize(m)).ToArray();
-                    string endpoint = "/api/v1/voyages/" + fixture.Base.Voyage.Id + "/administrative-completion-correction";
-                    SurfaceReply noDecision = await harness.RestAsync(HttpMethod.Post, endpoint,
-                        new { dryRun = false, sourceCommit = fixture.Base.Source, expectedFingerprint = new string('0', 64) }).ConfigureAwait(false);
-                    AssertEqual(409, noDecision.Status, "Executed cancelled work needs an explicit disposition");
-                    AdministrativeVoyageRecoveryPlan preview = await HistoricalPreviewAsync(harness, fixture).ConfigureAwait(false);
-                    AssertTrue(preview.Blockers.SequenceEqual(new[] { "exact_owner_historical_work_disposition_required" }), String.Join(",", preview.Blockers));
-                    fixture.Disposition.GraphFingerprint = preview.Fingerprint;
-                    AdministrativeVoyageRecoveryPlan signed = await HistoricalPreviewAsync(harness, fixture).ConfigureAwait(false);
-                    AssertEqual(preview.Fingerprint, signed.Fingerprint, "The assertion signs the current graph; it does not alter the machine facts");
-                    AssertEqual(0, signed.Blockers.Count, String.Join(",", signed.Blockers));
-                    SurfaceReply correctedReply = await harness.RestAsync(HttpMethod.Post, endpoint,
-                        new { dryRun = false, sourceCommit = fixture.Base.Source, historicalWork = fixture.Disposition,
-                            expectedFingerprint = signed.Fingerprint, restartDescription = "Continue the preserved source; retain every role and charge." }).ConfigureAwait(false);
-                    AssertEqual(200, correctedReply.Status, correctedReply.Body);
-                    AdministrativeVoyageRecoveryPlan corrected = JsonSerializer.Deserialize<AdministrativeVoyageRecoveryPlan>(correctedReply.Body, ReplayReplyJson)!;
-                    AssertNotNull(corrected.RestartPermitId);
-                    AssertEqual(VoyageStatusEnum.Failed, (await harness.Driver.Voyages.ReadAsync(fixture.Base.Voyage.Id).ConfigureAwait(false))!.Status);
-                    string[] correctedRows = (await harness.Driver.Missions.EnumerateByVoyageAsync(fixture.Base.Voyage.Id).ConfigureAwait(false))
-                        .OrderBy(m => m.Id, StringComparer.Ordinal).Select(m => JsonSerializer.Serialize(m)).ToArray();
-                    AssertTrue(originalRows.SequenceEqual(correctedRows), "Correction and issue change no mission row and start no actor");
-                    AssertTrue((await harness.Driver.Missions.EnumerateByVoyageAsync(fixture.Base.Voyage.Id).ConfigureAwait(false)).All(m => m.ProcessId == null));
-                    SurfaceReply plain = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart", new { }).ConfigureAwait(false);
-                    AssertEqual(409, plain.Status, "The legacy reason is not silently reclassified by ordinary restart");
-                    SurfaceReply changedInstructions = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart",
-                        new { administrativeRestartPermitId = corrected.RestartPermitId, description = "Unbound replacement instructions" }).ConfigureAwait(false);
-                    AssertEqual(409, changedInstructions.Status, "Consumption cannot substitute instructions after issue");
-                    SurfaceReply wrongMission = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + fixture.Base.Stages[2].Id + "/restart",
-                        new { administrativeRestartPermitId = corrected.RestartPermitId }).ConfigureAwait(false);
-                    AssertEqual(409, wrongMission.Status, "The permit names exactly one mission");
-                    SurfaceReply[] contenders = await Task.WhenAll(
-                        harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart", new { administrativeRestartPermitId = corrected.RestartPermitId }),
-                        harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart", new { administrativeRestartPermitId = corrected.RestartPermitId })).ConfigureAwait(false);
-                    AssertEqual(1, contenders.Count(reply => reply.Status == 200), String.Join("; ", contenders.Select(reply => reply.Body)));
-                    AssertEqual(1, contenders.Count(reply => reply.Status == 409), "Concurrent consumers still reset only once");
-                    Mission resumed = (await harness.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
-                    AssertEqual(MissionStatusEnum.Pending, resumed.Status);
-                    AssertEqual(worker.Id, resumed.Id); AssertEqual(worker.VoyageId, resumed.VoyageId);
-                    AssertEqual(worker.CreatedUtc, resumed.CreatedUtc); AssertEqual(worker.RecoveryAttempts, resumed.RecoveryAttempts);
-                    AssertEqual(worker.LandingRetryCount, resumed.LandingRetryCount);
-                    AssertEqual(fixture.SavedCommit, resumed.StartFromRef);
-                    AssertEqual(worker.DependsOnMissionId, resumed.DependsOnMissionId);
-                    AssertEqual("Continue the preserved source; retain every role and charge.", resumed.Description);
-                    AssertEqual(VoyageStatusEnum.InProgress, (await harness.Driver.Voyages.ReadAsync(worker.VoyageId!).ConfigureAwait(false))!.Status);
-                    foreach (Mission stage in fixture.Base.Stages.Where(m => m.Id != worker.Id))
-                        AssertEqual(JsonSerializer.Serialize(stage), JsonSerializer.Serialize((await harness.Driver.Missions.ReadAsync(stage.Id).ConfigureAwait(false))!), "Other required duties are not released");
-                    List<ArmadaEvent> receipts = await harness.Driver.Events.EnumerateByTypeAsync("mission.administrative_restart_consumed").ConfigureAwait(false);
-                    AssertEqual(1, receipts.Count);
-                    AssertEqual(worker.VesselId, receipts[0].VesselId, "The consumed receipt remains in the vessel's event history");
-                    EnumerationResult<ArmadaEvent> vesselReceipts = await harness.Driver.Events.EnumerateAsync(new EnumerationQuery
-                    { VesselId = worker.VesselId, EventType = "mission.administrative_restart_consumed", PageSize = 10 }).ConfigureAwait(false);
-                    AssertEqual(1, vesselReceipts.Objects.Count);
-                    AssertEqual(receipts[0].Id, vesselReceipts.Objects[0].Id);
-                    AdministrativeRestartReceipt receipt = JsonSerializer.Deserialize<AdministrativeRestartReceipt>(receipts[0].Payload!)!;
-                    AssertContains("Mission cancelled by operator.", receipt.PriorSnapshot);
-                    AssertContains("Historical saved report and separate charge history", receipt.PriorSnapshot);
-                    AssertContains(worker.PreservedRunOutput!, receipt.PriorSnapshot);
-                    AssertEqual(fixture.SavedCommit, await AdministrativeRestartSource.ResolveAsync(harness.Driver, resumed, fixture.Base.Stages[0]).ConfigureAwait(false));
-                    SurfaceReply replay = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart",
-                        new { administrativeRestartPermitId = corrected.RestartPermitId }).ConfigureAwait(false);
-                    AssertEqual(409, replay.Status, "The permit is durably one-use");
-                    AssertEqual(1, (await harness.Driver.Events.EnumerateByTypeAsync("mission.administrative_restart_consumed").ConfigureAwait(false)).Count);
+                    using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                    {
+                        HistoricalFixture fixture = await SeedHistoricalPermitAsync(harness, reviewContinuation).ConfigureAwait(false);
+                        Mission worker = fixture.Base.Stages.Single(m => m.Id == fixture.Disposition.MissionId);
+                        string[] originalRows = (await harness.Driver.Missions.EnumerateByVoyageAsync(fixture.Base.Voyage.Id).ConfigureAwait(false))
+                            .OrderBy(m => m.Id, StringComparer.Ordinal).Select(m => JsonSerializer.Serialize(m)).ToArray();
+                        string endpoint = "/api/v1/voyages/" + fixture.Base.Voyage.Id + "/administrative-completion-correction";
+                        SurfaceReply noDecision = await harness.RestAsync(HttpMethod.Post, endpoint,
+                            new { dryRun = false, sourceCommit = fixture.Base.Source, expectedFingerprint = new string('0', 64) }).ConfigureAwait(false);
+                        AssertEqual(409, noDecision.Status, "Executed cancelled work needs an explicit disposition");
+                        AdministrativeVoyageRecoveryPlan preview = await HistoricalPreviewAsync(harness, fixture).ConfigureAwait(false);
+                        AssertTrue(preview.Blockers.SequenceEqual(new[] { "exact_owner_historical_work_disposition_required" }), String.Join(",", preview.Blockers));
+                        fixture.Disposition.GraphFingerprint = preview.Fingerprint;
+                        AdministrativeVoyageRecoveryPlan signed = await HistoricalPreviewAsync(harness, fixture).ConfigureAwait(false);
+                        AssertEqual(preview.Fingerprint, signed.Fingerprint, "The assertion signs the current graph; it does not alter the machine facts");
+                        AssertEqual(0, signed.Blockers.Count, String.Join(",", signed.Blockers));
+                        SurfaceReply correctedReply = await harness.RestAsync(HttpMethod.Post, endpoint,
+                            new { dryRun = false, sourceCommit = fixture.Base.Source, historicalWork = fixture.Disposition,
+                                expectedFingerprint = signed.Fingerprint, restartDescription = "Continue the preserved source; retain every role and charge." }).ConfigureAwait(false);
+                        AssertEqual(200, correctedReply.Status, correctedReply.Body);
+                        AdministrativeVoyageRecoveryPlan corrected = JsonSerializer.Deserialize<AdministrativeVoyageRecoveryPlan>(correctedReply.Body, ReplayReplyJson)!;
+                        AssertNotNull(corrected.RestartPermitId);
+                        AssertEqual(VoyageStatusEnum.Failed, (await harness.Driver.Voyages.ReadAsync(fixture.Base.Voyage.Id).ConfigureAwait(false))!.Status);
+                        string[] correctedRows = (await harness.Driver.Missions.EnumerateByVoyageAsync(fixture.Base.Voyage.Id).ConfigureAwait(false))
+                            .OrderBy(m => m.Id, StringComparer.Ordinal).Select(m => JsonSerializer.Serialize(m)).ToArray();
+                        AssertTrue(originalRows.SequenceEqual(correctedRows), "Correction and issue change no mission row and start no actor");
+                        AssertTrue((await harness.Driver.Missions.EnumerateByVoyageAsync(fixture.Base.Voyage.Id).ConfigureAwait(false)).All(m => m.ProcessId == null));
+                        SurfaceReply plain = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart", new { }).ConfigureAwait(false);
+                        AssertEqual(409, plain.Status, "The legacy reason is not silently reclassified by ordinary restart");
+                        SurfaceReply changedInstructions = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart",
+                            new { administrativeRestartPermitId = corrected.RestartPermitId, description = "Unbound replacement instructions" }).ConfigureAwait(false);
+                        AssertEqual(409, changedInstructions.Status, "Consumption cannot substitute instructions after issue");
+                        SurfaceReply wrongMission = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + fixture.Base.Stages[0].Id + "/restart",
+                            new { administrativeRestartPermitId = corrected.RestartPermitId }).ConfigureAwait(false);
+                        AssertEqual(409, wrongMission.Status, "The permit names exactly one mission");
+                        SurfaceReply[] contenders = await Task.WhenAll(
+                            harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart", new { administrativeRestartPermitId = corrected.RestartPermitId }),
+                            harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart", new { administrativeRestartPermitId = corrected.RestartPermitId })).ConfigureAwait(false);
+                        AssertEqual(1, contenders.Count(reply => reply.Status == 200), String.Join("; ", contenders.Select(reply => reply.Body)));
+                        AssertEqual(1, contenders.Count(reply => reply.Status == 409), "Concurrent consumers still reset only once");
+                        Mission resumed = (await harness.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Pending, resumed.Status);
+                        AssertEqual(worker.Id, resumed.Id); AssertEqual(worker.VoyageId, resumed.VoyageId);
+                        AssertEqual(worker.CreatedUtc, resumed.CreatedUtc); AssertEqual(worker.RecoveryAttempts, resumed.RecoveryAttempts);
+                        AssertEqual(worker.LandingRetryCount, resumed.LandingRetryCount);
+                        AssertEqual(fixture.SavedCommit, resumed.StartFromRef);
+                        AssertEqual(worker.DependsOnMissionId, resumed.DependsOnMissionId);
+                        AssertEqual("Continue the preserved source; retain every role and charge.", resumed.Description);
+                        AssertEqual(VoyageStatusEnum.InProgress, (await harness.Driver.Voyages.ReadAsync(worker.VoyageId!).ConfigureAwait(false))!.Status);
+                        foreach (Mission stage in fixture.Base.Stages.Where(m => m.Id != worker.Id))
+                            AssertEqual(JsonSerializer.Serialize(stage), JsonSerializer.Serialize((await harness.Driver.Missions.ReadAsync(stage.Id).ConfigureAwait(false))!), "Other required duties are not released");
+                        List<ArmadaEvent> receipts = await harness.Driver.Events.EnumerateByTypeAsync("mission.administrative_restart_consumed").ConfigureAwait(false);
+                        AssertEqual(1, receipts.Count);
+                        AssertEqual(worker.VesselId, receipts[0].VesselId, "The consumed receipt remains in the vessel's event history");
+                        EnumerationResult<ArmadaEvent> vesselReceipts = await harness.Driver.Events.EnumerateAsync(new EnumerationQuery
+                        { VesselId = worker.VesselId, EventType = "mission.administrative_restart_consumed", PageSize = 10 }).ConfigureAwait(false);
+                        AssertEqual(1, vesselReceipts.Objects.Count);
+                        AssertEqual(receipts[0].Id, vesselReceipts.Objects[0].Id);
+                        AdministrativeRestartReceipt receipt = JsonSerializer.Deserialize<AdministrativeRestartReceipt>(receipts[0].Payload!)!;
+                        AssertContains("Mission cancelled by operator.", receipt.PriorSnapshot);
+                        AssertContains("Historical saved report and separate charge history", receipt.PriorSnapshot);
+                        AssertContains(worker.PreservedRunOutput!, receipt.PriorSnapshot);
+                        AssertEqual(fixture.SavedCommit, await AdministrativeRestartSource.ResolveAsync(harness.Driver, resumed, fixture.Base.Stages.Single(m => m.Id == worker.DependsOnMissionId)).ConfigureAwait(false));
+                        SurfaceReply replay = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + worker.Id + "/restart",
+                            new { administrativeRestartPermitId = corrected.RestartPermitId }).ConfigureAwait(false);
+                        AssertEqual(409, replay.Status, "The permit is durably one-use");
+                        AssertEqual(1, (await harness.Driver.Events.EnumerateByTypeAsync("mission.administrative_restart_consumed").ConfigureAwait(false)).Count);
 
-                    LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
-                    GitService git = new GitService(logging);
-                    DockService docks = new DockService(logging, harness.Driver, harness.Settings, git);
-                    CaptainService captains = new CaptainService(logging, harness.Driver, harness.Settings, git, docks);
-                    int launches = 0;
-                    captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(Int32.MaxValue - 50); };
-                    MissionService missions = new MissionService(logging, harness.Driver, harness.Settings, docks, captains,
-                        git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(harness.Settings));
-                    await harness.Driver.Captains.CreateAsync(new Captain("saved-work-source")
-                    { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, Model = "claude-opus-5", AllowedPersonas = "[\"Worker\"]" }).ConfigureAwait(false);
-                    Vessel vessel = (await harness.Driver.Vessels.ReadAsync(worker.VesselId!).ConfigureAwait(false))!;
-                    AssertTrue(await missions.TryAssignAsync(resumed, vessel).ConfigureAwait(false), "The normal assignment owner honors the consumed source, not the planner base");
-                    Mission assigned = (await harness.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
-                    Dock dock = (await harness.Driver.Docks.ReadAsync(assigned.DockId!).ConfigureAwait(false))!;
-                    AssertEqual(fixture.SavedCommit, (await RunGitAsync(dock.WorktreePath!, "rev-parse", "HEAD").ConfigureAwait(false)).Trim());
-                    AssertEqual(1, launches, "Only the explicit consume made the mission eligible; the test uses a nonexecuting launch hook");
+                        LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                        GitService git = new GitService(logging);
+                        DockService docks = new DockService(logging, harness.Driver, harness.Settings, git);
+                        CaptainService captains = new CaptainService(logging, harness.Driver, harness.Settings, git, docks);
+                        int launches = 0;
+                        captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(Int32.MaxValue - 50); };
+                        MissionService missions = new MissionService(logging, harness.Driver, harness.Settings, docks, captains,
+                            git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(harness.Settings));
+                        await harness.Driver.Captains.CreateAsync(new Captain("saved-work-source")
+                        { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, Model = "claude-opus-5", AllowedPersonas = JsonSerializer.Serialize(new[] { worker.Persona }) }).ConfigureAwait(false);
+                        Vessel vessel = (await harness.Driver.Vessels.ReadAsync(worker.VesselId!).ConfigureAwait(false))!;
+                        AssertTrue(await missions.TryAssignAsync(resumed, vessel).ConfigureAwait(false), "The normal assignment owner honors the consumed source, not the planner base");
+                        Mission assigned = (await harness.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        Dock dock = (await harness.Driver.Docks.ReadAsync(assigned.DockId!).ConfigureAwait(false))!;
+                        AssertEqual(fixture.SavedCommit, (await RunGitAsync(dock.WorktreePath!, "rev-parse", "HEAD").ConfigureAwait(false)).Trim());
+                        AssertEqual(1, launches, "Only the explicit consume made the mission eligible; the test uses a nonexecuting launch hook");
+                    }
                 }
             }).ConfigureAwait(false);
 
@@ -113,61 +116,64 @@ namespace Armada.Test.Unit.Suites.Routes
             {
                 foreach (string surface in new[] { "MCP", "WebSocket" })
                 {
-                    using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                    foreach (bool reviewContinuation in new[] { false, true })
                     {
-                        HistoricalFixture fixture = await SeedHistoricalPermitAsync(harness).ConfigureAwait(false);
-                        AdministrativeVoyageRecoveryPlan preview = await HistoricalPreviewAsync(harness, fixture).ConfigureAwait(false);
-                        fixture.Disposition.GraphFingerprint = preview.Fingerprint;
-                        SurfaceReply issuedReply = await harness.RestAsync(HttpMethod.Post,
-                            "/api/v1/voyages/" + fixture.Base.Voyage.Id + "/administrative-completion-correction",
-                            new { dryRun = false, sourceCommit = fixture.Base.Source, historicalWork = fixture.Disposition,
-                                expectedFingerprint = preview.Fingerprint, restartDescription = "Continue the preserved source; retain every role and charge." }).ConfigureAwait(false);
-                        AssertEqual(200, issuedReply.Status, issuedReply.Body);
-                        AdministrativeVoyageRecoveryPlan issued = JsonSerializer.Deserialize<AdministrativeVoyageRecoveryPlan>(issuedReply.Body, ReplayReplyJson)!;
-                        LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
-                        GitService git = new GitService(logging);
-                        AuthContext owner = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "test");
-                        if (surface == "MCP")
+                        using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
                         {
-                            Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
-                            Armada.Server.Mcp.Tools.McpMissionTools.Register((name, _, _, handler) => handlers[name] = handler,
-                                harness.Driver, harness.Admiral.Service, harness.Settings, git, operations: harness.Operations);
-                            UserMaster other = await harness.Driver.Users.CreateAsync(new UserMaster(Constants.DefaultTenantId,
-                                "other-admin-" + Guid.NewGuid().ToString("N") + "@example.invalid", "password") { IsAdmin = true, Active = true }).ConfigureAwait(false);
-                            using (Armada.Server.Mcp.McpCallerContext.Begin(AuthContext.Authenticated(Constants.DefaultTenantId, other.Id, true, false, "test")))
+                            HistoricalFixture fixture = await SeedHistoricalPermitAsync(harness, reviewContinuation).ConfigureAwait(false);
+                            AdministrativeVoyageRecoveryPlan preview = await HistoricalPreviewAsync(harness, fixture).ConfigureAwait(false);
+                            fixture.Disposition.GraphFingerprint = preview.Fingerprint;
+                            SurfaceReply issuedReply = await harness.RestAsync(HttpMethod.Post,
+                                "/api/v1/voyages/" + fixture.Base.Voyage.Id + "/administrative-completion-correction",
+                                new { dryRun = false, sourceCommit = fixture.Base.Source, historicalWork = fixture.Disposition,
+                                    expectedFingerprint = preview.Fingerprint, restartDescription = "Continue the preserved source; retain every role and charge." }).ConfigureAwait(false);
+                            AssertEqual(200, issuedReply.Status, issuedReply.Body);
+                            AdministrativeVoyageRecoveryPlan issued = JsonSerializer.Deserialize<AdministrativeVoyageRecoveryPlan>(issuedReply.Body, ReplayReplyJson)!;
+                            LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                            GitService git = new GitService(logging);
+                            AuthContext owner = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "test");
+                            if (surface == "MCP")
                             {
-                                object denied = await handlers["armada_restart_mission"](JsonSerializer.SerializeToElement(new
-                                { missionId = fixture.Disposition.MissionId, administrativeRestartPermitId = issued.RestartPermitId })).ConfigureAwait(false);
-                                PermitErrorReply error = JsonSerializer.Deserialize<PermitErrorReply>(JsonSerializer.Serialize(denied), ReplayReplyJson)!;
-                                AssertFalse(String.IsNullOrEmpty(error.Error), "A different active global administrator cannot consume the owned permit");
+                                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                                Armada.Server.Mcp.Tools.McpMissionTools.Register((name, _, _, handler) => handlers[name] = handler,
+                                    harness.Driver, harness.Admiral.Service, harness.Settings, git, operations: harness.Operations);
+                                UserMaster other = await harness.Driver.Users.CreateAsync(new UserMaster(Constants.DefaultTenantId,
+                                    "other-admin-" + Guid.NewGuid().ToString("N") + "@example.invalid", "password") { IsAdmin = true, Active = true }).ConfigureAwait(false);
+                                using (Armada.Server.Mcp.McpCallerContext.Begin(AuthContext.Authenticated(Constants.DefaultTenantId, other.Id, true, false, "test")))
+                                {
+                                    object denied = await handlers["armada_restart_mission"](JsonSerializer.SerializeToElement(new
+                                    { missionId = fixture.Disposition.MissionId, administrativeRestartPermitId = issued.RestartPermitId })).ConfigureAwait(false);
+                                    PermitErrorReply error = JsonSerializer.Deserialize<PermitErrorReply>(JsonSerializer.Serialize(denied), ReplayReplyJson)!;
+                                    AssertFalse(String.IsNullOrEmpty(error.Error), "A different active global administrator cannot consume the owned permit");
+                                }
+                                AssertEqual(MissionStatusEnum.Cancelled, (await harness.Driver.Missions.ReadAsync(fixture.Disposition.MissionId).ConfigureAwait(false))!.Status);
+                                using (Armada.Server.Mcp.McpCallerContext.Begin(owner))
+                                {
+                                    object result = await handlers["armada_restart_mission"](JsonSerializer.SerializeToElement(new
+                                    { missionId = fixture.Disposition.MissionId, administrativeRestartPermitId = issued.RestartPermitId })).ConfigureAwait(false);
+                                    PermitErrorReply error = JsonSerializer.Deserialize<PermitErrorReply>(JsonSerializer.Serialize(result), ReplayReplyJson)!;
+                                    AssertTrue(String.IsNullOrEmpty(error.Error), JsonSerializer.Serialize(result));
+                                }
                             }
-                            AssertEqual(MissionStatusEnum.Cancelled, (await harness.Driver.Missions.ReadAsync(fixture.Disposition.MissionId).ConfigureAwait(false))!.Status);
-                            using (Armada.Server.Mcp.McpCallerContext.Begin(owner))
+                            else
                             {
-                                object result = await handlers["armada_restart_mission"](JsonSerializer.SerializeToElement(new
-                                { missionId = fixture.Disposition.MissionId, administrativeRestartPermitId = issued.RestartPermitId })).ConfigureAwait(false);
+                                Armada.Server.WebSocket.WebSocketCommandHandler websocket = new Armada.Server.WebSocket.WebSocketCommandHandler(
+                                    harness.Admiral.Service, harness.Driver, harness.MergeQueue, harness.Settings, git, null,
+                                    ReplayReplyJson, _ => { }, _ => { });
+                                websocket.Operations = harness.Operations;
+                                string raw = JsonSerializer.Serialize(new { action = "restart_mission", id = fixture.Disposition.MissionId,
+                                    data = new { administrativeRestartPermitId = issued.RestartPermitId } });
+                                object result = await websocket.HandleCommandAsync("restart_mission",
+                                    new Armada.Server.WebSocket.WebSocketCommand { Id = fixture.Disposition.MissionId }, raw, owner).ConfigureAwait(false);
                                 PermitErrorReply error = JsonSerializer.Deserialize<PermitErrorReply>(JsonSerializer.Serialize(result), ReplayReplyJson)!;
                                 AssertTrue(String.IsNullOrEmpty(error.Error), JsonSerializer.Serialize(result));
                             }
+                            Mission resumed = (await harness.Driver.Missions.ReadAsync(fixture.Disposition.MissionId).ConfigureAwait(false))!;
+                            AssertEqual(MissionStatusEnum.Pending, resumed.Status, surface);
+                            AssertEqual(fixture.SavedCommit, resumed.StartFromRef, surface);
+                            AssertEqual(fixture.Base.Voyage.Id, resumed.VoyageId, surface);
+                            AssertEqual(1, (await harness.Driver.Events.EnumerateByTypeAsync("mission.administrative_restart_consumed").ConfigureAwait(false)).Count, surface);
                         }
-                        else
-                        {
-                            Armada.Server.WebSocket.WebSocketCommandHandler websocket = new Armada.Server.WebSocket.WebSocketCommandHandler(
-                                harness.Admiral.Service, harness.Driver, harness.MergeQueue, harness.Settings, git, null,
-                                ReplayReplyJson, _ => { }, _ => { });
-                            websocket.Operations = harness.Operations;
-                            string raw = JsonSerializer.Serialize(new { action = "restart_mission", id = fixture.Disposition.MissionId,
-                                data = new { administrativeRestartPermitId = issued.RestartPermitId } });
-                            object result = await websocket.HandleCommandAsync("restart_mission",
-                                new Armada.Server.WebSocket.WebSocketCommand { Id = fixture.Disposition.MissionId }, raw, owner).ConfigureAwait(false);
-                            PermitErrorReply error = JsonSerializer.Deserialize<PermitErrorReply>(JsonSerializer.Serialize(result), ReplayReplyJson)!;
-                            AssertTrue(String.IsNullOrEmpty(error.Error), JsonSerializer.Serialize(result));
-                        }
-                        Mission resumed = (await harness.Driver.Missions.ReadAsync(fixture.Disposition.MissionId).ConfigureAwait(false))!;
-                        AssertEqual(MissionStatusEnum.Pending, resumed.Status, surface);
-                        AssertEqual(fixture.SavedCommit, resumed.StartFromRef, surface);
-                        AssertEqual(fixture.Base.Voyage.Id, resumed.VoyageId, surface);
-                        AssertEqual(1, (await harness.Driver.Events.EnumerateByTypeAsync("mission.administrative_restart_consumed").ConfigureAwait(false)).Count, surface);
                     }
                 }
             }).ConfigureAwait(false);
@@ -301,7 +307,7 @@ namespace Armada.Test.Unit.Suites.Routes
             public HistoricalWorkDisposition Disposition { get; set; } = null!;
         }
 
-        private static async Task<HistoricalFixture> SeedHistoricalPermitAsync(SurfaceParityHarness harness)
+        private static async Task<HistoricalFixture> SeedHistoricalPermitAsync(SurfaceParityHarness harness, bool reviewContinuation = false)
         {
             AdministrativeFixture fixture = await SeedAdministrativeAsync(harness).ConfigureAwait(false);
             fixture.Stages[2].Persona = "TestEngineer";
@@ -327,14 +333,43 @@ namespace Armada.Test.Unit.Suites.Routes
             worker.PreservedRunOutput = "Prior work remains unaccepted; retain every source and charge.";
             worker.RecoveryAttempts = 3; worker.LandingRetryCount = 2; worker.RequiresReview = true;
             fixture.Stages[1] = await harness.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+            Mission target = worker;
+            if (reviewContinuation)
+            {
+                worker.Status = MissionStatusEnum.Complete;
+                worker.CommitHash = saved;
+                worker.BranchName = "recover/frozen-work";
+                worker.FailureReason = null;
+                fixture.Stages[1] = await harness.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                await harness.Driver.Events.CreateAsync(new ArmadaEvent("mission.completed", "Producer duty completed; required independent reviews remain")
+                { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, MissionId = worker.Id,
+                    VoyageId = worker.VoyageId }).ConfigureAwait(false);
+                target = fixture.Stages[2];
+                target.StartFromRef = saved;
+                target.StartedUtc = DateTime.UtcNow.AddMinutes(-10);
+                target.ProcessStartedUtc = target.StartedUtc;
+                target.CompletedUtc = DateTime.UtcNow.AddMinutes(-2);
+                target.FailureReason = "Mission cancelled by operator.";
+                target.AgentOutput = "Historical saved report and separate charge history";
+                target.PreservedRunOutput = "Prior review input and charge history retained.";
+                target.RecoveryAttempts = 1;
+                target.LandingRetryCount = 2;
+                target.RequiresReview = true;
+                fixture.Stages[2] = await harness.Driver.Missions.UpdateAsync(target).ConfigureAwait(false);
+                foreach (Mission later in fixture.Stages.Skip(3))
+                {
+                    later.FailureReason = "Blocked by cancelled dependency " + target.Id + ".";
+                    await harness.Driver.Missions.UpdateAsync(later).ConfigureAwait(false);
+                }
+            }
             ArmadaEvent cancellation = await harness.Driver.Events.CreateAsync(new ArmadaEvent("mission.cancelled", "Mission cancelled by operator")
-            { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, EntityType = "mission", EntityId = worker.Id,
-                MissionId = worker.Id, VoyageId = worker.VoyageId, CreatedUtc = worker.CompletedUtc!.Value.AddSeconds(1) }).ConfigureAwait(false);
+            { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, EntityType = "mission", EntityId = target.Id,
+                MissionId = target.Id, VoyageId = target.VoyageId, CreatedUtc = target.CompletedUtc!.Value.AddSeconds(1) }).ConfigureAwait(false);
             await harness.Driver.MissionAttemptFacts.CreateAsync(new MissionAttemptFact
-            { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, MissionId = worker.Id, RootMissionId = worker.Id,
-                VoyageId = worker.VoyageId, VesselId = worker.VesselId, FactType = MissionAttemptFactTypeEnum.Restarted }).ConfigureAwait(false);
+            { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, MissionId = target.Id, RootMissionId = target.Id,
+                VoyageId = target.VoyageId, VesselId = target.VesselId, FactType = MissionAttemptFactTypeEnum.Restarted }).ConfigureAwait(false);
             return new HistoricalFixture { Base = fixture, SavedCommit = saved, Disposition = new HistoricalWorkDisposition
-            { Kind = HistoricalWorkDispositionKindEnum.Unaccepted, MissionId = worker.Id, PreservedSourceRef = "recover/frozen-work",
+            { Kind = HistoricalWorkDispositionKindEnum.Unaccepted, MissionId = target.Id, PreservedSourceRef = "recover/frozen-work",
                 PreservedSourceCommit = saved, CancellationEventId = cancellation.Id,
                 NativeEvidenceSHA256 = new string('d', 64), CountsEvidenceSHA256 = new string('e', 64),
                 Reason = "Saved implementation remains unaccepted; the later cancelled epoch performed startup reads only." } };
