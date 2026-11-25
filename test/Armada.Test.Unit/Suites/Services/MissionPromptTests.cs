@@ -2284,7 +2284,10 @@ namespace Armada.Test.Unit.Suites.Services
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     StubGitService git = new StubGitService();
-                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, docks, captains,
+                        git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     string noPackDir = Path.Combine(Path.GetTempPath(), "armada_prompt_no_context_" + Guid.NewGuid().ToString("N"));
                     string withPackDir = Path.Combine(Path.GetTempPath(), "armada_prompt_with_context_" + Guid.NewGuid().ToString("N"));
