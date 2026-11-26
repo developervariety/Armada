@@ -73,6 +73,33 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(File.Exists(Path.Combine(worktree, "output", "index.json")), "the file link is removed");
                         AssertTrue(File.Exists(Path.Combine(host, "output", "index.json")), "removing a file link never deletes its source");
 
+                        string outsideFile = Path.Combine(root, "outside.json");
+                        File.WriteAllText(outsideFile, "outside artifact");
+                        foreach (string outside in new[] { "../outside.json", outsideFile })
+                        {
+                            sibling.ExtractionArtifactPaths = new List<string> { outside };
+                            bool refused = false;
+                            try { gate.LinkSiblingArtifacts(sibling, siblingVessel, worktree, links); }
+                            catch (IOException ex) { refused = ex.Message.Contains("consumer_artifact_link_failed", StringComparison.Ordinal); }
+                            AssertTrue(refused, "An escaping or absolute artifact declaration refuses verification.");
+                            AssertEqual("outside artifact", File.ReadAllText(outsideFile), "A refusal preserves the external file.");
+                        }
+
+                        Directory.CreateDirectory(Path.Combine(host, "blocked-parent"));
+                        File.WriteAllText(Path.Combine(host, "blocked-parent", "data.json"), "source artifact");
+                        File.WriteAllText(Path.Combine(worktree, "blocked-parent"), "tracked file");
+                        sibling.ExtractionArtifactPaths = new List<string> { "blocked-parent/data.json" };
+                        using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                        {
+                            bool refused = false;
+                            try { gate.LinkSiblingArtifacts(sibling, siblingVessel, worktree, links); }
+                            catch (IOException ex) { refused = ex.Message.Contains("consumer_artifact_link_failed", StringComparison.Ordinal); }
+                            AssertTrue(refused, "A parent file cannot silently turn a failed link into successful verification.");
+                            AssertEqual("tracked file", File.ReadAllText(Path.Combine(worktree, "blocked-parent")), "A failed link preserves the blocking tracked file.");
+                            AssertTrue(metrics.Of("armada.validation.seconds").Any(item => item.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeError)),
+                                "A failed artifact link records a validation error.");
+                        }
+
                         // A recursive delete of the verification root after cleanup cannot reach the host tree.
                         Directory.Delete(Path.Combine(root, "verify"), true);
                         AssertTrue(File.Exists(sourceFile), "the host tree survives the scratch cleanup");

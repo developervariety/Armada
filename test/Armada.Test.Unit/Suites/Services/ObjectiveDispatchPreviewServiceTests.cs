@@ -770,6 +770,25 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreview present = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     AssertFalse(present.Issues.Any(issue => issue.Code == "sibling_artifact_missing"),
                         "an existing file artifact is present at dispatch preview");
+                    string outsideFile = harness.RepositoryDirectory + ".outside.json";
+                    File.WriteAllText(outsideFile, "outside artifact");
+                    try
+                    {
+                        foreach (string outside in new[] { "../" + Path.GetFileName(outsideFile),
+                            Path.Combine(harness.RepositoryDirectory, "missing-artifacts") })
+                        {
+                            harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                            {
+                                new SiblingRepo { VesselRef = source.Id, RelativePath = "../preview-source",
+                                    ExtractionArtifactPaths = new List<string> { outside } }
+                            });
+                            await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+                            ObjectiveDispatchPreview refused = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                            AssertTrue(refused.Issues.Any(issue => issue.Code == "sibling_artifact_missing"),
+                                "An absolute or escaping declaration cannot use an existing file to satisfy dispatch readiness.");
+                        }
+                    }
+                    finally { File.Delete(outsideFile); }
                     AssertEqual(0, harness.Git.WorktreeCalls.Count, "Preview creates no worktree.");
                     AssertEqual(0, harness.Git.CloneCalls.Count, "Preview clones no repository.");
                 }
