@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Threading;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
