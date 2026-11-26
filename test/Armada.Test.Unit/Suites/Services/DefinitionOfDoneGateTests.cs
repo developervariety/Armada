@@ -35,6 +35,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Directory.CreateDirectory(Path.Combine(host, "output", "decompiled-src", "Vendor"));
                     string sourceFile = Path.Combine(host, "output", "decompiled-src", "Vendor", "Form.cs");
                     File.WriteAllText(sourceFile, "class Form {}");
+                    File.WriteAllText(Path.Combine(host, "output", "index.json"), "{\"version\":1}");
                     Directory.CreateDirectory(worktree);
                     // The worktree already tracks a partial tree at the artifact path, as a deobfuscator does.
                     Directory.CreateDirectory(Path.Combine(worktree, "output", "decompiled-src"));
@@ -48,20 +49,29 @@ namespace Armada.Test.Unit.Suites.Services
                         SiblingRepo sibling = new SiblingRepo
                         {
                             RelativePath = "../Deobfuscator",
-                            ExtractionArtifactPaths = new List<string> { "output/decompiled-src", "output/absent-export" }
+                            ExtractionArtifactPaths = new List<string> { "output/decompiled-src", "output/index.json", "output/absent-export" }
                         };
                         Vessel siblingVessel = new Vessel("Deobfuscator", "https://example.invalid/deobfuscator.git") { WorkingDirectory = host };
 
                         List<string> links = new List<string>();
                         gate.LinkSiblingArtifacts(sibling, siblingVessel, worktree, links);
 
-                        AssertEqual(1, links.Count, "the present artifact is linked and the absent one is skipped");
+                        List<string> artifactFailures = new List<string>();
+                        if (links.Count != 2) artifactFailures.Add("the declared directory and file must both be linked");
+                        string linkedIndex = Path.Combine(worktree, "output", "index.json");
+                        if (!File.Exists(linkedIndex) || File.ReadAllText(linkedIndex) != "{\"version\":1}")
+                            artifactFailures.Add("the declared file artifact must retain its bytes");
+                        if (Directory.GetDirectories(worktree, "*.tracked-*", SearchOption.AllDirectories).Length != 0)
+                            artifactFailures.Add("the consumer scan must contain no displaced tracked tree");
+                        AssertEqual(0, artifactFailures.Count, String.Join("; ", artifactFailures));
                         AssertTrue(new DirectoryInfo(Path.Combine(worktree, "output", "decompiled-src")).LinkTarget != null, "a partial tracked tree is replaced by a link to the whole host tree");
                         AssertTrue(File.Exists(Path.Combine(worktree, "output", "decompiled-src", "Vendor", "Form.cs")), "the consumer reads the tree through the link");
 
                         gate.RemoveArtifactLinks(links);
                         AssertFalse(Directory.Exists(Path.Combine(worktree, "output", "decompiled-src")), "the link is removed");
                         AssertTrue(File.Exists(sourceFile), "removing the link never touches the source tree");
+                        AssertFalse(File.Exists(Path.Combine(worktree, "output", "index.json")), "the file link is removed");
+                        AssertTrue(File.Exists(Path.Combine(host, "output", "index.json")), "removing a file link never deletes its source");
 
                         // A recursive delete of the verification root after cleanup cannot reach the host tree.
                         Directory.Delete(Path.Combine(root, "verify"), true);

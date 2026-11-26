@@ -2394,6 +2394,8 @@ namespace Armada.Test.Unit.Suites.Services
                         await File.WriteAllTextAsync(Path.Combine(vinCatalogDir, "catalog.json"), "{\"v\":1}").ConfigureAwait(false);
                         await File.WriteAllTextAsync(Path.Combine(meddutyDir, "data.bin"), "binary").ConfigureAwait(false);
 
+                        await File.WriteAllTextAsync(Path.Combine(artifactSourceRoot, "index.json"), "file artifact").ConfigureAwait(false);
+
                         // Register the sibling (ExampleSibling) vessel with a WorkingDirectory pointing at our temp tree
                         Vessel siblingVessel = new Vessel("ExampleSibling", "https://github.com/test/example-sibling.git");
                         siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "ExampleSibling.git");
@@ -2409,7 +2411,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 RelativePath = "../ExampleSibling",
                                 BranchStrategy = SiblingBranchStrategyEnum.MatchBranchElseDefault,
                                 DefaultBranch = "main",
-                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts"), "index.json" }
                             }
                         };
 
@@ -2434,6 +2436,9 @@ namespace Armada.Test.Unit.Suites.Services
                         string expectedMedduty = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "medduty-kwp", "data.bin");
                         AssertTrue(File.Exists(expectedCatalog), "vin-catalog artifact should be copied into the sibling worktree");
                         AssertTrue(File.Exists(expectedMedduty), "medduty-kwp artifact should be copied into the sibling worktree");
+                        string expectedIndex = Path.Combine(siblingWorktree, "index.json");
+                        AssertTrue(File.Exists(expectedIndex), "the declared file artifact is copied into the dock sibling");
+                        AssertEqual("file artifact", await File.ReadAllTextAsync(expectedIndex).ConfigureAwait(false), "the file artifact keeps its bytes");
                     }
                     finally
                     {

@@ -3652,15 +3652,24 @@ namespace Armada.Test.Unit.Suites.Services
                     StringBuilder longFile = new StringBuilder();
                     for (int line = 1; line <= 173; line++) longFile.Append("line " + line + "\n");
                     await File.WriteAllTextAsync(artifact, longFile.ToString());
+                    string fileArtifact = Path.Combine(sibling, "output", "single", "Index.cs");
+                    Directory.CreateDirectory(Path.GetDirectoryName(fileArtifact)!);
+                    await File.WriteAllTextAsync(fileArtifact, longFile.ToString());
                     string siblings = JsonSerializer.Serialize(new List<SiblingRepo>
                     {
-                        new SiblingRepo { RelativePath = "../ExampleSibling", ExtractionArtifactPaths = new List<string> { "output/extracted" } }
+                        new SiblingRepo { RelativePath = "../ExampleSibling", ExtractionArtifactPaths = new List<string> { "output/extracted", "output/single/Index.cs" } }
                     });
 
                     GitAnchors held = await ResolveRealDockAnchorsAsync(worktree, "The port follows Codec.cs:120-130 in the source.", siblings);
                     AssertNull(held.ResolutionError, "the anchors resolve completely");
                     AssertEqual(0, held.CitationIssues.Count,
                         "a range that holds in the 173-line copy is not flagged against the 3-line copy: " + String.Join(" | ", held.CitationIssues));
+
+                    GitAnchors fileHeld = await ResolveRealDockAnchorsAsync(worktree, "The source is Index.cs:120-130.", siblings);
+                    AssertEqual(0, fileHeld.CitationIssues.Count,
+                        "a citation in a declared file artifact resolves and holds: " + String.Join(" | ", fileHeld.CitationIssues));
+                    AssertFalse(MissionService.BuildGitAnchorsSection(fileHeld).Contains("is not found"),
+                        "a declared file artifact is not reported absent");
 
                     GitAnchors stale = await ResolveRealDockAnchorsAsync(worktree, "The port follows Codec.cs:200-210 in the source.", siblings);
                     AssertEqual(1, stale.CitationIssues.Count, "a range that holds in no same-named file is flagged");

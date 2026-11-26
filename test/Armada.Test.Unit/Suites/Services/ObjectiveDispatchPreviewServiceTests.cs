@@ -766,6 +766,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(result.IsReady, "A declared artifact input must exist before dispatch.");
                     AssertTrue(result.Issues.Any(issue => issue.Code == "sibling_artifact_missing"),
                         "The missing artifact path has a stable code.");
+                    File.WriteAllText(Path.Combine(harness.RepositoryDirectory, "missing-artifacts"), "file artifact");
+                    ObjectiveDispatchPreview present = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(present.Issues.Any(issue => issue.Code == "sibling_artifact_missing"),
+                        "an existing file artifact is present at dispatch preview");
                     AssertEqual(0, harness.Git.WorktreeCalls.Count, "Preview creates no worktree.");
                     AssertEqual(0, harness.Git.CloneCalls.Count, "Preview clones no repository.");
                 }

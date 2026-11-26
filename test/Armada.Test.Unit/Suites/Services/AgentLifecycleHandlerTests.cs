@@ -2501,6 +2501,8 @@ namespace Armada.Test.Unit.Suites.Services
                             await testDb.Driver.Missions.UpdateAsync(rig.JudgeStage).ConfigureAwait(false);
                         }
                         await rig.RunCaptainAsync(
+                            "## 9. State contract (PROPOSED)",
+                            "- **Unknown**: failed, stale, incomplete, paginated or malformed read; uncertain identity. Blocks blind resubmission.",
                             "## Research report",
                             scenario == "unfinished-work" ? "Acceptance criterion 2 is NOT MET because the required matrix is incomplete." : "The required matrix and source study are complete.",
                             reviewStatement,
@@ -2539,6 +2541,12 @@ namespace Armada.Test.Unit.Suites.Services
                 ["parenthetical-defect"] = "Criterion 2 (half written) is not met because the later reviews have not run.",
                 ["parenthetical-section-unfinished"] = "Criterion 2 (see section 2.1) is not met because the source study is unfinished.",
                 ["bare-colon"] = "Criterion 2: not met.",
+                ["review-own-reads"] = "## Read-only final acceptance review\n### Verdicts\n- Own-stage criterion 2: NOT MET. Required reads are unfinished.",
+                ["review-own-section"] = "## Read-only acceptance review\n### Own-stage completion\n- Criterion 2: NOT MET. The required evidence table is unfinished.",
+                ["review-unscoped-gap"] = "## Read-only final acceptance review\nThe acceptance criteria are not met because the required reads are incomplete.",
+                ["review-fenced-heading"] = "```text\n## Read-only final acceptance review\n```\nCriterion 2: NOT MET. The source study is unfinished.",
+                ["proposed-state-own-criterion"] = "## State contract (PROPOSED)\n- Criterion 2: FAILED, the required source study is unfinished.",
+                ["proposed-state-own-gap"] = "## State contract (PROPOSED)\n- Required source reads: NOT MET. The study is unfinished.",
                 ["bare-dash"] = "Criterion 2 - not met.",
                 ["bare-word"] = "Criterion 2 not met.",
                 ["table-row"] = "| Criterion 2 | NOT MET | later reviews have not run |",
@@ -2858,8 +2866,16 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     BlockedStageRig research = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Research, withJudgeStage: true).ConfigureAwait(false);
                     await research.RunCaptainAsync(
-                        "## Research report",
-                        "The parser does not meet the documented limit; that is the finding. The acceptance criteria are met.",
+                        "## Read-only final acceptance review",
+                        "### Verdicts",
+                        "- Criterion 3: NOT MET. The original missing-feature RED has no retained raw result.",
+                        "- Criterion 4: NOT MET overall. Two clauses:",
+                        "  - Privacy and compatibility: met on retained evidence.",
+                        "  - Full-six and native clause: not met. The original chain was cancelled; this Judge has not run.",
+                        "### Criterion detail",
+                        "Criterion 4 is not met because the Judge reviews have not run.",
+                        "### Own-stage completion",
+                        "The required review reads and report sections are complete.",
                         "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
 
                     Mission report = (await testDb.Driver.Missions.ReadAsync(research.Mission.Id).ConfigureAwait(false))!;

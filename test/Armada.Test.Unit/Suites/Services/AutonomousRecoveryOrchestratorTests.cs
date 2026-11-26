@@ -5172,6 +5172,38 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await CompleteChallengerAsync(testDb, challenger, fixture.OtherModelCaptainId, "{\"findings\":["
                     + ChallengeRuling(1, "UPHOLD", 0.9) + "," + ChallengeRuling(2, "REFUTE", 0.85) + "," + ChallengeRuling(3, "REFUTE", 0.65) + "]}").ConfigureAwait(false);
+                Objective stopped = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = fixture.Failed.TenantId,
+                    UserId = fixture.Failed.UserId,
+                    Title = "Operator-stopped review recovery",
+                    MissionIds = new List<string> { fixture.Failed.Id },
+                    Tags = new List<string> { "autonomous-recovery-stop" }
+                }).ConfigureAwait(false);
+                Mission beforeStop = (await testDb.Driver.Missions.ReadAsync(fixture.Failed.Id).ConfigureAwait(false))!;
+                List<Incident> incidentsBeforeStop = await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false);
+                string incidentState = System.Text.Json.JsonSerializer.Serialize(incidentsBeforeStop);
+                int voyageCount = (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count;
+                AuthContext stopAuth = AuthContext.Authenticated(fixture.Failed.TenantId!, fixture.Failed.UserId!, false, true, "UnitTest");
+                RunbookService stopRunbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                long runbookCount = (await stopRunbooks.EnumerateExecutionsAsync(stopAuth, new RunbookExecutionQuery()).ConfigureAwait(false)).TotalRecords;
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, "An operator stop blocks rescue after the settled Challenger.");
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                Mission afterStop = (await testDb.Driver.Missions.ReadAsync(fixture.Failed.Id).ConfigureAwait(false))!;
+                AssertEqual(beforeStop.RecoveryAttempts, afterStop.RecoveryAttempts, "A stop spends no recovery attempt.");
+                AssertEqual(beforeStop.LastRecoveryActionUtc, afterStop.LastRecoveryActionUtc, "A stop does not mark the failure handled.");
+                AssertEqual(beforeStop.FailureReason, afterStop.FailureReason, "A stop keeps the original failure.");
+                AssertEqual(voyageCount, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count, "A stop creates no voyage.");
+                AssertEqual(runbookCount, (await stopRunbooks.EnumerateExecutionsAsync(stopAuth, new RunbookExecutionQuery()).ConfigureAwait(false)).TotalRecords,
+                    "A stop executes no recovery runbook.");
+                AssertEqual(incidentState, System.Text.Json.JsonSerializer.Serialize(await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false)),
+                    "A stop leaves the existing incident unchanged.");
+                List<ArmadaEvent> stopEvents = await testDb.Driver.Events.EnumerateByTypeAsync("autonomous_recovery.operator_stop", 10).ConfigureAwait(false);
+                AssertEqual(1, stopEvents.Count, "Repeated stopped ticks emit one notice per process.");
+                AssertContains(stopped.Id, stopEvents[0].Message, "The stop notice names its owning objective.");
+                stopped.Tags.Clear();
+                await testDb.Driver.Objectives.UpdateAsync(stopped).ConfigureAwait(false);
                 await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
 
                 AssertEqual(2, fixture.Admiral.DispatchedMissions.Count, "The settled challenge dispatches the rescue.");
@@ -5193,6 +5225,27 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Incident> active = await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false);
                 AssertTrue(active.Any(item => (item.RecoveryNotes ?? "").Contains("refuted 1 of 3", StringComparison.Ordinal)),
                     "The incident records the challenge.");
+
+                using (TestDatabase earlyDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ChallengeFixture early = await CreateChallengeFixtureAsync(earlyDb, "ten_recovery_stopped_early").ConfigureAwait(false);
+                    await earlyDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = early.Failed.TenantId,
+                        UserId = early.Failed.UserId,
+                        Title = "Stopped before any recovery work",
+                        MissionIds = new List<string> { early.Failed.Id },
+                        Tags = new List<string> { "autonomous-recovery-stop" }
+                }).ConfigureAwait(false);
+                await early.Orchestrator.HandleMissionOutcomeAsync(early.Failed, false).ConfigureAwait(false);
+                AssertEqual(0, early.Admiral.DispatchedMissions.Count, "An operator stop also blocks the first Challenger.");
+                AssertEqual(0, (await ActiveIncidentsAsync(earlyDb, early.Failed).ConfigureAwait(false)).Count,
+                    "A stop before the first recovery creates no incident.");
+                AutonomousRecoveryOrchestrator restarted = CreateOrchestrator(earlyDb.Driver, early.Admiral,
+                    new IncidentService(earlyDb.Driver), new RunbookService(earlyDb.Driver, new LoggingModule()), early.Settings);
+                await restarted.HandleMissionOutcomeAsync(early.Failed, false).ConfigureAwait(false);
+                AssertEqual(0, early.Admiral.DispatchedMissions.Count, "The stored stop survives a new orchestrator instance.");
+                }
             }).ConfigureAwait(false);
 
             await RunTest("Challenge round: dispatching the Challenger opens the failure's incident that says a rescue will follow", async () =>
