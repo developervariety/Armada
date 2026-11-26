@@ -1259,36 +1259,80 @@ namespace Armada.Core.Services
             foreach (string artifactPath in sibling.ExtractionArtifactPaths)
             {
                 if (String.IsNullOrWhiteSpace(artifactPath)) continue;
-                string source = Path.GetFullPath(Path.Combine(siblingVessel.WorkingDirectory, artifactPath));
-                string destination = Path.GetFullPath(Path.Combine(siblingWorktree, artifactPath));
+                string? source = SiblingArtifactPath.Resolve(siblingVessel.WorkingDirectory, artifactPath);
+                string? destination = SiblingArtifactPath.Resolve(siblingWorktree, artifactPath);
                 try
                 {
-                    if (!Directory.Exists(source))
+                    SiblingArtifactKindEnum kind = SiblingArtifactPath.Kind(source);
+                    if (source == null || destination == null)
+                        throw new IOException("consumer_artifact_outside_checkout: " + artifactPath);
+                    if (kind == SiblingArtifactKindEnum.Missing)
                     {
                         _Logging.Warn(_Header + "extraction artifact source absent for consumer verification (vessel "
                             + siblingVessel.Name + ", path " + artifactPath + "); its tree-dependent tests will not find it");
                         continue;
                     }
-                    // A deobfuscator commits a few files under its artifact directory, so the worktree
-                    // already holds a partial tree there. The host working directory holds the whole
-                    // tree, tracked files included; move the partial one aside and link the whole one,
-                    // as a dock replaces it with a full copy. The worktree is discarded after the run.
-                    if (File.Exists(destination)) continue;
-                    if (Directory.Exists(destination))
+                    if (String.Equals(source, destination, StringComparison.Ordinal))
+                        throw new IOException("consumer_artifact_source_equals_destination: " + artifactPath);
+
+                    bool directoryExists = Directory.Exists(destination);
+                    bool fileExists = File.Exists(destination);
+                    FileSystemInfo destinationInfo = directoryExists
+                        ? new DirectoryInfo(destination) : new FileInfo(destination);
+                    if (destinationInfo.LinkTarget != null)
                     {
-                        if (new DirectoryInfo(destination).LinkTarget != null) continue;
-                        Directory.Move(destination, destination + ".tracked-" + Guid.NewGuid().ToString("N"));
+                        string? existingTarget = destinationInfo.ResolveLinkTarget(false)?.FullName;
+                        if (!String.Equals(existingTarget, source, StringComparison.Ordinal))
+                            throw new IOException("consumer_artifact_link_target_mismatch: " + artifactPath);
+                        continue;
                     }
 
-                    string? parent = Path.GetDirectoryName(destination);
-                    if (!String.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
-                    Directory.CreateSymbolicLink(destination, source);
-                    links.Add(destination);
+                    // A tracked partial copy must leave the entire verification scan tree. Keep it
+                    // outside that tree until linking succeeds, so a failed link can restore it.
+                    string? displaced = null;
+                    string? displacedRoot = null;
+                    if (directoryExists || fileExists)
+                    {
+                        displacedRoot = Path.Combine(Path.GetTempPath(), "armada-consumer-artifact-displaced", Guid.NewGuid().ToString("N"));
+                        Directory.CreateDirectory(displacedRoot);
+                        displaced = Path.Combine(displacedRoot, "artifact");
+                        if (directoryExists) Directory.Move(destination, displaced);
+                        else File.Move(destination, displaced);
+                    }
+                    try
+                    {
+                        string? parent = Path.GetDirectoryName(destination);
+                        if (!String.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+                        if (kind == SiblingArtifactKindEnum.File) File.CreateSymbolicLink(destination, source);
+                        else Directory.CreateSymbolicLink(destination, source);
+                        links.Add(destination);
+                    }
+                    catch
+                    {
+                        if (displaced != null)
+                        {
+                            if (directoryExists) Directory.Move(displaced, destination);
+                            else File.Move(displaced, destination);
+                        }
+                        throw;
+                    }
+                    finally
+                    {
+                        if (displacedRoot != null)
+                        {
+                            // On a failed restoration, preserve the only surviving tracked copy.
+                            bool linked = links.Contains(destination);
+                            if (linked || !File.Exists(displaced) && !Directory.Exists(displaced))
+                                Directory.Delete(displacedRoot, true);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "could not link extraction artifacts for consumer verification (vessel "
                         + siblingVessel.Name + ", path " + artifactPath + "): " + ex.Message);
+                    ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, TimeSpan.Zero, ArmadaMetrics.OutcomeError);
+                    throw new IOException("consumer_artifact_link_failed: " + artifactPath, ex);
                 }
             }
         }
@@ -1304,7 +1348,7 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    FileSystemInfo info = new DirectoryInfo(link);
+                    FileSystemInfo info = Directory.Exists(link) ? new DirectoryInfo(link) : new FileInfo(link);
                     if (info.LinkTarget == null) continue;
                     File.Delete(link);
                 }

@@ -146,6 +146,37 @@ authority.
 The server-owned recovery runbook is part of autonomous recovery. Do not use
 it as a general operator checklist.
 
+### 4.2 Operator stop for autonomous recovery
+
+The owning objective's `autonomous-recovery-stop` tag stops recovery for its
+missions. Armada reads the durable tag before a Challenger, after its ruling,
+and before dispatching a rescue. It leaves existing incidents and work intact.
+The `autonomous_recovery.operator_stop` event names the objective and mission;
+repeated stopped ticks emit one notice per process. Removing the tag releases
+the stop. A new orchestrator process reads the same stored stop. Other
+objectives keep their normal recovery policy.
+
+### 4.3 Sibling extraction artifacts
+
+`ExtractionArtifactPaths` declares relative files or directories below the
+sibling's host working directory and checkout. Paths outside either root are
+refused. Dock provisioning, dispatch preview, citation checks and consumer
+verification use the same file/directory/missing classification.
+
+Dock provisioning copies a file through a temporary file and an atomic rename.
+A file with unchanged size and write time is current; a changed file is
+refreshed with the source write time. Directory copies keep their tree-signature
+manifest. Each missing or refused path warns and records a skipped-copy metric;
+one `dock.sibling_artifact_skipped` event identifies the dock and all skipped
+paths and reasons. Copy failures record the failed-copy metric and warning.
+
+Consumer verification links each declared file or directory to its host source.
+A disposable tracked partial copy moves outside the whole verification tree
+while the link is created, then is removed. A failed link restores that copy
+where possible, records a validation error and names
+`consumer_artifact_link_failed`. Link cleanup removes only the link and keeps
+the host artifact intact.
+
 ## 5. Workflow Profiles
 
 Generated captain briefs include a bounded native-check reference: configured

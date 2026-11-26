@@ -691,7 +691,7 @@ namespace Armada.Core.Services
                     return
                         "This is a " + mode + " mission: your deliverable is a report, not a code change. " +
                         "Do not edit, commit, or push. Report exact evidence for every claim, and state plainly " +
-                        "when the evidence does not settle a question. End with a standalone line " +
+                        "when the evidence does not settle a question. " + ReportIncompleteResult.ReviewedWorkInstruction + "End with a standalone line " +
                         "`[ARMADA:RESULT] COMPLETE` with the brief plain-text summary of what you found before the result line.";
                 }
 

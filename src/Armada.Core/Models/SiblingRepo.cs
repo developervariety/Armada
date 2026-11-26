@@ -50,14 +50,14 @@ namespace Armada.Core.Models
         public string? DefaultBranch { get; set; } = null;
 
         /// <summary>
-        /// Optional list of relative paths whose contents are copied from the sibling vessel's
+        /// Optional list of relative file or directory paths whose contents are copied from the sibling vessel's
         /// <see cref="Vessel.WorkingDirectory"/> into the same relative location under the dock
         /// sibling worktree after the worktree is provisioned. Use this to materialise
         /// git-ignored extraction artifacts (e.g. "output/extracted-artifacts") that consumer build
         /// probes expect alongside the sibling checkout. Requires <see cref="VesselRef"/> to
         /// point to a registered vessel that has <see cref="Vessel.WorkingDirectory"/> configured.
-        /// When null or empty no artifact copy is performed. If the source directory is absent
-        /// at provisioning time the step is skipped with a warning log and the build continues
+        /// When null or empty no artifact copy is performed. If the source path is absent
+        /// at provisioning time the step records a warning, skipped-copy metric and aggregated dock event; the build continues
         /// (data-dependent tests will be gated until the artifacts are generated).
         /// </summary>
         public List<string>? ExtractionArtifactPaths { get; set; } = null;

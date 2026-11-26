@@ -1666,11 +1666,11 @@ namespace Armada.Core.Services
 
                 foreach (string artifactPath in sibling.ExtractionArtifactPaths.Where(item => !String.IsNullOrWhiteSpace(item)))
                 {
-                    string sourcePath = Path.Combine(siblingVessel.WorkingDirectory, artifactPath);
-                    if (!Directory.Exists(sourcePath))
+                    string? sourcePath = SiblingArtifactPath.Resolve(siblingVessel.WorkingDirectory, artifactPath);
+                    if (SiblingArtifactPath.Kind(sourcePath) == SiblingArtifactKindEnum.Missing)
                     {
                         AddIssue(result, "sibling_artifact_missing", "provisioning", ReadinessSeverityEnum.Error,
-                            "A required sibling extraction artifact path does not exist.", sourcePath);
+                            "A required sibling extraction artifact path is absent or outside its checkout.", artifactPath);
                     }
                 }
             }

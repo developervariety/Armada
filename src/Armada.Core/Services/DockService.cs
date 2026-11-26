@@ -1362,6 +1362,7 @@ namespace Armada.Core.Services
             List<SiblingRepo> siblings = vessel.GetSiblingRepos();
             if (siblings.Count == 0) return;
 
+            List<string> artifactSkips = new List<string>();
             foreach (SiblingRepo sibling in siblings)
             {
                 if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath))
@@ -1394,7 +1395,7 @@ namespace Armada.Core.Services
 
                     if (pinnedCommit != null)
                     {
-                        await ProvisionPinnedSiblingAsync(vessel, worktreePath, dockId, sibling, siblingRepoPath, siblingWorktreePath, pinnedCommit, objective!, token).ConfigureAwait(false);
+                        await ProvisionPinnedSiblingAsync(vessel, worktreePath, dockId, sibling, siblingRepoPath, siblingWorktreePath, pinnedCommit, objective!, artifactSkips, token).ConfigureAwait(false);
                         siblingOutcome = ArmadaMetrics.OutcomeSuccess;
                         continue;
                     }
@@ -1445,7 +1446,7 @@ namespace Armada.Core.Services
                     }
 
                     await ReportStaleSharedSiblingAsync(vessel, dockId, sibling, siblingRepoPath, siblingWorktreePath, siblingBranch, token).ConfigureAwait(false);
-                    await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+                    await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, artifactSkips, token).ConfigureAwait(false);
                     await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
                     siblingOutcome = ArmadaMetrics.OutcomeReused;
                     continue;
@@ -1469,7 +1470,7 @@ namespace Armada.Core.Services
                 throw new InvalidOperationException("build-participant sibling provisioned empty (0 files) at " + siblingWorktreePath);
             }
 
-            await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+            await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, artifactSkips, token).ConfigureAwait(false);
             await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
             siblingOutcome = ArmadaMetrics.OutcomeSuccess;
                 }
@@ -1499,6 +1500,28 @@ namespace Armada.Core.Services
                         ArmadaMetrics.RecordCheckout(ArmadaMetrics.CheckoutSibling, siblingElapsed.Elapsed, siblingOutcome, false);
                 }
             }
+            if (artifactSkips.Count > 0)
+            {
+                string message = "Dock " + dockId + " skipped sibling artifacts: " + String.Join("; ", artifactSkips);
+                try
+                {
+                    ArmadaEvent skipped = new ArmadaEvent("dock.sibling_artifact_skipped", message)
+                    {
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        EntityType = "dock",
+                        EntityId = dockId,
+                        VesselId = vessel.Id,
+                        Payload = JsonSerializer.Serialize(new { DockId = dockId, Reasons = artifactSkips })
+                    };
+                    await _Database.Events.CreateAsync(skipped, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not record dock.sibling_artifact_skipped for " + dockId + ": " + ex.Message);
+                }
+            }
         }
 
         /// <summary>
@@ -1517,6 +1540,7 @@ namespace Armada.Core.Services
             string siblingWorktreePath,
             string pinnedCommit,
             Objective objective,
+            List<string> artifactSkips,
             CancellationToken token)
         {
             string dockRoot = Path.GetFullPath(Path.GetDirectoryName(Path.GetFullPath(worktreePath)) ?? worktreePath);
@@ -1559,7 +1583,7 @@ namespace Armada.Core.Services
                     + " HEAD is " + (provisioned ?? "unknown") + ", not pinned commit " + commit);
 
             _Logging.Info(_Header + "provisioned sibling repo at " + siblingWorktreePath + " (pinned commit " + commit + ") for vessel " + vessel.Id);
-            await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
+            await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, artifactSkips, token).ConfigureAwait(false);
             await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
 
             try
@@ -1672,12 +1696,12 @@ namespace Armada.Core.Services
 
 
         /// <summary>
-        /// Copies git-ignored extraction artifact directories from the sibling vessel's host
+        /// Copies git-ignored extraction artifact files and directories from the sibling vessel's host
         /// WorkingDirectory into the dock sibling worktree so consumer build probes resolve them.
         /// No-op when ExtractionArtifactPaths is empty or the sibling has no VesselRef.
-        /// Skips cleanly with a warning when the source directory is absent on the host.
+        /// Records skipped paths for the dock event when a source is absent or outside its checkout.
         /// </summary>
-        private async Task ProvisionSiblingArtifactsAsync(SiblingRepo sibling, string siblingWorktreePath, CancellationToken token)
+        private async Task ProvisionSiblingArtifactsAsync(SiblingRepo sibling, string siblingWorktreePath, List<string> artifactSkips, CancellationToken token)
         {
             if (sibling.ExtractionArtifactPaths == null || sibling.ExtractionArtifactPaths.Count == 0) return;
             if (String.IsNullOrWhiteSpace(sibling.VesselRef)) return;
@@ -1700,6 +1724,11 @@ namespace Armada.Core.Services
             if (siblingVessel == null || String.IsNullOrWhiteSpace(siblingVessel.WorkingDirectory))
             {
                 _Logging.Warn(_Header + "skipping extraction artifact provisioning: vessel not found or WorkingDirectory not configured (vesselRef=" + sibling.VesselRef + ")");
+                foreach (string path in sibling.ExtractionArtifactPaths.Where(item => !String.IsNullOrWhiteSpace(item)))
+                {
+                    artifactSkips.Add(sibling.RelativePath + "/" + path + ": source working directory unavailable");
+                    ArmadaMetrics.RecordArtifactCopy(TimeSpan.Zero, "skipped", 0);
+                }
                 return;
             }
 
@@ -1707,12 +1736,16 @@ namespace Armada.Core.Services
             {
                 if (String.IsNullOrWhiteSpace(artifactPath)) continue;
 
-                string sourceDir = Path.Combine(siblingVessel.WorkingDirectory, artifactPath);
-                string destDir = Path.Combine(siblingWorktreePath, artifactPath);
-
-                if (!Directory.Exists(sourceDir))
+                string? sourceDir = SiblingArtifactPath.Resolve(siblingVessel.WorkingDirectory, artifactPath);
+                string? destDir = SiblingArtifactPath.Resolve(siblingWorktreePath, artifactPath);
+                SiblingArtifactKindEnum kind = SiblingArtifactPath.Kind(sourceDir);
+                if (kind == SiblingArtifactKindEnum.Missing || destDir == null)
                 {
-                    _Logging.Warn(_Header + "extraction artifact source absent -- data-tests will be skipped until artifacts are generated (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + ")");
+                    string reason = sibling.RelativePath + "/" + artifactPath + ": "
+                        + (sourceDir == null || destDir == null ? "outside checkout" : "source absent");
+                    artifactSkips.Add(reason);
+                    _Logging.Warn(_Header + "sibling_artifact_skipped: " + reason);
+                    ArmadaMetrics.RecordArtifactCopy(TimeSpan.Zero, "skipped", 0);
                     continue;
                 }
 
@@ -1729,7 +1762,37 @@ namespace Armada.Core.Services
                 Stopwatch copyElapsed = Stopwatch.StartNew();
                 try
                 {
-                    ArtifactTreeSignature sourceSignature = ArtifactTreeSignature.Measure(sourceDir);
+                    if (String.Equals(sourceDir, destDir, StringComparison.Ordinal))
+                        throw new IOException("sibling_artifact_source_equals_destination");
+                    if (kind == SiblingArtifactKindEnum.File)
+                    {
+                        FileInfo sourceFile = new FileInfo(sourceDir!);
+                        FileInfo destinationFile = new FileInfo(destDir);
+                        if (destinationFile.Exists && sourceFile.Length == destinationFile.Length
+                            && sourceFile.LastWriteTimeUtc == destinationFile.LastWriteTimeUtc)
+                        {
+                            ArmadaMetrics.RecordArtifactCopy(copyElapsed.Elapsed, ArmadaMetrics.OutcomeCurrent, 0);
+                            continue;
+                        }
+                        bool replacing = destinationFile.Exists;
+                        string staging = destDir + ".refresh-" + Guid.NewGuid().ToString("N");
+                        try
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(destDir)!);
+                            File.Copy(sourceDir!, staging);
+                            File.SetLastWriteTimeUtc(staging, sourceFile.LastWriteTimeUtc);
+                            File.Move(staging, destDir, true);
+                        }
+                        finally
+                        {
+                            if (File.Exists(staging)) File.Delete(staging);
+                        }
+                        ArmadaMetrics.RecordArtifactCopy(copyElapsed.Elapsed,
+                            replacing ? ArmadaMetrics.OutcomeRefreshed : ArmadaMetrics.OutcomeCopied, sourceFile.Length);
+                        _Logging.Info(_Header + "provisioned extraction artifact file " + artifactPath);
+                        continue;
+                    }
+                    ArtifactTreeSignature sourceSignature = ArtifactTreeSignature.Measure(sourceDir!);
                     bool populated = Directory.Exists(destDir) && Directory.EnumerateFileSystemEntries(destDir).Any();
                     if (populated)
                     {
@@ -1743,7 +1806,7 @@ namespace Armada.Core.Services
                         }
 
                         ArtifactTreeSignature before = ArtifactTreeSignature.Measure(destDir);
-                        RefreshDirectoryAtomically(sourceDir, destDir);
+                        RefreshDirectoryAtomically(sourceDir!, destDir);
                         sourceSignature.WriteManifest(destDir);
                         _Logging.Info(_Header + "refreshed stale extraction artifacts at " + destDir + ": " + before.FileCount + " files / " + before.TotalBytes
                             + " bytes -> " + sourceSignature.FileCount + " files / " + sourceSignature.TotalBytes + " bytes"
@@ -1753,7 +1816,7 @@ namespace Armada.Core.Services
                         continue;
                     }
 
-                    CopyDirectoryRecursive(sourceDir, destDir);
+                    CopyDirectoryRecursive(sourceDir!, destDir);
                     sourceSignature.WriteManifest(destDir);
                     _Logging.Info(_Header + "provisioned extraction artifacts from " + sourceDir + " to " + destDir
                         + " (" + sourceSignature.FileCount + " files, " + sourceSignature.TotalBytes + " bytes)");

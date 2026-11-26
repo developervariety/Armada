@@ -101,6 +101,18 @@ published landing or a passing Check. A later validation failure still stops
 publication. Each retry can record another integration merge; those events do
 not count as additional landings. Legacy synchronization merges union a sole `CHANGELOG.md` conflict and leave all other content conflicts unresolved. Landing code supplies the vessel policy explicitly.
 
+## Captured work commit
+
+For ordinary authored work, a definite Git result that the saved mission commit
+is not an ancestor of the source branch refuses landing with
+`captured_commit_not_in_candidate`. Direct landing checks before candidate
+validation and checks the concrete merged object again before publication.
+The lifecycle and queue paths check before branch or pull-request publication;
+the queue checks its integration candidate before landing. The target, source
+branch and saved commit remain intact. An unavailable ancestry read is unknown
+and does not count as a definite mismatch. Regenerated artifacts retain their
+separate reviewed source/target/candidate binding below.
+
 ## Declared generated artifacts
 
 A vessel can declare `GeneratedArtifacts` with exact repository-relative `Paths`

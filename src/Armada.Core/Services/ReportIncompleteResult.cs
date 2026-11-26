@@ -8,7 +8,8 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// The one rule for a report-only Worker that ends <c>[ARMADA:RESULT] COMPLETE</c> while its own report
-    /// states that its current-stage acceptance criteria are not met. A criterion that explicitly awaits an
+    /// states that its current-stage acceptance criteria are not met. Defined acceptance-review verdicts
+    /// concern the reviewed work; unmet own-stage duties still block. A criterion that explicitly awaits an
     /// actual pending downstream Judge retains that review obligation without cancelling the Judge.
     /// </summary>
     /// <remarks>
@@ -45,6 +46,16 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private const string _CompleteWord = "COMPLETE";
+
+        /// <summary>The defined negative-review form carried by read-only producing personas.</summary>
+        internal const string ReviewedWorkInstruction =
+            "For a negative review of existing work, use a 'read-only final acceptance review' report heading and numbered criteria under 'Verdicts'. "
+            + "Put your own unmet reads, evidence or report duties under 'Own-stage completion'; they still block. The Judge reviews the verdict independently. ";
+
+        private static readonly Regex _OwnStageClaim = new Regex(
+            @"\b(?:own|current[- ]stage|required (?:reads?|evidence|report sections?)|I (?:did not|have not|could not) (?:read|finish|complete))\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
 
         private const string _NumberWord = @"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)";
 
@@ -216,6 +227,7 @@ namespace Armada.Core.Services
             internal int PhraseEnd { get; }
             internal string Number { get; }
             internal bool Acceptable { get; }
+            internal bool ReviewedWork { get; set; }
 
             internal CriterionCandidate(int referenceIndex, int referenceEnd, int phraseIndex, int phraseEnd, string number, bool acceptable)
             {
@@ -275,6 +287,7 @@ namespace Armada.Core.Services
             for (int matchIndex = 0; matchIndex < candidates.Count; matchIndex++)
             {
                 CriterionCandidate match = candidates[matchIndex];
+                if (match.ReviewedWork) continue;
                 int start = SentenceStart(text, match.ReferenceIndex);
                 int nextCriterion = matchIndex + 1 < candidates.Count ? candidates[matchIndex + 1].ReferenceIndex : text.Length;
                 int end = SentenceEnd(text, match.PhraseEnd, nextCriterion, resultIndex);
@@ -521,18 +534,48 @@ namespace Armada.Core.Services
         {
             List<CriterionCandidate> candidates = new List<CriterionCandidate>();
             int lineStart = 0;
+            int proposedStateDepth = 0;
+            int reviewDepth = 0;
+            int ownStageDepth = 0;
+            int verdictDepth = 0;
+            bool fenced = false;
             while (lineStart <= text.Length)
             {
                 int lineEnd = text.IndexOf('\n', lineStart);
                 if (lineEnd < 0) lineEnd = text.Length;
-                if (lineEnd > lineStart) ScanLine(text, lineStart, lineEnd, candidates);
+                string line = text.Substring(lineStart, lineEnd - lineStart).Trim();
+                if (line.StartsWith("```", StringComparison.Ordinal) || line.StartsWith("~~~", StringComparison.Ordinal)) fenced = !fenced;
+                if (!fenced && line.StartsWith("#", StringComparison.Ordinal))
+                {
+                    int depth = 0;
+                    while (depth < line.Length && line[depth] == '#') depth++;
+                    if (depth <= proposedStateDepth) proposedStateDepth = 0;
+                    if (depth <= reviewDepth) reviewDepth = 0;
+                    if (depth <= ownStageDepth) ownStageDepth = 0;
+                    if (depth <= verdictDepth) verdictDepth = 0;
+                    if (depth <= 2 && Regex.IsMatch(line, @"\bread-only (?:final )?acceptance review\b",
+                        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))) reviewDepth = depth;
+                    if (reviewDepth > 0 && Regex.IsMatch(line, @"\A#{1,6}\s+Own[- ]stage\b",
+                        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))) ownStageDepth = depth;
+                    if (reviewDepth > 0 && Regex.IsMatch(line, @"\A#{1,6}\s+Verdicts?\s*#*\z",
+                        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))) verdictDepth = depth;
+                    if (Regex.IsMatch(line, @"\A#{1,6}\s+(?:\d+[.)]\s*)?(?:State (?:contract|definitions?) \(PROPOSED\)|Proposed state (?:contract|definitions?))\s*#*\z",
+                        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))) proposedStateDepth = depth;
+                }
+                int firstCandidate = candidates.Count;
+                if (lineEnd > lineStart) ScanLine(text, lineStart, lineEnd, candidates, proposedStateDepth > 0 && !fenced);
+                // In the declared review form, numbered criteria concern the reviewed work. Own-stage
+                // statements retain their ordinary blocking rule, even inside the verdict section.
+                if (reviewDepth > 0 && ownStageDepth == 0 && !fenced && !_OwnStageClaim.IsMatch(line))
+                    for (int i = firstCandidate; i < candidates.Count; i++)
+                        candidates[i].ReviewedWork = candidates[i].Number.Length > 0 || verdictDepth > 0;
                 if (lineEnd >= text.Length) break;
                 lineStart = lineEnd + 1;
             }
             return candidates;
         }
 
-        private static void ScanLine(string text, int lineStart, int lineEnd, List<CriterionCandidate> candidates)
+        private static void ScanLine(string text, int lineStart, int lineEnd, List<CriterionCandidate> candidates, bool proposedState)
         {
             string line = text.Substring(lineStart, lineEnd - lineStart);
             int firstOnLine = candidates.Count;
@@ -565,7 +608,11 @@ namespace Armada.Core.Services
                         continue;
                     }
                 }
-                if (ok && marker.Success && !table)
+                // A proposed state's comma-separated failure conditions define that state, not a verdict.
+                // Explicit criterion references above remain authoritative even inside the definition.
+                bool stateConditions = proposedState && String.Equals(phrase.Value, "failed", StringComparison.OrdinalIgnoreCase)
+                    && phraseEnd < line.Length && line[phraseEnd] == ',';
+                if (ok && marker.Success && !table && !stateConditions)
                 {
                     Match suffix = _StatusSuffix.Match(line.Substring(0, phrase.Index));
                     if (suffix.Success && suffix.Index > marker.Length)

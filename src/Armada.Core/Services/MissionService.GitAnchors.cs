@@ -245,7 +245,7 @@ namespace Armada.Core.Services
         private const long MaxArtifactFileBytes = 4L * 1024 * 1024;
 
         /// <summary>
-        /// The files under a sibling's extraction artifact directories in a provisioned sibling checkout that a
+        /// The declared artifact files and files under a sibling's artifact directories in a provisioned checkout that a
         /// cited name matches, as paths from the sibling root. Those trees are copied beside the tracked files
         /// and are untracked, so a name can match a tracked file and an artifact file at once, and the copy the
         /// text means may be either. A directory outside the sibling root, or one that cannot be read, is skipped.
@@ -270,11 +270,17 @@ namespace Armada.Core.Services
                 string relative = NormalizeCitationPath(artifact);
                 if (relative.Length == 0 || Path.IsPathRooted(relative)
                     || Array.Exists(relative.Split('/'), segment => segment.Length == 0 || segment == "." || segment == "..")) continue;
-                string directory = Path.GetFullPath(Path.Combine(root, relative));
-                if (!directory.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !Directory.Exists(directory)) continue;
+                string? directory = SiblingArtifactPath.Resolve(root, relative);
+                SiblingArtifactKindEnum kind = SiblingArtifactPath.Kind(directory);
+                if (kind == SiblingArtifactKindEnum.Missing) continue;
+                if (kind == SiblingArtifactKindEnum.File)
+                {
+                    files.Add(Path.GetRelativePath(root, directory!).Replace('\\', '/'));
+                    continue;
+                }
                 try
                 {
-                    foreach (string file in Directory.EnumerateFiles(directory, fileName, options))
+                    foreach (string file in Directory.EnumerateFiles(directory!, fileName, options))
                         files.Add(Path.GetRelativePath(root, file).Replace('\\', '/'));
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)

@@ -386,7 +386,7 @@ A brief carries only what the mission's mode and persona can use:
   stated as not found in this checkout or in a provisioned sibling checkout,
   never as absent. A cited name that matches several files is checked against
   each of them; in a provisioned sibling checkout the files in the sibling's
-  extraction artifact directories are candidates beside the tracked files. The
+  declared artifact files and files under its artifact directories are candidates beside the tracked files. The
   citation holds when the cited lines hold in exactly one file, is listed as
   ambiguous with those files when they hold in several, and is listed as stale
   with every candidate when they hold in none. A file stored through Git LFS is
@@ -730,6 +730,22 @@ Armada blocks that unfinished work before review:
 - As for every report-only failure, autonomous recovery opens an incident and
   dispatches no rescue.
 
+A finished review of existing work uses a level-one or level-two heading that
+names a `read-only final acceptance review` (or `read-only acceptance review`).
+Numbered criteria and the `Verdicts` section state findings about the reviewed
+work. A negative finding in that form reaches the independent Judge; it does not
+approve the reviewed work. The brief for a read-only producing persona states
+this form. Put incomplete reads, evidence or report duties in `Own-stage
+completion`. Own-stage statements still block, including those inside the
+verdict section. A quoted or fenced heading does not enable this form.
+Code-producing Workers retain their ordinary reviewer handoff.
+
+A proposed state contract or state-definition section can define `Unknown` with
+comma-separated conditions such as `failed, stale, incomplete`. This definition
+is not a verdict on the report. An explicit unmet criterion or required-read
+statement in the same section still blocks. An example inside a code fence does
+not define a live proposed-state section.
+
 A criterion explicitly awaiting only the actual pending downstream Judge keeps
 that review eligible. A precursor can also state that later, downstream or
 future role reviews have not run or remain pending. A stated count must match
@@ -768,8 +784,8 @@ The report-only brief tells a captain to hand a criterion to a later review
 stage as one line of the skeleton shape
 `Criterion N: <Role> part delivered; criterion N carried by the later roles`,
 and not to write "not met" for a role that has not run. That line holds no NOT MET phrase, so the detector does not
-read it. A not-met line hands off in one shape only, a prose line that defers
-the criterion to a later review stage: `Criterion N is not met because the
+read it. Outside the defined acceptance-review form, a not-met line hands off only as a
+prose line that defers the criterion to a later review stage: `Criterion N is not met because the
 <roles> reviews have not run.` Its scope is its own line, after the list bullet,
 number, checkbox, quote and emphasis markers, plus the lines indented deeper
 than it (sub-bullets included). The first following line that is not indented

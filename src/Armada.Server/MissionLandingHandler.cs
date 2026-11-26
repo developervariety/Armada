@@ -457,6 +457,17 @@ namespace Armada.Server
             {
                 _Logging.Info(_Header + "merge lock acquired for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
 
+                if (vessel?.GeneratedArtifacts == null && !String.IsNullOrWhiteSpace(mission.BranchName))
+                {
+                    string? capturedRefusal = await CapturedCommitLandingRule.DescribeRefusalAsync(
+                        _Git, dock.WorktreePath!, mission, mission.BranchName).ConfigureAwait(false);
+                    if (capturedRefusal != null)
+                    {
+                        await RefuseLandingAsync(mission, MissionStatusEnum.LandingFailed, capturedRefusal).ConfigureAwait(false);
+                        return;
+                    }
+                }
+
                 if (effectivePr)
                 {
                     // Push + PR flow

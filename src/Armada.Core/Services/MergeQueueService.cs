@@ -1515,6 +1515,13 @@ namespace Armada.Core.Services
                 }
             }
 
+            if (generatedVessel?.GeneratedArtifacts == null
+                && await RefuseMissingCapturedCommitAsync(entry, integrationPath, mergeRef, token).ConfigureAwait(false))
+            {
+                await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                return;
+            }
+
             bool alreadyMerged = await IsAncestorAsync(integrationPath, mergeRef, "HEAD", token).ConfigureAwait(false);
 
             if (!alreadyMerged)
@@ -2159,6 +2166,10 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            if (vessel.GeneratedArtifacts == null
+                && await RefuseMissingCapturedCommitAsync(entry, repoPath, entry.BranchName, token).ConfigureAwait(false))
+                return false;
+
             // Push captain branch to origin so the PR has a remote head to target.
             try
             {
@@ -2519,6 +2530,20 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task<bool> RefuseMissingCapturedCommitAsync(MergeEntry entry, string repository,
+            string candidate, CancellationToken token)
+        {
+            Mission? mission = String.IsNullOrWhiteSpace(entry.MissionId) ? null
+                : await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+            if (mission == null) return false;
+            string? refusal = await CapturedCommitLandingRule.DescribeRefusalAsync(
+                _Git, repository, mission, candidate, token).ConfigureAwait(false);
+            if (refusal == null) return false;
+            _Logging.Warn(_Header + "publication refused for " + entry.Id + ": " + refusal);
+            await TransitionEntryToFailureAsync(entry, refusal, token, fireRecovery: false).ConfigureAwait(false);
+            return true;
+        }
+
         private async Task TransitionEntryToFailureAsync(MergeEntry entry, string reason, CancellationToken token, bool fireRecovery = true)
         {
             entry.Status = MergeStatusEnum.Failed;
@@ -2617,6 +2642,10 @@ namespace Armada.Core.Services
                 Mission? mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
                 if (mission != null && await ParkUnapprovedGeneratedCandidateAsync(entry, mission, repoPath, token).ConfigureAwait(false)) return;
             }
+            Vessel? vessel = await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+            if (vessel?.GeneratedArtifacts == null
+                && await RefuseMissingCapturedCommitAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false))
+                return;
             string preLandRemoteTargetHead = "";
             string integrationHead = "";
             try

@@ -507,6 +507,19 @@ namespace Armada.Core.Services
                     if (String.IsNullOrWhiteSpace(targetTip))
                         throw new InvalidOperationException("Unable to resolve target branch " + targetBranch + " in landing repository " + vessel.LocalPath);
 
+                    if (vessel.GeneratedArtifacts == null)
+                    {
+                        string? capturedRefusal = await CapturedCommitLandingRule.DescribeRefusalAsync(
+                            _Git, vessel.LocalPath, mission, missionBranch, token).ConfigureAwait(false);
+                        if (capturedRefusal != null)
+                        {
+                            mission.FailureReason = capturedRefusal;
+                            measure.Outcome = ArmadaMetrics.OutcomeFailure;
+                            await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                            return false;
+                        }
+                    }
+
                     // A prior attempt the admiral restart interrupted can leave a worktree at the
                     // deterministic per-mission integration path. Left in place it makes the add below
                     // refuse with "already exists" and fails the whole landing, so recover a leftover this
@@ -547,6 +560,21 @@ namespace Armada.Core.Services
                     string? mergedHead = await _Git.GetRevisionCommitShaAsync(worktreePath, "HEAD", token).ConfigureAwait(false);
                     if (String.IsNullOrWhiteSpace(mergedHead))
                         throw new InvalidOperationException("Unable to resolve the merged commit in integration worktree " + worktreePath);
+
+                    // Recheck the concrete merged object: a source ref can move after the early read.
+                    // Regenerated candidates have their own reviewed source/target binding below.
+                    if (vessel.GeneratedArtifacts == null)
+                    {
+                        string? capturedRefusal = await CapturedCommitLandingRule.DescribeRefusalAsync(
+                            _Git, worktreePath, mission, mergedHead!, token).ConfigureAwait(false);
+                        if (capturedRefusal != null)
+                        {
+                            mission.FailureReason = capturedRefusal;
+                            measure.Outcome = ArmadaMetrics.OutcomeFailure;
+                            await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                            return false;
+                        }
+                    }
 
                     // The merged commit is validated before anything is published or advanced. A refused
                     // candidate leaves the target, the remote and the mission branch exactly as they were.

@@ -138,6 +138,10 @@ namespace Armada.Server
         private readonly ConcurrentDictionary<string, byte> _JudgeChallengeEventsRecorded =
             new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
+        // The durable objective tag is re-read on every attempt. This map only bounds notices.
+        private readonly ConcurrentDictionary<string, byte> _OperatorStoppedMissions =
+            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
         // Missions whose operator-mitigated incident already produced a skip event, so the skip is
         // recorded once rather than once per sweep tick.
         private readonly ConcurrentDictionary<string, byte> _MitigatedIncidentSkippedMissions =
@@ -1172,6 +1176,9 @@ namespace Armada.Server
                 if (PersonaCatalog.Matches(latest.Persona, PersonaCatalog.Challenger))
                     return false;
 
+                if (await IsOperatorRecoveryStoppedAsync(latest, token).ConfigureAwait(false))
+                    return false;
+
                 if (await SuppressCancelledVoyageRecoveryAsync(latest, token).ConfigureAwait(false))
                     return true;
 
@@ -1279,6 +1286,10 @@ namespace Armada.Server
                         decision = RecoveryDecision.Blocked(JudgeChallengeRefutedAllReason);
                 }
 
+                // A completed challenge does not release an operator stop added while it ran.
+                if (await IsOperatorRecoveryStoppedAsync(latest, token).ConfigureAwait(false))
+                    return false;
+
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 await LinkIncidentToOwningObjectivesAsync(auth, latest, incident, token).ConfigureAwait(false);
 
@@ -1355,6 +1366,9 @@ namespace Armada.Server
                         latest, incident.Id, token).ConfigureAwait(false);
                     return true;
                 }
+
+                if (await IsOperatorRecoveryStoppedAsync(latest, token).ConfigureAwait(false))
+                    return false;
 
                 Mission rescue;
                 try
@@ -2365,6 +2379,23 @@ namespace Armada.Server
             }
 
             return new RescueStagePlan(null, stages, carriedSkips);
+        }
+
+        private async Task<bool> IsOperatorRecoveryStoppedAsync(Mission mission, CancellationToken token)
+        {
+            Objective? objective = await ResolveOwningObjectiveAsync(mission, token).ConfigureAwait(false);
+            if (objective?.Tags?.Contains("autonomous-recovery-stop", StringComparer.OrdinalIgnoreCase) != true)
+            {
+                _OperatorStoppedMissions.TryRemove(mission.Id, out byte _);
+                return false;
+            }
+            if (_OperatorStoppedMissions.TryAdd(mission.Id, 0))
+                await EmitEventAsync("autonomous_recovery.operator_stop",
+                    "objective_autonomous_recovery_stopped: objective " + objective.Id
+                        + " stops autonomous recovery for mission " + mission.Id
+                        + "; remove its autonomous-recovery-stop tag to release the stop.",
+                    mission, null, token).ConfigureAwait(false);
+            return true;
         }
 
         private async Task<Objective?> ResolveOwningObjectiveAsync(Mission failedMission, CancellationToken token)
