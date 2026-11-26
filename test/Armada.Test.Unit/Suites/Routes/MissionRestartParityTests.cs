@@ -336,6 +336,43 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RestartMission_NeverStartedCancelledReviewAfterRecoveredProducer_RequiresCompletedProducerOnEverySurface", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    foreach (string surface in Surfaces)
+                    {
+                        UpstreamFailureChain chain = await SeedUpstreamFailureChainAsync(harness, surface + "-recovered-producer", _ProducedCommit).ConfigureAwait(false);
+                        chain.FailedStage.Status = MissionStatusEnum.Review;
+                        chain.FailedStage.RequiresReview = true;
+                        chain.FailedStage.FailureReason = null;
+                        await harness.Driver.Missions.UpdateAsync(chain.FailedStage).ConfigureAwait(false);
+                        chain.Judge.FailureReason = "Blocked by cancelled dependency " + chain.Producer.Id + ".";
+                        await harness.Driver.Missions.UpdateAsync(chain.Judge).ConfigureAwait(false);
+                        harness.ResetRecordings();
+                        SurfaceReply held = await RestartAsync(harness, surface, chain.Judge.Id).ConfigureAwait(false);
+                        AssertTrue(held.Refused, surface + ": the producer's held review must not be bypassed");
+                        AssertEqual(0, harness.Events.Count, surface + ": refusal leaves the graph unchanged");
+
+                        chain.FailedStage.Status = MissionStatusEnum.Complete;
+                        chain.FailedStage.ReviewedUtc = DateTime.UtcNow;
+                        chain.FailedStage.ReviewedByUserId = Constants.DefaultUserId;
+                        await harness.Driver.Missions.UpdateAsync(chain.FailedStage).ConfigureAwait(false);
+                        harness.ResetRecordings();
+                        SurfaceReply reply = await RestartAsync(harness, surface, chain.Judge.Id).ConfigureAwait(false);
+                        AssertFalse(reply.Refused, surface + ": the required review resumes after its recovered producer is approved: " + reply);
+                        Mission? judge = await harness.Driver.Missions.ReadAsync(chain.Judge.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Pending, judge!.Status, surface + ": the same Judge is Pending");
+                        AssertEqual(chain.FailedStage.Id, judge.DependsOnMissionId, surface + ": completed producer dependency is preserved");
+                        AssertEqual(_ProducedCommit, judge.StartFromRef, surface + ": saved producer source is captured");
+                        Mission? producer = await harness.Driver.Missions.ReadAsync(chain.FailedStage.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Complete, producer!.Status, surface + ": completed producer is not superseded");
+                        Voyage? voyage = await harness.Driver.Voyages.ReadAsync(chain.Voyage.Id).ConfigureAwait(false);
+                        AssertEqual(VoyageStatusEnum.InProgress, voyage!.Status, surface + ": same voyage is reopened");
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RestartMission_StageBehindAFailedStageThatMovedTheBranch_IsRefusedOnEverySurface", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
