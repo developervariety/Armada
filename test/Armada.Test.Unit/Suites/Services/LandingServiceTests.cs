@@ -957,6 +957,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("MergeInDedicatedWorktreeAsync_BranchLacksCapturedCommit_RefusesOnlyDefiniteMismatch", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;
+                foreach (bool declaresArtifacts in new[] { false, true })
                 foreach (string capture in new[] { "ancestor", "unresolved", "detached" })
                 {
                     string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_capture_" + Guid.NewGuid().ToString("N"));
@@ -989,6 +990,19 @@ namespace Armada.Test.Unit.Suites.Services
                             settings.DocksDirectory = Path.Combine(rootDir, "docks");
                             LandingService service = CreateValidatedService(testDb.Driver, settings);
                             Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
+                            if (declaresArtifacts)
+                            {
+                                vessel.GeneratedArtifacts = new GeneratedArtifactPolicy
+                                {
+                                    Paths = new List<string> { "generated.json" },
+                                    RegenerateCommand = "true"
+                                };
+                                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                                // A declaration can take the normal fast-forward path without regeneration.
+                                // It does not establish that the branch contains the captured work.
+                                service.GeneratedArtifactPreparer = (current, target, token) =>
+                                    Task.FromResult(new GeneratedArtifactLandingResult());
+                            }
                             await CreateCheckProfileAsync(testDb.Driver, vessel, fixture).ConfigureAwait(false);
                             Mission mission = CreateMission("msn_capture");
                             mission.CommitHash = capturedCommit;
@@ -999,7 +1013,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 vessel, mission, "main", fixture.LeftBranch, "Merge captured work").ConfigureAwait(false);
 
                             bool refused = capture == "detached";
-                            AssertEqual(!refused, landed, "only a definite non-ancestor refuses landing: " + capture);
+                            AssertEqual(!refused, landed, "only a definite non-ancestor refuses landing: " + capture + ", declared artifacts=" + declaresArtifacts);
                             string expectedTarget = refused ? targetBefore : sourceTip;
                             AssertEqual(expectedTarget, (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
                                 "a refusal cannot publish a branch that omits the recorded work: " + capture);
