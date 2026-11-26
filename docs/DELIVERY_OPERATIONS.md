@@ -715,3 +715,7 @@ Armada's internal records are authoritative for its own workflow. External CI,
 provider review, and deployment systems can require separate evidence links.
 Do not report external state as verified until Armada has ingested it or the
 operator has checked it directly.
+
+### Cancelled final review after producer recovery
+
+A never-started Judge cancelled by the dependency walker can use the normal same-ID restart after its direct producer is Complete and any required producer review is approved. The voyage must be Failed. The recorded cancelled dependency must belong to that producer chain and owner. The restart captures the producer commit, preserves the producer outcome, and rearms normal Checks. A held producer review, prior Judge execution, unrelated cancellation, or completed voyage does not qualify. This does not waive independent-model eligibility or final approval.

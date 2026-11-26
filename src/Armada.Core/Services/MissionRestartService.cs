@@ -99,6 +99,8 @@ namespace Armada.Core.Services
         /// Failed or Cancelled, a stage of the same voyage that handed off work with a commit: one that is WorkProduced,
         /// Complete or PullRequestOpen, or one the terminal-voyage rule moved from WorkProduced to Failed or Cancelled
         /// because its work was not landed. A cancelled stage needs at least one skipped stage between it and that stage.
+        /// A never-started Judge cancelled by the dependency-cancellation walker may instead resume directly after its
+        /// completed producer, with required producer approval retained; it cannot skip an unfinished producer.
         /// A skipped stage must not have moved the branch: it carries the anchor's commit, or it never started and
         /// carries none. Otherwise the restart would review a branch tip no stage verified. A failed first stage, with no
         /// dependency, runs again from its own start.
@@ -119,6 +121,15 @@ namespace Armada.Core.Services
             bool strandedStage = mission.Status == MissionStatusEnum.Cancelled
                 && (mission.FailureReason ?? String.Empty).StartsWith(MissionDependentCancellation.BlockedByFailedDependencyPrefix, StringComparison.Ordinal)
                 && !String.IsNullOrWhiteSpace(mission.DependsOnMissionId);
+            // A never-started final review can remain cancelled after its earlier cancelled producer chain
+            // has recovered. It may resume only directly after its completed, approved producer below.
+            bool recoveredProducerReview = mission.Status == MissionStatusEnum.Cancelled
+                && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge)
+                && !mission.StartedUtc.HasValue && !mission.ProcessId.HasValue
+                && String.IsNullOrEmpty(mission.CommitHash)
+                && (mission.FailureReason ?? String.Empty).StartsWith("Blocked by cancelled dependency ", StringComparison.Ordinal)
+                && (mission.FailureReason ?? String.Empty).EndsWith(".", StringComparison.Ordinal)
+                && !String.IsNullOrWhiteSpace(mission.DependsOnMissionId);
             bool failedStage = mission.Status == MissionStatusEnum.Failed
                 && !TerminalVoyageMissionRule.IsReconciledOutcome(mission)
                 && !(mission.FailureReason ?? String.Empty).StartsWith(SupersededByRestartPrefix, StringComparison.Ordinal);
@@ -128,7 +139,7 @@ namespace Armada.Core.Services
                 && OperatorStop.IsOperatorStopped(mission.FailureReason)
                 && (voyage.Status == VoyageStatusEnum.Failed || voyage.Status == VoyageStatusEnum.Cancelled);
 
-            if (!stoppedStage && (voyage.Status != VoyageStatusEnum.Failed || (!strandedStage && !failedStage)))
+            if (!stoppedStage && (voyage.Status != VoyageStatusEnum.Failed || (!strandedStage && !failedStage && !recoveredProducerReview)))
             {
                 return MissionRestartReopenPlan.Refuse(ended + pointer);
             }
@@ -159,6 +170,36 @@ namespace Armada.Core.Services
             if (anchor == null || String.IsNullOrWhiteSpace(anchor.CommitHash) || (strandedStage && skipped.Count == 0))
             {
                 return MissionRestartReopenPlan.Refuse(ended + "No earlier stage of its chain produced verified work to run it on. " + pointer);
+            }
+
+            if (recoveredProducerReview && (skipped.Count != 0 || anchor.Status != MissionStatusEnum.Complete
+                || anchor.ProcessId.HasValue || anchor.VesselId != mission.VesselId
+                || !OwnershipPolicy.SameTenant(anchor.TenantId, mission.TenantId)
+                || OwnershipPolicy.UserOfRecord(anchor.UserId) != OwnershipPolicy.UserOfRecord(mission.UserId)
+                || (anchor.RequiresReview && (!anchor.ReviewedUtc.HasValue || String.IsNullOrEmpty(anchor.ReviewedByUserId)))))
+            {
+                return MissionRestartReopenPlan.Refuse(ended + "The cancelled review requires its directly completed and approved producer. " + pointer);
+            }
+
+            if (recoveredProducerReview)
+            {
+                string cancellation = mission.FailureReason!;
+                const string prefix = "Blocked by cancelled dependency ";
+                string cancelledId = cancellation.Substring(prefix.Length, cancellation.Length - prefix.Length - 1);
+                Mission? ancestor = anchor;
+                HashSet<string> cancellationChain = new HashSet<string>(StringComparer.Ordinal);
+                bool recordedDependencyFound = false;
+                while (ancestor != null && cancellationChain.Add(ancestor.Id)
+                    && ancestor.VoyageId == voyage.Id && ancestor.VesselId == mission.VesselId
+                    && OwnershipPolicy.SameTenant(ancestor.TenantId, mission.TenantId)
+                    && OwnershipPolicy.UserOfRecord(ancestor.UserId) == OwnershipPolicy.UserOfRecord(mission.UserId))
+                {
+                    if (ancestor.Id == cancelledId) { recordedDependencyFound = true; break; }
+                    if (String.IsNullOrEmpty(ancestor.DependsOnMissionId)) break;
+                    ancestor = await _Database.Missions.ReadAsync(ancestor.DependsOnMissionId, token).ConfigureAwait(false);
+                }
+                if (!recordedDependencyFound)
+                    return MissionRestartReopenPlan.Refuse(ended + "The recorded cancelled dependency is not in the producer's chain. " + pointer);
             }
 
             foreach (Mission stage in skipped)
