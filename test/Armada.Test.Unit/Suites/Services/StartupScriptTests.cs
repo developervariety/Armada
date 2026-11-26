@@ -10,6 +10,38 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            const string imageRetentionTest = "Local image rebuild preserves unrelated images and unqualified parents";
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest(imageRetentionTest, "the local image rebuild helper requires a Unix shell");
+            }
+            else
+            {
+                await RunTest(imageRetentionTest, async () =>
+                {
+                    string root = FindRepositoryRoot();
+                    using Process process = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "/bin/bash",
+                        ArgumentList = { Path.Combine(root, "scripts", "common", "test-rebuild-local-image.sh") },
+                        WorkingDirectory = root,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                    }) ?? throw new InvalidOperationException("Could not start the image retention contract test.");
+                    Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+                    Task<string> stderr = process.StandardError.ReadToEndAsync();
+                    if (!process.WaitForExit(15000))
+                    {
+                        process.Kill(true);
+                        throw new InvalidOperationException("The image retention contract test exceeded 15 seconds.");
+                    }
+                    string output = await stdout + await stderr;
+                    AssertEqual(0, process.ExitCode, "image retention contract: " + output);
+                    AssertContains("PASS: image retention preserves unrelated images and parents", output, "The command-boundary test completed");
+                });
+            }
+
             await RunTest("Autonomy Helper Lifecycle Is Bounded And Tested", () =>
             {
                 string root = FindRepositoryRoot();
