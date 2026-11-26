@@ -1825,6 +1825,7 @@ namespace Armada.Core.Services
                 catch (Exception ex)
                 {
                     ArmadaMetrics.RecordArtifactCopy(copyElapsed.Elapsed, ArmadaMetrics.OutcomeFailure, 0);
+                    artifactSkips.Add(sibling.RelativePath + "/" + artifactPath + ": copy failed: " + ex.Message);
                     _Logging.Warn(_Header + "failed to copy extraction artifacts (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + "): " + ex.Message);
                 }
             }

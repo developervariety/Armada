@@ -9,7 +9,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Resume a never-started cancelled Judge on its directly completed, approved producer after dependency recovery; retain failed-voyage, owner, source and review guards.
 
-- Accept declared sibling artifact files across dock copies, dispatch preview, citation checks and consumer links. Enforce checkout containment, preserve current file copies, refresh changed files atomically, and aggregate skipped artifact paths in one dock event. Keep displaced tracked copies outside consumer scans and name link failures.
+- Accept declared sibling artifact files across dock copies, dispatch preview, citation checks and consumer links. Enforce checkout containment, preserve current file copies, refresh changed files atomically, and aggregate missing paths and failed-copy reasons in one dock event. Keep displaced tracked copies outside consumer scans and name link failures.
 - Separate defined negative acceptance-review findings from unfinished own-stage report duties. Proposed state definitions do not become failure verdicts. Code-producing Workers keep their reviewer handoff.
 - Re-read the owning objective's durable recovery stop before challenge or rescue work, including after a Challenger or runbook completes.
 - Refuse a landing when Git proves that its source or concrete candidate omits the captured mission commit, including a vessel with declared generated files. Unknown ancestry remains distinct from a definite mismatch; generated candidates keep both authored histories and their reviewed binding.

@@ -168,7 +168,8 @@ A file with unchanged size and write time is current; a changed file is
 refreshed with the source write time. Directory copies keep their tree-signature
 manifest. Each missing or refused path warns and records a skipped-copy metric;
 one `dock.sibling_artifact_skipped` event identifies the dock and all skipped
-paths and reasons. Copy failures record the failed-copy metric and warning.
+paths and reasons. Copy failures record the failed-copy metric and warning,
+and include the failed path and reason in that same dock event.
 
 Consumer verification links each declared file or directory to its host source.
 A disposable tracked partial copy moves outside the whole verification tree
