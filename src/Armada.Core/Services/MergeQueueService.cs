@@ -2642,7 +2642,8 @@ namespace Armada.Core.Services
                 Mission? mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
                 if (mission != null && await ParkUnapprovedGeneratedCandidateAsync(entry, mission, repoPath, token).ConfigureAwait(false)) return;
             }
-            Vessel? vessel = await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+            Vessel? vessel = String.IsNullOrWhiteSpace(entry.VesselId) ? null
+                : await _Database.Vessels.ReadAsync(entry.VesselId!, token).ConfigureAwait(false);
             if (vessel?.GeneratedArtifacts == null
                 && await RefuseMissingCapturedCommitAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false))
                 return;
