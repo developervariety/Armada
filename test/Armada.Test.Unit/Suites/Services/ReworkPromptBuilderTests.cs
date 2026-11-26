@@ -43,6 +43,10 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("In the final assistant response itself, emit the literal standalone line [ARMADA:RESULT] COMPLETE without quotes or backticks", section,
                     "The completion marker belongs in the actual response, not only in a saved report.");
                 AssertTrue(section.EndsWith(ReworkPromptBuilder.OutputContract, StringComparison.Ordinal), "The output contract closes the section.");
+                AssertContains("summary before the result line", ReworkPromptBuilder.OutputContract,
+                    "The rework demand must place the summary before the marker.");
+                AssertContains("last physical line, with nothing after it", ReworkPromptBuilder.OutputContract,
+                    "The rework demand must state the same standalone marker rule as the mission brief.");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

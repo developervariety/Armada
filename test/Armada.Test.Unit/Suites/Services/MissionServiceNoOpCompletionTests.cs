@@ -442,6 +442,31 @@ namespace Armada.Test.Unit.Suites.Services
                     "Failure reason must name the AgentOutput length so a future operator can see the no-op signature.");
                 AssertTrue(reason.Contains("no_op_completion_detected"),
                     "Failure reason must carry a stable token so the rescue path and operator grep can find it.");
+
+                foreach (string output in new string[]
+                {
+                    "[ARMADA:RESULT] COMPLETEThe review is finished.",
+                    "[ARMADA:RESULT] COMPLETE Summary follows on this line.",
+                    "[ARMADA:VERDICT] PASSThe review is finished."
+                })
+                {
+                    mission.AgentOutput = output;
+                    AssertTrue(MissionService.DetectNoOpCompletion(mission, TimeSpan.FromMinutes(2), 0, output.Length, true),
+                        "A malformed marker must not bypass the empty-diff guard.");
+                    reason = MissionService.BuildNoOpCompletionFailureReason(mission, TimeSpan.FromMinutes(2), output.Length);
+                    AssertContains("malformed terminal marker", reason, "The diagnostic distinguishes a malformed claim from an absent claim.");
+                    AssertFalse(reason.Contains("never claimed completion", StringComparison.Ordinal), "A malformed claim is still visible in the output.");
+                    mission.FailureReason = reason;
+                    AssertEqual("no_op_malformed_terminal_marker", MissionAttemptFactReasonCode.FromMissionFailure(mission),
+                        "The recorded symptom must distinguish malformed and missing markers.");
+                }
+
+                mission.AgentOutput = "Reading the remaining files.";
+                reason = MissionService.BuildNoOpCompletionFailureReason(mission, TimeSpan.FromMinutes(2), mission.AgentOutput.Length);
+                AssertContains("no valid terminal marker", reason, "Missing output remains a distinct factual diagnostic.");
+                AssertFalse(reason.Contains("provider stream died", StringComparison.Ordinal), "The missing marker does not establish a provider cause.");
+                mission.FailureReason = reason;
+                AssertEqual("no_op_missing_terminal_marker", MissionAttemptFactReasonCode.FromMissionFailure(mission));
             }).ConfigureAwait(false);
 
             await RunTest("DetectNoOpCompletion_AgentOutputSetOnMission_Detects", () =>
