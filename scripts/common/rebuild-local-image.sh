@@ -18,9 +18,9 @@ After a successful build the helper keeps the newest ARMADA_RETAINED_KEEP
 and the image just built. From every older image it removes each tag that
 matches ARMADA_PRUNE_TAG_PATTERNS (space-separated shell globs, default
 "armada-retained-* rollback-before-* candidate-* superseded-* refused-*"),
-then removes dangling layers. The mutable tag is never removed. Removal is by
-tag, so an image that a container still uses or that an unmatched tag names
-stays on disk.
+and preserves untagged parents. The mutable tag is never removed. Removal stays
+within matching tags; an image that a container still uses or that an unmatched
+tag names stays on disk.
 USAGE
 }
 
@@ -225,7 +225,7 @@ prune_old_images() {
         for tag in $(printf '%s\n' "$listed" | awk -v target="$id" '$1 == target { print $2 }'); do
             [ "${MUTABLE_REPOSITORY}:${tag}" = "$MUTABLE_TAG" ] && continue
             tag_is_prunable "$tag" || continue
-            if "${DOCKER[@]}" image rm "${MUTABLE_REPOSITORY}:${tag}" >/dev/null 2>&1; then
+            if "${DOCKER[@]}" image rm --no-prune "${MUTABLE_REPOSITORY}:${tag}" >/dev/null 2>&1; then
                 echo "removed_tag=${MUTABLE_REPOSITORY}:${tag} image=${id}"
                 removed=$((removed + 1))
             else
@@ -233,11 +233,8 @@ prune_old_images() {
             fi
         done
     done
-    local dangling="skipped"
-    if [ "$removed" -gt 0 ]; then
-        if "${DOCKER[@]}" image prune -f >/dev/null 2>&1; then dangling="pruned"; else dangling="failed"; fi
-    fi
-    echo "image_prune kept_images=${kept} removed_tags=${removed} failed_tags=${failed} dangling=${dangling}"
+    # Untagged images and parents have no qualified ownership here.
+    echo "image_prune kept_images=${kept} removed_tags=${removed} failed_tags=${failed} dangling=skipped"
     [ "$failed" -eq 0 ] || echo "WARN: ${failed} image tags could not be removed" >&2
     return 0
 }

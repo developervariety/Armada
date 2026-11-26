@@ -495,7 +495,8 @@ retention checks.
 Each rebuild retains two images, so after a successful build the helper keeps
 the newest three distinct images of the repository plus the running and
 just-built images, removes the tags matching `ARMADA_PRUNE_TAG_PATTERNS` from
-every older image, and prunes dangling layers. Set `ARMADA_RETAINED_KEEP` to
+every older image, and preserves untagged parents. It does not run a daemon-wide
+image prune. Set `ARMADA_RETAINED_KEEP` to
 keep a different number, and `ARMADA_PRUNE_TAG_PATTERNS` (space-separated
 globs, default `armada-retained-* rollback-before-* candidate-* superseded-*
 refused-*`) to change which tags may go. The mutable tag is never removed, and

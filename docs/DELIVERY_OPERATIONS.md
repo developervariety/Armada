@@ -343,7 +343,8 @@ the repository (`ARMADA_RETAINED_KEEP` changes the count) plus the image the
 container runs and the image just built. From every older image it removes each
 tag matching `ARMADA_PRUNE_TAG_PATTERNS` (default `armada-retained-*
 rollback-before-* candidate-* superseded-* refused-*`), prints each removed tag,
-and then prunes dangling layers. The mutable tag is never removed. Docker keeps
+and preserves untagged parents. It does not run a daemon-wide image prune.
+The mutable tag is never removed. Docker keeps
 an image that a container still uses or that an unmatched tag names. A tag it
 cannot remove is reported as a warning and does not fail the build.
 

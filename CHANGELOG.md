@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Local image retention removes only matching old tags, preserves untagged parents, and leaves unrelated dangling images intact.
+
 - Resume a never-started cancelled Judge on its directly completed, approved producer after dependency recovery; retain failed-voyage, owner, source and review guards.
 
 - Accept declared sibling artifact files across dock copies, dispatch preview, citation checks and consumer links. Enforce checkout containment, preserve current file copies, refresh changed files atomically, and aggregate missing paths and failed-copy reasons in one dock event. Keep displaced tracked copies outside consumer scans and name link failures.
