@@ -2394,7 +2394,10 @@ namespace Armada.Test.Unit.Suites.Services
                         await File.WriteAllTextAsync(Path.Combine(vinCatalogDir, "catalog.json"), "{\"v\":1}").ConfigureAwait(false);
                         await File.WriteAllTextAsync(Path.Combine(meddutyDir, "data.bin"), "binary").ConfigureAwait(false);
 
-                        await File.WriteAllTextAsync(Path.Combine(artifactSourceRoot, "index.json"), "file artifact").ConfigureAwait(false);
+                        string sourceIndex = Path.Combine(artifactSourceRoot, "index.json");
+                        await File.WriteAllTextAsync(sourceIndex, "file artifact").ConfigureAwait(false);
+                        DateTime sourceWrite = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+                        File.SetLastWriteTimeUtc(sourceIndex, sourceWrite);
 
                         // Register the sibling (ExampleSibling) vessel with a WorkingDirectory pointing at our temp tree
                         Vessel siblingVessel = new Vessel("ExampleSibling", "https://github.com/test/example-sibling.git");
@@ -2426,19 +2429,37 @@ namespace Armada.Test.Unit.Suites.Services
                         RecordingGitService git = new RecordingGitService();
                         DockService service = new DockService(logging, testDb.Driver, settings, git);
 
-                        // Act
-                        Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_art", "msn_art").ConfigureAwait(false);
-                        AssertNotNull(dock, "Dock should be provisioned");
+                        using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                        {
+                            // Act
+                            Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_art", "msn_art").ConfigureAwait(false);
+                            AssertNotNull(dock, "Dock should be provisioned");
 
-                        // Assert -- artifacts copied into the sibling worktree at the expected relative path
-                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../ExampleSibling"));
-                        string expectedCatalog = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "vin-catalog", "catalog.json");
-                        string expectedMedduty = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "medduty-kwp", "data.bin");
-                        AssertTrue(File.Exists(expectedCatalog), "vin-catalog artifact should be copied into the sibling worktree");
-                        AssertTrue(File.Exists(expectedMedduty), "medduty-kwp artifact should be copied into the sibling worktree");
-                        string expectedIndex = Path.Combine(siblingWorktree, "index.json");
-                        AssertTrue(File.Exists(expectedIndex), "the declared file artifact is copied into the dock sibling");
-                        AssertEqual("file artifact", await File.ReadAllTextAsync(expectedIndex).ConfigureAwait(false), "the file artifact keeps its bytes");
+                            // Assert -- artifacts copied into the sibling worktree at the expected relative path
+                            string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../ExampleSibling"));
+                            string expectedCatalog = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "vin-catalog", "catalog.json");
+                            string expectedMedduty = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "medduty-kwp", "data.bin");
+                            AssertTrue(File.Exists(expectedCatalog), "vin-catalog artifact should be copied into the sibling worktree");
+                            AssertTrue(File.Exists(expectedMedduty), "medduty-kwp artifact should be copied into the sibling worktree");
+                            string expectedIndex = Path.Combine(siblingWorktree, "index.json");
+                            AssertTrue(File.Exists(expectedIndex), "the declared file artifact is copied into the dock sibling");
+                            AssertEqual("file artifact", await File.ReadAllTextAsync(expectedIndex).ConfigureAwait(false), "the file artifact keeps its bytes");
+                            DateTime copiedWrite = File.GetLastWriteTimeUtc(expectedIndex);
+                            await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_art", "msn_art").ConfigureAwait(false);
+                            AssertEqual(copiedWrite, File.GetLastWriteTimeUtc(expectedIndex), "An unchanged file is not rewritten on retry");
+                            AssertEqual(2, metrics.Of("armada.dock.artifact_copy.seconds").Count(item => item.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeCurrent)),
+                                "The unchanged directory and file each record a current-copy skip");
+
+                            await File.WriteAllTextAsync(sourceIndex, "changed file artifact").ConfigureAwait(false);
+                            File.SetLastWriteTimeUtc(sourceIndex, sourceWrite.AddMinutes(1));
+                            await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_art", "msn_art").ConfigureAwait(false);
+                            AssertEqual("changed file artifact", await File.ReadAllTextAsync(expectedIndex).ConfigureAwait(false), "A changed file refreshes in the reused sibling");
+                            AssertEqual(File.GetLastWriteTimeUtc(sourceIndex), File.GetLastWriteTimeUtc(expectedIndex), "The refreshed copy retains the source write time");
+                            AssertTrue(metrics.Of("armada.dock.artifact_copy.seconds").Any(item => item.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeRefreshed)),
+                                "A file refresh is counted");
+                            AssertFalse(Directory.EnumerateFileSystemEntries(siblingWorktree).Any(item => Path.GetFileName(item).StartsWith("index.json.refresh-", StringComparison.Ordinal)),
+                                "The atomic refresh leaves no partial file");
+                        }
                     }
                     finally
                     {
@@ -2727,7 +2748,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 RelativePath = "../ExampleSiblingAbsent",
                                 BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
                                 DefaultBranch = "main",
-                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts"), "missing.json" }
                             }
                         };
 
@@ -2742,13 +2763,25 @@ namespace Armada.Test.Unit.Suites.Services
                         RecordingGitService git = new RecordingGitService();
                         DockService service = new DockService(logging, testDb.Driver, settings, git);
 
-                        // Act -- should not throw; absent source is a clean skip
-                        Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-absent/msn_abs", "msn_abs").ConfigureAwait(false);
-                        AssertNotNull(dock, "Dock should be provisioned even when artifact source is absent");
+                        using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                        {
+                            // Act -- should not throw; absent source is a clean skip
+                            Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-absent/msn_abs", "msn_abs").ConfigureAwait(false);
+                            AssertNotNull(dock, "Dock should be provisioned even when artifact source is absent");
 
-                        string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../ExampleSiblingAbsent"));
-                        string absentDest = Path.Combine(siblingWorktree, "output", "extracted-artifacts");
-                        AssertFalse(Directory.Exists(absentDest), "Absent artifact source should not create a destination directory");
+                            string siblingWorktree = Path.GetFullPath(Path.Combine(dock!.WorktreePath!, "../ExampleSiblingAbsent"));
+                            string absentDest = Path.Combine(siblingWorktree, "output", "extracted-artifacts");
+                            AssertFalse(Directory.Exists(absentDest), "Absent artifact source should not create a destination directory");
+                            List<ArmadaEvent> skips = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_artifact_skipped", 50).ConfigureAwait(false);
+                            AssertEqual(1, skips.Count, "All missing sibling artifacts are reported once for the dock");
+                            string detail = skips[0].Message + " " + skips[0].Payload;
+                            AssertContains(dock.Id, detail, "The event identifies the affected dock");
+                            AssertContains("extracted-artifacts", detail, "The event names the absent directory");
+                            AssertContains("missing.json", detail, "The event names the absent file");
+                            AssertContains("absent", detail, "The event records the reason instead of a silent skip");
+                            AssertEqual(2, metrics.Of("armada.dock.artifact_copy.seconds").Count(item => item.Has(ArmadaMetrics.TagOutcome, "skipped")),
+                                "Every missing artifact records a skipped copy");
+                        }
                     }
                     finally
                     {
