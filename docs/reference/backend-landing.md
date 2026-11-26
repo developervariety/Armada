@@ -45,7 +45,7 @@ disposition keeps it as an advisory preview signal. It does not enable or
 disable actual Check, Judge or landing gates. Dashboard labels must state this
 limit wherever they display or edit the setting.
 
-Ordinary landing refuses a definite source or candidate ancestry mismatch with
+Landing refuses a definite source or candidate ancestry mismatch with
 the mission's saved work commit. This execution guard is independent of the
 preview and preserves the branch for correction. An unknown ancestry read does
 not prove a mismatch. See [Merging](../MERGING.md#captured-work-commit).

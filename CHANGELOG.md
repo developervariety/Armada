@@ -10,7 +10,7 @@ upstream integrations and excludes changes already present at that baseline.
 - Accept declared sibling artifact files across dock copies, dispatch preview, citation checks and consumer links. Enforce checkout containment, preserve current file copies, refresh changed files atomically, and aggregate skipped artifact paths in one dock event. Keep displaced tracked copies outside consumer scans and name link failures.
 - Separate defined negative acceptance-review findings from unfinished own-stage report duties. Proposed state definitions do not become failure verdicts. Code-producing Workers keep their reviewer handoff.
 - Re-read the owning objective's durable recovery stop before challenge or rescue work, including after a Challenger or runbook completes.
-- Refuse an ordinary landing when Git proves that its source or concrete candidate omits the captured mission commit. Unknown ancestry remains distinct from a definite mismatch; generated candidates keep their reviewed binding.
+- Refuse a landing when Git proves that its source or concrete candidate omits the captured mission commit, including a vessel with declared generated files. Unknown ancestry remains distinct from a definite mismatch; generated candidates keep both authored histories and their reviewed binding.
 
 
 - Empty-diff completion failures distinguish a malformed terminal marker from an absent one without inferring a provider failure. Both keep the existing completion guard. Rework and persona instructions put the summary before the standalone final result line.

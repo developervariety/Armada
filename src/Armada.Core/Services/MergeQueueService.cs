@@ -1515,8 +1515,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (generatedVessel?.GeneratedArtifacts == null
-                && await RefuseMissingCapturedCommitAsync(entry, integrationPath, mergeRef, token).ConfigureAwait(false))
+            if (await RefuseMissingCapturedCommitAsync(entry, integrationPath, mergeRef, token).ConfigureAwait(false))
             {
                 await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
                 return;
@@ -2166,8 +2165,7 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            if (vessel.GeneratedArtifacts == null
-                && await RefuseMissingCapturedCommitAsync(entry, repoPath, entry.BranchName, token).ConfigureAwait(false))
+            if (await RefuseMissingCapturedCommitAsync(entry, repoPath, entry.BranchName, token).ConfigureAwait(false))
                 return false;
 
             // Push captain branch to origin so the PR has a remote head to target.
@@ -2642,10 +2640,7 @@ namespace Armada.Core.Services
                 Mission? mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
                 if (mission != null && await ParkUnapprovedGeneratedCandidateAsync(entry, mission, repoPath, token).ConfigureAwait(false)) return;
             }
-            Vessel? vessel = String.IsNullOrWhiteSpace(entry.VesselId) ? null
-                : await _Database.Vessels.ReadAsync(entry.VesselId!, token).ConfigureAwait(false);
-            if (vessel?.GeneratedArtifacts == null
-                && await RefuseMissingCapturedCommitAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false))
+            if (await RefuseMissingCapturedCommitAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false))
                 return;
             string preLandRemoteTargetHead = "";
             string integrationHead = "";
