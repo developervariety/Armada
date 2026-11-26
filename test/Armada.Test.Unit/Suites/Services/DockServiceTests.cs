@@ -2459,6 +2459,25 @@ namespace Armada.Test.Unit.Suites.Services
                                 "A file refresh is counted");
                             AssertFalse(Directory.EnumerateFileSystemEntries(siblingWorktree).Any(item => Path.GetFileName(item).StartsWith("index.json.refresh-", StringComparison.Ordinal)),
                                 "The atomic refresh leaves no partial file");
+
+                            // A real destination conflict must be visible on the dock, not only in logs.
+                            File.Delete(expectedIndex);
+                            Directory.CreateDirectory(expectedIndex);
+                            await File.WriteAllTextAsync(Path.Combine(expectedIndex, "tracked.txt"), "preserve conflict").ConfigureAwait(false);
+                            await File.WriteAllTextAsync(sourceIndex, "new source bytes").ConfigureAwait(false);
+                            await service.ProvisionAsync(vessel, captain, "armada/captain-a/msn_art", "msn_art").ConfigureAwait(false);
+                            List<ArmadaEvent> failures = await testDb.Driver.Events.EnumerateByTypeAsync("dock.sibling_artifact_skipped", 50).ConfigureAwait(false);
+                            AssertEqual(1, failures.Count, "A failed file copy is reported once for the dock");
+                            string failureDetail = failures[0].Message + " " + failures[0].Payload;
+                            AssertContains(dock.Id, failureDetail, "The failed-copy event names its dock");
+                            AssertContains("index.json", failureDetail, "The failed-copy event names its artifact");
+                            AssertContains("copy failed", failureDetail, "The failed-copy event distinguishes failure from absence");
+                            AssertEqual(1, metrics.Of("armada.dock.artifact_copy.seconds").Count(item => item.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeFailure)),
+                                "The failed file copy has one failure metric");
+                            AssertEqual("preserve conflict", await File.ReadAllTextAsync(Path.Combine(expectedIndex, "tracked.txt")).ConfigureAwait(false), "Failure preserves the conflicting destination");
+                            AssertEqual("new source bytes", await File.ReadAllTextAsync(sourceIndex).ConfigureAwait(false), "Failure never changes the host artifact");
+                            AssertFalse(Directory.EnumerateFileSystemEntries(siblingWorktree).Any(item => Path.GetFileName(item).StartsWith("index.json.refresh-", StringComparison.Ordinal)),
+                                "A failed atomic copy removes its staging file");
                         }
                     }
                     finally
