@@ -954,6 +954,74 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MergeInDedicatedWorktreeAsync_BranchLacksCapturedCommit_RefusesOnlyDefiniteMismatch", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                foreach (string capture in new[] { "ancestor", "unresolved", "detached" })
+                {
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_capture_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        IntegrationFixture fixture = await CreateIntegrationFixtureAsync(rootDir).ConfigureAwait(false);
+                        string targetBefore = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string sourceTip = (await RunGitAsync(fixture.BareDir, "rev-parse", fixture.LeftBranch).ConfigureAwait(false)).Trim();
+                        string capturedCommit = capture == "unresolved" ? new string('a', 40) : targetBefore;
+                        if (capture == "detached")
+                        {
+                            await RunGitAsync(fixture.SourceDir, "checkout", "--detach", fixture.LeftBranch).ConfigureAwait(false);
+                            await File.WriteAllTextAsync(Path.Combine(fixture.SourceDir, "captured.txt"), "captured work\n").ConfigureAwait(false);
+                            await RunGitAsync(fixture.SourceDir, "add", "captured.txt").ConfigureAwait(false);
+                            await RunGitAsync(fixture.SourceDir, "commit", "-m", "Capture detached work").ConfigureAwait(false);
+                            capturedCommit = (await RunGitAsync(fixture.SourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                            await RunGitAsync(fixture.SourceDir, "branch", "preserved-capture", capturedCommit).ConfigureAwait(false);
+                            await RunGitAsync(fixture.SourceDir, "push", fixture.BareDir, "preserved-capture").ConfigureAwait(false);
+                            await RunGitAsync(fixture.SourceDir, "checkout", "main").ConfigureAwait(false);
+                        }
+
+                        GitService git = new GitService(CreateLogging());
+                        bool? expectedAncestry = capture == "detached" ? false : capture == "unresolved" ? null : true;
+                        AssertEqual(expectedAncestry, await git.TryIsAncestorAsync(fixture.BareDir, capturedCommit, fixture.LeftBranch).ConfigureAwait(false),
+                            "the real Git precondition distinguishes a non-ancestor from an unavailable object: " + capture);
+
+                        using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                        {
+                            ArmadaSettings settings = CreateSettings();
+                            settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                            LandingService service = CreateValidatedService(testDb.Driver, settings);
+                            Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
+                            await CreateCheckProfileAsync(testDb.Driver, vessel, fixture).ConfigureAwait(false);
+                            Mission mission = CreateMission("msn_capture");
+                            mission.CommitHash = capturedCommit;
+                            mission.BranchName = fixture.LeftBranch;
+                            await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                            bool landed = await service.MergeInDedicatedWorktreeAsync(
+                                vessel, mission, "main", fixture.LeftBranch, "Merge captured work").ConfigureAwait(false);
+
+                            bool refused = capture == "detached";
+                            AssertEqual(!refused, landed, "only a definite non-ancestor refuses landing: " + capture);
+                            string expectedTarget = refused ? targetBefore : sourceTip;
+                            AssertEqual(expectedTarget, (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
+                                "a refusal cannot publish a branch that omits the recorded work: " + capture);
+                            AssertEqual(expectedTarget, (await RunGitAsync(fixture.WorkingDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(),
+                                "the configured checkout follows only an accepted landing: " + capture);
+                            AssertEqual(sourceTip, (await RunGitAsync(fixture.BareDir, "rev-parse", fixture.LeftBranch).ConfigureAwait(false)).Trim(),
+                                "the source branch remains unchanged: " + capture);
+                            AssertEqual(refused ? 0 : 1, CountCheckRuns(fixture), "a definite mismatch is refused before candidate checks: " + capture);
+                            if (refused)
+                            {
+                                AssertEqual(capturedCommit, (await RunGitAsync(fixture.BareDir, "rev-parse", "preserved-capture").ConfigureAwait(false)).Trim(),
+                                    "the detached work remains recoverable");
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(rootDir, true); } catch { }
+                    }
+                }
+            });
+
             // Two branches that each pass the vessel's checks alone can still break the target together. The
             // merged commit is measured before the target moves, so the second landing is refused by name and
             // the target and the refused branch stay exactly as they were.
