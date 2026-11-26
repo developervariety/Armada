@@ -676,6 +676,14 @@ each text block becomes its own record, and streamed text is joined into whole
 lines before a record is written. The terminal values are `[ARMADA:RESULT]
 COMPLETE` and `[ARMADA:VERDICT] PASS`, `FAIL` or `NEEDS_REVISION`, exactly.
 
+Put the summary before the standalone result line. Rework demands use the same
+order: the result is the last physical line, with nothing after it. A terminal
+word joined to prose, such as `[ARMADA:RESULT] COMPLETEThe review is done`, does
+not satisfy the empty-diff completion guard. Its failure names a malformed
+terminal marker and records `no_op_malformed_terminal_marker`; an absent marker
+records `no_op_missing_terminal_marker`. Neither diagnostic establishes a
+provider failure. Original attempt records are not rewritten.
+
 ### A stage that ends `[ARMADA:RESULT] BLOCKED` waits for the owner
 
 Every persona's template tells the captain to end with a standalone

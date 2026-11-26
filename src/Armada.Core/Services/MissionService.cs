@@ -3189,12 +3189,15 @@ namespace Armada.Core.Services
         {
             string modeLabel = mission == null ? "mission" : mission.Mode.ToString() + " mission";
             bool hasMarker = HasCompletionMarker(mission?.AgentOutput);
+            bool malformedMarker = !hasMarker && ProgressParser.HasMalformedTerminalMarker(mission?.AgentOutput);
             string signal = hasMarker
                 ? "exited with a completion marker"
-                : "exited 0 with no completion marker (" + CompletionMarker + " or " + VerdictMarker + ")";
+                : malformedMarker ? "exited 0 with a malformed terminal marker"
+                : "exited 0 with no valid terminal marker (" + CompletionMarker + " or " + VerdictMarker + ")";
             string cause = hasMarker
                 ? "The captain claimed completion without producing work."
-                : "The captain never claimed completion, so its run ended before it finished -- either it read the brief and exited, or its provider stream died mid-run and the runtime wrapper still exited 0.";
+                : malformedMarker ? "The output holds a terminal word followed by text on the same line. Put the summary before a standalone terminal marker."
+                : "No valid terminal marker was recorded. The output alone does not establish why the run ended.";
             return "no_op_completion_detected: captain " + signal + " after "
                 + Math.Round(runtime.TotalSeconds, 1)
                 + "s with an empty diff and "

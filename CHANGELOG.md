@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Empty-diff completion failures distinguish a malformed terminal marker from an absent one without inferring a provider failure. Both keep the existing completion guard. Rework and persona instructions put the summary before the standalone final result line.
+
 - Mission expiry exports attempt provenance and retains related history when the exported mission or attempt state changes. Child-link cleanup, attempt removal and the guarded mission delete commit together after export and observer writes finish.
 
 - Generated context guidance compares a staged pack's recorded start with the actual dock HEAD, names stale commits, and reports incomplete or ambiguous comparisons as unverified without rewriting the pack or updating its index.

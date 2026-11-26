@@ -692,7 +692,7 @@ namespace Armada.Core.Services
                         "This is a " + mode + " mission: your deliverable is a report, not a code change. " +
                         "Do not edit, commit, or push. Report exact evidence for every claim, and state plainly " +
                         "when the evidence does not settle a question. End with a standalone line " +
-                        "`[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you found.";
+                        "`[ARMADA:RESULT] COMPLETE` with the brief plain-text summary of what you found before the result line.";
                 }
 
                 // The product personas' producing contracts demand a specification. A read-only mission
@@ -705,7 +705,7 @@ namespace Armada.Core.Services
                         "Do not edit, commit, or push. The mission description controls the report's shape; use the " +
                         "product or usability sections only when it asks for them. Report exact evidence for every claim, " +
                         "and state plainly when the evidence does not settle a question. End with a standalone line " +
-                        "`[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you found.";
+                        "`[ARMADA:RESULT] COMPLETE` with the brief plain-text summary of what you found before the result line.";
                 }
             }
 
@@ -714,15 +714,15 @@ namespace Armada.Core.Services
                 PersonaCatalog.Architect =>
                     "Respond only with real [ARMADA:MISSION] blocks. Do not emit [ARMADA:VERDICT] lines.",
                 PersonaCatalog.ProductManager =>
-                    "Before your result line, include `## Product Vision`, `## Use Cases`, `## Experience Requirements`, `## Validation`, and `## Future Readiness` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                    "Before your result line, include `## Product Vision`, `## Use Cases`, `## Experience Requirements`, `## Validation`, and `## Future Readiness` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary before the result line.",
                 PersonaCatalog.UsabilityEngineer =>
-                    "Before your result line, include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                    "Before your result line, include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary before the result line.",
                 PersonaCatalog.Worker =>
-                    "Stay within scope, make the requested changes. " + SuiteLeaseInstruction + " End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                    "Stay within scope, make the requested changes. " + SuiteLeaseInstruction + " End with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary before the result line.",
                 PersonaCatalog.TestEngineer =>
-                    "Before your result line, include short `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                    "Before your result line, include short `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary before the result line.",
                 PersonaCatalog.Linter =>
-                    "Evaluate the changed code and documentation for style and correctness, staying strictly inside the files this mission changed. Fix clear in-scope violations and flag judgment calls. " + LinterVerificationRule + " Before your result line, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                    "Evaluate the changed code and documentation for style and correctness, staying strictly inside the files this mission changed. Fix clear in-scope violations and flag judgment calls. " + LinterVerificationRule + " Before your result line, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary before the result line.",
                 PersonaCatalog.Judge =>
                     "Your response must contain these exact section headings: " + JudgeReviewSections.Headings(false) + ". " + MissionService.AcceptanceCriteriaWalkInstruction + " A NOT MET line forbids PASS. When a fix you require cannot be made without breaking a stated acceptance criterion, write a standalone line `" + JudgeCriterionConflicts.LinePrefix + " <criterion>" + JudgeCriterionConflicts.Separator + "<conflict>` for it and end with NEEDS_REVISION, so an operator reviews the criterion. When the mission description contains [DOD:DOC-ONLY] and the diff is non-code, do not run the full suite. When the brief's `" + JudgeCheckEvidence.Heading + "` section names a passing UnitTest Check for the commit under review, cite that Check as your test evidence and run only focused tests for the changed code, giving each command and its result; run the full suite under `armada_suite_lease` when no such Check exists for that commit or the diff changes test infrastructure or build configuration. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never background tests or exit before the verdict, except for [DOD:DOC-ONLY] non-code diffs. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + BuildJudgeLensDirective(judgePrimaryLens),
                 _ => String.Empty
@@ -747,7 +747,7 @@ namespace Armada.Core.Services
                 "Do not edit, commit, or push repository files. Your persona guidance follows; use it for what to examine and how to report it. " +
                 "Where it tells you to change, commit, or run implementation checks, report what you would change as a finding instead; the read-only rules in this brief take precedence. " +
                 "Report exact evidence for every claim, and state plainly when the evidence does not settle a question. " +
-                "End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you found.";
+                "End with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary of what you found before the result line.";
             if (String.IsNullOrWhiteSpace(personaTemplate)) return prompt;
             return prompt + "\n\n### Persona Guidance\n\n" + personaTemplate!.Trim();
         }

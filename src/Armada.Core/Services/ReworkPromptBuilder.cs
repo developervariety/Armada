@@ -20,9 +20,9 @@ namespace Armada.Core.Services
 
         /// <summary>The output contract a reworking captain ends its report with.</summary>
         public const string OutputContract =
-            "In the final assistant response itself, emit the literal standalone line [ARMADA:RESULT] COMPLETE without quotes or backticks, "
-            + "summarize each numbered finding: "
-            + "fixed or rejected with evidence.";
+            "Summarize each numbered finding: fixed or rejected with evidence. Put this summary before the result line. "
+            + "In the final assistant response itself, emit the literal standalone line [ARMADA:RESULT] COMPLETE without quotes or backticks "
+            + "as the last physical line, with nothing after it.";
 
         #endregion
 

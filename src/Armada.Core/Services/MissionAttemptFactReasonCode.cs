@@ -46,6 +46,7 @@ namespace Armada.Core.Services
             "planner_committed_code",
             "operator_review_hold_failed",
             "no_op_missing_terminal_marker",
+            "no_op_malformed_terminal_marker",
             "no_op_claimed_without_work",
             "start_from_ref_missing",
             "landing_handoff_failed",
@@ -89,7 +90,9 @@ namespace Armada.Core.Services
             if (mission.FailureReason == "Judge verdict: NEEDS_REVISION") return "judge_needs_revision";
             string reason = mission.FailureReason ?? String.Empty;
             if (reason.StartsWith("no_op_completion_detected:", StringComparison.Ordinal))
-                return ProgressParser.HasTerminalMarker(mission.AgentOutput) ? "no_op_claimed_without_work" : "no_op_missing_terminal_marker";
+                return ProgressParser.HasTerminalMarker(mission.AgentOutput) ? "no_op_claimed_without_work"
+                    : ProgressParser.HasMalformedTerminalMarker(mission.AgentOutput) ? "no_op_malformed_terminal_marker"
+                    : "no_op_missing_terminal_marker";
             int colon = reason.IndexOf(':');
             return colon > 0 ? Normalize(reason.Substring(0, colon)) : Normalize(reason);
         }

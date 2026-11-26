@@ -123,6 +123,27 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// True when a parsed result or verdict line joins a terminal word to other text.
+        /// This is a diagnostic only; it does not accept the malformed line as a terminal marker.
+        /// </summary>
+        internal static bool HasMalformedTerminalMarker(string? output)
+        {
+            foreach (ProgressSignal signal in ParseAll(output))
+            {
+                if (TerminalMarkerTracker.IsTerminalMarker(signal)) continue;
+                string[] words = signal.Type == "result" ? new string[] { "COMPLETE" }
+                    : signal.Type == "verdict" ? new string[] { "PASS", "FAIL", "NEEDS_REVISION" }
+                    : Array.Empty<string>();
+                foreach (string word in words)
+                {
+                    if (signal.Value.StartsWith(word, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// True when the output holds a marker of one of the given types (for example "result" or "verdict") at the
         /// start of a line, whatever its value.
         /// </summary>

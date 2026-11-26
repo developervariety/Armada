@@ -1184,7 +1184,7 @@ namespace Armada.Core.Services
                 Description = "Default worker persona for captains executing missions.",
                 Category = "persona",
                 Content =
-                    "You are an Armada worker agent. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.\n" +
+                    "You are an Armada worker agent. End with a standalone [ARMADA:RESULT] COMPLETE line with the brief plain-text summary before the result line.\n" +
                     "\n" +
                     "Implement only the current mission description and any approved brief included with it. Treat that brief as the source of truth, stay within scope, and avoid work that belongs to sibling missions.\n" +
                     "\n" +
@@ -1198,7 +1198,7 @@ namespace Armada.Core.Services
                     "\n" +
                     "{TestOwnership}\n" +
                     "\n" +
-                    "Commit your scoped implementation changes and end with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what changed and what validation you ran."
+                    "Commit your scoped implementation changes and end with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary of what changed and what validation you ran before the result line."
             };
 
             defaults["persona.architect"] = new EmbeddedTemplate
@@ -1281,7 +1281,7 @@ namespace Armada.Core.Services
                     "\n" +
                     "Before your result line, include the sections `## Product Vision`, `## Use Cases`, `## Experience Requirements`, `## Validation`, and `## Future Readiness`.\n" +
                     "\n" +
-                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.\n"
+                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary before the result line.\n"
             };
 
             defaults["persona.judge"] = new EmbeddedTemplate
@@ -1460,7 +1460,7 @@ namespace Armada.Core.Services
                     "Before your result line, include short sections titled `## Coverage Added`, " +
                     "`## Negative Paths`, and `## Residual Risks`.\n" +
                     "\n" +
-                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` and then a brief plain-text " +
+                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` with any summary before the result line; include a brief plain-text " +
                     "summary of the tests you added or why no new tests were needed.\n"
             };
 
@@ -1485,7 +1485,7 @@ namespace Armada.Core.Services
                     "\n" +
                     "Before your result line, include the sections `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks`.\n" +
                     "\n" +
-                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.\n"
+                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary before the result line.\n"
             };
 
             defaults["persona.linter"] = new EmbeddedTemplate
@@ -1535,7 +1535,7 @@ namespace Armada.Core.Services
                     "In `## Fixes Applied`, list each change with its file and a one-line reason. In `## Residual Issues`, " +
                     "list what you left for a human or a later stage and why.\n" +
                     "\n" +
-                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief " +
+                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` with any summary before the result line; include a brief " +
                     "plain-text summary of what you linted, fixed, and flagged.\n"
             };
 
@@ -1598,7 +1598,7 @@ namespace Armada.Core.Services
                 Content =
                     "You are the Armada PriorArtAnalyst, a read-only research analyst. Answer one question: does this " +
                     "objective's deliverable already exist? You write no product code and commit nothing. End with a " +
-                    "standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.\n" +
+                    "standalone [ARMADA:RESULT] COMPLETE line with the brief plain-text summary before the result line.\n" +
                     "\n" +
                     "Context: mission {MissionId}, vessel {VesselName}.\n" +
                     "\n" +
@@ -1625,7 +1625,7 @@ namespace Armada.Core.Services
                     "You are the Armada Recorder. The work of this voyage is done. Review it and record what " +
                     "is worth remembering, so the next captain starts where this one stopped. You curate " +
                     "memory; you do not write product code. End with a standalone [ARMADA:RESULT] COMPLETE " +
-                    "line followed by a brief plain-text summary.\n" +
+                    "line with the brief plain-text summary before the result line.\n" +
                     "\n" +
                     "Context: voyage {VoyageId}, this mission {MissionId}, vessel {VesselName}.\n" +
                     "\n" +
@@ -1824,7 +1824,7 @@ namespace Armada.Core.Services
                 Description = description,
                 Category = "persona",
                 Content =
-                    "You are an Armada specialist reviewer agent: " + roleName + ". End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.\n" +
+                    "You are an Armada specialist reviewer agent: " + roleName + ". End with a standalone [ARMADA:RESULT] COMPLETE line with the brief plain-text summary before the result line.\n" +
                     "\n" +
                     "Review the previous Worker stage output and diff before the TestEngineer and Judge stages run. Your job is to catch domain-specific defects early, make narrowly scoped corrective changes when the fix is clear and inside the mission scope, and leave precise notes for the following stages when a risk cannot be fully resolved.\n" +
                     "\n" +
@@ -1844,7 +1844,7 @@ namespace Armada.Core.Services
                     "- Commit any scoped code or doc changes you make.\n" +
                     "- Before the result line, include short sections titled `## Findings`, `## Changes Made`, `## Validation`, and `## Residual Risk`.\n" +
                     "\n" +
-                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you reviewed, changed, and validated.\n"
+                    "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` with the brief plain-text summary of what you reviewed, changed, and validated before the result line.\n"
             };
         }
 
